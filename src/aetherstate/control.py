@@ -27,34 +27,134 @@ def _head(store, branch_id: str) -> int:
     return row["head_turn"] if row else -1
 
 
-def _persist_config(cfg) -> bool:
-    """Rewrite config.toml from the live cfg so Console connection changes survive a restart.
-    Emits the managed sections only; comments are not preserved (Console owns this file)."""
+def _toml_val(v) -> str:
+    """Serialize one scalar/array to a TOML value. bool must precede int (bool is an int)."""
     import json as _json
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        return repr(v)
+    if isinstance(v, str):
+        return _json.dumps(v)          # JSON string == valid TOML basic string for our content
+    if isinstance(v, (list, tuple)):
+        return "[" + ", ".join(_toml_val(x) for x in v) + "]"
+    return _json.dumps(str(v))
+
+
+def _toml_dumps(d: dict, prefix: str = "") -> str:
+    """Minimal, dependency-free TOML emitter for the nested dicts this module builds.
+    Handles scalars, arrays of scalars, sub-tables (dict) and arrays-of-tables (list[dict]).
+    Scalars are emitted before any sub-table header at each level (TOML ordering rule).
+    Round-trips through tomllib; comments are not preserved (Console owns config.toml)."""
+    scalars, tables = [], []
+    for k, v in d.items():
+        if isinstance(v, dict):
+            tables.append((k, v))
+        elif isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+            tables.append((k, v))       # array-of-tables (empty list -> scalar `k = []`)
+        else:
+            scalars.append((k, v))
+    out = [f"{k} = {_toml_val(v)}" for k, v in scalars]
+    for k, v in tables:
+        name = f"{prefix}{k}"
+        if isinstance(v, list):
+            for item in v:
+                body = _toml_dumps(item)
+                out.append(f"\n[[{name}]]" + (("\n" + body) if body else ""))
+        else:
+            body = _toml_dumps(v, f"{name}.")
+            out.append(f"\n[{name}]" + (("\n" + body) if body else ""))
+    return "\n".join(out)
+
+
+def _persist_config(cfg) -> bool:
+    """Merge the Console-managed values into config.toml so connection/extraction changes
+    survive a restart WITHOUT clobbering host/port/data_dir or any hand-tuned section the
+    Console doesn't manage (the old writer emitted a partial [server] block and dropped
+    host/port -- restart then fell back to 127.0.0.1:9130). We read the existing file, overlay
+    only the managed keys, and re-emit the whole thing.
+
+    Hardening: chmod 0600 on POSIX so the upstream key isn't world-readable; if the key is
+    supplied via env (AETHERSTATE_UPSTREAM__API_KEY) it is authoritative and is NOT written to
+    disk (and is actively dropped from the file), keeping the secret off disk entirely."""
+    import os as _os
     from pathlib import Path as _P
+
     try:
-        up = cfg.upstream
-        L = ["# AetherState config — managed by the Console 'Connection' tab.",
-             "# Manual edits to the sections below may be overwritten by the Console.", ""]
-        L += ["[server]", "cors_origins = " + _json.dumps(cfg.server.cors_origins), ""]
-        L += ["[upstream]", f'base_url = "{up.base_url}"', f'api_key = "{up.api_key}"', ""]
-        for e in cfg.assist.endpoints:
-            L += ["[[assist.endpoints]]", f'name = "{e.name}"', f'base_url = "{e.base_url}"',
-                  f'api_key = "{e.api_key}"', f'model = "{e.model}"', f'tier = "{e.tier}"',
-                  f"max_concurrent = {int(e.max_concurrent)}", ""]
+        import tomllib as _toml  # py311+
+    except ModuleNotFoundError:            # py310
+        import tomli as _toml               # type: ignore[no-redef]
+
+    try:
+        # write back to the exact file the config loaded from (--config path); fall back to
+        # data_dir/config.toml only when the load path is unknown (e.g. pure-defaults start).
+        target = _P(cfg.source_path) if getattr(cfg, "source_path", "") \
+            else _P(cfg.server.data_dir) / "config.toml"
+        base: dict = {}
+        if target.is_file():               # start from what's on disk -> unmanaged sections survive
+            try:
+                base = _toml.loads(target.read_text(encoding="utf-8"))
+            except Exception:
+                base = {}
+
+        def _sec(name: str) -> dict:
+            d = base.get(name)
+            if not isinstance(d, dict):
+                d = {}
+                base[name] = d
+            return d
+
+        # [server]: always re-assert host/port/data_dir. The Console never edits these, but the
+        # old writer dropped them -- re-emitting from the live cfg is what fixes the restart bug.
+        srv = _sec("server")
+        srv["host"] = cfg.server.host
+        srv["port"] = int(cfg.server.port)
+        srv["data_dir"] = cfg.server.data_dir
+        srv["cors_origins"] = list(cfg.server.cors_origins)
+
+        # [upstream]
+        up = _sec("upstream")
+        up["base_url"] = cfg.upstream.base_url
+        if _os.environ.get("AETHERSTATE_UPSTREAM__API_KEY"):
+            up.pop("api_key", None)        # env is authoritative -> keep the secret off disk
+        else:
+            up["api_key"] = cfg.upstream.api_key
+
+        # [[assist.endpoints]] + [assist.groups] (Console fully owns these)
+        assist = _sec("assist")
+        assist["endpoints"] = [
+            {"name": e.name, "base_url": e.base_url, "api_key": e.api_key,
+             "model": e.model, "tier": e.tier, "max_concurrent": int(e.max_concurrent)}
+            for e in cfg.assist.endpoints]
         g = cfg.assist.groups
-        L += ["[assist.groups]", f'extraction = "{g.extraction or cfg.extraction.mode}"',
-              f'memory_reflection = "{g.memory_reflection}"', f'embeddings = "{g.embeddings}"',
-              f'linter_nli = "{g.linter_nli}"', f'director_selection = "{g.director_selection}"',
-              f'lore_gen = "{g.lore_gen}"', ""]
+        assist["groups"] = {
+            "extraction": g.extraction or cfg.extraction.mode,
+            "director_selection": g.director_selection, "linter_nli": g.linter_nli,
+            "memory_reflection": g.memory_reflection, "embeddings": g.embeddings,
+            "lore_gen": g.lore_gen}
+
+        # [extraction] (user-tunable subset)
         x = cfg.extraction
-        L += ["[extraction]", f"cadence_turns = {int(x.cadence_turns)}",
-              f"intake_chars = {int(x.intake_chars)}", f"debounce_s = {float(x.debounce_s)}",
-              f'thinking = "{x.thinking}"', ""]
-        L += ["[manual_override]", "enabled = " + ("true" if cfg.manual_override.enabled else "false"), ""]
-        L += ["[user_guard]", f'name = "{cfg.user_guard.name}"', ""]
-        L += ["[consent]", "safewords = " + _json.dumps(cfg.consent.safewords), ""]
-        (_P(cfg.server.data_dir) / "config.toml").write_text("\n".join(L), encoding="utf-8")
+        _sec("extraction").update({
+            "cadence_turns": int(x.cadence_turns), "intake_chars": int(x.intake_chars),
+            "debounce_s": float(x.debounce_s), "thinking": x.thinking})
+
+        _sec("manual_override")["enabled"] = bool(cfg.manual_override.enabled)
+        _sec("user_guard")["name"] = cfg.user_guard.name
+        _sec("consent")["safewords"] = list(cfg.consent.safewords)
+
+        base.pop("source", None)           # runtime-only load marker; never persist
+        header = ("# AetherState config -- the [server]/[upstream]/[assist]/[extraction] keys "
+                  "below are\n# managed by the Console. Other sections are preserved on save; "
+                  "comments are not.\n")
+        target.write_text(header + _toml_dumps(base) + "\n", encoding="utf-8")
+        if _os.name == "posix":            # POSIX-only; NTFS ACLs differ and chmod is a no-op there
+            try:
+                _os.chmod(target, 0o600)
+            except OSError:
+                pass
         return True
     except Exception:
         return False

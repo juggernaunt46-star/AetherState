@@ -204,6 +204,7 @@ class Config(BaseModel):
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
     # Later phases append their sections here (memory/linter/degradation/ui)
     source: str = "defaults"         # which config actually loaded: file | last_known_good | defaults
+    source_path: str = ""            # absolute path the config loaded from (where Console saves write back)
 
     @model_validator(mode="after")
     def _sync_extraction_group(self) -> "Config":
@@ -251,6 +252,7 @@ def load_config(path: str | Path | None) -> Config:
                 raw = tomllib.loads(candidate.read_text(encoding="utf-8"))
                 cfg = Config.model_validate(_merge(dict(raw), _env_overrides()))
                 cfg.source = label
+                cfg.source_path = str(p)
                 if label == "file":  # write last-known-good on every successful load (09 F1)
                     try:
                         shutil.copyfile(p, bak)
@@ -265,4 +267,6 @@ def load_config(path: str | Path | None) -> Config:
     except Exception:
         cfg = Config()
     cfg.source = source
+    if path:
+        cfg.source_path = str(Path(path))
     return cfg

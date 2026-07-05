@@ -14,6 +14,11 @@
 base_url = ""     # e.g. "https://api.venice.ai/api/v1", "https://api.openai.com/v1",
                   #      "http://127.0.0.1:11434/v1" (Ollama), "http://127.0.0.1:5001/v1" (KoboldCpp)
 api_key = ""      # optional — if empty, the key your frontend sends is passed through
+                  # SECURITY: a key set here is stored in plaintext. Prefer keeping it out
+                  # of the file entirely via the env var  AETHERSTATE_UPSTREAM__API_KEY=sk-...
+                  # (env overrides the file and is never written back to disk). On POSIX the
+                  # Console writes config.toml with 0600 perms; on Windows keep it out of
+                  # synced folders (OneDrive/Dropbox) since NTFS has no equivalent.
 
 # ------------------------------------------------------------------
 # HELPER model — the one that TRACKS state in the background.
