@@ -8,7 +8,7 @@ positions, the scene clock — extracted automatically from the chat and injecte
 prompt, so the model stops forgetting.
 
 - **Genesis seeding** — the moment you open a chat, the character card + greeting become a full
-  starting state: clothes, personality-implied gear, moods, obsessions, relationships.
+  starting state: clothes, personality-implied gear, moods, obsessions, relationships. Also tracks mature/NSFW-capable state (arousal, relationships, consent) alongside mundane states.
 - **Live tracking** — a helper model reads new turns as you play and updates the state
   (every turn by default; set any cadence you like).
 - **State briefing injection** — a compact, token-budgeted state header rides along with your
