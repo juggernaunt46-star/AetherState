@@ -13,7 +13,12 @@
 [upstream]
 base_url = ""     # e.g. "https://api.venice.ai/api/v1", "https://api.openai.com/v1",
                   #      "http://127.0.0.1:11434/v1" (Ollama), "http://127.0.0.1:5001/v1" (KoboldCpp)
-api_key = ""      # optional — if empty, the key your frontend sends is passed through
+api_key = ""      # FALLBACK ONLY. AetherState is a transparent proxy: the key your frontend
+                  # (e.g. SillyTavern) sends in its connection profile is forwarded upstream
+                  # AS-IS and ALWAYS WINS. This key is used ONLY when the frontend sends no
+                  # Authorization header at all (rare — SillyTavern always sends one), plus for
+                  # the Console's Connect test. So if you're getting 401s, fix the key in your
+                  # frontend's connection profile, not here.
                   # SECURITY: a key set here is stored in plaintext. Prefer keeping it out
                   # of the file entirely via the env var  AETHERSTATE_UPSTREAM__API_KEY=sk-...
                   # (env overrides the file and is never written back to disk). On POSIX the

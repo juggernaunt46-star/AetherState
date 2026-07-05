@@ -39,7 +39,9 @@ Disclosure: I'm mostly a vibe-coder, and mainly a hobbyist that did this for mys
 5. Point your frontend at the proxy (SillyTavern shown):
    - API: **Chat Completion** → **Custom (OpenAI-compatible)**
    - Base URL: `http://127.0.0.1:9130/v1`
-   - API key: your normal key (passed straight through).
+   - API key: your real model API key. **This is the key that actually reaches the model** —
+     AetherState forwards it upstream as-is, and it overrides anything set in the Console.
+     (The Console/`config.toml` key is only a fallback for frontends that send no key.)
 6. Install the SillyTavern extension: run **`Install-ST-Extension.bat`** (or copy the
    `st-extension` folder to `SillyTavern/data/default-user/extensions/AetherState` yourself),
    restart SillyTavern and hard-refresh the browser (**Ctrl+Shift+R**).
@@ -121,6 +123,11 @@ or budgeted if you set `[extraction] thinking = "on"`.
 - **A chat seeded empty once and won't retry?** `/aether-genesis` force-reseeds any chat.
 - **Nothing updates during play?** Check the panel chip says the proxy is online, and that your
   frontend's base URL really is `http://127.0.0.1:9130/v1`.
+- **401 / auth errors even though you set the key in the Console?** The key that reaches the
+  model is the one in your **frontend's connection profile**, not the Console — AetherState
+  forwards the frontend key as-is and it always wins. Put your real key in SillyTavern's
+  connection profile (a dummy/placeholder there will 401). The Console/`config.toml` key is
+  only used when the frontend sends none.
 
 ## Privacy
 
