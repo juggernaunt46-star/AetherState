@@ -70,7 +70,8 @@ Then steps 4–6 above (for step 6, copy `st-extension/` into your SillyTavern e
 
 <img width="482" height="579" alt="image" src="https://github.com/user-attachments/assets/57a81503-76dc-4390-9c28-813c377bb226" />
 <img width="1704" height="1073" alt="image" src="https://github.com/user-attachments/assets/7604003c-92ba-4bca-b52b-5b9bd354b866" />
-<img width="1705" height="1075" alt="image" src="https://github.com/user-attachments/assets/0969ad91-c40d-448b-b42a-ed234fa6940f" />
+<img width="1396" height="748" alt="image" src="https://github.com/user-attachments/assets/54f6ff1f-236c-4a87-9fab-6b27992f8ac5" />
+
 
 
 
