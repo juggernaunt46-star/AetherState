@@ -23,7 +23,7 @@ prompt, so the model stops forgetting.
   switch to turn telemetry on, because it does not exist.
 
 Works with hosted APIs (Venice.AI, OpenAI, OpenRouter, ...) and local engines (KoboldCpp,
-llama.cpp, Ollama, LM Studio, vLLM, oobabooga).
+llama.cpp, Ollama, LM Studio, vLLM, oobabooga). But actively developed, tested primarily against SillyTavern + Venice/OpenRouter.
 
 ## Quick start (Windows)
 
@@ -67,6 +67,12 @@ Then steps 4–6 above (for step 6, copy `st-extension/` into your SillyTavern e
 | `((aether.freeze))` · `((roll 2d6+1))` | Safeword-style freeze · real dice |
 | Panel: *update state every N turns* / *context intake* | Cadence + how much recent chat each update reads |
 | Console → session view | Watch state live; edit it with manual override on |
+
+<img width="482" height="579" alt="image" src="https://github.com/user-attachments/assets/57a81503-76dc-4390-9c28-813c377bb226" />
+<img width="1704" height="1073" alt="image" src="https://github.com/user-attachments/assets/7604003c-92ba-4bca-b52b-5b9bd354b866" />
+<img width="1705" height="1075" alt="image" src="https://github.com/user-attachments/assets/0969ad91-c40d-448b-b42a-ed234fa6940f" />
+
+
 
 ## How state develops (priority)
 
