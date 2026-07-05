@@ -1,0 +1,9 @@
+#aetherstate_panel .aes-chip { display:inline-block; padding:2px 10px; border-radius:10px;
+  font-size:12px; margin-right:6px; background:#20301f; color:#9ece6a; }
+#aetherstate_panel .aes-chip.bad { background:#3a2030; color:#f7768e; }
+#aetherstate_panel .aes-row { display:flex; gap:8px; align-items:center; margin:6px 0;
+  flex-wrap:wrap; }
+#aetherstate_panel button.aes-freeze { background:#f7768e; color:#14151a; border:none;
+  border-radius:5px; padding:4px 12px; font-weight:700; cursor:pointer; }
+#aetherstate_panel button.aes-resume { background:#9ece6a; color:#14151a; border:none;
+  border-radius:5px; padding:4px 12px; font-weight:700; cursor:pointer; }

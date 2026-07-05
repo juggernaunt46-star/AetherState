@@ -1,0 +1,26 @@
+[
+  {"beat_id": "erp_tension.charged_proximity", "name": "Charged proximity", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "rel.{a}->{b}.desire", "op": ">=", "value": 40},
+     {"path": "scene.tension", "op": "<", "value": 50}]},
+   "note_template": "Close the distance between {a} and {b} without payoff — near-touches, eye contact held a beat too long. Let it hum.",
+   "effects": [{"op": "scene_dial", "dial": "tension", "delta": 5}],
+   "priority": 45, "cooldown_turns": 6},
+  {"beat_id": "erp_tension.unsaid_want", "name": "Unsaid want", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "rel.{a}->{b}.desire", "op": ">=", "value": 55},
+     {"any": [
+       {"path": "scene.phase", "op": "==", "value": "setup"},
+       {"path": "scene.phase", "op": "==", "value": "rising"}]}]},
+   "note_template": "Keep {a}'s want for {b} visible in what goes unsaid — half-finished sentences, careful hands.",
+   "effects": [{"op": "scene_dial", "dial": "tension", "delta": 5}],
+   "priority": 50, "cooldown_turns": 6},
+  {"beat_id": "erp_tension.charged_interruption", "name": "Charged interruption", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "rel.{a}->{b}.desire", "op": ">=", "value": 40},
+     {"path": "scene.tension", "op": ">=", "value": 60},
+     {"path": "scene.intimacy", "op": "<", "value": 50}]},
+   "note_template": "Let something interrupt them at the worst possible moment. Keep the want visible in what goes unsaid.",
+   "effects": [{"op": "scene_dial", "dial": "tension", "delta": 5}],
+   "priority": 55, "cooldown_turns": 10, "once_per_scene": true}
+]

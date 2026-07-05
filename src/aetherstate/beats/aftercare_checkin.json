@@ -1,0 +1,6 @@
+[
+  {"beat_id": "aftercare_checkin.safeword_pause", "name": "Safeword pause", "binds": "none",
+   "preconditions": {"path": "session.frozen", "op": "==", "value": true},
+   "note_template": "Scene is paused out-of-character. Be gentle, stay out of the erotic register entirely, and follow the user's lead about resuming.",
+   "priority": 100, "cooldown_turns": 0}
+]

@@ -1,0 +1,12 @@
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+aetherstate-data/
+tests/fixtures/local/
+*.db
+*.log
+config.toml.bak
+dist/

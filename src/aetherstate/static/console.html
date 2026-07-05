@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AetherState Console</title>
+<style>
+:root{--bg:#13141a;--panel:#1c1e27;--edge:#2b2e3b;--fg:#dde1ec;--dim:#8b90a5;--acc:#7aa2f7;
+ --ok:#9ece6a;--warn:#e0af68;--bad:#f7768e;--vio:#bb9af7;--r:9px}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;
+ padding:9px 14px;background:var(--panel);border-bottom:1px solid var(--edge);flex-wrap:wrap}
+h1{font-size:15px;margin:0 8px 0 0;color:var(--acc)}
+nav{display:flex;gap:2px}
+nav button{background:none;border:none;color:var(--dim);padding:6px 11px;cursor:pointer;
+ font-size:13px;border-radius:6px}
+nav button.on{color:var(--fg);background:var(--edge)}
+select,input,textarea{background:var(--bg);color:var(--fg);border:1px solid var(--edge);
+ border-radius:6px;padding:5px 8px;font-size:13px;max-width:100%}
+main{padding:14px;max-width:1100px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);
+ padding:12px 14px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px}
+.pill{display:inline-block;padding:1px 9px;border-radius:9px;font-size:11.5px;margin:1px}
+.ok{background:#20301f;color:var(--ok)}.bad{background:#3a2030;color:var(--bad)}
+.warn{background:#38301c;color:var(--warn)}.dim{background:var(--edge);color:var(--dim)}
+.vio{background:#2c2440;color:var(--vio)}
+.bar{height:7px;border-radius:4px;background:var(--edge);overflow:hidden;flex:1;min-width:60px}
+.bar i{display:block;height:100%;border-radius:4px}
+.meter{display:flex;gap:8px;align-items:center;margin:3px 0;font-size:12.5px}
+.meter b{width:96px;font-weight:500;color:var(--dim);flex-shrink:0}
+.meter em{width:34px;font-style:normal;text-align:right;color:var(--dim);font-size:11.5px}
+button.act{background:var(--acc);color:#0f1117;border:none;border-radius:6px;
+ padding:6px 14px;cursor:pointer;font-weight:600;font-size:13px}
+button.mini{background:var(--edge);color:var(--fg);border:none;border-radius:5px;
+ padding:1px 8px;cursor:pointer;font-size:12px}
+button.mini:hover{background:var(--acc);color:#0f1117}
+button.danger{background:var(--bad);color:#14151a}
+button.good{background:var(--ok);color:#14151a}
+table{border-collapse:collapse;width:100%}
+td,th{padding:4px 9px;text-align:left;border-bottom:1px solid var(--edge);font-size:13px}
+th{color:var(--dim);font-weight:500}
+pre{white-space:pre-wrap;font-size:12px;background:var(--bg);padding:10px;border-radius:7px;
+ border:1px solid var(--edge);max-height:480px;overflow:auto}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:7px 0}
+label.sw{display:inline-flex;gap:6px;align-items:center;cursor:pointer;color:var(--dim);font-size:13px}
+.hint{color:var(--dim);font-size:12px}
+h3{margin:2px 0 8px;font-size:13.5px;color:var(--acc)}
+h4{margin:0 0 6px;font-size:14px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:var(--edge);border-radius:7px;
+ padding:2px 8px;font-size:12px;margin:2px}
+.chip button{background:none;border:none;color:var(--bad);cursor:pointer;font-size:13px;padding:0}
+.formgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:9px}
+.field{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--dim)}
+.zones{display:flex;flex-wrap:wrap;gap:4px}
+.zones label,.mchar label{display:inline-flex;gap:4px;align-items:center;background:var(--bg);
+ border:1px solid var(--edge);border-radius:6px;padding:2px 7px;font-size:12px;cursor:pointer}
+.zones label:has(input:checked),.mchar label:has(input:checked){border-color:var(--acc);color:var(--fg)}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel);
+ border:1px solid var(--acc);border-radius:8px;padding:9px 18px;display:none;z-index:9;
+ max-width:80vw;font-size:13px}
+.opsel{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.opsel button{background:var(--bg);border:1px solid var(--edge);color:var(--dim);
+ border-radius:7px;padding:4px 11px;cursor:pointer;font-size:12.5px}
+.opsel button.on{border-color:var(--acc);color:var(--fg)}
+</style>
+</head>
+<body>
+<header>
+  <h1>AetherState</h1>
+  <nav id="tabs"></nav>
+  <span style="flex:1"></span>
+  <button class="act danger" id="btnFreeze" style="display:none">FREEZE</button>
+  <button class="act good" id="btnResume" style="display:none">RESUME</button>
+  <label class="sw" title="Allows edits that push things forward (consent up, drives up). Safety-direction edits are always allowed."><input type="checkbox" id="ovr"> override</label>
+  <select id="sess"></select>
+</header>
+<main id="view"></main>
+<div id="toast"></div>
+<script>
+"use strict";
+/* ---------- constants (mirror the engine's vocabulary) ---------- */
+const ZONES=["head","face","mouth","neck","shoulders","chest","breasts","nipples","back","arms",
+ "wrists","hands","waist","hips","ass","anus","genitals","thighs","legs","feet"];
+const WORN=["base_layer","top","bottom","outerwear","footwear","headwear","handwear","facewear",
+ "eyewear","neckwear","armor"];
+const CARRIED=["load_bearing","backpack","pouch","tool","weapon","ammunition","consumable",
+ "medical","electronics","accessory"];
+const PHASES=["setup","rising","climax","resolution"];
+const TIMES=["dawn","morning","midday","afternoon","evening","night","late_night"];
+const DIMS=["trust","affection","respect","desire","tension","fear","familiarity"];
+const CATS=["kissing","manual","oral_give","oral_receive","vaginal","anal","toys","restraint",
+ "impact","degradation","praise","exhibition","group","roleplay_scene","other"];
+const LEVELS=["unknown","hesitant","granted","enthusiastic","soft_limit","hard_limit","withdrawn"];
+const SIGNALS=["grant","enthusiastic","hesitant","refuse","withdraw"];
+const POSES=["standing","sitting","kneeling","straddling","lying_back","lying_front",
+ "on_all_fours","bent_over","held_carried"];
+const TOUCH=["touching","caressing","gripping","kissing","licking","sucking","penetrating",
+ "grinding","restraining","impact"];
+const FLAVORS=["romantic","possessive","protective","hostile","curious","ambition","reverent","other"];
+const TKINDS=["entity","act_category","substance","object","concept"];
+const TABS=["Overview","Edit","Sessions","Connection","Status","Models","Raw"];
+/* ---------- app state ---------- */
+let tab="Overview",sid="",S=null,editOp="scene_set",timer=null;
+const $=q=>document.querySelector(q);
+const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const j=async(u,o)=>{const r=await fetch(u,o);return r.json()};
+function toast(msg,bad){const t=$("#toast");t.textContent=msg;
+ t.style.borderColor=bad?"var(--bad)":"var(--acc)";t.style.display="block";
+ clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",3500)}
+async function ops(list){if(!sid)return toast("no session yet — open a chat first",1);
+ try{const d=await j(`/aether/session/${sid}/state`,{method:"PATCH",
+  headers:{"content-type":"application/json"},body:JSON.stringify({ops:list})});
+  const rej=(d.rejected||[]).map(r=>r.reason).join("; ");
+  toast(`applied ${d.applied||0}`+(rej?` · rejected: ${rej}`:""),!d.applied&&rej);
+  await load();render()}catch(e){toast("error: "+e,1)}}
+/* ---------- data ---------- */
+async function sessions(){const d=await j("/aether/sessions");const s=d.sessions||[];
+ $("#sess").innerHTML=s.length?s.map(x=>`<option value="${x.session_id}" ${x.session_id===sid?"selected":""}>`+
+  `${esc(x.label||(x.external_id||x.session_id).slice(0,20))} · t${x.head_turn??"?"}</option>`).join("")
+  :`<option value="">no sessions yet</option>`;
+ if(!sid&&s.length)sid=s[0].session_id;return s}
+async function load(){if(!sid){S=null;return}
+ try{S=await j(`/aether/session/${sid}/state`)}catch(e){S=null}}
+const chars=()=>Object.entries(S?.state?.entities||{});
+const cnames=()=>chars().map(([id,e])=>[id,e.name||id]);
+const nameOf=id=>(S?.state?.entities?.[id]?.name)||id;
+/* ---------- header ---------- */
+function headerRefresh(){const f=S?.frozen;
+ $("#btnFreeze").style.display=S&&!f?"":"none";
+ $("#btnResume").style.display=S&&f?"":"none"}
+$("#btnFreeze").onclick=async()=>{await j(`/aether/session/${sid}/freeze`,{method:"POST"});await load();headerRefresh();render();toast("scene frozen — aftercare register active")};
+$("#btnResume").onclick=async()=>{await j(`/aether/session/${sid}/unfreeze`,{method:"POST"});await load();headerRefresh();render();toast("scene resumed")};
+$("#ovr").onchange=async e=>{await j("/aether/override",{method:"POST",
+ headers:{"content-type":"application/json"},body:JSON.stringify({enabled:e.target.checked})});
+ toast(e.target.checked?"manual override ON — forward edits allowed":"manual override OFF")};
+$("#sess").onchange=async e=>{sid=e.target.value;await load();headerRefresh();render()};
+/* ---------- widgets ---------- */
+const bar=(v,max,col)=>`<span class="bar"><i style="width:${Math.max(0,Math.min(100,100*v/max))}%;background:${col}"></i></span>`;
+const meter=(label,v,max,col)=>`<div class="meter"><b>${label}</b>${bar(v,max,col)}<em>${v}</em></div>`;
+const moodWord=v=>v>=45?"bright":v>=15?"warm":v>-15?"level":v>-45?"low":"dark";
+const energyWord=v=>v>=45?"charged":v>=15?"lively":v>-15?"steady":v>-45?"tired":"drained";
+/* ---------- Overview ---------- */
+function overview(){if(!S)return `<div class="card">No session selected — open a chat in
+ SillyTavern (or send one message) and it appears here.</div>`;
+ const st=S.state,sc=st.scene||{},ck=st.clock||{};
+ let h=`<div class="card"><h3>Scene</h3><div class="row">
+  <span class="pill vio">${esc(sc.location_id||"nowhere yet")}</span>
+  <span class="pill dim">${esc(sc.phase||"setup")}</span>
+  <span class="pill dim">day ${ck.day??1} · ${esc(ck.time_of_day||"?")}</span>
+  ${sc.mode&&sc.mode!=="live"?`<span class="pill warn">${esc(sc.mode)}</span>`:""}
+  ${S.frozen?`<span class="pill bad">FROZEN${S.state.frozen_reason?" · "+esc(S.state.frozen_reason):""}</span>`:""}
+  <span style="flex:1"></span><span class="hint">turn ${S.head_turn}</span></div>
+  ${meter("tension",sc.tension||0,100,"var(--bad)")}
+  ${meter("intimacy",sc.intimacy||0,100,"var(--vio)")}</div>`;
+ /* characters */
+ h+=`<div class="grid">`;
+ for(const [id,e] of chars()){const c=st.chars?.[id]||{};const a=c.arousal||{};const af=c.affect||{};
+  const worn=[],carried=[];
+  for(const [item,g] of Object.entries(st.clothing?.[id]||{})){
+   if(g.state==="removed"||g.state==="destroyed")continue;
+   ((g.category&&CARRIED.includes(g.category))?carried:worn).push([item,g])}
+  h+=`<div class="card"><div class="row" style="margin-top:0"><h4>${esc(e.name||id)}</h4>
+   ${e.present?`<span class="pill ok">present</span>`:`<span class="pill dim">away${e.location?" · "+esc(e.location):""}</span>`}
+   <span style="flex:1"></span>
+   <span class="hint">${moodWord(af.valence||0)} · ${energyWord(af.energy||0)}</span></div>`;
+  if((a.arousal||0)>0)h+=meter("arousal",a.arousal||0,100,"var(--warn)");
+  for(const [k,o] of Object.entries(c.obsessions||{}))
+   h+=`<div class="meter"><b title="${esc(k)}">☄ ${esc(o.target)}</b>${bar(o.intensity,100,"var(--vio)")}
+    <em>${o.intensity}</em><button class="mini" onclick='ops([{op:"obsession",char:${JSON.stringify(id)},target_kind:${JSON.stringify(o.target_kind)},target:${JSON.stringify(o.target)},delta:10}])'>+</button>
+    <button class="mini" onclick='ops([{op:"obsession",char:${JSON.stringify(id)},target_kind:${JSON.stringify(o.target_kind)},target:${JSON.stringify(o.target)},delta:-10}])'>−</button></div>`;
+  for(const [sub,cr] of Object.entries(c.cravings||{}))
+   h+=`<div class="meter"><b>♦ ${esc(sub)}</b>${bar(cr.level,100,"var(--bad)")}<em>${cr.level}</em>
+    <button class="mini" title="consume: −satisfaction" onclick='ops([{op:"craving",char:${JSON.stringify(id)},substance:${JSON.stringify(sub)},action:"consume"}])'>sate</button>
+    <button class="mini" onclick='ops([{op:"craving",char:${JSON.stringify(id)},substance:${JSON.stringify(sub)},action:"adjust",delta:10}])'>+</button></div>`
+   +((cr.dependency||0)>0?meter("└ dependency",cr.dependency,100,"var(--warn)"):"");
+  if(worn.length)h+=`<div class="row"><span class="hint">worn:</span>`+worn.map(([item,g])=>
+   `<span class="chip" title="${esc((g.covers||[]).join(", ")||"covers nothing")}">${esc(item)}${g.state!=="worn"?" ("+esc(g.state)+")":""}
+    <button title="remove" onclick='ops([{op:"clothing",char:${JSON.stringify(id)},item:${JSON.stringify(item)},action:"remove"}])'>×</button></span>`).join("")+`</div>`;
+  if(carried.length)h+=`<div class="row"><span class="hint">carrying:</span>`+carried.map(([item])=>
+   `<span class="chip">${esc(item)}<button title="drop" onclick='ops([{op:"clothing",char:${JSON.stringify(id)},item:${JSON.stringify(item)},action:"remove"}])'>×</button></span>`).join("")+`</div>`;
+  const goals=(c.goals||[]).filter(g=>!g.done&&g.text!==undefined?true:typeof g==="string");
+  if(goals.length)h+=`<div class="hint">goals: ${goals.map(g=>esc(g.text||g)).join(" · ")}</div>`;
+  h+=`</div>`}
+ h+=`</div>`;
+ /* relationships + consent */
+ const rels=Object.entries(st.relationships||{});
+ if(rels.length){h+=`<div class="card"><h3>Relationships</h3>`;
+  for(const [k,r] of rels){const [a,b]=k.split("->");
+   const top=Object.entries(r.dims||{}).filter(([,v])=>Math.abs(v)>=15)
+    .sort((x,y)=>Math.abs(y[1])-Math.abs(x[1])).slice(0,4);
+   h+=`<div class="row"><b style="font-weight:500">${esc(nameOf(a))} → ${esc(nameOf(b))}</b>`+
+    (top.length?top.map(([d,v])=>`<span class="pill ${v>=45?"vio":v<=-30?"bad":"dim"}">${d} ${v}</span>`).join(""):`<span class="hint">nothing strong yet</span>`)+`</div>`}
+  h+=`</div>`}
+ const cons=Object.entries(st.consent||{});
+ if(cons.length){h+=`<div class="card"><h3>Consent</h3><table><tr><th>between</th><th>act</th><th>level</th><th>cap</th></tr>`;
+  for(const [k,c] of cons){const [a,b,cat]=k.split("|");
+   const cls=["granted","enthusiastic"].includes(c.level)?"ok":["hard_limit","withdrawn"].includes(c.level)?"bad":"warn";
+   h+=`<tr><td>${esc(nameOf(a))} ↔ ${esc(nameOf(b))}</td><td>${esc(cat)}</td>
+    <td><span class="pill ${cls}">${esc(c.level)}</span></td><td>${c.max_intensity??"—"}</td></tr>`}
+  h+=`</table></div>`}
+ const mems=(st.memories||[]).slice(-6).reverse();
+ if(mems.length)h+=`<div class="card"><h3>Recent memories</h3>`+
+  mems.map(m=>`<div class="hint">t${m.turn} · ${esc(m.text)}</div>`).join("")+`</div>`;
+ return h}
+/* ---------- Edit (guided forms) ---------- */
+const F={
+ scene_set:{g:"Scene",t:"Set scene",f:[["location","location","text"],["phase","phase","sel",PHASES],
+  ["participants","who is present","mchar"]]},
+ scene_dial:{g:"Scene",t:"Tension / intimacy",f:[["dial","dial","sel",["tension","intimacy"]],
+  ["delta","change by (±)","num"],["set","or set to","num"]]},
+ scene_mode:{g:"Scene",t:"Scene mode",f:[["mode","mode","sel",["live","flashback","dream"]]]},
+ time_advance:{g:"Scene",t:"Advance time",f:[["to_time_of_day","to","sel",TIMES]]},
+ entity_add:{g:"Characters",t:"Add character",f:[["name","name","text"]]},
+ presence:{g:"Characters",t:"Enter / leave",f:[["entity","who","char"],["present","present","check"]]},
+ move_entity:{g:"Characters",t:"Move",f:[["entity","who","char"],["to_location","to","text"]]},
+ mood:{g:"Characters",t:"Mood",f:[["char","who","char"],["valence","mood −100..100","num"],
+  ["energy","energy −100..100","num"]]},
+ arousal:{g:"Characters",t:"Arousal",f:[["char","who","char"],["delta","change by (±)","num"],
+  ["set","or set to","num"]]},
+ goal:{g:"Characters",t:"Goal",f:[["char","who","char"],["action","action","sel",["add","complete","abandon"]],
+  ["text","goal","text"]]},
+ clothing_don:{op:"clothing",g:"Gear",t:"Wear / carry item",f:[["char","who","char"],["item","item","text"],
+  ["category","category","sel",[...WORN,...CARRIED]],["covers","covers (worn only)","zones"]],
+  fix:{action:"don"}},
+ clothing_state:{op:"clothing",g:"Gear",t:"Open / remove / destroy",f:[["char","who","char"],
+  ["item","item","text"],["action","what happens","sel",["open","displace","remove","destroy"]]]},
+ obsession:{g:"Drives",t:"Obsession",f:[["char","who","char"],["target_kind","kind","sel",TKINDS],
+  ["target","fixated on","text"],["set","intensity 0-100","num"],["flavor","flavor","sel",FLAVORS]]},
+ craving_adj:{op:"craving",g:"Drives",t:"Craving level",f:[["char","who","char"],
+  ["substance","substance","text"],["delta","change by (±)","num"]],fix:{action:"adjust"}},
+ craving_consume:{op:"craving",g:"Drives",t:"Consume (sate)",f:[["char","who","char"],
+  ["substance","substance","text"]],fix:{action:"consume"}},
+ relationship_adj:{g:"Bonds & knowledge",t:"Relationship",f:[["from_char","from","char"],
+  ["to_char","toward","char"],["dimension","dimension","sel",DIMS],["delta","change ±30","num"]],
+  note:"how FROM feels about TOWARD"},
+ reveal_fact:{g:"Bonds & knowledge",t:"Fact / secret",f:[["learner","who learns","char"],
+  ["statement","the fact","text"],["source","how","sel",["told","witnessed","overheard","inferred"]],
+  ["is_secret","secret","check"]]},
+ memory_event:{g:"Bonds & knowledge",t:"Memory",f:[["text","what happened","text"],
+  ["participants","who","mchar"],["importance","importance 1-10","num"]]},
+ consent_set:{g:"Consent",t:"Set consent",f:[["subject","whose consent","char"],["partner","with","char"],
+  ["category","act","sel",CATS],["level","level","sel",LEVELS]],
+  note:"raising consent needs the override switch ON (header). Lowering is always allowed."},
+ consent_signal:{g:"Consent",t:"In-story signal",f:[["from_char","from","char"],["to_char","to","char"],
+  ["category","act","sel",CATS],["signal","signal","sel",SIGNALS]]},
+ position:{g:"Touch & position",t:"Position",f:[["participants","who","mchar"],["base","base","sel",POSES]]},
+ contact_start:{op:"contact",g:"Touch & position",t:"Start touch",f:[["from_char","from","char"],
+  ["to_char","to","char"],["type","type","sel",TOUCH],["intensity","intensity 0-3","num"]],fix:{action:"start"}},
+ contact_stop:{op:"contact",g:"Touch & position",t:"Stop touch",f:[["from_char","from","char"],
+  ["to_char","to","char"],["type","type","sel",TOUCH]],fix:{action:"stop"}},
+};
+function editTab(){const groups={};for(const [k,d] of Object.entries(F))(groups[d.g]??=[]).push([k,d]);
+ let h=`<div class="card"><div class="opsel">`;
+ for(const [g,items] of Object.entries(groups))
+  h+=`<span class="hint" style="width:100%;margin-top:4px">${g}</span>`+
+   items.map(([k,d])=>`<button class="${k===editOp?"on":""}" onclick="editOp='${k}';render()">${d.t}</button>`).join("");
+ h+=`</div><div id="opform">${form(editOp)}</div>
+  <div class="row"><button class="act" onclick="applyForm()">apply</button>
+  <span class="hint">${F[editOp].note||""}</span></div></div>
+  <div class="card"><h3>Raw ops (power users)</h3><textarea id="raw" style="width:100%;min-height:90px"
+   placeholder='[{"op":"...", ...}]'></textarea>
+  <div class="row"><button class="act" onclick="applyRaw()">apply raw</button></div></div>`;
+ return h}
+function form(key){const d=F[key];let h=`<div class="formgrid">`;
+ for(const [k,label,type,opts] of d.f){
+  if(type==="text")h+=`<label class="field">${label}<input data-k="${k}"></label>`;
+  else if(type==="num")h+=`<label class="field">${label}<input data-k="${k}" type="number"></label>`;
+  else if(type==="check")h+=`<label class="field">${label}<input data-k="${k}" type="checkbox" style="width:18px;height:18px"></label>`;
+  else if(type==="sel")h+=`<label class="field">${label}<select data-k="${k}"><option value=""></option>`+
+   opts.map(o=>`<option>${o}</option>`).join("")+`</select></label>`;
+  else if(type==="char")h+=`<label class="field">${label}<select data-k="${k}"><option value=""></option>`+
+   cnames().map(([id,n])=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")+`</select></label>`;
+  else if(type==="mchar")h+=`<div class="field">${label}<div class="mchar" data-k="${k}">`+
+   cnames().map(([id,n])=>`<label><input type="checkbox" value="${esc(n)}">${esc(n)}</label>`).join("")+`</div></div>`;
+  else if(type==="zones")h+=`<div class="field" style="grid-column:1/-1">${label}<div class="zones" data-k="${k}">`+
+   ZONES.map(z=>`<label><input type="checkbox" value="${z}">${z}</label>`).join("")+`</div></div>`}
+ return h+`</div>`}
+function applyForm(){const d=F[editOp];const op={op:d.op||editOp,...(d.fix||{})};
+ for(const [k,,type] of d.f.map(f=>[f[0],f[1],f[2]])){
+  const el=document.querySelector(`#opform [data-k="${k}"]`);if(!el)continue;
+  if(type==="mchar"||type==="zones"){const v=[...el.querySelectorAll("input:checked")].map(i=>i.value);
+   if(v.length)op[k]=v}
+  else if(type==="check")op[k]=el.checked;
+  else if(type==="num"){if(el.value!=="")op[k]=Number(el.value)}
+  else if(el.value)op[k]=el.value}
+ ops([op])}
+function applyRaw(){try{ops(JSON.parse($("#raw").value))}catch(e){toast("bad JSON: "+e,1)}}
+/* ---------- other tabs ---------- */
+async function renameSession(sessid,cur){const name=prompt("Name this session:",cur||"");
+ if(name===null)return;
+ try{await j(`/aether/session/${sessid}/label`,{method:"POST",
+  headers:{"content-type":"application/json"},body:JSON.stringify({label:name})});
+  toast("renamed")}catch(e){toast("rename failed: "+e,1)}render()}
+async function deleteSession(sessid,name){
+ if(!confirm(`Delete session "${name}"?\n\nThis permanently removes it and all of its tracked state.`))return;
+ try{await j(`/aether/session/${sessid}`,{method:"DELETE"});
+  if(sid===sessid){sid=null;S=null}toast("session deleted")}catch(e){toast("delete failed: "+e,1)}render()}
+async function sessionsTab(){const s=await sessions();
+ return `<div class="card"><table><tr><th>name</th><th>id</th><th>frontend</th><th>turn</th><th></th><th>actions</th></tr>`+
+  s.map(x=>`<tr><td><b style="font-weight:500">${esc(x.label||"(unnamed)")}</b></td>
+   <td class="hint" title="${esc(x.session_id)}">${esc((x.external_id||x.session_id).slice(0,14))}</td>
+   <td>${esc(x.frontend||"?")}</td><td>${x.head_turn??"?"}</td>
+   <td>${x.frozen?'<span class="pill bad">FROZEN</span>':'<span class="pill ok">live</span>'}</td>
+   <td><button class="mini" onclick="sid='${x.session_id}';go('Overview')">open</button>
+    <button class="mini" onclick='renameSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||"")})'>rename</button>
+    <button class="mini" onclick='deleteSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||x.external_id||x.session_id)})'>delete</button></td></tr>`).join("")+
+  `</table><p class="hint">Rename a chat to give it a friendly name. Delete permanently removes a session and its tracked state. Freeze pauses a scene like a safeword.</p></div>`}
+async function connectionTab(){const d=await j("/aether/connection");const a=(d.assist&&d.assist[0])||{};
+ return `<div class="card"><h3>Main writer — the model that writes the story</h3>
+  <div class="formgrid">
+   <label class="field">Endpoint URL (OpenAI-compatible, include /v1)<input id="up_url" value="${esc(d.upstream.base_url||"")}"></label>
+   <label class="field">API key ${d.upstream.has_key?"(saved — blank keeps it)":""}<input id="up_key" type="password" placeholder="${d.upstream.has_key?"••••••":"paste key"}"></label></div>
+  <div class="row"><button class="act" onclick="testConn('up_url','up_key','up_models')">Connect / test</button>
+   <select id="up_models" style="min-width:220px"><option value="">(connect to list models)</option></select>
+   <button class="act" onclick="saveConn('upstream','up_url','up_key','up_models')">Save</button></div>
+  <p class="hint">The story model is chosen in SillyTavern's own connection; here you just point AetherState's upstream at the API and verify it. Any OpenAI-compatible endpoint + key works.</p></div>
+  <div class="card"><h3>Local helper — the mechanics (genesis, extraction, memory)</h3>
+  <div class="formgrid">
+   <label class="field">Endpoint URL<input id="as_url" value="${esc(a.base_url||"")}"></label>
+   <label class="field">API key ${a.has_key?"(saved — blank keeps it)":""}<input id="as_key" type="password" placeholder="${a.has_key?"••••••":"optional"}"></label></div>
+  <div class="row"><button class="act" onclick="testConn('as_url','as_key','as_models')">Connect / test</button>
+   <select id="as_models" style="min-width:220px"><option value="${esc(a.model||"")}">${esc(a.model||"(connect to list models)")}</option></select>
+   <button class="act" onclick="saveConn('assist','as_url','as_key','as_models')">Save</button></div>
+  <p class="hint">Can be your local Llama OR any hosted OpenAI-compatible API. Connect, pick the model, Save. Changes apply immediately and are saved to config.</p></div>`}
+async function testConn(urlId,keyId,selId){const base=$("#"+urlId).value.trim();const key=$("#"+keyId).value;
+ if(!base){toast("enter an endpoint URL",1);return}
+ toast("connecting…");
+ const d=await j("/aether/connection/models",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({base_url:base,api_key:key})});
+ const sel=$("#"+selId);
+ if(d.ok&&d.models&&d.models.length){sel.innerHTML=d.models.map(m=>`<option>${esc(m)}</option>`).join("");
+   if(d.auth_ok===false){toast("Endpoint reachable but the KEY was REJECTED (auth "+d.auth_status+"). The mechanics will fail — use a valid key for THIS service (not another provider's).",1)}
+   else{toast("connected + key verified — "+d.models.length+" models")}}
+ else{sel.innerHTML=`<option value="">(no models)</option>`;toast("connect failed: "+(d.error||("status "+d.status)),1)}}
+async function saveConn(target,urlId,keyId,selId){const base=$("#"+urlId).value.trim();const key=$("#"+keyId).value;
+ const body={target:target,base_url:base};if(key)body.api_key=key;
+ const sel=$("#"+selId);if(target==="assist"&&sel&&sel.value)body.model=sel.value;
+ const d=await j("/aether/connection",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+ toast(d.ok?("saved"+(d.persisted?" + will persist across restarts":" (this run only)")):"save failed",d.ok?0:1);render()}
+async function statusTab(){const d=await j("/aether/status");
+ return `<div class="card"><h3>Proxy</h3><div class="row">
+  <span class="pill ok">${d.name} ${d.version}</span><span class="pill dim">${d.mode}</span>
+  <span class="pill dim">up ${Math.round(d.uptime_s/60)}m</span>
+  ${d.upstream_configured?"":'<span class="pill bad">upstream not configured</span>'}
+  <span class="pill dim">${d.sessions} session(s)</span></div>
+  <div class="row"><span class="hint">extraction ${d.extraction.mode}</span>
+  ${Object.entries(d.extraction.groups).map(([k,v])=>`<span class="pill ${v==="off"?"dim":"vio"}">${k}: ${v}</span>`).join("")}</div>
+  <div class="row"><span class="hint">proofreader</span>
+  ${Object.entries(d.linter.violations).length?Object.entries(d.linter.violations).map(([k,v])=>`<span class="pill warn">${k}×${v}</span>`).join(""):'<span class="pill ok">no violations logged</span>'}</div>
+  <div class="row"><span class="hint">director</span>
+  ${Object.entries(d.director.firings).length?Object.entries(d.director.firings).map(([k,v])=>`<span class="pill vio" title="${k}">${k.split(".").pop()}×${v}</span>`).join(""):'<span class="pill dim">no beats fired yet</span>'}</div>
+  <div class="hint" style="margin-top:6px">telemetry: ${d.telemetry}</div></div>`}
+async function modelsTab(){const d=await j("/aether/status");
+ return `<div class="card"><h3>Backends the engine has probed</h3><table>
+  <tr><th>backend</th><th>model</th><th>tier</th><th>notes</th></tr>`+
+  d.extraction.caps.map(c=>`<tr><td>${esc(c.base_url)}</td><td>${esc(c.model)}</td>
+   <td>rung ${c.rung}</td><td>${c.native?esc(c.native):""} ${c.failures?`<span class="pill warn">${c.failures} fails</span>`:""}</td></tr>`).join("")+
+  `</table><h3 style="margin-top:12px">Local helper</h3>`+
+  (d.extraction.assist_endpoints.length?
+   d.extraction.assist_endpoints.map(e=>`<div class="row"><span class="pill ok">${esc(e.name)}</span>
+    <span class="hint">${esc(e.model)} · ${esc(e.tier)}</span></div>`).join(""):
+   `<p class="hint">No local helper configured — everything still works; a local model adds
+    smarter memory, card-reading, and contradiction checks at zero API cost.</p>`)+`</div>`}
+/* ---------- shell ---------- */
+function nav(){$("#tabs").innerHTML=TABS.map(t=>
+ `<button class="${t===tab?"on":""}" onclick="go('${t}')">${t}</button>`).join("")}
+async function go(t){tab=t;nav();await load();headerRefresh();render()}
+async function render(){const v=$("#view");
+ try{
+  if(tab==="Overview")v.innerHTML=overview();
+  else if(tab==="Edit")v.innerHTML=S?editTab():overview();
+  else if(tab==="Sessions")v.innerHTML=await sessionsTab();
+  else if(tab==="Connection")v.innerHTML=await connectionTab();
+  else if(tab==="Status")v.innerHTML=await statusTab();
+  else if(tab==="Models")v.innerHTML=await modelsTab();
+  else if(tab==="Raw")v.innerHTML=S?`<div class="card"><pre>${esc(JSON.stringify(S.state,null,2))}</pre></div>`:overview();
+ }catch(e){v.innerHTML=`<div class="card"><span class="pill bad">error</span> ${esc(e)}</div>`}}
+async function boot(){nav();await sessions();await load();headerRefresh();
+ try{$("#ovr").checked=!!(await j("/aether/override")).enabled}catch(e){}
+ render();
+ timer=setInterval(async()=>{if(tab==="Overview"&&document.visibilityState==="visible"){
+  const before=JSON.stringify(S);await sessions();await load();
+  if(JSON.stringify(S)!==before){headerRefresh();render()}}},4000)}
+boot();
+</script>
+</body>
+</html>

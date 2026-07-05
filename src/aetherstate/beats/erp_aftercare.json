@@ -1,0 +1,16 @@
+[
+  {"beat_id": "erp_aftercare.come_down", "name": "Come down", "binds": "pair",
+   "preconditions": {"any": [
+     {"path": "char.{a}.arousal.orgasms_this_scene", "op": ">=", "value": 1},
+     {"path": "char.{b}.arousal.orgasms_this_scene", "op": ">=", "value": 1}]},
+   "note_template": "The heat is spent. Slow the scene: breath, warmth, small honest words. Let {char} check in on {partner}.",
+   "effects": [{"op": "scene_dial", "dial": "tension", "delta": -15}],
+   "priority": 65, "cooldown_turns": 10, "phase_hint": "resolution"},
+  {"beat_id": "erp_aftercare.gentle_close", "name": "Gentle close", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "scene.phase", "op": "==", "value": "resolution"},
+     {"path": "scene.intimacy", "op": ">=", "value": 50}]},
+   "note_template": "Wind the scene down with care — water, a blanket, a quiet word between {a} and {b}. Nothing new; just warmth.",
+   "effects": [{"op": "scene_dial", "dial": "tension", "delta": -10}],
+   "priority": 50, "cooldown_turns": 8}
+]
