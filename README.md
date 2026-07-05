@@ -24,6 +24,7 @@ prompt, so the model stops forgetting.
 
 Works with hosted APIs (Venice.AI, OpenAI, OpenRouter, ...) and local engines (KoboldCpp,
 llama.cpp, Ollama, LM Studio, vLLM, oobabooga). But actively developed, tested primarily against SillyTavern + Venice/OpenRouter.
+Disclosure: I'm mostly a vibe-coder, and mainly a hobbyist that did this for myself, and thought it would be good enough to share.
 
 ## Quick start (Windows)
 
