@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .state import BODY_ZONES, CONSENT_RANK
+from .state import BODY_ZONES, CONSENT_RANK, _index_add, _index_remove
 
 COOLDOWN_TURNS = 3          # dedup window for (rule, subjects) — implementation constant
 _SEV_RANK = {"high": 3, "med": 2, "low": 1}
@@ -332,9 +332,242 @@ def _l9_user_guard(text, cfg, user_names, v):
             return                                        # one hit is enough
 
 
+# ============================ RPG: outcome_match (05 §5.8, 08 §2) ====================
+# Resolve-then-narrate anti-fudging: a `check` is resolved on the hot path (Tier-0 R8) into a
+# PbtA tier + immutable [DIRECTIVE]; the narrator then writes the result. outcome_match verifies
+# the narration's asserted result did not CONTRADICT the pre-decided tier. Store wins: the roll
+# already happened — a mismatch steers the NEXT turn to honor it (escalating on repeat). Prose-
+# facing, so it is conservative (opposite-polarity only; `partial` lenient) — precision over recall.
+_POS_TIERS = {"success", "crit_success"}
+_NEG_TIERS = {"fail", "crit_fail"}
+_RESULT_LEXICON = {
+    "crit_success": [r"critical success", r"flawless(?:ly)?", r"perfectly", r"couldn'?t have gone better",
+                     r"far better than (?:hoped|expected)"],
+    "success": [r"succeed(?:s|ed)?", r"\bsuccess(?:ful(?:ly)?)?", r"manage(?:s|d)? to",
+                r"pull(?:s|ed)? it off", r"it works", r"you (?:do|manage) it"],
+    "partial": [r"partial(?:ly)?", r"but at a cost", r"yes,? but", r"barely", r"not quite clean",
+                r"at a price"],
+    "fail": [r"fail(?:s|ed|ure)?", r"can'?t\b", r"cannot\b", r"doesn'?t work", r"falls? short",
+             r"unable to", r"to no avail"],
+    "crit_fail": [r"critical(?:ly)? fail", r"disastrous(?:ly)?", r"makes? it (?:far )?worse",
+                  r"fumbl(?:e|es|ed)", r"catastroph"],
+}
+
+
+def _rpg_active(state, cfg) -> bool:
+    """Inert in non-RPG sessions (08 §1). A Player Card exists only under RPG genesis (06 §1)."""
+    if not (isinstance(state, dict) and state.get("player")):
+        return False
+    spec = getattr(cfg, "specialization", None)
+    return spec is not None and getattr(spec, "name", "none") == "rpg"
+
+
+def _check_subject_terms(state, latest, cfg) -> list:
+    """Terms that bind a narrated result to THIS check: the skill label + its `governs` verbs
+    (from the registry) + the acting character's name. len>=3 for precision."""
+    terms: list = []
+    skill = latest.get("skill")
+    if skill:
+        try:
+            from . import registry
+            players = state.get("player") or {}
+            player = players.get(latest.get("char")) or next(iter(players.values()), None)
+            terms += registry.load(cfg).subject_terms(skill, player)   # snapshot-first subject terms
+        except Exception:
+            terms.append(str(skill))
+    char = latest.get("char")
+    if char:
+        terms.append(_name(state, char))
+    return [t.lower() for t in terms if t and len(t) >= 3]
+
+
+def _assert_map(text: str, subj_terms: list) -> dict:
+    """tier -> evidence span, for result phrases asserted within 160 chars of a subject term
+    (conservative binding: an incidental result word elsewhere in the prose is ignored)."""
+    low = text.lower()
+    positions: list = []
+    for t in subj_terms:
+        i = low.find(t)
+        while i >= 0:
+            positions.append(i)
+            i = low.find(t, i + len(t))
+    if not positions:
+        return {}
+    out: dict = {}
+    for tier, pats in _RESULT_LEXICON.items():
+        for pat in pats:
+            for m in re.finditer(pat, low):
+                if any(abs(m.start() - sp) <= 160 for sp in positions):
+                    lo = max(0, m.start() - 24)
+                    out.setdefault(tier, text[lo:m.end() + 24].strip())
+                    break
+            if tier in out:
+                break
+    return out
+
+
+def _polarity_conflict(decided: str, asserted: str) -> bool:
+    if decided in _POS_TIERS and asserted in _NEG_TIERS:
+        return True
+    if decided in _NEG_TIERS and asserted in _POS_TIERS:
+        return True
+    if decided == "partial" and asserted in ("crit_success", "crit_fail"):
+        return True   # partial is lenient: only crits conflict (partial<->success/fail is a near-miss)
+    return False
+
+
+def _outcome_match(state, text, cfg, turn, v):
+    rolls = state.get("rolls") or []
+    checks = [r for r in rolls if r.get("turn") == turn and r.get("tier")]
+    latest = checks[-1] if checks else None       # turn-scoped: same selection as [DIRECTIVE] —
+    if not latest:                                # a later same-turn plain roll can't hide the check
+        return                                    # no check settled this turn -> nothing to match
+    decided = str(latest["tier"])
+    subj = _check_subject_terms(state, latest, cfg)
+    amap = _assert_map(text, subj)
+    if not amap:
+        return                                    # narration made no bound result claim -> ok
+    conflict = next((a for a in amap if _polarity_conflict(decided, a)), None)
+    if not conflict:
+        return
+    skill = latest.get("skill")
+    v.append(Violation("outcome_match", "med", (skill, decided),
+             f"narration asserts '{conflict}' but the {skill} check resolved '{decided}'",
+             evidence=amap[conflict][:80],
+             note=f"[DIRECTIVE] The {skill} check resolved as {decided.upper()} — narrate that "
+                  f"outcome. Do not soften or override the result of a roll."))
+
+
+# ============ RPG: one_instance_one_place (06 §5, 07 §7, 08 §3) — state-facing, exact ==========
+# The Template+Instance safety net: `items[iid].loc` is the single source of truth; `gear`/
+# `inventory` are derived indexes. The reducer preserves the invariant BY CONSTRUCTION
+# (remove -> add with rollback), so a hit here means an out-of-band edit / migration produced a
+# split-brain instance. Detect it, SELF-HEAL from the authority (`loc`), flag for the inspector.
+# Advisory: a narrator can't fix a state bug by writing differently, so it never renders a
+# corrective note and never competes with a prose violation for the single note slot.
+def _heal_reindex(state, iid, loc, owner) -> None:
+    """Store-wins self-heal: rebuild the index for `iid` from its `loc` (the authority)."""
+    _index_remove(state, iid)
+    _index_add(state, owner, iid, loc)
+
+
+def _one_instance_one_place(state, v, *, heal=True):
+    items = state.get("items") or {}
+    gear = state.get("gear") or {}
+    inv = state.get("inventory") or {}
+    for iid, it in items.items():               # forward: loc reflected in exactly one index
+        if not isinstance(it, dict):
+            continue
+        loc = str(it.get("loc") or "")
+        owner = it.get("owner")
+        in_gear = [(o, s) for o, slots in gear.items() for s, x in slots.items() if x == iid]
+        in_inv = [(o, c) for o, conts in inv.items() for c, lst in conts.items() if iid in lst]
+        if loc.startswith("gear:"):
+            ok = in_gear == [(owner, loc.split(":", 1)[1])] and not in_inv
+        elif loc.startswith("inv:"):
+            ok = in_inv == [(owner, loc.split(":", 1)[1])] and not in_gear
+        else:                                   # world / gone: indexed nowhere
+            ok = not in_gear and not in_inv
+        if not ok:
+            v.append(Violation("one_instance_one_place", "med", (iid,),
+                     f"instance {iid} loc={loc!r} but indexed at gear={in_gear} inv={in_inv}",
+                     advisory=True))
+            if heal:
+                _heal_reindex(state, iid, loc, owner)
+    for o, slots in gear.items():               # reverse: dangling index pointers
+        for s, x in list(slots.items()):
+            if x and x not in items:
+                v.append(Violation("one_instance_one_place", "med", (x,),
+                         f"gear[{o}][{s}] references unknown instance {x}", advisory=True))
+                if heal:
+                    del slots[s]
+    for o, conts in inv.items():
+        for c, lst in conts.items():
+            for x in [x for x in lst if x not in items]:
+                v.append(Violation("one_instance_one_place", "med", (x,),
+                         f"inventory[{o}][{c}] references unknown instance {x}", advisory=True))
+                if heal:
+                    lst.remove(x)
+
+
+# ============ RPG: one_soulmate / one_nemesis (06 §2.4, 07 §7.8, 08 §4) =====================
+# The single-bond uniqueness + eligibility net. The reducer's demote-then-set keeps uniqueness
+# BY CONSTRUCTION, so the structural arm firing means an out-of-band edit/migration; the
+# eligibility and prose arms are the narrative guards — a bond must be EARNED (affinity >=
+# Devoted) and promotions happen through set_soulmate, never through prose alone. No auto-heal:
+# a wrong bond is a narrative fact to steer, so the corrective note is the instrument (08 §4).
+_BOND_PHRASES = [r"\bmy soulmate\b", r"\byou are my one\b", r"\bmy one and only\b",
+                 r"\bbonded (?:to (?:you|her|him|them) )?for life\b", r"\bsoul[- ]?bound to\b"]
+
+
+def _player_eid(state) -> "str | None":
+    for eid, rec in (state.get("player") or {}).items():
+        if isinstance(rec, dict):
+            return eid
+    return None
+
+
+def _bond_prose_target(state, text, exclude):
+    """(eid, span) for a character a bond phrase binds to within 100 chars — the same
+    conservative proximity family as outcome_match. (None, '') when nothing binds."""
+    low = text.lower()
+    spans = [m.start() for pat in _BOND_PHRASES for m in re.finditer(pat, low)]
+    if not spans:
+        return None, ""
+    peid = _player_eid(state)
+    for n, eid in _char_names(state, set()).items():
+        if eid in (exclude, peid):
+            continue
+        for m in re.finditer(re.escape(n.lower()), low):
+            for sp in spans:
+                if abs(m.start() - sp) <= 100:
+                    lo = max(0, min(m.start(), sp) - 10)
+                    return eid, text[lo:max(m.end(), sp + 24)][:80]
+    return None, ""
+
+
+def _one_soulmate(state, text, cfg, v, *, ptr="soulmate"):
+    from .state import DEVOTED_MIN
+    peid = _player_eid(state)
+    pl = (state.get("player") or {}).get(peid) or {}
+    tgt = pl.get(ptr)
+    if isinstance(tgt, (list, set, tuple)):     # (1) structural: a scalar pointer, always
+        if len(tgt) > 1:
+            v.append(Violation(f"one_{ptr}", "high", tuple(str(x) for x in tgt),
+                     f"{ptr} must be a single pointer; found {sorted(str(x) for x in tgt)}",
+                     advisory=True))            # data-model break: inspector-facing
+        tgt = next(iter(tgt), None)
+    if tgt:
+        ent = state.get("entities", {}).get(tgt)
+        if not ent or ent.get("kind", "character") not in ("character", "player"):
+            v.append(Violation(f"one_{ptr}", "med", (tgt,),   # (3) referential integrity
+                     f"{ptr} points at {tgt} which is not a known character"))
+        elif ptr == "soulmate":                 # (2) eligibility — soulmate only (a nemesis
+            val = (state.get("affinity", {})    # is not affinity-gated, doc 08 §4)
+                   .get(f"{peid}->{tgt}", {}).get("value", 0)) if peid else 0
+            if val < DEVOTED_MIN:
+                v.append(Violation("one_soulmate", "med", (tgt,),
+                         f"soulmate {_name(state, tgt)} has affinity {val} < "
+                         f"Devoted {DEVOTED_MIN}",
+                         note=f"Continuity: {_name(state, tgt)} is not yet devoted enough "
+                              f"to be a soulmate — let the bond deepen before treating it "
+                              f"as sealed."))
+    if ptr == "soulmate":                       # (4) prose promoting a DIFFERENT partner
+        other, span = _bond_prose_target(state, text, exclude=tgt)
+        if other and other != tgt:
+            cur = _name(state, tgt) if tgt else "no one"
+            v.append(Violation("one_soulmate", "med", (tgt, other),
+                     f"prose treats {_name(state, other)} as soulmate but the bond is {cur}",
+                     evidence=span,
+                     note=f"Continuity: the sealed soulmate bond is {cur}, not "
+                          f"{_name(state, other)} — a new bond must be earned and set, "
+                          f"never assumed in prose."))
+
+
 # ================================ entry points ======================================
 def run(state: dict, text: str, cfg, *, applied_kinds: frozenset = frozenset(),
-        klass: str = "new_turn", user_name: str = "", user_aliases: tuple = ()) -> list[Violation]:
+        klass: str = "new_turn", user_name: str = "", user_aliases: tuple = (),
+        turn: int = -1) -> list[Violation]:
     """Pure rule pass. Never raises on malformed state (invariant 3) — callers still wrap."""
     v: list[Violation] = []
     text = text or ""
@@ -359,6 +592,17 @@ def run(state: dict, text: str, cfg, *, applied_kinds: frozenset = frozenset(),
               ("L8", lambda: _l8_consent(state, cfg, v), True),
               ("L9", lambda: _l9_user_guard(text, cfg, user_names, v),
                klass != "impersonate")]       # impersonate = asked to write the user
+    if _rpg_active(state, cfg):                # RPG rules — inert in non-RPG sessions (08 §1)
+        checks.append(("outcome_match",
+                       lambda: _outcome_match(state, text, cfg, turn, v), not nonlive))
+        checks.append(("one_instance_one_place",   # state integrity: live AND non-live (08 §3)
+                       lambda: _one_instance_one_place(state, v), bool(state.get("items"))))
+        nemesis_on = bool(getattr(getattr(cfg, "specialization", None),   # D6: off by default
+                                  "nemesis_enabled", False))
+        checks.append(("one_soulmate",             # RPG-3b bonds (08 §4)
+                       lambda: _one_soulmate(state, text, cfg, v), True))
+        checks.append(("one_nemesis",
+                       lambda: _one_soulmate(state, text, cfg, v, ptr="nemesis"), nemesis_on))
     for rule, fn, gate in checks:
         if rule in off or not gate:
             continue
@@ -378,7 +622,7 @@ def lint_turn(store, cfg, session_id: str, branch_id: str, turn: int, state: dic
     if not cfg.linter.enabled:
         return []
     vios = run(state, text, cfg, applied_kinds=applied_kinds, klass=klass,
-               user_name=user_name, user_aliases=user_aliases)
+               user_name=user_name, user_aliases=user_aliases, turn=turn)
     seen: set = set()
     fresh: list[Violation] = []
     recent = store.lint_recent(branch_id, turn - COOLDOWN_TURNS)
@@ -387,6 +631,11 @@ def lint_turn(store, cfg, session_id: str, branch_id: str, turn: int, state: dic
             continue
         seen.add(x.key)
         fresh.append(x)
+    if any(x.rule == "outcome_match" for x in fresh):   # 08 §2: a PERSISTING override -> high
+        wide = store.lint_recent(branch_id, turn - COOLDOWN_TURNS * 4)
+        for x in fresh:
+            if x.rule == "outcome_match" and x.key in wide:
+                x.severity = "high"    # re-ask escalates to the strongest note (cf. L9 precedent)
     if fresh:
         store.lint_add(branch_id, turn, fresh)
     return fresh                       # note staging moved to director.stage (04 SS3.3)

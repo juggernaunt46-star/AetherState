@@ -17,6 +17,9 @@ prompt, so the model stops forgetting.
   prose contradicts tracked facts).
 - **Memory** — events condense into summaries and durable facts, recalled when relevant.
 - **Console** — a built-in web dashboard to watch and edit state live.
+- **RPG / DM mode (optional)** — a full code-authoritative game layer: real dice, a Player Card,
+  a World & Character Creator, items & gear, statuses & conditions, factions & affinity,
+  persistent locations. Off by default; a non-RPG session is byte-identical to plain AetherState.
 - **Fail-open by design** — if anything inside AetherState breaks, your chat continues untouched.
   It never blocks or edits the story stream.
 - **Local-first, private** — everything lives in a local SQLite file. No telemetry; there is no
@@ -77,6 +80,30 @@ Then steps 4–6 above (for step 6, copy `st-extension/` into your SillyTavern e
 
 
 
+
+## RPG / DM mode
+
+Turn the narrator into a Dungeon Master with a rulebook it cannot fudge: set
+`[specialization] name = "rpg"` in the Console (or `/aether-spec rpg`). The principle:
+**the model writes the story; AetherState owns the truth — and nothing becomes real, or even
+rollable, without an in-world basis.**
+
+- **Real dice, resolved by code.** `((aether.check stealth))` rolls actual dice against your
+  sheet (stats, ranks, gear, active effects); the model is handed the decided outcome to
+  narrate — it never decides success itself. Ambition is welcome:
+  `((aether.check <skill> scope minor..mythic))` scales the odds instead of saying no.
+- **The eligibility gate.** A skill can require an in-world basis (Spellcraft needs the Arcane
+  Gift; Systems Intrusion needs a Neural Lace). Declaring power you don't have is a non-move —
+  acquire it in play, then the same declaration rolls.
+- **World & Character Creator.** A standalone window (panel link or `/aether-creator`):
+  world-first authoring, point-buy stats, curated skills/abilities with **genre packs**
+  (fantasy, sci-fi, cyberpunk, post-apocalyptic, modern, historical — the sheet follows your
+  world's genre), freestyle custom mechanics authored by AI and frozen into fixed numbers,
+  named presets, and a review tab of everything committed.
+- **Items & gear** (transactional, no duplication), **statuses & conditions** (inline tag
+  protocol the narrator writes, the engine commits), **factions, affinity & bonds** (standing
+  is journaled truth, not sentiment), **persistent locations** (canonical names, aliases,
+  visit history).
 
 ## How state develops (priority)
 

@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
-from .state import derived_exposure, is_empty
+from .state import GEAR_SLOT_ORDER, GEAR_SLOTS, affinity_tier, derived_exposure, is_empty
 
 CHARS_PER_TOKEN = 3.3     # 03 SS4 estimate; backend tokenizer replaces this in P3
 
@@ -37,6 +37,272 @@ class Component:
 
 def _name(state: dict, eid: str) -> str:
     return state.get("entities", {}).get(eid, {}).get("name") or eid
+
+
+# ---- RPG specialization blocks (doc 05 §6; rendered only when specialization=rpg) -----
+def _render_player(state: dict, cfg=None) -> str:
+    """[PLAYER] — compact hot-field projection of the Player Card(s) (doc 06 §2.3). Skills
+    render as EFFECTIVE check mods (registry-derived, snapshot-first — the narrator never does
+    math); stored raw ranks are the fail-open fallback. Cached registry load: hot-path-legal."""
+    players = state.get("player") or {}
+    reg = None
+    try:
+        from . import registry as _registry
+        reg = _registry.load(cfg)
+    except Exception:                        # fail-open (invariant 1): render without the registry
+        reg = None
+    cards: list[str] = []
+    for eid, p in players.items():
+        if not isinstance(p, dict):
+            continue
+        head = f'{_name(state, eid)} · Lv{p.get("level", 1)}'
+        hp = p.get("hp") or {}
+        if hp.get("max"):
+            head += f' · HP {hp.get("cur", hp["max"])}/{hp["max"]}'
+        for rname, r in (p.get("resources") or {}).items():
+            if isinstance(r, dict) and r.get("max"):
+                head += f' · {str(rname).capitalize()} {r.get("cur", r["max"])}/{r["max"]}'
+        block = [head]
+        stats = p.get("stats") or {}
+        if stats:
+            block.append("Stats: " + " ".join(f"{k}{v}" for k, v in stats.items()))
+        skills = p.get("skills") or {}
+        line = ""
+        if reg is not None:
+            try:                             # union: ranked skills + per-character frozen defs
+                defs_sk = p.get("defs") if isinstance(p.get("defs"), dict) else {}
+                defs_sk = defs_sk.get("skills") if isinstance(defs_sk.get("skills"), dict) else {}
+                sk_ids = list(skills) + [k for k in defs_sk if k not in skills]
+                line = " ".join(                     # + equipped-gear mods (doc 06 §2.2, RPG-2)
+                    f"{reg.skill_label(sid, p)}"
+                    f"{reg.effective_mod(p, sid) + _registry.gear_skill_mod(state, eid, sid):+d}"
+                    for sid in sk_ids)
+            except Exception:
+                line = ""
+        if not line and skills:              # fallback: stored ranks (pre-RPG-1 shape)
+            line = " ".join(f"{str(k).capitalize()} {v}" for k, v in skills.items())
+        if line:
+            block.append("Skills: " + line)
+        abil = p.get("abilities") or []
+        if abil:
+            mab = {}
+            if reg is not None:
+                try:
+                    mab = reg.merged_abilities(p)
+                except Exception:
+                    mab = {}
+            block.append("Abilities: " + ", ".join(
+                str((mab.get(str(a)) or {}).get("name", a)) for a in abil))
+        cards.append("\n".join(block))
+    return "[PLAYER] " + "\n".join(cards) if cards else ""
+
+
+def _render_gear(state: dict) -> str:
+    """[GEAR] — worn slots -> item(mods) for the Player Card(s) (doc 06 §2.3). Reads only the
+    baked per-instance mods_snapshot — pure state, no registry, µs."""
+    players = state.get("player") or {}
+    items = state.get("items") or {}
+    out: list[str] = []
+    for eid in players:
+        slots = (state.get("gear") or {}).get(eid) or {}
+        order = [s for s in GEAR_SLOT_ORDER if s in slots] + \
+                [s for s in sorted(slots) if s not in GEAR_SLOTS]
+        bits = []
+        for slot in order:
+            iid = slots.get(slot)
+            it = items.get(iid) if iid else None
+            if not it:
+                continue
+            txt = str(it.get("name", iid))
+            mods = it.get("mods_snapshot") or {}
+            mbits = []
+            for k in sorted(mods):
+                mv = mods[k]
+                key = "dmg" if k == "damage" else str(k)
+                mbits.append(f"{key}{mv:+d}" if isinstance(mv, int) else f"{key} {mv}")
+            if mbits:
+                txt += "(" + " ".join(mbits) + ")"
+            if it.get("capacity"):
+                txt += f"[{it['capacity']}]"
+            bits.append(f"{slot}={txt}")
+        if bits:
+            out.append(" · ".join(bits))
+    return "[GEAR] " + "\n".join(out) if out else ""
+
+
+def _render_inventory(state: dict) -> str:
+    """[INVENTORY] — carried instances grouped by container; `loose` renders last (doc 06
+    §2.3). Depleted (qty 0 / gone) instances never render."""
+    players = state.get("player") or {}
+    items = state.get("items") or {}
+    out: list[str] = []
+    for eid in players:
+        conts = (state.get("inventory") or {}).get(eid) or {}
+        bits = []
+        for cid in sorted(conts, key=lambda c: (c == "loose", str(c))):
+            entries = []
+            for iid in conts[cid]:
+                it = items.get(iid)
+                if not it or int(it.get("qty", 1)) < 1:
+                    continue
+                q = int(it.get("qty", 1))
+                entries.append((f"{q}× " if q > 1 else "") + str(it.get("name", iid)))
+            if not entries:
+                continue
+            cname = "loose" if cid == "loose" else str((items.get(cid) or {}).get("name", cid))
+            bits.append(f"{cname}: " + ", ".join(entries))
+        if bits:
+            out.append(" · ".join(bits))
+    return "[INVENTORY] " + "\n".join(out) if out else ""
+
+
+_VALENCE_GLYPH = {"negative": "-", "neutral": "~", "positive": "+"}
+
+
+def _render_effects(state: dict) -> str:
+    """[EFFECTS] — the ledger of active Statuses & Conditions, player first, then every
+    tracked character carrying one (doc 05 §5.4). Fed back every turn so the narrator can't
+    drift or forget; expired records (derived, never mutated) simply stop rendering. Pure
+    state + a cached-registry-free path — µs."""
+    effs = state.get("effects") or {}
+    if not effs:
+        return ""
+    from . import registry as _registry
+    turn = state.get("meta", {}).get("turn", -1)
+    players = list((state.get("player") or {}).keys())
+    order = players + [e for e in effs if e not in players]
+    out: list[str] = []
+    for eid in order:
+        bits = []
+        for rec in (effs.get(eid) or {}).values():
+            if not isinstance(rec, dict) or not _registry.effect_active(rec, turn):
+                continue
+            t = f'{rec.get("name", rec.get("id", "?"))}' \
+                f'({_VALENCE_GLYPH.get(rec.get("valence"), "~")})'
+            if int(rec.get("stacks", 1) or 1) > 1:
+                t += f'×{rec["stacks"]}'
+            if rec.get("duration") is not None:
+                left = int(rec.get("gained_turn", 0)) + int(rec["duration"]) - turn
+                t += f'[{max(0, left)}t]'
+            bits.append(t)
+        if bits:
+            out.append(f'{_name(state, eid)}: ' + ", ".join(bits))
+    return "[EFFECTS] " + " · ".join(out) if out else ""
+
+
+_DIRECTIVE_PHRASE = {
+    "crit_fail": "critical failure", "fail": "failure",
+    "partial": "partial success (yes, but at a cost)", "success": "success",
+    "crit_success": "critical success",
+}
+
+
+def _render_directive(state: dict) -> str:
+    """[DIRECTIVE] — the pre-decided outcome(s) of THIS turn's check(s) (doc 05 §4/§5.2). Reads
+    every `check` record for the current turn (checks reuse the rolls buffer, doc 07 §7.1), so a
+    multi-check turn directs each result — no silently unnarrated resolution. Rides the
+    never-dropped header so the resolve-then-narrate contract can't be budget-cut."""
+    turn = state.get("meta", {}).get("turn", -1)
+    checks = [r for r in state.get("rolls", []) if r.get("turn") == turn and r.get("tier")]
+    if not checks:
+        return ""
+    clauses = []
+    for c in checks:
+        tier = str(c.get("tier"))
+        skill = str(c.get("skill") or "the")
+        phrase = _DIRECTIVE_PHRASE.get(tier, tier)
+        clauses.append(f"{phrase} — the {skill} check resolved as {tier.upper()}")
+    what = "these outcomes" if len(clauses) > 1 else "this outcome"
+    return ("[DIRECTIVE] NARRATE: " + "; ".join(clauses) + f". Narrate exactly {what}; "
+            "do not soften, upgrade, or override the result of a roll.")
+
+
+def _render_quest(state: dict) -> str:
+    """[QUEST] — over the existing per-character `goal` ops (doc 05 §5.6): the Player's goals
+    are the quests; fall back to any character's goals before a Player Card exists."""
+    chars = state.get("chars", {})
+    order = list((state.get("player") or {}).keys()) or list(chars.keys())
+    quests: list[str] = []
+    for eid in order:
+        for g in chars.get(eid, {}).get("goals", []):
+            if g not in quests:
+                quests.append(g)
+    return "[QUEST] " + " · ".join(quests) if quests else ""
+
+
+_BOND_GLYPH = {"soulmate": "♥soulmate", "nemesis": "☠nemesis"}
+
+
+def _flag_str(v) -> str:
+    if v is True:
+        return "yes"
+    if v is False:
+        return "no"
+    return str(v)
+
+
+def _render_relations(state: dict) -> str:
+    """[RELATIONS] — present NPCs' affinity TIER (label, never the integer — doc 05 §5.4)
+    plus the bond pointers, flagged (doc 06 §2.4). A bond renders even for an absent
+    character (a soulmate matters off-screen). Pure state, µs."""
+    players = state.get("player") or {}
+    peid = next(iter(players), None)
+    if peid is None:
+        return ""
+    pl = players.get(peid) or {}
+    bonds = {pl[ptr]: ptr for ptr in ("soulmate", "nemesis") if pl.get(ptr)}
+    ents = state.get("entities", {})
+    bits: list[str] = []
+    seen: set = set()
+    for key, rec in (state.get("affinity") or {}).items():
+        a, _, b = key.partition("->")
+        if a != peid or not isinstance(rec, dict) or rec.get("kind") == "faction":
+            continue
+        if not (ents.get(b, {}).get("present") or b in bonds):
+            continue                             # present NPCs + bonded ones (doc 05 §6)
+        t = f"{_name(state, b)}: {affinity_tier(rec.get('value', 0))}"
+        labels = [x for x in (rec.get("labels") or []) if x]
+        if b in bonds:
+            t += f" {_BOND_GLYPH[bonds[b]]}"
+        elif labels:
+            t += f" ({labels[-1]})"              # demoted bonds keep their history visible
+        bits.append(t)
+        seen.add(b)
+    for b, ptr in bonds.items():                 # a bond without a ledger row still renders
+        if b not in seen:
+            bits.append(f"{_name(state, b)}: {_BOND_GLYPH[ptr]}")
+    return "[RELATIONS] " + " · ".join(bits) if bits else ""
+
+
+def _render_factions(state: dict) -> str:
+    """[FACTIONS] — faction -> affinity tier LABEL + standing circumstances (doc 05 §6).
+    A faction with neither an affinity ledger nor circumstances spends no tokens."""
+    players = state.get("player") or {}
+    peid = next(iter(players), None)
+    aff = state.get("affinity") or {}
+    ents = state.get("entities", {})
+    facs = state.get("factions") or {}
+    fids = [fid for fid, e in ents.items() if (e or {}).get("kind") == "faction"]
+    fids += [fid for fid in facs if fid not in fids]
+    bits: list[str] = []
+    for fid in fids:
+        rec = aff.get(f"{peid}->{fid}") if peid else None
+        circ = (facs.get(fid) or {}).get("circumstances") or {}
+        if not isinstance(rec, dict) and not circ:
+            continue
+        t = f"{_name(state, fid)}: {affinity_tier((rec or {}).get('value', 0))}"
+        if circ:
+            t += " (" + ", ".join(f"{k}={_flag_str(v)}" for k, v in circ.items()) + ")"
+        bits.append(t)
+    return "[FACTIONS] " + " · ".join(bits) if bits else ""
+
+
+def _render_world(state: dict) -> str:
+    """[WORLD] — active global flags/circumstances (world_flag ops; doc 05 §5.6)."""
+    w = state.get("world") or {}
+    if not isinstance(w, dict) or not w:
+        return ""
+    return "[WORLD] " + " · ".join(f"{k}={_flag_str(v)}" for k, v in w.items())
 
 
 # ------------------------------ header (04 SS3.1) -----------------------------------
@@ -134,9 +400,50 @@ def render_header(state: dict, cfg) -> str:
 
     # R7: rolls from the current turn, injected once (state caps the list; turn-scoped render)
     turn = state.get("meta", {}).get("turn", -1)
-    rolls = [r for r in state.get("rolls", []) if r.get("turn") == turn]
+    rolls = [r for r in state.get("rolls", []) if r.get("turn") == turn and "spec" in r]
     if rolls:
         lines.append("[ROLL] " + "; ".join(f'{r["spec"]} = {r["result"]}' for r in rolls))
+
+    # RPG specialization blocks (doc 05 §6) — gated by the profile's `blocks` list and the
+    # active specialization; omitted when their data is absent (same pattern as [CONSENT]).
+    if getattr(cfg, "specialization", None) is not None and cfg.specialization.name == "rpg":
+        blocks = cfg.specialization.blocks
+        if "DIRECTIVE" in blocks:
+            dblock = _render_directive(state)
+            if dblock:
+                lines.append(dblock)
+        if "PLAYER" in blocks:
+            pblock = _render_player(state, cfg)
+            if pblock:
+                lines.append(pblock)
+        if "EFFECTS" in blocks:
+            eblock = _render_effects(state)
+            if eblock:
+                lines.append(eblock)
+        if "GEAR" in blocks:
+            gblock = _render_gear(state)
+            if gblock:
+                lines.append(gblock)
+        if "INVENTORY" in blocks:
+            iblock = _render_inventory(state)
+            if iblock:
+                lines.append(iblock)
+        if "FACTIONS" in blocks:                 # RPG-3b social plane (doc 05 §6)
+            fblock = _render_factions(state)
+            if fblock:
+                lines.append(fblock)
+        if "RELATIONS" in blocks:
+            rblock = _render_relations(state)
+            if rblock:
+                lines.append(rblock)
+        if "QUEST" in blocks:
+            qblock = _render_quest(state)
+            if qblock:
+                lines.append(qblock)
+        if "WORLD" in blocks:
+            wblock = _render_world(state)
+            if wblock:
+                lines.append(wblock)
 
     return "\n".join(lines)
 
@@ -150,10 +457,20 @@ def render_guard(cfg, stamp, klass: str, evidence: Optional[str] = None) -> str:
     name = cfg.user_guard.name or (stamp.user if stamp and stamp.user else "")
     if not name:
         return ""               # heuristic name resolution lands with the extension (P5)
+    dm = (getattr(cfg, "specialization", None) is not None
+          and cfg.specialization.name == "rpg" and cfg.specialization.dm_guard)
     if evidence and cfg.user_guard.mode == "prevent_and_correct":   # L9 escalation (04 SS3.2)
-        return (f'[CONTROL] VIOLATION last turn: you wrote for {name} ("{evidence}"). '
+        who = "the Player " if dm else ""
+        return (f'[CONTROL] VIOLATION last turn: you wrote for {who}{name} ("{evidence}"). '
                 f"{name} is played by the user ONLY. Never write {name}'s dialogue, "
                 f"actions, or thoughts. Stop where {name} must act.")
+    if dm:   # DM/Game-Master framing of the guard (doc 05 §3.2) — text selection, not new logic
+        return (f"[CONTROL] You are the Game Master. Narrate the world, its NPCs, factions, "
+                f"and the outcomes the engine resolves — never the Player. {name} is the "
+                f"Player, played by the user ONLY. Never write {name}'s dialogue, actions, "
+                f"decisions, inner thoughts, or dice; resolve only what the engine hands you "
+                f"and end your reply in-fiction where {name} must act — no 'What will "
+                f"you do?' prompts.")
     return (f"[CONTROL] {name} is played by the user ONLY. Never write {name}'s dialogue, "
             f"actions, decisions, or inner thoughts. End your reply where {name} must "
             f"respond. Portray {name} only as perceived by others.")
@@ -221,6 +538,10 @@ def compose(doc: dict, state: dict, cfg, stamp, klass: str,
     if note:                                               # linter corrective / director (03 SS9)
         comps.append(Component("director_note", note,
                                cfg.injection.priorities.get("director_note", 80)))
+    if getattr(cfg, "specialization", None) is not None and cfg.specialization.name == "rpg":
+        from . import prompts                               # DM rules-contract (doc 05 §5.2)
+        comps.append(Component("rules_contract", prompts.rules_contract(cfg),
+                               cfg.injection.priorities.get("rules_contract", 30)))
     if recall:                                             # Q15 precomputed lines (04 SS3.5)
         from . import memory as _memory
         who = stamp.speaker if (stamp and getattr(stamp, "speaker", None)) else None

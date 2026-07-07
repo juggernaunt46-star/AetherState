@@ -66,6 +66,41 @@ reveal_fact learner = who learns; teller = who told them. obsession/craving char
 experiences it.
 One op per change. An op carries ONLY its listed fields — everything else null/omitted."""
 
+# RPG-2 (doc 07 §4.1): appended to the OP CARD only under specialization=rpg — a `none`
+# session's extraction prompt stays byte-identical to 1.0. Teaches the five PROPOSABLE item
+# ops; minting is engine-privileged and deliberately absent.
+RPG_ITEM_CARD = """RPG ITEM OPS (propose only when [GEAR]/[INVENTORY] blocks appear in CURRENT STATE):
+item_move{instance,to} · item_equip{instance,slot,swap?} · item_unequip{instance,to?}
+item_consume{instance,amount?} · item_transfer{instance,to_owner,to?}
+instance = the item's exact name (or id) from [GEAR]/[INVENTORY]. to: inv:loose | inv:<container> |
+world (dropped) | gone (destroyed). slots: head face neck shoulders body cape arms hands mainhand
+offhand waist legs feet back accessory1 accessory2
+You never create items — the engine mints them. Only move/equip/unequip/consume/transfer items
+that already exist in the state blocks."""
+
+# RPG-3 (doc 05 §5.4): the effect-op card — appended alongside the item card under rpg only.
+# Teaches the three PROPOSABLE effect ops; the LLM proposes, the ledger owns the truth.
+RPG_EFFECT_CARD = """RPG EFFECT OPS (propose when a Status/Condition visibly changes; [EFFECTS] is the ledger of what is already active):
+effect_add{char,effect,kind:status|condition,valence?:negative|neutral|positive,note?,duration?,stacks?}
+effect_remove{char,effect} · effect_update{char,effect,valence?,stacks?,duration?,note?}
+Statuses = combat-facing buffs/debuffs (Bleeding, Poisoned, Stunned, Hasted, Shielded...).
+Conditions = anything else that makes in-world sense (Cursed, Blessed, Drunk, Diseased, Pregnant...).
+Preset names ground automatically with engine-side mechanics; NEW names are allowed and commit too.
+valence: how the effect sits with the character NOW — it can shift later (effect_update).
+Never remove or contradict an effect [EFFECTS] does not show."""
+
+# RPG-3b (doc 07 §7.7): the social-op card — appended alongside the item/effect cards under
+# rpg only. Affinity is measured FROM the Player; bonds (soulmate/nemesis) are privileged
+# and deliberately absent — extraction may nudge standing, never seal a bond.
+RPG_SOCIAL_CARD = """RPG SOCIAL OPS (propose when standing or world circumstances visibly shift):
+affinity_adj{target,delta,reason} — how the PLAYER's standing with an NPC or faction moved this
+exchange. delta -15..15 (typical 2-8); target = the NPC's or faction's exact name. Only for
+characters/factions in CHARACTERS; never for the player themselves.
+world_flag{key,value,faction?} — a standing world circumstance changed (war declared, plague
+spreading, gates sealed). key: short snake_case name; value: a short word, number, or
+true/false; value null clears the flag. faction: name a faction to scope it to that faction.
+You never set soulmate/nemesis bonds — the engine owns bonds; you only nudge affinity."""
+
 # 04 SS1.3 few-shots. Shot C is load-bearing: without it rung-4 models invent ops to "be helpful."
 SHOT_A = """NEW EXCHANGE(S): <data>
 Vess: "The letter you burned — I wrote it. Every word of it was true."
@@ -106,13 +141,91 @@ JSON: {"schema":"aetherstate/delta/1","turn_range":[19,19],"ops":[
 {"op":"obsession","char":"Vess","target_kind":"entity","target":"Mara","delta":10,"flavor":"romantic","behavior_note":"watches doors Mara leaves through"}]}"""
 
 
-def system_prompt(rung: int, assist_tier: bool = False, include_card: bool = True) -> str:
+# ---- RPG DM rules-contract (doc 05 §5.2 / §7) — the standing narrator preset injected under
+# specialization=rpg. Compact + versioned (D7: a full contract for strong tiers, this shrunk
+# form for local models). It teaches the boundary "code resolves, you narrate" and the two
+# non-negotiables (honor the [DIRECTIVE]; never invent mechanics). Droppable under budget
+# (rides its own component, not the never-dropped header) — the [DIRECTIVE] itself is what is
+# load-bearing per turn and rides the header.
+DM_CONTRACT_VERSION = "dm-rules/2"
+DM_RULES_CONTRACT = (
+    "[RULES] You are the Game Master of a mechanical RPG. The engine — not you — resolves "
+    "dice, skill checks, damage, loot, and stats; you only NARRATE the results it hands you. "
+    "When a [DIRECTIVE] is present, narrate exactly that outcome (the dice already decided it) "
+    "— never soften, upgrade, downgrade, or reverse a resolved check. Use only the skills, "
+    "abilities, and items shown in the state blocks; never invent new mechanics, roll your own "
+    "dice, or grant items/skills the engine has not. Speak the world and its NPCs; never the "
+    "Player. Characters named in state blocks are KNOWN, not on-scene — only [SCENE]'s "
+    "present list is actually here; don't stage a known NPC unless the scene or their "
+    "description places them, let them arrive where the fiction earns it. Stay inside the "
+    "fiction to the last word: end each reply on the world's beat where the Player must act — "
+    "never an out-of-character prompt or menu like 'What will you do?'.")
+
+
+# RPG-3 (doc 05 §5.4): the tag protocol + a compact preset slice, appended to the DM
+# rules-contract under rpg. This is the channel AI-Roguelite never had — the narrator marks
+# the change inline, the ENGINE commits it to the ledger, and the [EFFECTS] block feeds the
+# committed truth back every turn. Re-sent with the contract each request (droppable under
+# budget), so even after a context rollover the model is re-anchored. ~120 tokens.
+EFFECTS_PROTOCOL_VERSION = "effect-tags/1"
+_EFFECTS_PROTOCOL = (
+    "\n[TAGS] When the fiction changes what afflicts or empowers a character, emit the tag on "
+    "its own line so the engine can commit it to the ledger: "
+    "[status gained | <char> | <Name> | negative|neutral|positive] · "
+    "[status lost | <char> | <Name>] · [condition gained | <char> | <Name> | <valence>] · "
+    "[condition lost | <char> | <Name>] · [valence shift | <char> | <Name> | <valence>]. "
+    "Statuses are combat effects; Conditions are anything else that makes in-world sense. "
+    "Known presets — Statuses: {statuses}. Conditions: {conditions}. You may mint NEW ones "
+    "with the same tags. The [EFFECTS] block is the ledger of what is true — never contradict "
+    "it, and do not re-tag what it already shows.")
+
+
+# RPG-4 (doc 05 §5.9 / D7): the degradation ladder's contract rung — a shrunk contract for
+# weak/local models whose budget can't carry the full one. Same non-negotiables, ~40 tokens.
+# Selected by [specialization].contract = "compact" (default "full").
+DM_RULES_CONTRACT_COMPACT = (
+    "[RULES] The engine resolves ALL mechanics (dice, checks, damage, items); you only "
+    "narrate its results — a [DIRECTIVE] outcome is final. Use only shown skills/items; "
+    "invent none. Never write the Player. Only [SCENE]'s present list is on-scene. End "
+    "in-fiction — no 'What will you do?'.")
+
+
+def rules_contract(cfg=None) -> str:
+    """The DM rules-contract + the RPG-3 effect tag protocol (with the preset slice pulled
+    from the cached registry). Fail-open: any registry trouble returns the base contract.
+    RPG-4: [specialization].contract='compact' selects the degradation-ladder shrunk form."""
+    base = DM_RULES_CONTRACT
+    try:
+        if cfg is not None and getattr(cfg, "specialization", None) is not None \
+                and getattr(cfg.specialization, "contract", "full") == "compact":
+            base = DM_RULES_CONTRACT_COMPACT
+    except Exception:
+        base = DM_RULES_CONTRACT
+    try:
+        from . import registry as _registry
+        eff = _registry.load(cfg).effects
+        if eff:
+            sts = ", ".join(sorted(str((e or {}).get("name", k)) for k, e in eff.items()
+                                   if (e or {}).get("kind") == "status"))
+            cds = ", ".join(sorted(str((e or {}).get("name", k)) for k, e in eff.items()
+                                   if (e or {}).get("kind") != "status"))
+            base += _EFFECTS_PROTOCOL.format(statuses=sts or "none", conditions=cds or "none")
+    except Exception:
+        pass
+    return base
+
+
+def system_prompt(rung: int, assist_tier: bool = False, include_card: bool = True,
+                  rpg: bool = False) -> str:
     """OP CARD ships by default at every rung (Q17). include_card=False is only honored at
     schema rungs 1-2 for non-assist tiers — rungs 3/4 need the card as the parse floor and
-    assist tiers as the content floor (04 SS5)."""
+    assist tiers as the content floor (04 SS5). `rpg` appends the item-op card (doc 07 §4.1);
+    a `none` session's prompt is byte-identical to pre-RPG."""
     if not include_card and rung <= 2 and not assist_tier:
         return SYSTEM_CORE
-    return SYSTEM_CORE + "\n\n" + OP_CARD
+    card = OP_CARD + ("\n" + RPG_ITEM_CARD + "\n" + RPG_EFFECT_CARD + "\n" + RPG_SOCIAL_CARD
+                      if rpg else "")
+    return SYSTEM_CORE + "\n\n" + card
 
 
 def few_shots(assist_tier: bool = False) -> str:

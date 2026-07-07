@@ -113,3 +113,65 @@ def observe_text(store, cfg, session_id: str, branch_id: str, turn: int, text: s
         if consider(store, cfg, session_id, branch_id, turn, name, n) == "created":
             created.append(name)
     return created
+
+
+# ---- RPG-4: persistent procedural generation for PLACES (doc 05 §9) -----------------
+# The narrator invents a place once; the engine persists it once; every revisit — under
+# any name variant — resolves to the same row (state.canonical_location). Never regenerated.
+_LOC_PREPS = {"at", "in", "into", "inside", "near", "toward", "towards", "beneath",
+              "above", "beyond", "outside", "within"}
+_LOC_ARTICLES = {"the", "a", "an"}
+
+
+def scan_locations(text: str) -> set[str]:
+    """Candidate place names: a location preposition (+ optional article) immediately
+    before a capitalized run — 'into the Gilded Lantern', 'at Harborfall'. Pure text."""
+    if not text:
+        return set()
+    tokens = _WORD.findall(text)
+    lowered = [t.lower() for t in tokens]
+    found: set[str] = set()
+    i = 0
+    while i < len(tokens):
+        if lowered[i] not in _LOC_PREPS:
+            i += 1
+            continue
+        j = i + 1
+        if j < len(tokens) and lowered[j] in _LOC_ARTICLES:
+            j += 1
+        k = j
+        while (k < len(tokens) and _CAP.match(tokens[k]) and lowered[k] not in _STOP):
+            k += 1
+        if k > j:                                # at least one capitalized token followed
+            found.add(" ".join(tokens[j:k]))
+        i = k if k > j else i + 1
+    return found
+
+
+def observe_locations(store, cfg, session_id: str, branch_id: str, turn: int, text: str,
+                      state: dict) -> list[str]:
+    """RPG-4 location discovery — rpg-gated by the CALLER (a `none` session must journal
+    identical bytes). Same evidence bar as characters (>=2 turns, 'loc::'-keyed so place
+    and person counters never collide); creation goes through canonical_location so a
+    known place under a new name becomes an alias hit, not a duplicate row."""
+    from .state import canonical_location
+    created = []
+    for name in scan_locations(text):
+        loc_id, disp, is_new = canonical_location(state, name)
+        if not is_new:
+            continue                              # persisted once already — never regenerate
+        n = store.discovery_bump(branch_id, "loc::" + disp.lower(), turn)
+        if n < EVIDENCE_TURNS:
+            continue
+        if not cfg.extraction.auto_entity_create:
+            store.discovery_mark(branch_id, "loc::" + disp.lower(), "proposed")
+            continue
+        r = apply_delta(store, session_id, branch_id, turn,
+                        [{"op": "entity_add", "name": disp, "kind": "location"}],
+                        "rule", cfg)
+        if r.applied:
+            store.discovery_mark(branch_id, "loc::" + disp.lower(), "created")
+            log.info("discovery: location '%s' persisted after %d turns of evidence",
+                     disp, n)
+            created.append(disp)
+    return created

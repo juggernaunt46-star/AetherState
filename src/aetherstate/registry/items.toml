@@ -1,0 +1,66 @@
+# Curated item templates (doc 06 §3.5) — the Template+Instance foundation of Gear/Inventory.
+# Templates are IMMUTABLE reference data; play mints INSTANCES with unique ids, and the mint op
+# bakes the template's mods/slot/covers/on_consume into the instance (replay purity — editing
+# this file never rewrites a minted item). `worn` decides Gear vs Inventory: worn => a named
+# gear slot; not-worn => carried inventory. A worn container is Gear whose `capacity` holds
+# inventory instances. A `mods` key naming a SKILL feeds that skill's check while equipped.
+
+# --- WORN => GEAR ---
+[iron_helm]
+name = "Iron Helm"
+type = "armor"
+worn = true
+slot = "head"
+stackable = false
+rarity = "common"
+mods = { armor = 1 }
+covers = ["head"]
+desc = "A dented iron helm."
+
+[grey_mantle]
+name = "Grey Mantle"
+type = "clothing"
+worn = true
+slot = "cape"
+stackable = false
+rarity = "common"
+mods = { stealth = 1 }
+desc = "A weathered grey travelling cloak."
+
+[utility_belt]
+name = "Utility Belt"
+type = "container"
+worn = true
+slot = "waist"
+is_container = true
+capacity = 4
+stackable = false
+desc = "A sturdy belt with pouches."
+
+[short_sword]
+name = "Short Sword"
+type = "weapon"
+worn = true
+slot = "mainhand"
+stackable = false
+mods = { damage = "d6" }
+desc = "A plain, reliable short sword."
+
+# --- NOT WORN => INVENTORY ---
+[healing_draught]
+name = "Healing Draught"
+type = "consumable"
+worn = false
+stackable = true
+max_stack = 10
+rarity = "common"
+on_consume = { heal = 8 }
+desc = "Restores a small amount of health."
+
+[lockpicks]
+name = "Lockpicks"
+type = "tool"
+worn = false
+stackable = false
+grants_check = "lockpicking"
+desc = "Slender picks for stubborn locks."

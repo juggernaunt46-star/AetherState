@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — cadence + sentinel-priority build (2026-07-04e)");
+  console.log("[AetherState] Companion loaded — swiped-greeting genesis build (2026-07-06b)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -72,7 +72,7 @@
   // ---- turn-0 genesis (handoff 2026-07-04, REQUIRED): the greeting renders with NO
   // request, so at chat-open we hand the proxy the card ourselves. Fire-and-forget;
   // the proxy's genesis marker makes re-opens no-ops. First-request path = fallback.
-  async function doGenesis(reason, force = false) {
+  async function doGenesis(reason, force = false, ifearly = false) {
     if (!settings.enabled) return { error: "extension disabled" };
     const sub = (t) => { try { return C().substituteParams(t || ""); } catch (e) { return t || ""; } };
     let ch = null, cx = C();                                // CHAT_CHANGED can fire before the
@@ -83,16 +83,18 @@
     if (!ch) { console.warn("[AetherState] genesis: no active character"); return { error: "no character" }; }
     const card = [sub(ch.description), sub(ch.personality), sub(ch.scenario), sub(ch.mes_example)]
       .filter(Boolean).join("\n").trim();
-    let greeting = sub(ch.first_mes || "");
-    if (!greeting) {                                        // fall back to the greeting shown in chat
-      try { const m = (cx.chat || []).find((x) => !x.is_user && x.mes); if (m) greeting = sub(m.mes); } catch (e) {}
-    }
+    // 2026-07-06: prefer the greeting actually SHOWN in chat — message.mes reflects the
+    // current swipe, so alternative greetings seed correctly. first_mes is the fallback.
+    let greeting = "";
+    try { const m = (cx.chat || []).find((x) => !x.is_user && x.mes); if (m) greeting = sub(m.mes); } catch (e) {}
+    if (!greeting) greeting = sub(ch.first_mes || "");
     if (!card && !greeting) { console.warn("[AetherState] genesis: empty card+greeting"); return { error: "empty card" }; }
     const S = sid();
     try {
       const ac = new AbortController();
       const t = setTimeout(() => ac.abort(), 8000);        // seeding is fast (Stage B is async)
-      const r = await fetch(settings.proxy_url.replace(/\/$/, "") + `/aether/session/${S}/genesis${force ? "?force=1" : ""}`, {
+      const q = [force ? "force=1" : "", ifearly ? "ifearly=1" : ""].filter(Boolean).join("&");
+      const r = await fetch(settings.proxy_url.replace(/\/$/, "") + `/aether/session/${S}/genesis${q ? "?" + q : ""}`, {
         method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
         body: JSON.stringify({ card, greeting, speaker: ch.name || "", user: guardName(), opening: "" }),
       });
@@ -104,6 +106,17 @@
     } catch (e) { console.warn("[AetherState] genesis fetch failed", e); return { error: String(e) }; }
   }
   function genesisAtChatOpen() { doGenesis("chat_open").catch(() => {}); }
+  // 2026-07-06: swiping the FIRST message picks a different opening — re-seed so state
+  // reflects the greeting the player actually chose. ifearly=1 makes the proxy refuse
+  // once real turns exist, so an established chat is never disturbed.
+  function genesisAtGreetingSwipe(i) {
+    try {
+      const chat = C().chat || [];
+      const first = chat.findIndex((x) => !x.is_user);
+      if (Number(i) !== first || first < 0) return;
+      setTimeout(() => doGenesis("greeting_swipe", true, true).catch(() => {}), 400);
+    } catch (e) {}
+  }
 
   // ---- fire-and-forget hints (05 §5): 2 s timeout, silent — proxy never depends on them
   function hint(event, messageIndex = -1) {
@@ -145,7 +158,7 @@
         if (!type || type === "normal" || type === "continue") turnCounter++;
       } catch (e) {}
     });
-    on("MESSAGE_SWIPED", (i) => hint("swipe", Number(i)));
+    on("MESSAGE_SWIPED", (i) => { hint("swipe", Number(i)); genesisAtGreetingSwipe(i); });
     on("MESSAGE_EDITED", (i) => hint("edit", Number(i)));
     on("MESSAGE_DELETED", (i) => hint("delete", Number(i)));
     on("MESSAGE_RECEIVED", () => { refreshChip(); lastGen = Date.now(); });
@@ -207,25 +220,33 @@
             <div class="aes-row">
               <button class="aes-freeze" id="aes_freeze">FREEZE</button>
               <button class="aes-resume" id="aes_resume">RESUME</button>
-              <label><input type="checkbox" id="aes_override"> manual override</label>
+              <label class="aes-check"><input type="checkbox" id="aes_override"> manual override</label>
             </div>
             <div class="aes-row">
-              <label><input type="checkbox" id="aes_enabled"> enabled</label>
-              <label><input type="checkbox" id="aes_mode" checked> enrichment</label>
-              <input id="aes_proxy" placeholder="proxy url" style="flex:1" />
-              <a id="aes_console" target="_blank">open Console</a>
+              <label class="aes-check"><input type="checkbox" id="aes_enabled"> enabled</label>
+              <label class="aes-check"><input type="checkbox" id="aes_mode" checked> enrichment</label>
+              <a id="aes_console" class="aes-link" target="_blank">open Console</a>
+              <a id="aes_creator" class="aes-link" target="_blank">open Creator</a>
             </div>
+            <div class="aes-field">
+              <label class="aes-label" for="aes_proxy">Proxy URL</label>
+              <input id="aes_proxy" class="text_pole aes-input" placeholder="http://127.0.0.1:9130" />
+            </div>
+            <div class="aes-field">
+              <label class="aes-label" for="aes_guard">Your name <span class="aes-opt">— optional</span></label>
+              <input id="aes_guard" class="text_pole aes-input" placeholder="blank = your ST persona ({{user}})" />
+              <div class="aes-help">Tells AetherState which character is <b>you</b>, so the AI never writes
+                in your voice and never tracks you as an NPC. Leave blank to use your SillyTavern persona
+                name automatically — only type a name here to override it.</div>
+            </div>
+            <div class="aes-row"><span id="aes_groups"></span></div>
             <div class="aes-row">
-              <input id="aes_guard" placeholder="your character name (blank = {{user}})" style="flex:1" />
-              <span id="aes_groups"></span>
+              <label class="aes-inline">update state every
+                <input id="aes_cadence" class="text_pole aes-num" type="number" min="1" max="50" /> turn(s)</label>
+              <label class="aes-inline">story context intake
+                <input id="aes_intake" class="text_pole aes-num" type="number" min="0" max="200000" step="1000" /> chars</label>
             </div>
-            <div class="aes-row">
-              <label style="font-size:12px">update state every
-                <input id="aes_cadence" type="number" min="1" max="50" style="width:3.5em" /> turn(s)</label>
-              <label style="font-size:12px">story context intake
-                <input id="aes_intake" type="number" min="0" max="200000" step="1000" style="width:6.5em" /> chars</label>
-            </div>
-            <div class="aes-row" style="opacity:.75;font-size:12px">
+            <div class="aes-row aes-note">
               Headroom: keep ~1200 tokens free in ST's context size so the state
               briefing never crowds the chat (Settings → Context Size).
             </div>
@@ -236,10 +257,14 @@
       $("aes_enabled").checked = settings.enabled;
       $("aes_proxy").value = settings.proxy_url;
       $("aes_console").href = settings.proxy_url + "/aether/console";
+      const creatorHref = () => settings.proxy_url + "/aether/creator?session=" + encodeURIComponent(sid());
+      $("aes_creator").href = creatorHref();
+      $("aes_creator").onclick = () => { $("aes_creator").href = creatorHref(); };
       $("aes_enabled").onchange = (e) => { settings.enabled = e.target.checked; save(); };
       $("aes_proxy").onchange = (e) => {
         settings.proxy_url = e.target.value; save();
         $("aes_console").href = settings.proxy_url + "/aether/console";
+        $("aes_creator").href = creatorHref();
       };
       $("aes_mode").onchange = (e) => api(`/aether/session/${sid()}/mode`, {
         method: "POST", headers: { "content-type": "application/json" },
@@ -369,6 +394,26 @@
           ? `state now updates every ${d.cadence_turns} turn(s)` : "failed to set cadence";
       }, "Set how often the state updates: every N turns (1 = every turn).",
          "turns (1-50)", true);
+      cmd("aether-spec", async (_n, value) => {
+        const name = String(value || "").trim().toLowerCase();
+        if (!name) {                                   // no arg -> report current
+          try { const d = await api("/aether/specialization");
+                return `specialization: ${d.name}`; }
+          catch (e) { return "AetherState: offline"; }
+        }
+        if (name !== "none" && name !== "rpg") return "usage: /aether-spec none|rpg";
+        const d = await api("/aether/specialization", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        return d && d.name ? `specialization: ${d.name}` : "failed to set specialization";
+      }, "Switch narrative mode: none (default chat-RP) or rpg (Dungeon-Master mode).",
+         "none|rpg", false);
+      cmd("aether-creator", async () => {
+        const url = settings.proxy_url + "/aether/creator?session=" + encodeURIComponent(sid());
+        try { window.open(url, "_blank"); } catch (e) { return "open " + url; }
+        return "opening the World & Character creator\u2026";
+      }, "Open the AetherState World Generator & Character Creator window.");
       console.log("[AetherState] slash commands registered");
     }
   } catch (e) { console.warn("[AetherState] slash registration failed", e); }

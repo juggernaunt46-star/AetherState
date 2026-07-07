@@ -84,6 +84,43 @@ EXTRACTION_OPS = sorted((
     "arousal", "mood", "consent_signal", "relationship_adj", "reveal_fact",
     "memory_event", "goal", "time_advance", "obsession", "craving"))
 
+# RPG-2 (doc 07 §4.1): the five PROPOSABLE item ops. Offered to the model ONLY when
+# specialization=rpg — a `none` session's wire schema + OP CARD stay byte-identical to 1.0
+# (the RPG invariant), and each variant is its own stable string so hosted compilers cache
+# both once. check / item_mint / set_* are privileged and NEVER appear on the wire.
+RPG_ITEM_OPS = ("item_consume", "item_equip", "item_move", "item_transfer", "item_unequip")
+# RPG-3 (doc 05 §5.4): the three PROPOSABLE effect ops — same rpg-only wire discipline.
+# check / item_mint / ability_grant / set_* are privileged and NEVER appear on the wire.
+RPG_EFFECT_OPS = ("effect_add", "effect_remove", "effect_update")
+# RPG-3b (doc 07 §7.7): the two PROPOSABLE social ops — same rpg-only wire discipline.
+# Affinity `kind` is DERIVED engine-side (from the target entity's kind) and never rides
+# the wire; set_soulmate/set_nemesis are privileged and NEVER appear on the wire.
+RPG_SOCIAL_OPS = ("affinity_adj", "world_flag")
+EXTRACTION_OPS_RPG = sorted(EXTRACTION_OPS + list(RPG_ITEM_OPS) + list(RPG_EFFECT_OPS)
+                            + list(RPG_SOCIAL_OPS))
+_RPG_OP_FIELDS: dict[str, list[str]] = {
+    "instance": ["string", "null"], "to": ["string", "null"], "slot": ["string", "null"],
+    "to_owner": ["string", "null"], "amount": ["integer", "null"], "swap": ["boolean", "null"],
+    # RPG-3 effect fields. NOTE: "valence" collides with mood's integer field — the flat rpg
+    # schema (all fields shared) must admit BOTH, so it widens to integer|string there; the
+    # anyOf builder keeps mood integer-only and effect branches string-only (see below), and
+    # validate_op quarantines a non-vocabulary effect valence either way.
+    "effect": ["string", "null"], "kind": ["string", "null"],
+    "valence": ["integer", "string", "null"], "note": ["string", "null"],
+    "duration": ["integer", "null"], "stacks": ["integer", "null"],
+    # RPG-3b social fields. `target`/`delta`/`reason`/`key`/`value` reuse base _OP_FIELDS
+    # types; only world_flag's optional faction scope is new.
+    "faction": ["string", "null"],
+}
+# RPG-3 branch-level vocabularies/types (anyOf rung only; the flat schema can't carry them
+# without disturbing mood — the OP CARD + apply-side validation stay load-bearing there).
+_RPG_FIELD_ENUMS: dict[str, dict[str, list]] = {
+    "effect_add": {"kind": ["condition", "status"],
+                   "valence": ["negative", "neutral", "positive"]},
+    "effect_update": {"valence": ["negative", "neutral", "positive"]},
+}
+_RPG_BRANCH_TYPES: dict[str, list[str]] = {"valence": ["string", "null"]}
+
 # closed vocabularies — derived from state.OP_FIELD_ENUMS (single source of truth).
 # Per-FIELD unions for the flat schema: multi-contributor fields (action) get a sorted
 # union; single-contributor fields keep their list VERBATIM (to_time_of_day stays in
@@ -104,18 +141,22 @@ def _derive_flat_enums() -> dict[str, list]:
 _OP_ENUMS: dict[str, list] = _derive_flat_enums()
 
 
-def delta_json_schema() -> dict:
+def delta_json_schema(rpg: bool = False) -> dict:
+    op_fields = {**_OP_FIELDS, **_RPG_OP_FIELDS} if rpg else _OP_FIELDS
     op_props: dict = {}
-    for k, v in _OP_FIELDS.items():
+    for k, v in op_fields.items():
         prop: dict = {"type": v}
         if k in _OP_ENUMS:
-            enum = list(_OP_ENUMS[k])
+            enum = (list(EXTRACTION_OPS_RPG) if rpg else list(_OP_ENUMS[k])) if k == "op" \
+                else list(_OP_ENUMS[k])
             if "null" in v:              # nullable enum fields must admit null explicitly
                 enum = enum + [None]
             prop["enum"] = enum
+        elif rpg and k == "kind":        # RPG-3: single-contributor field -> safe flat enum
+            prop["enum"] = ["condition", "status", None]
         op_props[k] = prop
     return {
-        "name": "aetherstate_delta",
+        "name": "aetherstate_delta_rpg" if rpg else "aetherstate_delta",
         "strict": True,
         "schema": {
             "type": "object",
@@ -124,7 +165,7 @@ def delta_json_schema() -> dict:
                 "turn_range": {"type": "array", "items": {"type": "integer"}},
                 "ops": {"type": "array", "items": {
                     "type": "object", "properties": op_props,
-                    "required": list(_OP_FIELDS), "additionalProperties": False}},
+                    "required": list(op_fields), "additionalProperties": False}},
             },
             "required": ["schema", "turn_range", "ops"],
             "additionalProperties": False,
@@ -132,7 +173,7 @@ def delta_json_schema() -> dict:
     }
 
 
-def delta_json_schema_anyof() -> dict:
+def delta_json_schema_anyof(rpg: bool = False) -> dict:
     """Q18 addendum: per-op-type branches — a branch only HAS its own fields, so filling
     another op's fields is structurally impossible (mega-op filler dies at the schema
     level; the token win goes to budget/thinking-off tiers, Q16). Venice strict verified
@@ -143,20 +184,32 @@ def delta_json_schema_anyof() -> dict:
     branches carry _OP_ALLOWED ∩ _OP_FIELDS (apply-side optionals covers/is_secret/
     calendar_note stay off the wire). Branch enums are PER-OP (goal.action is just
     add|complete|abandon here, not the flat union) — tighter vocabulary at zero tokens."""
+    op_fields = {**_OP_FIELDS, **_RPG_OP_FIELDS} if rpg else _OP_FIELDS
     branches = []
-    for kind in EXTRACTION_OPS:
-        fields = sorted(_OP_ALLOWED[kind] & set(_OP_FIELDS))
+    for kind in (EXTRACTION_OPS_RPG if rpg else EXTRACTION_OPS):
+        fields = sorted(_OP_ALLOWED[kind] & set(op_fields))
         props: dict = {"op": {"type": "string", "enum": [kind]}}
         for f in fields:
-            prop: dict = {"type": _OP_FIELDS[f]}
+            # Branch types are PER-OP (RPG-3): a base op keeps its base type even under rpg
+            # (mood.valence stays integer), and an effect branch narrows shared names to its
+            # own type (effect valence is string-only) — the flat union never leaks in here.
+            if kind in EXTRACTION_OPS and f in _OP_FIELDS:
+                ftype = _OP_FIELDS[f]
+            elif kind in RPG_EFFECT_OPS and f in _RPG_BRANCH_TYPES:
+                ftype = _RPG_BRANCH_TYPES[f]
+            else:
+                ftype = op_fields[f]
+            prop: dict = {"type": ftype}
             enum = OP_FIELD_ENUMS.get(kind, {}).get(f)
+            if enum is None and rpg:
+                enum = _RPG_FIELD_ENUMS.get(kind, {}).get(f)
             if enum is not None:
-                prop["enum"] = (list(enum) + [None]) if "null" in _OP_FIELDS[f] else list(enum)
+                prop["enum"] = (list(enum) + [None]) if "null" in ftype else list(enum)
             props[f] = prop
         branches.append({"type": "object", "properties": props,
                          "required": ["op"] + fields, "additionalProperties": False})
     return {
-        "name": "aetherstate_delta_v2",
+        "name": "aetherstate_delta_v2_rpg" if rpg else "aetherstate_delta_v2",
         "strict": True,
         "schema": {
             "type": "object",
@@ -265,6 +318,22 @@ _OP_ALLOWED: dict[str, set[str]] = {
     "obsession": {"char", "target_kind", "target", "delta", "set", "flavor",
                   "behavior_note"},
     "craving": {"char", "substance", "action", "delta"},
+    # RPG-2 proposable item ops (doc 07 §4.1) — scrub rows; on the wire only under rpg
+    "item_move": {"instance", "to"},
+    "item_equip": {"instance", "slot", "swap"},
+    "item_unequip": {"instance", "to"},
+    "item_consume": {"instance", "amount"},
+    "item_transfer": {"instance", "to_owner", "to"},
+    # RPG-3 proposable effect ops (doc 05 §5.4) — scrub rows; on the wire only under rpg.
+    # `mods` is deliberately ABSENT: mechanics come from the preset bake, never the model.
+    "effect_add": {"char", "effect", "kind", "valence", "note", "duration", "stacks"},
+    "effect_remove": {"char", "effect"},
+    "effect_update": {"char", "effect", "valence", "note", "duration", "stacks"},
+    # RPG-3b proposable social ops (doc 07 §7.7) — scrub rows; on the wire only under rpg.
+    # affinity `kind` is deliberately ABSENT (derived from the target entity — the model
+    # never types records); the bond ops are absent entirely (privileged).
+    "affinity_adj": {"target", "delta", "reason"},
+    "world_flag": {"key", "value", "faction"},
 }
 
 
@@ -606,6 +675,12 @@ class Ladder:
             log.debug("anyof probe rejected: %s", type(exc).__name__)
             return 0
 
+    def _rpg(self) -> bool:
+        """RPG wire vocabulary gate (doc 07 §4.1): item ops are offered only under rpg so a
+        `none` session's extraction requests stay byte-identical to 1.0."""
+        spec = getattr(self.cfg, "specialization", None)
+        return spec is not None and getattr(spec, "name", "none") == "rpg"
+
     def _wire_schema(self, ep: Endpoint) -> dict:
         """Rung-2 schema selection: anyOf per-op branches where the endpoint's strict
         mode verified them (caps.anyof == 1), flat otherwise. Fail-safe is always flat;
@@ -614,8 +689,8 @@ class Ladder:
         if self.cfg.extraction.use_anyof:
             row = self.store.caps_get(ep.base_url, ep.model)
             if row is not None and row["anyof"] == 1:
-                return delta_json_schema_anyof()
-        return delta_json_schema()
+                return delta_json_schema_anyof(self._rpg())
+        return delta_json_schema(self._rpg())
 
     def _native_dialect(self, ep: Endpoint) -> str:
         d = self._forced_native.get((ep.base_url, ep.model))
@@ -633,7 +708,8 @@ class Ladder:
                              {"role": "user", "content": user}]}
         if rung == 1:
             fld, kind = _NATIVE.get(self._native_dialect(ep), _NATIVE["llamacpp"])
-            body[fld] = delta_json_schema()["schema"] if kind == "schema" else GBNF_JSON
+            body[fld] = delta_json_schema(self._rpg())["schema"] if kind == "schema" \
+                else GBNF_JSON
         elif rung == 2:
             body["response_format"] = {"type": "json_schema",
                                        "json_schema": self._wire_schema(ep)}
@@ -652,7 +728,8 @@ class Ladder:
                                     context=context)
         include_card = not self.cfg.extraction.trim_op_card
         for rung in range(seed, 5):
-            system = prompts.system_prompt(rung, ep.assist_tier, include_card)
+            system = prompts.system_prompt(rung, ep.assist_tier, include_card,
+                                           rpg=self._rpg())
             try:
                 raw = await self._post(ep, self._body(ep, rung, system, user))
                 self.last_raw = raw

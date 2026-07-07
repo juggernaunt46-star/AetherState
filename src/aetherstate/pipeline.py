@@ -59,6 +59,7 @@ class Pipeline:
             card, opening = genesis.card_and_prompt(doc)             # rules seed (sub-ms)
             genesis.seed_rules(self.store, self.cfg, res.session_id, res.branch_id, doc,
                                speaker=(res.stamp.speaker if res.stamp else "") or "")
+            genesis.seed_player(self.store, self.cfg, res.session_id, res.branch_id, doc)
         state = current_state(self.store, res.branch_id)
 
         if not res.duplicate:                 # 08 S7: retries never double-apply
@@ -74,6 +75,11 @@ class Pipeline:
             if t0.rule_ops:
                 r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
                                 t0.rule_ops, "rule", self.cfg)
+                state = r.state
+                self._index_memories(res, r)
+            if t0.proposal_ops:               # R9 (RPG-3): model-authored effect tags apply
+                r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
+                                t0.proposal_ops, "extraction", self.cfg)   # proposals, clamped
                 state = r.state
                 self._index_memories(res, r)
             for n in t0.notices:
@@ -248,6 +254,12 @@ class Pipeline:
             known = discovery.known_names(state, (guard, ctx.speaker or ""))
             discovery.observe_text(self.store, self.cfg, ctx.session_id, ctx.branch_id,
                                    ctx.turn_index, text, known)
+            if getattr(self.cfg, "specialization", None) is not None \
+                    and self.cfg.specialization.name == "rpg":
+                # RPG-4: places persist once too — rpg-gated so a `none` session's journal
+                # stays byte-identical (invariant: no fingerprint under none).
+                discovery.observe_locations(self.store, self.cfg, ctx.session_id,
+                                            ctx.branch_id, ctx.turn_index, text, state)
         except Exception as exc:
             log.warning("discovery pass failed open: %s", type(exc).__name__)
 

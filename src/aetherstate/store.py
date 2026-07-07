@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS director(
   id INTEGER PRIMARY KEY AUTOINCREMENT, branch_id TEXT, turn_index INTEGER,
   beat_id TEXT, scene_index INTEGER, ts REAL);
 CREATE INDEX IF NOT EXISTS idx_director_branch ON director(branch_id, turn_index);
+CREATE TABLE IF NOT EXISTS presets(
+  preset_id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, name TEXT, doc TEXT,
+  created REAL, updated REAL, UNIQUE(kind, name));
 """
 
 # Additive column migrations for DBs created before a column existed (pre-migration DBs).
@@ -560,6 +563,43 @@ class Store:
         with self._lock, self.db:
             self.db.execute("UPDATE sessions SET label=? WHERE session_id=?",
                             ((label or "")[:120], session_id))
+
+    # -- creator presets (2026-07-06): named world/player docs, reusable across sessions --
+    def preset_save(self, kind: str, name: str, doc: dict) -> int:
+        """Upsert a named preset (kind: 'world' | 'player'). Returns preset_id."""
+        now = time.time()
+        with self._lock, self.db:
+            self.db.execute(
+                "INSERT INTO presets(kind, name, doc, created, updated) VALUES(?,?,?,?,?)"
+                " ON CONFLICT(kind, name) DO UPDATE SET doc=excluded.doc, updated=excluded.updated",
+                (kind, (name or "")[:120], json.dumps(doc), now, now))
+            row = self.db.execute("SELECT preset_id FROM presets WHERE kind=? AND name=?",
+                                  (kind, (name or "")[:120])).fetchone()
+        return row["preset_id"] if row else 0
+
+    def preset_list(self) -> list:
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT preset_id, kind, name, updated FROM presets"
+                " ORDER BY kind, name COLLATE NOCASE").fetchall()
+        return [dict(r) for r in rows]
+
+    def preset_get(self, preset_id: int) -> Optional[dict]:
+        with self._lock:
+            row = self.db.execute("SELECT * FROM presets WHERE preset_id=?",
+                                  (int(preset_id),)).fetchone()
+        if not row:
+            return None
+        try:
+            doc = json.loads(row["doc"] or "{}")
+        except (json.JSONDecodeError, ValueError):
+            doc = {}
+        return {"preset_id": row["preset_id"], "kind": row["kind"],
+                "name": row["name"], "doc": doc, "updated": row["updated"]}
+
+    def preset_delete(self, preset_id: int) -> None:
+        with self._lock, self.db:
+            self.db.execute("DELETE FROM presets WHERE preset_id=?", (int(preset_id),))
 
     def session_delete(self, session_id: str) -> None:
         """Remove a session and everything under it (all branches + per-session rows)."""

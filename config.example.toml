@@ -13,6 +13,9 @@
 [upstream]
 base_url = ""     # e.g. "https://api.venice.ai/api/v1", "https://api.openai.com/v1",
                   #      "http://127.0.0.1:11434/v1" (Ollama), "http://127.0.0.1:5001/v1" (KoboldCpp)
+model = ""        # DEFAULT model for engine-initiated calls only (Creator auto-fill, chat-open
+                  # genesis) before any chat request has flowed. The relay NEVER uses it — your
+                  # frontend names its own model per request. Set it from Console -> Connection.
 api_key = ""      # FALLBACK ONLY. AetherState is a transparent proxy: the key your frontend
                   # (e.g. SillyTavern) sends in its connection profile is forwarded upstream
                   # AS-IS and ALWAYS WINS. This key is used ONLY when the frontend sends no
@@ -57,3 +60,44 @@ name = ""             # your persona's name — keeps the model from speaking in
 
 [consent]
 safewords = []        # e.g. ["red"] — any of these in YOUR message freezes the scene instantly
+
+# ------------------------------------------------------------------
+# NARRATIVE MODE (Q27 / RPG specialization). Leave as "none" for normal chat-RP — that is
+# byte-identical to not having this section at all. Set "rpg" to turn the character card
+# into a Dungeon Master: it runs the world, NPCs and factions, YOUR character becomes a
+# tracked Player Card ([PLAYER]/[QUEST] blocks appear), and the guard reframes to a
+# Game-Master framing. Switch live with  /aether-spec rpg  (or the Console). When "rpg" a
+# built-in profile fills defaults for other sections (e.g. injection priorities); anything
+# you set below still wins.
+[specialization]
+name = "none"         # none | rpg
+# blocks = ["PLAYER", "EFFECTS", "GEAR", "INVENTORY", "FACTIONS", "RELATIONS", "QUEST", "WORLD", "DIRECTIVE"]
+# dm_guard = true     # Game-Master framing of the persona guard
+# dice = "2d6"        # resolution dice (RPG-1): 2d6 | 3d6 | 2d10 | 1d20 (overrides the registry)
+# tiers = "pbta3"     # resolution tier model (RPG-1)
+# nemesis_enabled = false   # RPG-3b: turn on the single-nemesis linter guard (one_nemesis)
+# faction_cascade = 0.1     # RPG-3b: NPC->faction affinity ripple (negatives halved; 0 = off)
+# contract = "full"         # RPG-4: DM rules-contract size — "compact" for weak/local models
+#                           # (same non-negotiables in ~40 tokens; part of the degradation ladder)
+#
+# RPG-4 location registry: under rpg, scene locations CANONICALIZE — a revisit under any name
+# variant ("Gilded Lantern" vs "The Gilded Lantern") resolves to the same location entity
+# (aliases learned automatically; visits counted); free prose pasted as a location is trimmed
+# to its name head. Places the narrator invents are discovered and persisted ONCE (never
+# regenerated). A `none` session is completely untouched by all of this.
+#
+# RPG-1 mechanics (curated stats/skills/abilities): declare an explicit skill-check inline with
+#   ((aether.check <skill> [+N|-N] [vs DC] [scope minor|standard|major|epic|mythic]))
+# The engine maps <skill> to the curated registry, rolls real dice, resolves a PbtA tier, and
+# injects a [DIRECTIVE] the narrator must honour (the `outcome_match` linter rule flags a
+# narration that contradicts the roll). Unknown skills are rejected — nothing freestyle. The
+# shipped registry lives in the package (registry/*.toml); extend or override it per-table via
+#   <data_dir>/registry/{meta,stats,skills,abilities,items,effects}.toml
+#
+# RPG-3b social plane: the player's standing with NPCs and factions is a reason-tagged ledger
+# ([RELATIONS]/[FACTIONS] render the TIER label: Nemesis..Neutral..Devoted); world circumstances
+# ride [WORLD]. In-chat edits (rpg only):
+#   ((aether.set affinity.<name> <±N>))         — needs [manual_override] enabled
+#   ((aether.set world.<key> <value|none>))     — none/null/clear removes the flag
+#   ((aether.set player.soulmate <name|none>))  /  player.nemesis
+# Soulmate/nemesis are unique bonds: promoting a new one demotes the incumbent (label kept).

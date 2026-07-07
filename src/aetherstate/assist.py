@@ -62,7 +62,8 @@ def endpoint_for_group(cfg, group: str, model_hint: str = ""):
 
 
 async def _chat(get_client, cfg, ep: Endpoint, system: str, user: str,
-                max_tokens: int = 500):
+                max_tokens: int = 500, temperature: float = 0.0,
+                timeout_s: float | None = None):
     """One JSON-seeking generation; single retry on 429/5xx AND on transport errors
     (stale keep-alive pool after an assist restart — handoff 2026-07-04 item 3);
     None on any failure.
@@ -71,8 +72,14 @@ async def _chat(get_client, cfg, ep: Endpoint, system: str, user: str,
     same way extraction/probes do it, and reasoning_content is used as a fallback
     when a thinking model replies with empty content anyway. Live repro 2026-07-04:
     GLM-5-2 with thinking ON burned the whole token budget reasoning about a long
-    prose card — content came back as prose/empty and genesis Stage B seeded 0 ops."""
-    body = {"model": ep.model, "max_tokens": max_tokens, "temperature": 0.0,
+    prose card — content came back as prose/empty and genesis Stage B seeded 0 ops.
+
+    temperature/timeout_s (2026-07-06, live repro): mechanics stay at 0.0/25 s, but
+    CREATIVE cold-path callers (creator authoring, genesis stage B) pass a higher
+    temperature and a much longer timeout — a large model writing 2-4k tokens of
+    world JSON takes well over 25 s, and the old fixed timeout made every authoring
+    call silently fall back to templates."""
+    body = {"model": ep.model, "max_tokens": max_tokens, "temperature": temperature,
             "messages": [{"role": "system", "content": system},
                          {"role": "user", "content": user}]}
     if is_venice_host(ep.base_url):
@@ -87,7 +94,7 @@ async def _chat(get_client, cfg, ep: Endpoint, system: str, user: str,
     for attempt in (0, 1):
         try:
             resp = await client.post(url, json=body, headers=headers,
-                                     timeout=_TIMEOUT_S)
+                                     timeout=timeout_s or _TIMEOUT_S)
             if resp.status_code == 429 or resp.status_code >= 500:
                 if attempt == 0:
                     continue
@@ -116,13 +123,64 @@ async def _chat(get_client, cfg, ep: Endpoint, system: str, user: str,
     return None
 
 
+_FENCE_RE = re.compile(r"```(?:json)?\s*|\s*```", re.IGNORECASE)
+
+
 def _json_or_none(text):
+    """Parse a JSON object out of a model reply. 2026-07-06 live repro: GLM wraps its
+    (otherwise perfect) creator JSON in a ```json fence — strip fences first, then try
+    the whole reply, then the outermost {...} slice (prose-préfixed replies)."""
     if not text:
         return None
+    text = _FENCE_RE.sub("", text)
+    i, k = text.find("{"), text.rfind("}")
+    for cand in (text, text[i:k + 1] if 0 <= i < k else ""):
+        if not cand:
+            continue
+        try:
+            return json.loads(repair_json(cand))
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
+
+
+async def resolve_endpoint(get_client, cfg, ep: Endpoint) -> Endpoint:
+    """Make sure a cold-path endpoint actually names a model (2026-07-06 live repro:
+    at chat-open genesis nothing has been proxied yet, so jobs.endpoint_for returned
+    model='' and every stage-B call died on an upstream 400 — then marked itself done).
+
+    Resolution order, all fail-open: (1) the endpoint already has a model — keep it;
+    (2) a configured [[assist.endpoints]] model (Bean's explicit mechanics pick) — use
+    that endpoint wholesale; (3) [upstream].model default when set; (4) detect via
+    GET /models at the endpoint itself. Returns the endpoint unchanged when nothing
+    resolves — the caller's own fail-open handles it."""
     try:
-        return json.loads(repair_json(text))
-    except (json.JSONDecodeError, ValueError):
-        return None
+        if ep.model:
+            return ep
+        eps = cfg.assist.endpoints
+        if eps and eps[0].model:
+            e = eps[0]
+            return Endpoint(base_url=e.base_url, model=e.model, api_key=e.api_key,
+                            assist_tier=e.tier in ("nano", "small"))
+        default = getattr(cfg.upstream, "model", "") or ""
+        if default:
+            ep.model = default
+            return ep
+        base = (ep.base_url or "").rstrip("/")
+        if not base:
+            return ep
+        headers = {}
+        key = ep.api_key or cfg.upstream.api_key
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        r = await get_client().get(base + "/models", headers=headers, timeout=15.0)
+        if r.status_code < 400:
+            ids = sorted([m.get("id") for m in (r.json().get("data") or []) if m.get("id")])
+            if ids:
+                ep.model = ids[0]
+    except Exception as exc:
+        log.debug("endpoint model resolution failed open: %s", type(exc).__name__)
+    return ep
 
 
 # ------------------------------------------------------------------ embeddings (03 SS7)

@@ -24,7 +24,7 @@ import logging
 import re
 
 from .extraction import repair_json
-from .state import apply_delta, validate_op
+from .state import apply_delta, current_state, validate_op
 
 log = logging.getLogger("aetherstate.genesis")
 
@@ -218,23 +218,116 @@ def seed_rules(store, cfg, session_id: str, branch_id: str, doc: dict,
         return 0
 
 
+# ---- RPG player genesis (track 2 of two-track genesis, doc 05 §3.3 / doc 06 §2) ---------
+# World genesis (track 1) is the existing two-stage pass above, re-read as the DM/world seed
+# when specialization=rpg (the card IS the Dungeon Master). Track 2 below establishes the
+# Player Card. RPG-0 ships a deterministic, hot-path-safe skeleton (no LLM): an explicit seed
+# if the request carries one, else a registry-less default so [PLAYER] renders from turn 0.
+# The point-buy / curated-registry creator lands at RPG-1 (doc 09).
+DEFAULT_PLAYER_STATS = {"STR": 10, "DEX": 10, "INT": 10, "CHA": 10, "CUN": 10, "CON": 10}
+DEFAULT_PLAYER_HP_MAX = 20
+
+
+def _player_seed_from_doc(doc: dict, cfg) -> tuple[str, dict]:
+    """(player_name, seed_card). Tolerates a few carrier shapes for an explicit seed
+    (doc 06 §S4: ST card extensions.aetherstate.player) without depending on any; falls back
+    to a sensible default. The player is the USER's character, so the default name is the
+    user persona (never the card/DM speaker)."""
+    name = (cfg.user_guard.name or "").strip() or "Player"
+    seed: dict = {}
+    try:
+        for key in ("aetherstate_player", "player"):
+            if isinstance(doc.get(key), dict):
+                seed = doc[key]
+                break
+        ext = doc.get("extensions")
+        if not seed and isinstance(ext, dict) and isinstance(ext.get("aetherstate"), dict):
+            if isinstance(ext["aetherstate"].get("player"), dict):
+                seed = ext["aetherstate"]["player"]
+    except Exception:
+        seed = {}
+    ident = seed.get("identity") if isinstance(seed.get("identity"), dict) else seed
+    if isinstance(ident, dict) and str(ident.get("name", "")).strip():
+        name = str(ident["name"]).strip()
+    card = {
+        "level": (ident or {}).get("level", 1),
+        "concept": (ident or {}).get("concept"),
+        "pronouns": (ident or {}).get("pronouns"),
+        "stats": seed["stats"] if isinstance(seed.get("stats"), dict) else dict(DEFAULT_PLAYER_STATS),
+        "skills": seed["skills"] if isinstance(seed.get("skills"), dict) else {},
+        "abilities": seed["abilities"] if isinstance(seed.get("abilities"), list) else [],
+        "resources": seed["resources"] if isinstance(seed.get("resources"), dict)
+                     else {"hp": {"max": DEFAULT_PLAYER_HP_MAX}},
+    }
+    if not seed:
+        # No explicit seed anywhere: this is the registry-less PLACEHOLDER card (the floor so
+        # [PLAYER] renders from turn 0). Mark it so a later authored player_seed (Creator save)
+        # REPLACES it without leaving a ghost 'Player' entity behind (2026-07-06 live repro:
+        # the placeholder rode alongside the real character as a second player).
+        card["_genesis_default"] = True
+    return name, card
+
+
+def seed_player(store, cfg, session_id: str, branch_id: str, doc: dict) -> int:
+    """RPG player genesis (doc 05 §3.3). Deterministic and sub-ms (no LLM): writes the Player
+    Card via the privileged `player_seed` op (source='genesis'). Idempotent (skips if a Player
+    Card already exists); inert unless specialization=rpg; fail-open (an empty Player Card is
+    acceptable — [PLAYER] simply won't render)."""
+    try:
+        if getattr(cfg, "specialization", None) is None or cfg.specialization.name != "rpg":
+            return 0
+        if current_state(store, branch_id).get("player"):
+            return 0                                       # already seeded
+        name, card = _player_seed_from_doc(doc, cfg)
+        ops = [{"op": "entity_add", "name": name, "kind": "player"},
+               {"op": "player_seed", "entity": name, "card": card}]
+        res = apply_delta(store, session_id, branch_id, 0, ops, "genesis", cfg)
+        if res.applied:
+            log.info("genesis player card seeded for %s (player=%r, %d op)",
+                     session_id[:8], name, len(res.applied))
+        return len(res.applied)
+    except Exception as exc:
+        log.warning("player genesis failed open: %s", type(exc).__name__)
+        return 0
+
+
 async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
                    card: str, prompt: str, speaker: str = "") -> int:
-    """Stage B: assist-LLM full-matrix pass, post-stream cold path. Fail-open."""
-    from .assist import _chat                # shared client plumbing
+    """Stage B: assist-LLM full-matrix pass, post-stream cold path. Fail-open.
+
+    2026-07-06 live repro of 'genesis works half the time': at chat-open nothing has
+    been proxied yet, so the endpoint arrived with model='' (upstream 400) — and the
+    25 s shared timeout killed the calls that DID have a model. Both fixed here: the
+    endpoint is resolved to a real model first (assist pick > upstream.model > GET
+    /models), the call gets a long timeout + a budget that fits ~40 ops, and a HARD
+    failure (no reply at all) re-marks 'rules' instead of 'done' so the next trigger
+    (first message, chat re-open, /aether-genesis) retries instead of being locked out."""
+    from .assist import _chat, resolve_endpoint      # shared client plumbing
     try:
         if store.genesis_state(session_id) not in ("", "rules"):
             return 0
         if not card.strip():
             store.genesis_mark(session_id, "done")
             return 0
+        ep = await resolve_endpoint(get_client, cfg, ep)
+        if not ep.model:
+            log.warning("genesis stage B: no model resolvable at %s — leaving session "
+                        "re-seedable", ep.base_url or "(no endpoint)")
+            store.genesis_mark(session_id, "rules")
+            return 0
         user = (f"CHARACTER CARD:\n{card}\n\n"
                 f"MAIN CHARACTER NAME: {speaker or '(infer from card)'}\n\n"
                 f"OPENING PROMPT:\n{prompt or '(none)'}\n\nJSON array of seed ops:")
-        raw = await _chat(get_client, cfg, ep, _LLM_SYSTEM, user, max_tokens=1400)
-        ops = _parse_ops(raw, speaker=speaker)
-        log.info("genesis stage B: raw=%d chars, %d valid op(s) parsed",
-                 len(raw or ""), len(ops))
+        raw = await _chat(get_client, cfg, ep, _LLM_SYSTEM, user, max_tokens=3200,
+                          timeout_s=120.0)
+        if raw is None:                      # hard failure (timeout/auth/transport):
+            log.warning("genesis stage B: no reply from %s (%s) — leaving session "
+                        "re-seedable", ep.base_url, ep.model)
+            store.genesis_mark(session_id, "rules")
+            return 0
+        ops = _presence_with_basis(_parse_ops(raw, speaker=speaker), card, prompt, speaker)
+        log.info("genesis stage B: raw=%d chars, %d valid op(s) parsed via %s",
+                 len(raw or ""), len(ops), ep.model)
         if not ops and raw:
             log.info("genesis stage B raw head: %r", raw[:300])
         n = 0
@@ -261,7 +354,7 @@ async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
         return 0
 
 
-_FENCE = re.compile(r"```(?:json)?\s*|\s*```")
+_FENCE = re.compile(r"```(?:json)?\s*|\s*```", re.IGNORECASE)
 
 
 def _coerce(op: dict) -> dict:
@@ -291,6 +384,24 @@ def _coerce(op: dict) -> dict:
     if op.get("op") == "relationship_adj" and "delta" not in op and "value" in op:
         op["delta"] = op.pop("value")
     return op
+
+
+def _presence_with_basis(ops: list[dict], card: str, prompt: str,
+                         speaker: str = "") -> list[dict]:
+    """Presence needs an in-world basis (2026-07-06 live repro: notable NPCs staged 'present'
+    at the opening for no reason). Keep a stage-B presence=true op only for names the card or
+    opening prompt actually places in the scene text — everyone else stays known-but-offstage
+    until the fiction brings them on. presence=false and all other ops pass through."""
+    basis = f"{card}\n{prompt}".lower()
+    spk = (speaker or "").strip().lower()
+    keep = []
+    for o in ops:
+        if o.get("op") == "presence" and bool(o.get("present", True)):
+            who = str(o.get("entity", "")).strip().lower()
+            if who and who not in basis and who != spk:
+                continue
+        keep.append(o)
+    return keep
 
 
 def _parse_ops(raw, speaker: str = "") -> list[dict]:
@@ -323,8 +434,16 @@ def _parse_ops(raw, speaker: str = "") -> list[dict]:
     out = []
     for op in doc[:MAX_OPS]:
         v = validate_op(_coerce(op))
-        if v is not None:
-            out.append(v)
+        if v is None:
+            continue
+        # Stage B never mints players: the Player Card has its own dedicated track
+        # (seed_player / the Creator) and is the USER's character — an assist model reading
+        # a card that talks about "the Player" would happily invent one (2026-07-06 live
+        # repro: a generic 'Player' character seeded next to the real one).
+        if v["op"] == "player_seed" or (v["op"] == "entity_add"
+                                        and str(v.get("kind", "")) == "player"):
+            continue
+        out.append(v)
     # every referenced character must exist or its ops quarantine on alias resolution:
     # auto-prepend entity_add for names the model referenced but forgot to create.
     named = {str(o.get("name", "")).strip().lower() for o in out if o["op"] == "entity_add"}

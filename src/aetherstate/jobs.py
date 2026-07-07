@@ -28,7 +28,7 @@ from typing import Optional
 
 from . import assist, compose, director, discovery, linter, memory
 from .extraction import Endpoint, Ladder
-from .state import apply_delta, current_state, is_empty, reduce_state
+from .state import apply_delta, current_state, faction_cascade_ops, is_empty, reduce_state
 
 log = logging.getLogger("aetherstate.jobs")
 
@@ -219,6 +219,18 @@ class JobRunner:
         res = apply_delta(self.store, b.session_id, b.branch_id, b.hi, delta.ops,
                           "extraction", self.cfg, turn_lo=b.lo)
         requeued = self._discover_from_quarantine(b, res.quarantined)
+        try:                                   # RPG-3b (doc 05 §5.4): deterministic faction
+            spec = getattr(self.cfg, "specialization", None)   # cascade — journaled rule ops
+            if spec is not None and spec.name == "rpg" and res.state.get("player"):
+                casc = faction_cascade_ops(res.state, res.applied,
+                                           getattr(spec, "faction_cascade", 0.1))
+                if casc:
+                    r2 = apply_delta(self.store, b.session_id, b.branch_id, b.hi, casc,
+                                     "rule", self.cfg)
+                    res.state = r2.state       # downstream passes see the cascaded snapshot
+                    log.info("faction cascade: %d op(s) applied", len(r2.applied))
+        except Exception as exc:               # never fails the batch (invariant 3)
+            log.warning("faction cascade skipped: %s", type(exc).__name__)
         self.store.mark_extraction(b.branch_id, b.lo, b.hi, "done")
         log.info("extracted [%d,%d]: %d applied, %d quarantined, %d retro-applied",
                  b.lo, b.hi, len(res.applied), len(res.quarantined), requeued)

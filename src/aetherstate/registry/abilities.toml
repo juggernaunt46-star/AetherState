@@ -1,0 +1,42 @@
+# Curated abilities (doc 06 §3.4). Mechanical effect is a BOUNDED, code-understood quantity
+# (a resolution bonus / a resource cost); prose `effect`/`desc` are narration hints ONLY.
+# Passive abilities auto-apply their `passive_mod` to the named skill at resolve time.
+[power_strike]
+name = "Power Strike"
+kind = "active"
+skill = "swordplay"
+cost = { resource = "stamina", amount = 2 }
+cooldown_turns = 1
+resolution_mod = 2
+requires = { skill_rank = { swordplay = 1 } }
+effect = "A committed heavy blow that trades guard for force."
+desc = "Spend stamina to hit harder."
+
+[keen_senses]
+name = "Keen Senses"
+kind = "passive"
+passive_mod = { skill = "perception", amount = 1 }
+effect = "You notice what others miss."
+desc = "A passive edge on perception checks."
+
+[steady_hand]
+name = "Steady Hand"
+kind = "passive"
+passive_mod = { skill = "archery", amount = 1 }
+effect = "Your aim does not waver."
+desc = "A passive edge on archery checks."
+
+[silver_tongue]
+name = "Silver Tongue"
+kind = "passive"
+passive_mod = { skill = "persuasion", amount = 1 }
+effect = "Words come easily to you."
+desc = "A passive edge on persuasion checks."
+
+# RPG-3: a capability MARKER (no numeric effect) — the in-world BASIS the eligibility gate
+# tests for. Granted via the privileged ability_grant op (quest reward, ritual, user).
+[arcane_gift]
+name = "Arcane Gift"
+kind = "passive"
+effect = "The talent for magic is awake in you."
+desc = "Grants the in-world basis for Spellcraft checks."

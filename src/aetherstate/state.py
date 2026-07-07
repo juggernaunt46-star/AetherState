@@ -55,6 +55,45 @@ SIGNAL_TO_LEVEL = {"grant": "granted", "enthusiastic": "enthusiastic", "hesitant
                    "refuse": "withdrawn", "withdraw": "withdrawn"}
 TIMES = ["dawn", "morning", "midday", "afternoon", "evening", "night", "late_night"]
 SCENE_MODES = {"live", "flashback", "dream"}
+# ---- RPG specialization vocab (doc 07 §1): the check-op tier ladder (PbtA + crits).
+# Single source of truth — validate_op checks it; registry.resolve_tier only emits members.
+CHECK_TIERS = ["crit_fail", "fail", "partial", "success", "crit_success"]
+# ---- RPG-2 items vocab (docs 06 §3.5 / 07 §1): instance locations + gear slots.
+# GEAR_SLOT_ORDER is the render order; the AUTHORITATIVE slot set may be extended per-table via
+# the registry (meta.toml `extra_slots`) — validity is baked onto item_equip at _enrich time so
+# the reducer never reads the registry (replay purity).
+ITEM_LOC_KINDS = {"gear", "inv", "world", "gone"}
+GEAR_SLOT_ORDER = ["head", "face", "neck", "shoulders", "body", "cape", "arms", "hands",
+                   "mainhand", "offhand", "waist", "legs", "feet", "back",
+                   "accessory1", "accessory2"]
+GEAR_SLOTS = set(GEAR_SLOT_ORDER)
+# ---- RPG-3 effects vocab (doc 05 §5.4): ledger-owned Statuses & Conditions. Truth lives in
+# the ledger, not the prose — the LLM PROPOSES (tag protocol / extraction), code COMMITS.
+EFFECT_KINDS = {"status", "condition"}
+EFFECT_VALENCES = ["negative", "neutral", "positive"]   # dynamic per-record, never hardcoded
+# ---- RPG-3b social vocab (docs 05 §5.4-5.6 / 06 §2.4 / 07 §1): affinity ledgers, factions,
+# bonds, world flags. Affinity `value` is the CLAMPED LEDGER SUM; the tier is DERIVED at
+# render from AFFINITY_TIERS (never stored — like derived_exposure, it cannot drift). The
+# per-turn delta cap is the AI-Roguelite anti-swing fix, baked per-op (`_delta`) at _enrich
+# so history stays stable even if the constant is tuned later.
+AFFINITY_KINDS = {"npc", "faction"}
+AFFINITY_CLAMP = (-100, 100)
+AFFINITY_DELTA_CLAMP = (-15, 15)
+DEVOTED_MIN = 80                       # soulmate-eligibility floor (doc 06 §2.4; linter-checked)
+AFFINITY_TIERS = [(80, "Devoted"), (40, "Ally"), (10, "Warm"), (-9, "Neutral"),
+                  (-39, "Cold"), (-79, "Hostile")]     # below the last floor -> Nemesis
+
+
+def affinity_tier(value) -> str:
+    """Derived tier label (doc 06 §2.4). Rendered/inspected, never stored."""
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        v = 0
+    for floor, label in AFFINITY_TIERS:
+        if v >= floor:
+            return label
+    return "Nemesis"
 
 # ---- op spec: op -> (required fields, per-field validator hints) (02 SS11) --------
 _SPEC: dict[str, set[str]] = {
@@ -84,12 +123,40 @@ _SPEC: dict[str, set[str]] = {
     "freeze": set(), "unfreeze": set(),
     "roll": {"spec", "result"},                # R7 (result pre-rolled at Tier-0)
     "stagnation": {"value"},                   # R6 signal
+    # RPG specialization (Q27 / doc 05): privileged ops (genesis/user); never extraction.
+    "player_seed": {"entity"},                 # seed/replace the Player Card record
+    "check": {"skill", "result", "tier"},      # RPG-1 R8 resolution record (rule/user; Tier-0)
+    # RPG-2 items (doc 07 §2): item_mint is privileged (user/genesis/rule; never extraction);
+    # the rest are PROPOSABLE (extraction may propose) and transactional at apply (doc 07 §7).
+    "item_mint": {"template", "owner"},
+    "item_move": {"instance", "to"},
+    "item_equip": {"instance", "slot"},
+    "item_unequip": {"instance"},
+    "item_consume": {"instance"},
+    "item_transfer": {"instance", "to_owner"},
+    # RPG-3 effects (doc 05 §5.4): all three are PROPOSABLE (tag protocol + extraction);
+    # optional fields: kind/valence/note/duration/stacks. ability_grant is PRIVILEGED —
+    # the eligibility gate's acquisition route (you earn power in-world; never extraction).
+    "effect_add": {"char", "effect"},
+    "effect_remove": {"char", "effect"},
+    "effect_update": {"char", "effect"},
+    "ability_grant": {"char", "ability"},
+    # RPG-3b social plane (docs 05 §5.4-5.6 / 07 §7.7-7.8): affinity_adj + world_flag are
+    # PROPOSABLE (extraction may propose; delta clamped per turn); set_soulmate/set_nemesis
+    # are PRIVILEGED — bonds are earned and set deliberately, extraction may only nudge
+    # affinity. `target` may be null on the bond ops (= clear the bond).
+    "affinity_adj": {"target", "delta"},
+    "set_soulmate": {"target"},
+    "set_nemesis": {"target"},
+    "world_flag": {"key", "value"},
 }
 
 # 08 E2 deterministic family apply-order (freeze first so mid-delta safewords gate the rest)
 _ORDER = {"freeze": -1, "unfreeze": 0, "entity_add": 0, "presence": 1, "move_entity": 2,
-          "scene_set": 2, "scene_mode": 2, "position": 3, "clothing": 4, "contact": 5,
-          "arousal": 6}
+          "scene_set": 2, "scene_mode": 2, "item_mint": 2, "item_transfer": 3, "position": 3,
+          "clothing": 4, "item_move": 4, "item_equip": 4, "item_unequip": 4, "contact": 5,
+          "item_consume": 5, "effect_add": 5, "arousal": 6, "effect_update": 6,
+          "effect_remove": 6}
 _DEFAULT_ORDER = 7
 
 # 02 SS12b families
@@ -103,6 +170,16 @@ _FAMILY = {
     "obsession": "organic", "craving": "organic", "scene_dial": "organic",
     "consent_signal": "consent", "consent_set": "consent",
     "freeze": "safety", "unfreeze": "safety",
+    "player_seed": "player",                   # RPG specialization (privileged)
+    "check": "scene",                          # RPG-1: resolution record (like roll; scene family)
+    "item_mint": "scene", "item_move": "scene", "item_equip": "scene",   # RPG-2 (doc 07 §3)
+    "item_unequip": "scene", "item_consume": "scene", "item_transfer": "scene",
+    "effect_add": "scene", "effect_remove": "scene", "effect_update": "scene",   # RPG-3
+    "ability_grant": "player",             # RPG-3: privileged, like player_seed
+    "affinity_adj": "organic",             # RPG-3b: evolves through play (doc 07 §3);
+    #                                        frozen-suppression + manual_override for free
+    "set_soulmate": "facts", "set_nemesis": "facts",   # narrative truth; privileged (§5.1 guard)
+    "world_flag": "facts",                 # extraction may propose world truth (doc 07 §3)
 }
 # frozen-session suppression set (02 SS6: arousal/escalation/consent families)
 _FROZEN_SUPPRESSED = {"arousal", "scene_dial", "consent_signal"}
@@ -131,7 +208,10 @@ OP_FIELD_ENUMS: dict[str, dict[str, list]] = {
 }
 # 08 B4: non-live scenes quarantine physical/consent mutations (a flashback can't undress the present)
 _NONLIVE_SUPPRESSED = {"clothing", "position", "contact", "arousal", "consent_signal",
-                       "consent_set", "time_advance", "clock_tick"}
+                       "consent_set", "time_advance", "clock_tick", "check",
+                       "item_mint", "item_move", "item_equip", "item_unequip",   # a flashback
+                       "item_consume", "item_transfer",               # can't touch live items
+                       "effect_add", "effect_remove", "effect_update"}   # ...or live effects (RPG-3)
 
 
 def slug(name: str) -> str:
@@ -142,8 +222,9 @@ def empty_state() -> dict:
     return {"schema": SCHEMA, "entities": {}, "chars": {}, "attributes": {}, "clothing": {},
             "poses": {}, "contacts": {}, "consent": {}, "relationships": {}, "facts": {},
             "beliefs": {}, "memories": [], "scene": {}, "clock": {"day": 1, "time_of_day": "evening",
-            "minutes": 0, "calendar_note": None}, "frozen": False, "rolls": [],
-            "meta": {"turn": -1}}
+            "minutes": 0, "calendar_note": None}, "frozen": False, "rolls": [], "player": {},
+            "items": {}, "gear": {}, "inventory": {}, "effects": {},
+            "affinity": {}, "factions": {}, "world": {}, "meta": {"turn": -1}}
 
 
 def is_empty(state: dict) -> bool:
@@ -152,7 +233,7 @@ def is_empty(state: dict) -> bool:
         return True
     return not (state.get("entities") or state.get("chars") or state.get("scene")
                 or state.get("consent") or state.get("relationships") or state.get("facts")
-                or state.get("rolls") or state.get("frozen"))
+                or state.get("rolls") or state.get("frozen") or state.get("player"))
 
 
 # ================================ validation =======================================
@@ -210,14 +291,69 @@ def validate_op(op: Any) -> Optional[dict]:
         if kind == "scene_dial" and (op["dial"] not in {"tension", "intimacy"}
                                      or not ("delta" in op or "set" in op)):
             return None
-    except (TypeError, KeyError):
+        if kind == "player_seed":
+            if not str(op.get("entity", "")).strip():
+                return None
+            if "card" in op and not isinstance(op["card"], dict):
+                return None
+        if kind == "check" and op["tier"] not in CHECK_TIERS:   # RPG-1 R8 (doc 07 §5)
+            return None
+        if kind == "item_mint" and int(op.get("qty", 1)) < 1:   # RPG-2 items (doc 07 §5)
+            return None
+        if kind in ("item_move", "item_unequip", "item_transfer") and "to" in op \
+                and str(op["to"]).split(":", 1)[0] not in ITEM_LOC_KINDS:
+            return None
+        if kind == "item_equip" and not isinstance(op["slot"], str):
+            return None                # slot-vs-profile validity is baked at _enrich (doc 07 §5)
+        if kind == "item_consume" and int(op.get("amount", 1)) < 1:
+            return None
+        if kind in ("effect_add", "effect_update", "effect_remove"):   # RPG-3 (doc 05 §5.4)
+            if not str(op.get("effect", "")).strip():
+                return None
+            if "kind" in op and op["kind"] is not None and op["kind"] not in EFFECT_KINDS:
+                return None
+            if "valence" in op and op["valence"] is not None \
+                    and op["valence"] not in EFFECT_VALENCES:
+                return None                # catches mood-typed ints too — quarantined visibly
+            if "duration" in op and op["duration"] is not None and int(op["duration"]) < 0:
+                return None
+            if "stacks" in op and op["stacks"] is not None and int(op["stacks"]) < 1:
+                return None
+        if kind == "ability_grant":
+            if not str(op.get("ability", "")).strip():
+                return None
+            if "def" in op and op["def"] is not None and not isinstance(op["def"], dict):
+                return None
+        if kind == "affinity_adj":                     # RPG-3b (doc 07 §5)
+            if isinstance(op["delta"], bool) or not isinstance(op["delta"], (int, float)):
+                return None
+            if "kind" in op and op["kind"] is not None and op["kind"] not in AFFINITY_KINDS:
+                return None
+        if kind in ("set_soulmate", "set_nemesis"):    # target may be null = clear the bond;
+            if op["target"] is not None and not str(op["target"]).strip():   # eligibility +
+                return None                            # uniqueness are linter/reducer concerns
+            if "demote_label" in op and op["demote_label"] is not None \
+                    and not isinstance(op["demote_label"], str):
+                return None
+        if kind == "world_flag":                       # scalar truth only — structures stay
+            if not str(op.get("key", "")).strip():     # in entities/facts (doc 05 §5.6)
+                return None
+            if op["value"] is not None and not isinstance(op["value"], (str, int, float, bool)):
+                return None
+    except (TypeError, KeyError, ValueError):
         return None
     return op
 
 
 # ================================ authority (02 SS12b) =============================
 _ENTITY_FIELDS = {"entity", "char", "from_char", "to_char", "learner", "teller",
-                  "subject", "partner"}
+                  "subject", "partner", "owner", "to_owner"}   # owner/to_owner: RPG-2 (doc 07 §2)
+# RPG-3b (doc 07 §2): fields that name an entity only on SPECIFIC ops. `target` cannot join
+# _ENTITY_FIELDS globally — obsession's target may be a substance/concept and must never be
+# alias-resolved. Affinity/bond targets and a world_flag's faction ARE real entities: unknown
+# names quarantine (extraction/rule) or auto-create (user), exactly like any other reference.
+_ENTITY_FIELDS_BY_OP = {"affinity_adj": {"target"}, "set_soulmate": {"target"},
+                        "set_nemesis": {"target"}, "world_flag": {"faction"}}
 
 
 def resolve_aliases(op: dict, state: dict, source: str) -> tuple[Optional[dict], str]:
@@ -231,7 +367,10 @@ def resolve_aliases(op: dict, state: dict, source: str) -> tuple[Optional[dict],
         for a in e.get("aliases", []):
             amap[str(a).lower()] = eid
     out = dict(op)
-    for f in _ENTITY_FIELDS & set(op.keys()):
+    extra = _ENTITY_FIELDS_BY_OP.get(op.get("op"), set())
+    for f in (_ENTITY_FIELDS | extra) & set(op.keys()):
+        if f in extra and op[f] is None:
+            continue                       # null bond target = clear (doc 07 §7.8)
         name = str(op[f])
         eid = amap.get(name.lower())
         if eid is None:
@@ -257,6 +396,58 @@ def resolve_aliases(op: dict, state: dict, source: str) -> tuple[Optional[dict],
     return out, ""
 
 
+# ---- RPG-4 location registry & canonicalization (doc 05 §9) -------------------------
+_LOC_ARTICLES = ("the ", "a ", "an ")
+_LOC_HEAD_RE = re.compile(r"[,;:.(]|\s[—–-]\s")   # name head before prose; keeps 'Vael-Cora'
+
+
+def _norm_loc(name: str) -> str:
+    """Comparison key for a location name: lowercase, leading article stripped,
+    punctuation collapsed. Pure text function."""
+    t = re.sub(r"[^a-z0-9 ]+", " ", str(name or "").lower()).strip()
+    for a in _LOC_ARTICLES:
+        if t.startswith(a):
+            t = t[len(a):]
+            break
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def canonical_location(state: dict, raw: str) -> tuple[str, str, bool]:
+    """(loc_id, display_name, is_new). RPG-4: one place, one row — a revisit under any
+    name variant resolves to the SAME location entity instead of minting another.
+
+    Resolution ladder over entities kind=location: exact id → exact name/alias
+    (article-stripped, case-insensitive) → unique token-subset match (raw ≤4 tokens AND
+    exactly one candidate — the wrong-merge guard) → NEW. Free prose is trimmed to its
+    name head first (live repro 2026-07-06: a pasted description became the location id
+    vael_cora_the_capital_city_of_the_realm_…). Reads only state — the caller (_enrich)
+    bakes the result into the journaled op, so replay never re-resolves."""
+    text = str(raw or "").strip()
+    head = _LOC_HEAD_RE.split(text, 1)[0].strip() or text
+    words = head.split()
+    if len(words) > 6:                                   # a name is short; prose is not
+        head = " ".join(words[:6])
+    key = _norm_loc(head)
+    ents = state.get("entities", {}) or {}
+    if not key:
+        return (slug(text)[:64] or "unknown_location"), (text or "unknown location"), True
+    if text in ents and (ents[text] or {}).get("kind") == "location":
+        return text, (ents[text] or {}).get("name", text), False
+    locs = [(eid, e) for eid, e in ents.items() if (e or {}).get("kind") == "location"]
+    for eid, e in locs:
+        names = [e.get("name", "")] + [str(a) for a in e.get("aliases", [])]
+        if any(_norm_loc(n) == key for n in names if n):
+            return eid, e.get("name", head), False
+    toks = set(key.split())
+    if toks and len(toks) <= 4:
+        hits = [eid for eid, e in locs
+                if toks <= set(_norm_loc(e.get("name", "")).split())
+                or any(toks <= set(_norm_loc(a).split()) for a in e.get("aliases", []))]
+        if len(hits) == 1:                               # ambiguous → new row, never a guess
+            return hits[0], (ents[hits[0]] or {}).get("name", head), False
+    return slug(head), head, True
+
+
 def authority_violation(op: dict, source: str, state: dict, cfg) -> Optional[str]:
     """Returns a human-readable rejection reason, or None if the op may apply."""
     kind = op["op"]
@@ -264,6 +455,15 @@ def authority_violation(op: dict, source: str, state: dict, cfg) -> Optional[str
     frozen = bool(state.get("frozen"))
     raw = cfg.consent.mode == "unrestricted"
     nonlive = state.get("scene", {}).get("mode") in ("flashback", "dream")
+
+    if kind == "player_seed":                  # privileged: initialization only (doc 05 §5.1)
+        return None if source in ("user", "genesis") else \
+            "player card is privileged: genesis or the user only (doc 05 §5.1)"
+
+    if kind == "ability_grant":                # RPG-3: power is ACQUIRED in-world, never asserted
+        return None if source in ("user", "genesis", "rule") else \
+            "abilities are earned in-world: the engine grants them (quest/ritual/user) — " \
+            "extraction may only witness, not bestow (doc 10)"
 
     if kind == "consent_signal" and op["signal"] == "safeword":
         return None if not raw else None  # handled at apply: freeze in non-raw, log-only in raw
@@ -303,6 +503,13 @@ def authority_violation(op: dict, source: str, state: dict, cfg) -> Optional[str
     # source == "extraction" (P3 wires this; matrix enforced now for completeness)
     if kind == "entity_add":
         return "entity creation is privileged: discovery counts evidence first (03 SS5.1, 08 B2)"
+    if kind == "check":                        # RPG-1: extraction never rolls (doc 07 §5.1)
+        return "checks resolve at Tier-0 (rule) or via the user only; extraction never rolls"
+    if kind == "item_mint":                    # RPG-2: extraction never creates items (doc 07 §5.1)
+        return "item minting is privileged: user/genesis/rule only — extraction may move, not mint"
+    if kind in ("set_soulmate", "set_nemesis"):   # RPG-3b (doc 07 §5.1)
+        return "bond pointers are privileged: extraction may only nudge affinity, " \
+               "not set soulmate/nemesis (doc 06 §2.4)"
     if family == "safety":
         return "extraction may only PROPOSE safety changes (02 SS6/SS12b)"
     if kind == "consent_set":
@@ -337,6 +544,121 @@ def _ensure_entities(state: dict, op: dict) -> None:
             "present": True})
 
 
+class OpReject(ValueError):
+    """Raised by a reducer arm when a transactional precondition fails (doc 07 §7): apply_delta
+    quarantines the op with THIS message and state is left untouched (invariant 3). Journaled
+    ops never contain a rejected op, so replay never sees one."""
+
+
+# ---- RPG-2 item-index helpers (doc 07 §7/§8) — thin, pure state readers/writers. The
+# instance's `loc` is the single source of truth; `gear`/`inventory` are derived indexes the
+# render blocks read. Every mutation goes remove -> add with rollback on failure, which is what
+# makes one-instance-one-place hold by construction (and the linter rule a pure safety net).
+def _default_container(state: dict, eid) -> str:
+    return "loose"                             # the always-available unbounded pseudo-container
+
+
+def _container_capacity(state: dict, cid: str):
+    it = state.get("items", {}).get(cid)
+    cap = (it or {}).get("capacity")
+    try:
+        return int(cap) if cap is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _index_remove(state: dict, iid: str) -> None:
+    for slots in state.get("gear", {}).values():
+        for s in [s for s, x in slots.items() if x == iid]:
+            del slots[s]
+    for conts in state.get("inventory", {}).values():
+        for lst in conts.values():
+            while iid in lst:
+                lst.remove(iid)
+
+
+def _index_add(state: dict, owner, iid: str, loc: str) -> bool:
+    """Reflect `loc` into the gear/inventory index. False = capacity/slot conflict (caller
+    rolls back and rejects). world/gone are indexed nowhere and always succeed."""
+    kind0, _, rest = str(loc).partition(":")
+    if kind0 == "gear":
+        if not owner or not rest:
+            return False
+        slots = state.setdefault("gear", {}).setdefault(owner, {})
+        if slots.get(rest):
+            return False
+        slots[rest] = iid
+        return True
+    if kind0 == "inv":
+        if not owner or not rest:
+            return False
+        lst = state.setdefault("inventory", {}).setdefault(owner, {}).setdefault(rest, [])
+        cap = _container_capacity(state, rest)
+        if cap is not None and iid not in lst and len(lst) >= cap:
+            return False
+        if iid not in lst:
+            lst.append(iid)
+        return True
+    return kind0 in ("world", "gone")
+
+
+def _resolve_instance(state: dict, token) -> Optional[str]:
+    """Exact instance id, else a UNIQUE case-insensitive name match among live instances —
+    extraction references items by the names the [GEAR]/[INVENTORY] blocks render (doc 07 §2:
+    instance refs are validated against state, not a static enum). Ambiguous/unknown -> None."""
+    items = state.get("items", {})
+    t = str(token or "").strip()
+    if t in items:
+        return t
+    low = t.lower()
+    hits = [iid for iid, it in items.items()
+            if (it or {}).get("loc") != "gone" and str((it or {}).get("name", "")).lower() == low]
+    return hits[0] if len(hits) == 1 else None
+
+
+# ---- RPG-3b social helpers — pure state readers -------------------------------------
+def _player_eid(state: dict) -> Optional[str]:
+    """The (one) Player Card eid — affinity/bonds are measured FROM the player (doc 06 §2.4)."""
+    for eid, rec in (state.get("player") or {}).items():
+        if isinstance(rec, dict):
+            return eid
+    return None
+
+
+# ---- RPG-3 effect helpers (doc 05 §5.4) — pure state readers ------------------------
+def _entity_sex(state: dict, eid: str) -> str:
+    """Best-known sex for an entity: the `sex`/`gender` attribute (creator writes it),
+    else the Player Card's pronouns. Empty = unknown (a data-driven `requires` gate then
+    REJECTS with a visible reason — never guesses)."""
+    attrs = state.get("attributes", {}).get(eid, {}) or {}
+    for k in ("sex", "gender"):
+        v = str(attrs.get(k) or "").strip().lower()
+        if v:
+            return v
+    pron = str((state.get("player", {}).get(eid) or {}).get("pronouns", "")).lower()
+    if pron.startswith("she"):
+        return "female"
+    if pron.startswith("he"):
+        return "male"
+    return ""
+
+
+def _resolve_effect_key(effs: dict, token) -> Optional[str]:
+    """Ledger key for `token` among ONE entity's effects: exact id, slug, else unique
+    case-insensitive display-name match (tags/extraction reference effects by the names
+    the [EFFECTS] block renders — same contract as _resolve_instance)."""
+    t = str(token or "").strip()
+    if t in effs:
+        return t
+    t2 = slug(t)
+    if t2 in effs:
+        return t2
+    low = t.lower()
+    hits = [k for k, r in effs.items()
+            if str((r or {}).get("name", "")).lower() == low]
+    return hits[0] if len(hits) == 1 else None
+
+
 def _withdrawal_check(state: dict, eid: str, substance: str) -> None:
     c = state["chars"][eid]["cravings"][substance]
     seed = c.get("_seed", {})
@@ -369,6 +691,77 @@ def _freeze(state: dict, turn: int, reason: str) -> None:
             a, b, _ = key.split("|", 2)
             if not parts or a in parts or b in parts:
                 entry["level"] = "withdrawn"
+
+
+def _apply_player_seed(state: dict, op: dict) -> None:
+    """Expand a Player Card seed into the runtime `player` record (RPG genesis, doc 06 §2.2).
+    Privileged (authority gates source); tolerant of a partial seed so the [PLAYER] block can
+    render from turn 0. The player is also an ordinary entities row, marked kind='player'.
+
+    ONE PLAYER PER SESSION (2026-07-06 live repro: a genesis-default 'Player' rode alongside
+    the Creator-saved character and the narrator treated the real one as an NPC). player_seed
+    is seed/REPLACE, as the op table always said: seeding entity B while entity A holds the
+    card drops A's record — a genesis-default placeholder vanishes entirely (entity+attrs),
+    an authored predecessor stays in the world demoted to kind='npc'. Pure state+op reads —
+    replay-safe."""
+    eid = op["entity"]
+    card = op.get("card") or {}
+    players = state.setdefault("player", {})
+    for other in [k for k in players if k != eid]:
+        old = players.pop(other)
+        if isinstance(old, dict) and old.get("genesis_default"):
+            state.get("entities", {}).pop(other, None)     # placeholder: no trace remains
+            state.get("attributes", {}).pop(other, None)
+        else:
+            ent = state.get("entities", {}).get(other)
+            if isinstance(ent, dict):
+                ent["kind"] = "npc"                        # a real predecessor stays in-world
+    rec = players.setdefault(
+        eid, {"eid": eid, "level": 1, "xp": 0, "hp": {"cur": 0, "max": 0}, "resources": {},
+              "stats": {}, "skills": {}, "abilities": [], "cooldowns": {},
+              "soulmate": None, "nemesis": None})
+    if card.get("_genesis_default"):
+        rec["genesis_default"] = True                      # marks the replace-me placeholder
+    else:
+        rec.pop("genesis_default", None)                   # an authored card sheds the mark
+    if "level" in card:
+        rec["level"] = _clamp(card.get("level", rec["level"]), 1, 999)
+    if card.get("concept"):
+        rec["concept"] = str(card["concept"])
+    if card.get("pronouns"):
+        rec["pronouns"] = str(card["pronouns"])
+    if isinstance(card.get("stats"), dict):
+        rec["stats"] = {str(k): _clamp(v, -99, 999) for k, v in card["stats"].items()}
+    if isinstance(card.get("skills"), dict):
+        rec["skills"] = {str(k): _clamp(v, 0, 99) for k, v in card["skills"].items()}
+    if isinstance(card.get("abilities"), list):
+        rec["abilities"] = [str(a) for a in card["abilities"]]
+    if isinstance(card.get("resources"), dict):
+        for rname, spec in card["resources"].items():
+            if not isinstance(spec, dict):
+                continue
+            mx = _clamp(spec.get("max", spec.get("cur", 0)), 0, 10**6)
+            cur = _clamp(spec.get("cur", mx), 0, mx)
+            if str(rname).lower() == "hp":
+                rec["hp"] = {"cur": cur, "max": mx}
+            else:
+                rec["resources"][str(rname)] = {"cur": cur, "max": mx}
+    if isinstance(card.get("hp"), dict):            # hp may also be given directly
+        hp = card["hp"]
+        mx = _clamp(hp.get("max", hp.get("cur", rec["hp"]["max"])), 0, 10**6)
+        rec["hp"] = {"cur": _clamp(hp.get("cur", mx), 0, mx), "max": mx}
+    if isinstance(card.get("defs"), dict):          # per-character FROZEN defs (Q27 overlay, doc 09 §1)
+        defs = rec.setdefault("defs", {})           # freestyle / mastery-evolved skills+abilities live here;
+        for table in ("skills", "abilities", "stats"):   # resolver reads them snapshot-first over the registry
+            src_t = card["defs"].get(table)
+            if isinstance(src_t, dict):
+                dst = defs.setdefault(table, {})
+                for k, v in src_t.items():
+                    if isinstance(v, dict):         # stored as authored — a frozen snapshot of fixed numbers
+                        dst[str(k)] = v
+    ent = state.get("entities", {}).get(eid)
+    if ent is not None:
+        ent["kind"] = "player"
 
 
 def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch table, kept flat on purpose
@@ -542,9 +935,23 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
     elif kind == "scene_set":
         sc = state["scene"]
         if "location" in op:
-            if sc.get("location_id") != op["location"]:      # scene boundary counter — pure
+            lc = op.get("_loc_create")
+            if lc:                                           # RPG-4: canonical registry row —
+                state["entities"].setdefault(str(lc["eid"]), {   # generated once, persisted,
+                    "kind": "location", "name": lc["name"], "aliases": [],   # never regenerated
+                    "location_id": None, "present": False})
+            boundary = sc.get("location_id") != op["location"]
+            if boundary:                                     # scene boundary counter — pure
                 sc["scene_index"] = int(sc.get("scene_index", 0)) + 1   # function of ops
             sc["location_id"] = op["location"]               # (replay-safe; 08 L2 cadence)
+            ent = state["entities"].get(op["location"])
+            if op.get("_canon") and isinstance(ent, dict):   # RPG-4 (op-driven: none untouched)
+                if boundary:
+                    ent["visits"] = int(ent.get("visits", 0)) + 1
+                    ent["last_visit_turn"] = turn
+                al = op.get("_loc_alias")
+                if al and al != ent.get("name") and al not in ent.get("aliases", []):
+                    ent.setdefault("aliases", []).append(al)
         if "participants" in op:
             sc["participants"] = [p for p in op["participants"]]
         if "phase" in op:
@@ -565,8 +972,268 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
     elif kind == "roll":
         state["rolls"].append({"spec": op["spec"], "result": op["result"], "turn": turn})
         del state["rolls"][:-10]
+    elif kind == "check":                       # RPG-1 R8: a richer roll (skill + PbtA tier)
+        state["rolls"].append({"skill": op["skill"], "result": op["result"],
+                               "tier": op["tier"], "mod": op.get("_mod"),
+                               "dice": op.get("_dice"), "dc": op.get("dc"),
+                               "char": op.get("char"), "turn": turn})
+        del state["rolls"][:-10]
+    elif kind == "item_mint":                   # RPG-2 (doc 07 §7.2): instance from template
+        iid, snap = op.get("_iid"), op.get("_snapshot") or {}
+        if not iid or not snap:                 # template unknown at _enrich -> visible reject
+            raise OpReject(f"unknown item template '{op.get('template')}' "
+                           f"(add it to registry items.toml — nothing freestyle)")
+        owner = op["owner"]
+        items = state.setdefault("items", {})
+        loc = str(op.get("to") or f"inv:{_default_container(state, owner)}")
+        rec = {"template_id": op["template"], "name": snap.get("name", op["template"]),
+               "qty": max(1, int(op.get("qty", 1))), "loc": loc, "owner": owner,
+               "mods_snapshot": dict(snap.get("mods") or {}), "minted_turn": turn}
+        for k in ("slot", "covers", "on_consume", "stackable", "max_stack", "capacity",
+                  "is_container", "worn", "type"):
+            if k in snap:
+                rec[k] = snap[k]
+        if op.get("bound"):
+            rec["bound"] = True
+        items[iid] = rec
+        if not _index_add(state, owner, iid, loc):
+            del items[iid]                      # rollback: full container / busy slot (doc 07 §7.2)
+            raise OpReject(f"cannot mint into {loc}: container full or slot busy")
+    elif kind == "item_move":                   # RPG-2 (doc 07 §7.3): within-owner relocation
+        iid = _resolve_instance(state, op["instance"])
+        it = state.get("items", {}).get(iid) if iid else None
+        if not it:
+            raise OpReject(f"unknown item instance '{op['instance']}'")
+        new = str(op["to"])
+        if new.split(":", 1)[0] in ("inv", "gear") and not it.get("owner"):
+            raise OpReject("unowned item: use item_transfer to give it an owner first")
+        old = it["loc"]
+        _index_remove(state, iid)
+        if not _index_add(state, it.get("owner"), iid, new):
+            _index_add(state, it.get("owner"), iid, old)       # transactional rollback
+            raise OpReject(f"cannot move to {new}: container full or slot busy")
+        it["loc"] = new
+        if new.split(":", 1)[0] in ("world", "gone"):
+            it["owner"] = None
+    elif kind == "item_equip":                  # RPG-2 (doc 07 §7.4): inv -> gear:<slot>
+        iid = _resolve_instance(state, op["instance"])
+        it = state.get("items", {}).get(iid) if iid else None
+        slot = str(op["slot"])
+        if not it:
+            raise OpReject(f"unknown item instance '{op['instance']}'")
+        if not op.get("_slot_ok", slot in GEAR_SLOTS):
+            raise OpReject(f"unknown gear slot '{slot}' (profile slot map)")
+        owner = it.get("owner")
+        if not owner:
+            raise OpReject("unowned item: transfer it to a character before equipping")
+        occ = state.setdefault("gear", {}).setdefault(owner, {}).get(slot)
+        if occ and occ != iid:
+            if not op.get("swap"):
+                raise OpReject(f"slot {slot} is occupied (set swap to displace the current item)")
+            dest = f"inv:{_default_container(state, owner)}"   # atomic swap: displace incumbent
+            _index_remove(state, occ)
+            if not _index_add(state, owner, occ, dest):
+                _index_add(state, owner, occ, f"gear:{slot}")  # restore -> reject
+                raise OpReject("swap failed: no room to displace the equipped item")
+            state["items"][occ]["loc"] = dest
+        old = it["loc"]
+        _index_remove(state, iid)
+        if not _index_add(state, owner, iid, f"gear:{slot}"):
+            _index_add(state, owner, iid, old)                 # transactional rollback
+            raise OpReject(f"slot {slot} is occupied")
+        it["loc"] = f"gear:{slot}"              # gear mods are DERIVED at render/resolution,
+        #                                         never written into player stats (doc 07 §7.4)
+    elif kind == "item_unequip":                # RPG-2 (doc 07 §7.4): gear -> inv (or given loc)
+        iid = _resolve_instance(state, op["instance"])
+        it = state.get("items", {}).get(iid) if iid else None
+        if not it or not str(it.get("loc", "")).startswith("gear:"):
+            raise OpReject(f"'{op['instance']}' is not equipped")
+        owner = it.get("owner")
+        dest = str(op.get("to") or f"inv:{_default_container(state, owner)}")
+        old = it["loc"]
+        _index_remove(state, iid)
+        if not _index_add(state, owner, iid, dest):
+            _index_add(state, owner, iid, old)                 # transactional rollback
+            raise OpReject(f"cannot unequip to {dest}: container full")
+        it["loc"] = dest
+        if dest.split(":", 1)[0] in ("world", "gone"):
+            it["owner"] = None
+    elif kind == "item_consume":                # RPG-2 (doc 07 §7.5): qty--; baked on_consume only
+        iid = _resolve_instance(state, op["instance"])
+        it = state.get("items", {}).get(iid) if iid else None
+        if not it or int(it.get("qty", 0)) < 1:
+            raise OpReject(f"unknown or depleted item instance '{op['instance']}'")
+        it["qty"] = max(0, int(it.get("qty", 1)) - max(1, int(op.get("amount", 1))))
+        eff = it.get("on_consume") or {}        # read from the INSTANCE (baked at mint) — never
+        owner = it.get("owner")                 # the registry (replay purity, doc 07 §7.5)
+        pl = state.get("player", {}).get(owner) if owner else None
+        if pl and isinstance(eff, dict):
+            if isinstance(eff.get("heal"), int) and isinstance(pl.get("hp"), dict):
+                pl["hp"]["cur"] = _clamp(pl["hp"]["cur"] + eff["heal"], 0,
+                                         pl["hp"].get("max", 0))
+            if isinstance(eff.get("restore"), dict):           # bounded resource restore
+                for rname, amt in eff["restore"].items():
+                    r = (pl.get("resources") or {}).get(str(rname))
+                    if isinstance(r, dict):
+                        r["cur"] = _clamp(r.get("cur", 0) + int(amt), 0, r.get("max", 0))
+        if it["qty"] == 0:
+            _index_remove(state, iid)
+            it["loc"], it["owner"] = "gone", None
+    elif kind == "item_transfer":               # RPG-2 (doc 07 §7.6): atomic owner change
+        iid = _resolve_instance(state, op["instance"])
+        it = state.get("items", {}).get(iid) if iid else None
+        if not it:
+            raise OpReject(f"unknown item instance '{op['instance']}'")
+        new_owner = op["to_owner"]
+        dest = str(op.get("to") or f"inv:{_default_container(state, new_owner)}")
+        if dest.split(":", 1)[0] not in ("inv", "gear"):
+            raise OpReject(f"bad transfer destination '{dest}'")
+        old_loc, old_owner = it["loc"], it.get("owner")
+        _index_remove(state, iid)
+        if not _index_add(state, new_owner, iid, dest):        # partial failure -> FULL rollback
+            _index_add(state, old_owner, iid, old_loc)         # (the AI-Roguelite duplication
+            raise OpReject(f"cannot transfer to {dest}: container full or slot busy")   # guard)
+        it["loc"], it["owner"] = dest, new_owner
+    elif kind == "effect_add":                  # RPG-3 (doc 05 §5.4): commit to the ledger
+        eid = op["char"]
+        snap = op.get("_snapshot") or {}        # preset bake (_enrich) — {} = open vocabulary
+        req = str(snap.get("requires") or "").lower()
+        if req == "female" and _entity_sex(state, eid) != "female":
+            nm = snap.get("name") or op["effect"]
+            raise OpReject(f"'{nm}' requires a female character — no in-world basis "
+                           f"(set the sex attribute / card pronouns first)")
+        effs = state.setdefault("effects", {}).setdefault(eid, {})
+        fid = op.get("_eff_id") or _resolve_effect_key(effs, op["effect"]) or slug(op["effect"])
+        rec = effs.get(fid)
+        if rec is None:                         # new effect: preset snapshot, op fields win
+            rec = {"id": fid,
+                   "name": str(snap.get("name") or str(op["effect"]).strip()),
+                   "kind": str(op.get("kind") or snap.get("kind") or "condition"),
+                   "valence": str(op.get("valence") or snap.get("valence") or "neutral"),
+                   "stacks": _clamp(op.get("stacks", 1), 1, 99) or 1,
+                   "gained_turn": turn,
+                   "mods": dict(snap.get("mods") or {}),   # engine-owned; never from the wire
+                   "preset": bool(snap)}
+            dur = op.get("duration", snap.get("duration"))
+            if dur is not None:
+                rec["duration"] = max(0, int(dur))
+            if op.get("note"):
+                rec["note"] = str(op["note"])
+            effs[fid] = rec
+        else:                                   # re-applied: refresh the clock, merge fields
+            rec["gained_turn"] = turn
+            if op.get("stacks") is not None:
+                rec["stacks"] = _clamp(op["stacks"], 1, 99) or 1
+            if op.get("valence"):
+                rec["valence"] = str(op["valence"])
+            if op.get("duration") is not None:
+                rec["duration"] = max(0, int(op["duration"]))
+            if op.get("note"):
+                rec["note"] = str(op["note"])
+    elif kind == "effect_remove":               # RPG-3: lift it from the ledger
+        eid = op["char"]
+        effs = state.get("effects", {}).get(eid) or {}
+        fid = _resolve_effect_key(effs, op["effect"])
+        if fid is None:
+            raise OpReject(f"'{op['effect']}' is not affecting {eid} — nothing to remove "
+                           f"(the ledger, not the prose, is what's true)")
+        del effs[fid]
+    elif kind == "effect_update":               # RPG-3: the dynamic-valence channel
+        eid = op["char"]
+        effs = state.get("effects", {}).get(eid) or {}
+        fid = _resolve_effect_key(effs, op["effect"])
+        if fid is None:
+            raise OpReject(f"'{op['effect']}' is not affecting {eid} — add it before "
+                           f"updating it")
+        rec = effs[fid]
+        if op.get("valence"):
+            rec["valence"] = str(op["valence"])   # blessing/perspective reframes it (doc 05 §5.4)
+        if op.get("stacks") is not None:
+            rec["stacks"] = _clamp(op["stacks"], 1, 99) or 1
+        if op.get("duration") is not None:
+            rec["duration"] = max(0, int(op["duration"]))
+        if op.get("note"):
+            rec["note"] = str(op["note"])
+    elif kind == "ability_grant":               # RPG-3: the earned-acquisition route (doc 10)
+        eid = op["char"]
+        pl = state.get("player", {}).get(eid)
+        if not isinstance(pl, dict):
+            raise OpReject(f"no player card for '{eid}': abilities are granted to tracked "
+                           f"characters with a card (seed one first)")
+        aid = slug(op["ability"])
+        adef = op.get("def")
+        if isinstance(adef, dict):              # freestyle-authored -> FROZEN per-character def
+            pl.setdefault("defs", {}).setdefault("abilities", {})[aid] = adef
+        elif not op.get("_known") and aid not in ((pl.get("defs") or {}).get("abilities") or {}):
+            raise OpReject(f"unknown ability '{op['ability']}': add a registry entry or a "
+                           f"frozen def — power is acquired in-world, never declared")
+        known = pl.setdefault("abilities", [])
+        if aid not in known:
+            known.append(aid)
+    elif kind == "affinity_adj":                # RPG-3b (doc 07 §7.7): reason-tagged ledger
+        peid = _player_eid(state)
+        if peid is None:
+            raise OpReject("no Player Card: affinity is measured from the player "
+                           "(seed one first — doc 06 §2.4)")
+        tgt = op["target"]
+        if tgt == peid:
+            raise OpReject("affinity toward the player themselves is not a thing")
+        kindv = op.get("kind") or ("faction" if state.get("entities", {}).get(tgt, {})
+                                   .get("kind") == "faction" else "npc")
+        entry = state.setdefault("affinity", {}).setdefault(
+            f"{peid}->{tgt}", {"value": 0, "kind": kindv, "ledger": [], "labels": []})
+        d = _clamp(op.get("_delta", op["delta"]), *AFFINITY_DELTA_CLAMP)
+        entry["ledger"].append({"turn": turn, "delta": d,
+                                "reason": str(op.get("reason") or "")[:120]})
+        del entry["ledger"][:-50]               # bounded tail (memory keeps the long story)
+        entry["value"] = _clamp(entry["value"] + d, *AFFINITY_CLAMP)   # tier DERIVED at render
+        if kindv == "faction":                  # factions carry structured world state too
+            f = state.setdefault("factions", {}).setdefault(tgt, {"circumstances": {}})
+            f.setdefault("name", state.get("entities", {}).get(tgt, {}).get("name", tgt))
+    elif kind in ("set_soulmate", "set_nemesis"):   # RPG-3b (doc 07 §7.8): demote-then-set
+        ptr = "soulmate" if kind == "set_soulmate" else "nemesis"
+        peid = _player_eid(state)
+        pl = state.get("player", {}).get(peid) if peid else None
+        if not isinstance(pl, dict):
+            raise OpReject(f"no Player Card: a {ptr} is the player's bond (seed one first)")
+        tgt = op["target"]                      # None -> clear the bond
+        incumbent = pl.get(ptr)
+        if incumbent and incumbent != tgt:      # DEMOTE first — uniqueness by construction
+            aff = state.setdefault("affinity", {})
+            if f"{peid}->{incumbent}" in aff:
+                labels = aff[f"{peid}->{incumbent}"].setdefault("labels", [])
+                lbl = str(op.get("demote_label")
+                          or ("beloved" if ptr == "soulmate" else "rival"))
+                if lbl not in labels:
+                    labels.append(lbl)
+        pl[ptr] = tgt                           # THEN set (or clear); the one_soulmate
+        #                                         linter owns eligibility (doc 08 §4)
+    elif kind == "world_flag":                  # RPG-3b (doc 05 §5.6): standing world truth
+        key = slug(op["key"])
+        val = op["value"]                       # null = clear the flag
+        if op.get("faction"):                   # faction-scoped circumstance
+            fid = op["faction"]
+            f = state.setdefault("factions", {}).setdefault(fid, {"circumstances": {}})
+            f.setdefault("name", state.get("entities", {}).get(fid, {}).get("name", fid))
+            circ = f.setdefault("circumstances", {})
+            if val is None:
+                circ.pop(key, None)
+            else:
+                circ[key] = val
+                while len(circ) > 24:           # bounded, oldest-first (pure fn of ops)
+                    circ.pop(next(iter(circ)))
+        else:
+            w = state.setdefault("world", {})
+            if val is None:
+                w.pop(key, None)
+            else:
+                w[key] = val
+                while len(w) > 32:
+                    w.pop(next(iter(w)))
     elif kind == "stagnation":
         state["scene"]["stagnation"] = round(float(op["value"]), 3)
+    elif kind == "player_seed":
+        _apply_player_seed(state, op)
     if turn > state["meta"].get("turn", -1):
         state["meta"]["turn"] = turn
 
@@ -586,6 +1253,45 @@ def reduce_state(state: dict, ops: list[dict]) -> dict:
         except Exception as exc:  # invariant 3: one bad journaled op never breaks replay
             log.warning("reducer skipped op %s: %s", op.get("op"), type(exc).__name__)
     return state
+
+
+# ---- RPG-3b faction cascade (doc 05 §5.4) — pure, deterministic, cold-path ----------
+def faction_cascade_ops(state: dict, applied: list[dict], factor: float = 0.1) -> list[dict]:
+    """Extraction-applied NPC affinity shifts ripple to the NPC's faction (membership = the
+    entity's `faction` attribute), scaled by `factor` and HALVED on negatives — the
+    AI-Roguelite anti-death-spiral default; treat as tunable ([specialization]
+    faction_cascade). Returns rule-source affinity_adj ops for the caller to apply —
+    propose-then-commit, journaled, never a hidden reducer side-effect (pillar 2). Cascades
+    never chain: a faction-targeted op emits nothing."""
+    out: list[dict] = []
+    if not isinstance(state, dict) or not applied or not factor:
+        return out
+    ents = state.get("entities", {})
+    amap: dict[str, str] = {}
+    for eid, e in ents.items():
+        amap[str((e or {}).get("name", "")).lower()] = eid
+        amap[eid] = eid
+    for op in applied:
+        if not isinstance(op, dict) or op.get("op") != "affinity_adj":
+            continue
+        tgt = op.get("target")
+        if ents.get(tgt, {}).get("kind") == "faction":
+            continue                            # no chains
+        fac = state.get("attributes", {}).get(tgt, {}).get("faction")
+        fid = amap.get(str(fac or "").strip().lower())
+        if not fid or ents.get(fid, {}).get("kind") != "faction":
+            continue
+        try:
+            d = float(op.get("_delta", op.get("delta", 0)))
+        except (TypeError, ValueError):
+            continue
+        raw = d * float(factor) * (0.5 if d < 0 else 1.0)
+        step = int(raw + 0.5) if raw > 0 else (int(raw - 0.5) if raw < 0 else 0)
+        if step:
+            out.append({"op": "affinity_adj", "target": fid, "delta": step,
+                        "kind": "faction",
+                        "reason": f"standing with {ents.get(tgt, {}).get('name', tgt)}"})
+    return out
 
 
 # ================================ derived views =====================================
@@ -615,8 +1321,10 @@ def current_state(store, branch_id: str) -> dict:
     return store.state_at(branch_id, BIG_TURN, reduce_state, empty=empty_state())
 
 
-def _enrich(op: dict, turn: int, cfg) -> dict:
-    """Bake config-dependent values into the journaled op (replay determinism, 03 SS3.3)."""
+def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
+    """Bake config/registry-dependent values into the journaled op (replay determinism,
+    03 SS3.3; doc 07 §6 extends the bake to item reference data). `state` is the pre-apply
+    snapshot — used only to generate a fresh, unique instance id at mint."""
     out = dict(op)
     out["_turn"] = turn
     if op["op"] == "craving":
@@ -629,6 +1337,66 @@ def _enrich(op: dict, turn: int, cfg) -> dict:
     if op["op"] == "consent_signal" and op.get("signal") == "safeword" \
             and cfg.consent.mode == "unrestricted":
         out["_raw_mode"] = True
+    if op["op"] == "item_mint":                # RPG-2 (doc 07 §6): bake the template snapshot +
+        from . import registry as _registry    # the generated iid — never re-read at replay, so
+        try:                                    # editing items.toml can't rewrite a minted item
+            tpl = _registry.load(cfg).items.get(str(op.get("template", "")))
+        except Exception:
+            tpl = None
+        if isinstance(tpl, dict):
+            out["_snapshot"] = {k: tpl[k] for k in (
+                "name", "worn", "slot", "mods", "covers", "on_consume", "stackable",
+                "max_stack", "capacity", "is_container", "type") if k in tpl}
+            existing = (state or {}).get("items", {})
+            n = sum(1 for i in existing if str(i).startswith(str(op["template"]) + "#")) + 1
+            iid = f'{op["template"]}#{n}'
+            while iid in existing:
+                n += 1
+                iid = f'{op["template"]}#{n}'
+            out["_iid"] = iid
+    if op["op"] == "item_equip":               # RPG-2: slot validity vs the profile-extended set,
+        from . import registry as _registry    # baked so the reducer stays registry-free
+        try:
+            out["_slot_ok"] = str(op.get("slot", "")) in _registry.load(cfg).slots
+        except Exception:
+            out["_slot_ok"] = str(op.get("slot", "")) in GEAR_SLOTS
+    if op["op"] == "effect_add":               # RPG-3: bake the PRESET snapshot (floor for weak
+        from . import registry as _registry    # models); an unknown name stays open-vocabulary
+        try:                                    # — it still commits, with no engine mechanics
+            reg = _registry.load(cfg)
+            fid = reg.resolve_effect(str(op.get("effect", "")))
+        except Exception:
+            fid = None
+        if fid:
+            e = reg.effects.get(fid) or {}
+            out["_eff_id"] = fid
+            out["_snapshot"] = {k: e[k] for k in (
+                "name", "kind", "valence", "mods", "duration", "requires") if k in e}
+    if op["op"] == "ability_grant":            # RPG-3: registry membership baked (replay purity)
+        from . import registry as _registry
+        try:
+            out["_known"] = slug(str(op.get("ability", ""))) in _registry.load(cfg).abilities
+        except Exception:
+            out["_known"] = False
+    if op["op"] == "affinity_adj":             # RPG-3b (doc 07 §6): the per-turn clamp is baked
+        out["_delta"] = _clamp(op.get("delta", 0), *AFFINITY_DELTA_CLAMP)   # so history is
+                                               # stable even if the constant is tuned later
+    if op["op"] == "scene_set" and "location" in op \
+            and getattr(cfg, "specialization", None) is not None \
+            and cfg.specialization.name == "rpg":
+        # RPG-4 (doc 05 §9): canonical location baked into the journaled op — replay never
+        # re-resolves; a `none` session's ops stay byte-identical (no _canon keys).
+        loc_id, disp, is_new = canonical_location(state or {}, op["location"])
+        out["location"] = loc_id
+        out["_canon"] = 1
+        if is_new:
+            out["_loc_create"] = {"eid": loc_id, "name": disp}
+        else:
+            raw_head = _LOC_HEAD_RE.split(str(op["location"]).strip(), 1)[0].strip()
+            ent = (state or {}).get("entities", {}).get(loc_id) or {}
+            names = [ent.get("name", "")] + [str(a) for a in ent.get("aliases", [])]
+            if raw_head and all(_norm_loc(raw_head) != _norm_loc(n) for n in names if n):
+                out["_loc_alias"] = raw_head   # learn the variant: canon self-improves
     return out
 
 
@@ -655,9 +1423,12 @@ def apply_delta(store, session_id: str, branch_id: str, turn: int, ops: list,
         if why is not None:
             res.quarantined.append({"op": op, "reason": why})
             continue
-        op2 = _enrich(op2, turn, cfg)
+        op2 = _enrich(op2, turn, cfg, res.state)
         try:
             _apply_op(res.state, op2)
+        except OpReject as exc:                 # transactional reject (doc 07 §7): visible reason
+            res.quarantined.append({"op": op, "reason": str(exc)})
+            continue
         except Exception as exc:
             res.quarantined.append({"op": op, "reason": f"apply error {type(exc).__name__}"})
             continue
@@ -698,10 +1469,36 @@ def _unquote(v: str) -> str:
     return v
 
 
-def translate_path(path: str, value: str) -> Optional[dict]:
+def translate_path(path: str, value: str, rpg: bool = False) -> Optional[dict]:
     """((aether.set path value)) / PATCH paths -> typed ops (02 SS12b surfaces).
-    Unknown path -> None (rejected with visible reason — never silently applied)."""
+    Unknown path -> None (rejected with visible reason — never silently applied).
+    `rpg` unlocks the RPG-3b paths (world.<key> / affinity.<target> / player.soulmate|
+    nemesis) — gated so a `none` session's command surface is unchanged (invariant 3)."""
     path = _BARE_ALIASES.get(path.strip().lower(), path.strip())
+    if rpg:
+        low = path.lower()
+        v0 = _unquote(value)
+        clear = v0.strip().lower() in ("none", "null", "clear", "-", "")
+        if low.startswith("world.") and len(path) > 6:
+            val: Any = None if clear else v0
+            if isinstance(val, str):                    # scalar coercion: true/false/yes/no/int/str
+                if val.lower() in ("true", "false", "yes", "no", "on", "off"):
+                    val = val.lower() in ("true", "yes", "on")
+                else:
+                    try:
+                        val = int(val)
+                    except ValueError:
+                        pass
+            return {"op": "world_flag", "key": path[6:], "value": val}
+        if low.startswith("affinity.") and len(path) > 9:
+            try:
+                return {"op": "affinity_adj", "target": path[9:], "delta": int(v0),
+                        "reason": "user edit"}
+            except ValueError:
+                return None                             # delta must be a signed integer
+        if low in ("player.soulmate", "player.nemesis"):
+            return {"op": "set_soulmate" if low.endswith("soulmate") else "set_nemesis",
+                    "target": None if clear else v0}
     m = _PATH_RE.match(path)
     if not m:
         return None
@@ -780,8 +1577,10 @@ def state_summary(state: dict) -> dict:
         "scene": state.get("scene", {}),
         "clock": state.get("clock", {}),
         "entities": {eid: {"name": e.get("name"), "present": e.get("present", False),
-                           "location": e.get("location_id")}
+                           "location": e.get("location_id"),
+                           "kind": e.get("kind", "character")}
                      for eid, e in state.get("entities", {}).items()},
+        "attributes": state.get("attributes", {}),
         "chars": state.get("chars", {}),
         "exposure": {eid: derived_exposure(state, eid) for eid in state.get("clothing", {})},
         "clothing": state.get("clothing", {}),
@@ -793,5 +1592,19 @@ def state_summary(state: dict) -> dict:
         "beliefs": state.get("beliefs", {}),
         "memories": state.get("memories", [])[-20:],
         "rolls": state.get("rolls", []),
+        "player": state.get("player", {}),
+        "items": state.get("items", {}),
+        "gear": state.get("gear", {}),
+        "inventory": state.get("inventory", {}),
+        "effects": state.get("effects", {}),
+        # RPG-3b: affinity with the DERIVED tier attached (the ledger tail trimmed for the
+        # payload), plus factions + world flags — the Console renders these directly.
+        "affinity": {k: {**{kk: vv for kk, vv in rec.items() if kk != "ledger"},
+                         "ledger": (rec.get("ledger") or [])[-10:],
+                         "tier": affinity_tier(rec.get("value", 0))}
+                     for k, rec in state.get("affinity", {}).items()
+                     if isinstance(rec, dict)},
+        "factions": state.get("factions", {}),
+        "world": state.get("world", {}),
         "turn": state.get("meta", {}).get("turn", -1),
     }

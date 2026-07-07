@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AetherState — World & Character Creator</title>
+<style>
+:root{--bg:#13141a;--panel:#1c1e27;--panel2:#20222d;--edge:#2b2e3b;--fg:#dde1ec;--dim:#8b90a5;
+ --acc:#7aa2f7;--acc2:#bb9af7;--ok:#9ece6a;--warn:#e0af68;--bad:#f7768e;--vio:#bb9af7;--r:10px}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
+header{position:sticky;top:0;z-index:9;display:flex;gap:12px;align-items:center;
+ padding:11px 16px;background:linear-gradient(180deg,#1c1e27,#191b23);border-bottom:1px solid var(--edge);flex-wrap:wrap}
+h1{font-size:16px;margin:0;color:var(--acc);letter-spacing:.3px}
+h1 span{color:var(--acc2)}
+nav{display:flex;gap:3px;margin-left:6px}
+nav button{background:none;border:none;color:var(--dim);padding:7px 15px;cursor:pointer;
+ font-size:13.5px;border-radius:7px;font-weight:600}
+nav button.on{color:#0f1117;background:var(--acc)}
+nav button:not(.on):hover{color:var(--fg);background:var(--edge)}
+.spacer{flex:1}
+.chip{font-size:11.5px;padding:3px 10px;border-radius:20px;background:var(--edge);color:var(--dim)}
+.chip.rpg{background:#20301f;color:var(--ok)}
+.chip.none{background:#38301c;color:var(--warn)}
+select.chip{appearance:none;-webkit-appearance:none;border:1px solid var(--edge);cursor:pointer;
+ background:var(--panel2);color:var(--fg);max-width:230px;padding:3px 10px}
+main{padding:16px;max-width:1080px;margin:0 auto}
+.tab{display:none}.tab.on{display:block}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);padding:14px 16px;margin-bottom:14px}
+.card h2{font-size:13px;margin:0 0 12px;color:var(--acc2);text-transform:uppercase;letter-spacing:.6px;font-weight:700}
+.card h2 small{text-transform:none;letter-spacing:0;color:var(--dim);font-weight:400;margin-left:8px;font-size:11.5px}
+label{display:block;font-size:12px;color:var(--dim);margin:0 0 4px}
+input,select,textarea{width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--edge);
+ border-radius:7px;padding:8px 10px;font-size:13.5px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+textarea{resize:vertical;min-height:64px}
+.row{display:grid;gap:12px;margin-bottom:12px}
+.row.c2{grid-template-columns:1fr 1fr}.row.c3{grid-template-columns:1fr 1fr 1fr}
+.row.c4{grid-template-columns:repeat(4,1fr)}
+@media(max-width:640px){.row.c2,.row.c3,.row.c4{grid-template-columns:1fr}}
+.field{min-width:0}
+.list .item{display:flex;gap:8px;margin-bottom:7px;align-items:flex-start}
+.list .item input{flex:1}
+.mini{background:var(--edge);color:var(--fg);border:none;border-radius:6px;padding:6px 11px;cursor:pointer;font-size:12.5px;white-space:nowrap}
+.mini:hover{background:var(--acc);color:#0f1117}
+.mini.x{background:#301f28;color:var(--bad);padding:6px 10px}
+.mini.x:hover{background:var(--bad);color:#14151a}
+.act{background:var(--acc);color:#0f1117;border:none;border-radius:8px;padding:9px 18px;cursor:pointer;font-weight:700;font-size:13.5px}
+.act:hover{filter:brightness(1.08)}
+.act.ai{background:linear-gradient(90deg,var(--acc2),var(--acc));color:#0f1117}
+.act.ghost{background:var(--edge);color:var(--fg)}
+.act:disabled{opacity:.5;cursor:default;filter:none}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.stat{background:var(--panel2);border:1px solid var(--edge);border-radius:9px;padding:10px;text-align:center}
+.stat .nm{font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.5px}
+.stat .val{display:flex;align-items:center;justify-content:center;gap:9px;margin:5px 0 2px}
+.stat .val b{font-size:22px;min-width:30px}
+.stat .mod{font-size:12px;color:var(--acc)}
+.step{width:26px;height:26px;border-radius:6px;border:none;background:var(--edge);color:var(--fg);font-size:16px;cursor:pointer;line-height:1}
+.step:hover{background:var(--acc);color:#0f1117}
+.skill{display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--edge)}
+.skill:last-child{border-bottom:none}
+.skill .nm{flex:1;min-width:0}
+.skill .nm b{font-weight:600}.skill .nm small{color:var(--dim);display:block;font-size:11.5px}
+.skill .em{font-size:12px;color:var(--acc);width:44px;text-align:right}
+.abil{display:flex;gap:10px;align-items:flex-start;padding:8px 4px;border-bottom:1px solid var(--edge)}
+.abil:last-child{border-bottom:none}
+.abil input{width:auto;margin-top:3px}
+.abil .nm b{font-weight:600}.abil .nm small{color:var(--dim);display:block;font-size:11.5px}
+details{margin-top:8px}
+summary{cursor:pointer;color:var(--dim);font-size:12.5px;padding:4px 0;user-select:none}
+summary:hover{color:var(--fg)}
+.banner{display:flex;gap:12px;align-items:center;background:#38301c;border:1px solid #5a4a24;
+ color:var(--warn);border-radius:9px;padding:10px 14px;margin-bottom:14px;font-size:13px}
+.banner button{margin-left:auto}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel);
+ border:1px solid var(--edge);border-radius:9px;padding:11px 18px;font-size:13.5px;opacity:0;
+ transition:opacity .25s,transform .25s;pointer-events:none;z-index:20;box-shadow:0 8px 30px #0008}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
+.toast.ok{border-color:var(--ok);color:var(--ok)}.toast.bad{border-color:var(--bad);color:var(--bad)}
+.hint{font-size:11.5px;color:var(--dim);margin-top:-6px;margin-bottom:10px}
+.pts{font-size:12px;color:var(--dim)}.pts b{color:var(--fg)}.pts.over b{color:var(--bad)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Aether<span>State</span> · Creator</h1>
+  <nav>
+    <button id="tab_world" class="on" onclick="showTab('world')">🌍 World</button>
+    <button id="tab_char" onclick="showTab('char')">🧑 Character</button>
+    <button id="tab_review" onclick="showTab('review')">📋 Session</button>
+  </nav>
+  <div class="spacer"></div>
+  <select id="modelSel" class="chip" title="AI model used for auto-fill"><option value="">model: auto</option></select>
+  <span id="specChip" class="chip">spec: …</span>
+  <select id="sessSel" class="chip" title="Which session the world/character is applied to"><option value="">session: …</option></select>
+</header>
+<main>
+  <div id="specBanner" class="banner" style="display:none">
+    <span>RPG mode is <b>off</b> — the world & character you build only render in-play under RPG mode.</span>
+    <button class="mini" onclick="switchRpg()">Switch to RPG</button>
+  </div>
+
+  <!-- ===================== WORLD TAB ===================== -->
+  <section id="world" class="tab on">
+    <div class="card">
+      <h2>The World <small>authored first — everything downstream fits it</small></h2>
+      <div class="row c2">
+        <div class="field"><label>World / campaign name</label><input id="w_name" placeholder="e.g. The Shattered Reach"></div>
+        <div class="field"><label>Genre</label><select id="w_genre"></select></div>
+      </div>
+      <div class="field" style="margin-bottom:12px"><label>Setting / premise — any length</label>
+        <textarea id="w_setting" placeholder="Write as much or as little as you like — one line or pages of lore. Everything you write is treated as canon and the AI builds the rest around it. Leave blank to let the AI invent freely."></textarea></div>
+      <div class="row c3">
+        <div class="field"><label>In-world date</label><input id="w_date" placeholder="Year 1042…"></div>
+        <div class="field"><label>Time of day</label><select id="w_time"></select></div>
+        <div class="field"><label>Tone</label><input id="w_tone" placeholder="heroic, grim, noir…"></div>
+      </div>
+      <div class="field"><label>Creative direction / notes — anything goes, the AI follows it</label>
+        <textarea id="w_notes" placeholder="Optional, free-form: themes, inspirations, genre blends, twists, content you want…"></textarea></div>
+    </div>
+
+    <div class="card">
+      <h2>Factions & Places <small>optional — blanks get filled</small></h2>
+      <div class="row c2">
+        <div><label>Factions / powers</label><div id="w_factions" class="list"></div>
+          <button class="mini" onclick="addLine('w_factions')">+ faction</button></div>
+        <div><label>Key locations</label><div id="w_locations" class="list"></div>
+          <button class="mini" onclick="addLine('w_locations')">+ location</button></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Notable NPCs</h2>
+      <div id="w_npcs" class="list"></div>
+      <button class="mini" onclick="addNpc()">+ NPC</button>
+    </div>
+
+    <div class="card">
+      <h2>World aspects & lore <small>magic / tech / cosmology — one per line</small></h2>
+      <div id="w_aspects" class="list"></div>
+      <button class="mini" onclick="addLine('w_aspects')">+ aspect</button>
+      <div class="row c2" style="margin-top:14px">
+        <div class="field"><label>Opening scene</label><textarea id="w_scene" placeholder="Where does play begin?"></textarea></div>
+        <div class="field"><label>Opening quest / hook</label><textarea id="w_quest" placeholder="The first thing pulling the player forward."></textarea></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="act ai" id="w_ai" onclick="authorWorld()">✨ Auto-fill blanks with AI</button>
+      <button class="act ghost" onclick="fillOffline('world')" title="No AI — fill blanks from the built-in genre template">Fill blanks with templates</button>
+      <button class="act" id="w_save" onclick="saveWorld()">Save World to session</button>
+      <button class="act ghost" onclick="showTab('char')">Next: Character →</button>
+    </div>
+    <div class="actions" style="margin-top:10px">
+      <select id="w_presets" class="chip" style="max-width:260px"><option value="">world presets…</option></select>
+      <button class="mini" onclick="loadPreset('world')">Load preset</button>
+      <button class="mini" onclick="savePreset('world')">💾 Save as preset</button>
+      <button class="mini x" onclick="deletePreset('world')">✕ delete</button>
+    </div>
+  </section>
+
+  <!-- ===================== CHARACTER TAB ===================== -->
+  <section id="char" class="tab">
+    <div class="card">
+      <h2>Identity</h2>
+      <div class="row c3">
+        <div class="field"><label>Name</label><input id="c_name" placeholder="Your character"></div>
+        <div class="field"><label>Sex</label><input id="c_sex" placeholder="optional"></div>
+        <div class="field"><label>Pronouns</label><input id="c_pronouns" placeholder="she/her…"></div>
+      </div>
+      <div class="row c2">
+        <div class="field"><label>Species / race</label><input id="c_species" placeholder="Human, or freestyle — AI authors traits"></div>
+        <div class="field"><label>Class / concept</label><input id="c_concept" placeholder="e.g. Storm-Touched Skald"></div>
+      </div>
+      <div class="field" style="margin-bottom:12px"><label>Creative direction / notes — anything goes, the AI follows it</label>
+        <textarea id="c_notes" placeholder="Optional, free-form: backstory beats, vibe, powers you want, how they talk…"></textarea></div>
+      <div class="hint">Type as much or as little as you like — leave the rest blank and the AI fills it to fit the world.</div>
+    </div>
+
+    <div class="card">
+      <h2>Stats <small id="c_pts"></small></h2>
+      <div id="c_stats" class="row c3"></div>
+    </div>
+
+    <div class="card">
+      <h2>Skills <small>things you TRY — ranked, rolled on checks. Presets follow the world's genre</small></h2>
+      <div id="c_skills"></div>
+    </div>
+
+    <div class="card">
+      <h2>Abilities <small>things you HAVE — a basis that unlocks a gated skill, a permanent edge, or a spendable surge. Never ranked</small></h2>
+      <div id="c_abilities"></div>
+    </div>
+
+    <div class="card">
+      <h2>Advanced <small>freestyle mechanics — frozen as fixed numbers</small></h2>
+      <details>
+        <summary>Custom skills & abilities (optional)</summary>
+        <div style="margin-top:10px">
+          <label>Custom skills</label><div id="c_cskills" class="list"></div>
+          <button class="mini" onclick="addCustomSkill()">+ custom skill</button>
+          <label style="margin-top:12px">Custom abilities</label><div id="c_cabil" class="list"></div>
+          <button class="mini" onclick="addCustomAbil()">+ custom ability</button>
+        </div>
+      </details>
+      <div class="row c3" style="margin-top:12px">
+        <div class="field"><label>Level</label><input id="c_level" type="number" value="1" min="1" max="999"></div>
+        <div class="field"><label>Max HP</label><input id="c_hp" type="number" value="20" min="1" max="9999"></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="act ai" id="c_ai" onclick="authorPlayer()">✨ Auto-fill blanks with AI</button>
+      <button class="act ghost" onclick="fillOffline('player')" title="No AI — fill blanks from registry defaults">Fill blanks with defaults</button>
+      <button class="act" id="c_save" onclick="savePlayer()">Save Character to session</button>
+    </div>
+    <div class="actions" style="margin-top:10px">
+      <select id="c_presets" class="chip" style="max-width:260px"><option value="">character presets…</option></select>
+      <button class="mini" onclick="loadPreset('player')">Load preset</button>
+      <button class="mini" onclick="savePreset('player')">💾 Save as preset</button>
+      <button class="mini x" onclick="deletePreset('player')">✕ delete</button>
+    </div>
+  </section>
+
+  <!-- ===================== SESSION REVIEW TAB ===================== -->
+  <section id="review" class="tab">
+    <div class="card">
+      <h2>What this session has committed <small>the ledger's truth — refreshed each time you open this tab</small></h2>
+      <div id="rv_body" class="hint">Loading…</div>
+      <div class="actions" style="margin-top:12px">
+        <button class="act ghost" onclick="loadCommitted('world')">Load world into form</button>
+        <button class="act ghost" onclick="loadCommitted('player')">Load character into form</button>
+        <button class="mini" onclick="renderReview()">↻ refresh</button>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="toast" class="toast"></div>
+
+<script>
+const QS = new URLSearchParams(location.search);
+let SID = QS.get("session") || "";
+let REG = null, SPEC = "none", WORLD_CACHE = null, PRESETS = [];
+
+const $ = id => document.getElementById(id);
+function toast(msg, kind){ const t=$("toast"); t.textContent=msg; t.className="toast show "+(kind||"");
+  setTimeout(()=>{t.className="toast";}, 2600); }
+async function api(path, opts){ const r = await fetch(path, Object.assign({headers:{"Content-Type":"application/json"}}, opts||{}));
+  if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); }
+function statMod(v){ if(!REG) return 0; return REG.mod_policy==="direct" ? v : Math.floor((v-10)/2); }
+function fmt(n){ return (n>=0?"+":"")+n; }
+
+function showTab(name){
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.id===name));
+  $("tab_world").classList.toggle("on", name==="world");
+  $("tab_char").classList.toggle("on", name==="char");
+  $("tab_review").classList.toggle("on", name==="review");
+  if(name==="review") renderReview();
+}
+
+// ---- dynamic lists
+function addLine(hostId, val){
+  const host=$(hostId); const d=document.createElement("div"); d.className="item";
+  d.innerHTML=`<input value="${(val||"").replace(/"/g,'&quot;')}"><button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
+  host.appendChild(d);
+}
+function readLines(hostId){ return [...$(hostId).querySelectorAll("input")].map(i=>i.value.trim()).filter(Boolean); }
+function addNpc(n){ n=n||{}; const host=$("w_npcs"); const d=document.createElement("div"); d.className="item";
+  d.innerHTML=`<input placeholder="name" value="${(n.name||'').replace(/"/g,'&quot;')}" style="flex:0 0 22%">
+    <input placeholder="role" value="${(n.role||'').replace(/"/g,'&quot;')}" style="flex:0 0 24%">
+    <input placeholder="short description" value="${(n.desc||'').replace(/"/g,'&quot;')}">
+    <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
+  host.appendChild(d);
+}
+function readNpcs(){ return [...$("w_npcs").querySelectorAll(".item")].map(it=>{
+  const i=it.querySelectorAll("input"); return {name:i[0].value.trim(), role:i[1].value.trim(), desc:i[2].value.trim()};
+}).filter(n=>n.name); }
+
+// ---- custom skills / abilities
+function addCustomSkill(s){ s=s||{}; const host=$("c_cskills"); const opts=Object.keys(REG.stats).map(k=>`<option ${s.keyed_stat===k?'selected':''}>${k}</option>`).join("");
+  const d=document.createElement("div"); d.className="item";
+  d.innerHTML=`<input placeholder="skill name" value="${(s.name||'').replace(/"/g,'&quot;')}" style="flex:1">
+    <select style="flex:0 0 90px">${opts}</select>
+    <input type="number" title="base mod" value="${s.base_mod||0}" style="flex:0 0 70px">
+    <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
+  host.appendChild(d);
+}
+function readCustomSkills(){ return [...$("c_cskills").querySelectorAll(".item")].map(it=>{
+  const el=it.querySelectorAll("input,select"); return {name:el[0].value.trim(), keyed_stat:el[1].value, base_mod:+el[2].value||0};
+}).filter(s=>s.name); }
+function addCustomAbil(a){ a=a||{}; const host=$("c_cabil"); const d=document.createElement("div"); d.className="item";
+  const pm=a.passive_mod||{}; const amt = pm.amount!=null?pm.amount:(a.resolution_mod!=null?a.resolution_mod:1);
+  d.innerHTML=`<input placeholder="ability name" value="${(a.name||'').replace(/"/g,'&quot;')}" style="flex:1">
+    <select style="flex:0 0 96px"><option value="passive" ${a.kind!=='active'?'selected':''}>passive</option><option value="active" ${a.kind==='active'?'selected':''}>active</option></select>
+    <input placeholder="boosted skill" title="passive: which skill it boosts (name or id)" value="${(pm.skill||'').replace(/"/g,'&quot;')}" style="flex:0 0 130px">
+    <input type="number" title="mod amount — passive: skill boost, active: resolution mod" value="${amt}" style="flex:0 0 64px">
+    <input placeholder="effect (prose)" value="${(a.effect||'').replace(/"/g,'&quot;')}" style="flex:1">
+    <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
+  host.appendChild(d);
+}
+function readCustomAbils(){ return [...$("c_cabil").querySelectorAll(".item")].map(it=>{
+  const el=it.querySelectorAll("input,select"); const kind=el[1].value, amt=+el[3].value||0;
+  const o={name:el[0].value.trim(), kind, effect:el[4].value.trim()};
+  if(kind==="passive" && el[2].value.trim()) o.passive_mod={skill:el[2].value.trim(), amount:amt};
+  if(kind==="active") o.resolution_mod=amt;
+  return o;
+}).filter(a=>a.name); }
+
+// ---- stats / skills / abilities UI (registry-driven)
+let statVals = {};
+function buildStats(){
+  const host=$("c_stats"); host.innerHTML="";
+  for(const [sid,def] of Object.entries(REG.stats)){
+    if(!(sid in statVals)) statVals[sid]=def.default||10;
+    const d=document.createElement("div"); d.className="stat"; d.dataset.sid=sid;
+    d.innerHTML=`<div class="nm" title="${def.desc||''}">${sid} · ${def.name||sid}</div>
+      <div class="val"><button class="step" onclick="bumpStat('${sid}',-1)">−</button>
+      <b id="sv_${sid}">${statVals[sid]}</b>
+      <button class="step" onclick="bumpStat('${sid}',1)">+</button></div>
+      <div class="mod" id="sm_${sid}">mod ${fmt(statMod(statVals[sid]))}</div>`;
+    host.appendChild(d);
+  }
+  refreshPoints();
+}
+function bumpStat(sid,dir){ const def=REG.stats[sid]; const lo=def.min||1, hi=def.max||20;
+  statVals[sid]=Math.max(lo,Math.min(hi,statVals[sid]+dir));
+  $("sv_"+sid).textContent=statVals[sid]; $("sm_"+sid).textContent="mod "+fmt(statMod(statVals[sid]));
+  refreshPoints(); refreshSkillMods(); }
+function refreshPoints(){ const spent=Object.entries(statVals).reduce((a,[k,v])=>a+(v-(REG.stats[k].default||10)),0);
+  const el=$("c_pts"); el.className=spent>6?"pts over":"pts"; el.innerHTML=`points over baseline: <b>${spent}</b> / 6 suggested`; }
+
+let skillRanks = {};
+// ---- genre packs (2026-07-06): the curated preset floor follows the WORLD's genre. A pack
+// hides fantasy-flavored registry entries (Spellcraft on a sci-fi sheet — live playtest) and
+// adds genre-true ones; picked pack entries are frozen into per-character defs at save.
+function currentGenre(){ return (WORLD_CACHE&&WORLD_CACHE.genre) || $("w_genre").value || "high_fantasy"; }
+function activePack(){ return (REG.genre_packs||{})[currentGenre()] || null; }
+function presetSkills(){ const p=activePack(); if(!p) return REG.skills;
+  const out={}; const hide=new Set(p.hide_skills||[]);
+  for(const [k,v] of Object.entries(REG.skills)) if(!hide.has(k)) out[k]=v;
+  return Object.assign(out, p.skills||{}); }
+function presetAbilities(){ const p=activePack(); if(!p) return REG.abilities;
+  const out={}; const hide=new Set(p.hide_abilities||[]);
+  for(const [k,v] of Object.entries(REG.abilities)) if(!hide.has(k)) out[k]=v;
+  return Object.assign(out, p.abilities||{}); }
+function packSkillIds(){ const p=activePack(); return p?new Set(Object.keys(p.skills||{})):new Set(); }
+function packAbilIds(){ const p=activePack(); return p?new Set(Object.keys(p.abilities||{})):new Set(); }
+function buildSkills(){
+  const host=$("c_skills"); host.innerHTML="";
+  const abils=presetAbilities();
+  for(const [sid,def] of Object.entries(presetSkills())){
+    if(!(sid in skillRanks)) skillRanks[sid]=0;
+    const gate = def.requires_ability ? ` · requires ${(abils[def.requires_ability]||{}).name||def.requires_ability}` : "";
+    const d=document.createElement("div"); d.className="skill"; d.dataset.sid=sid;
+    d.innerHTML=`<div class="nm"><b>${def.name||sid}</b><small>${def.keyed_stat} · ${def.desc||''}${gate}</small></div>
+      <button class="step" onclick="bumpSkill('${sid}',-1)">−</button>
+      <b id="sr_${sid}" style="min-width:14px;text-align:center">${skillRanks[sid]||0}</b>
+      <button class="step" onclick="bumpSkill('${sid}',1)">+</button>
+      <span class="em" id="se_${sid}">+0</span>`;
+    host.appendChild(d);
+  }
+  refreshSkillMods();
+}
+function bumpSkill(sid,dir){ const mx=(presetSkills()[sid]||{}).max_rank||5;
+  skillRanks[sid]=Math.max(0,Math.min(mx,(skillRanks[sid]||0)+dir));
+  $("sr_"+sid).textContent=skillRanks[sid]; refreshSkillMods(); }
+function passiveFor(sid){ let m=0; const abils=presetAbilities();
+  for(const aid of pickedAbilities()){ const a=abils[aid];
+  if(a && a.kind==="passive" && a.passive_mod && a.passive_mod.skill===sid) m+=a.passive_mod.amount||0; } return m; }
+function refreshSkillMods(){ for(const [sid,def] of Object.entries(presetSkills())){
+  const em=statMod(statVals[def.keyed_stat]||10)+(def.base_mod||0)+(skillRanks[sid]||0)+passiveFor(sid);
+  const el=$("se_"+sid); if(el) el.textContent=fmt(em); } }
+
+function buildAbilities(){
+  const host=$("c_abilities"); host.innerHTML="";
+  const abils=presetAbilities(); const keys=Object.keys(abils);
+  if(!keys.length){ host.innerHTML="<div class='hint'>No abilities defined for this genre.</div>"; return; }
+  for(const [aid,def] of Object.entries(abils)){
+    const d=document.createElement("div"); d.className="abil";
+    const tag = def.kind==="basis" ? "basis — unlocks a gated skill"
+      : (def.kind==="passive" && def.passive_mod ? `passive +${def.passive_mod.amount} ${def.passive_mod.skill}`
+      : (def.kind==="active" ? `active${def.resolution_mod?` +${def.resolution_mod}`:''}` : def.kind||""));
+    d.innerHTML=`<input type="checkbox" id="ab_${aid}" onchange="refreshSkillMods()">
+      <label for="ab_${aid}" class="nm" style="margin:0"><b>${def.name||aid}</b><small>${tag} — ${def.desc||def.effect||''}</small></label>`;
+    host.appendChild(d);
+  }
+}
+function pickedAbilities(){ return Object.keys(presetAbilities()).filter(aid=>{ const c=$("ab_"+aid); return c&&c.checked; }); }
+function genreChanged(){ if(!REG) return;               // rebuild the preset floor for the new genre
+  for(const k of Object.keys(skillRanks)) delete skillRanks[k];
+  buildSkills(); buildAbilities();
+  const hint=(REG.concept_hints||{})[currentGenre()]; if(hint) $("c_concept").placeholder=hint; }
+
+// ---- collect docs
+function worldDoc(){ return {
+  name:$("w_name").value.trim(), genre:$("w_genre").value, setting:$("w_setting").value.trim(),
+  date:$("w_date").value.trim(), time:$("w_time").value, tone:$("w_tone").value.trim(),
+  factions:readLines("w_factions"), locations:readLines("w_locations"), npcs:readNpcs(),
+  aspects:readLines("w_aspects"), opening_scene:$("w_scene").value.trim(), opening_quest:$("w_quest").value.trim(),
+  notes:$("w_notes").value.trim() }; }
+function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks[k]>0) skills[k]=skillRanks[k]; }
+  // Pack entries aren't registry rows: everything USED from the genre pack ships as a custom
+  // def so the server freezes it into the card (snapshot overlay) and the ranks stick.
+  const custom={skills:readCustomSkills(), abilities:readCustomAbils()};
+  const p=activePack();
+  if(p){ const haveS=new Set(custom.skills.map(s=>s.id||s.name)), haveA=new Set(custom.abilities.map(a=>a.id||a.name));
+    const picked=new Set(pickedAbilities()); const needBasis=new Set();
+    for(const [sid,def] of Object.entries(p.skills||{})){
+      if((skills[sid]||0)>0 && !haveS.has(sid)){ custom.skills.push(Object.assign({id:sid},def));
+        if(def.requires_ability) needBasis.add(def.requires_ability); } }
+    for(const [aid,def] of Object.entries(p.abilities||{})){
+      if((picked.has(aid)||needBasis.has(aid)) && !haveA.has(aid)) custom.abilities.push(Object.assign({id:aid},def)); } }
+  return { name:$("c_name").value.trim(), sex:$("c_sex").value.trim(), pronouns:$("c_pronouns").value.trim(),
+  species:$("c_species").value.trim(), concept:$("c_concept").value.trim(), level:+$("c_level").value||1,
+  stats:Object.assign({},statVals), skills, abilities:pickedAbilities(),
+  custom,
+  notes:$("c_notes").value.trim(),
+  resources:{hp:{max:+$("c_hp").value||20}} }; }
+
+// ---- apply a doc back into the form
+function applyWorld(w){ if(!w) return; const genreBefore=currentGenre(); WORLD_CACHE=w;
+  $("w_name").value=w.name||""; if(w.genre) $("w_genre").value=w.genre; $("w_setting").value=w.setting||"";
+  if(currentGenre()!==genreBefore) genreChanged();
+  $("w_date").value=w.date||""; if(w.time) $("w_time").value=w.time; $("w_tone").value=w.tone||"";
+  fillList("w_factions", w.factions); fillList("w_locations", w.locations); fillList("w_aspects", w.aspects);
+  $("w_npcs").innerHTML=""; (w.npcs||[]).forEach(addNpc);
+  $("w_scene").value=w.opening_scene||""; $("w_quest").value=w.opening_quest||""; }
+function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); }
+function applyPlayer(p){ if(!p) return;
+  $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
+  $("c_species").value=p.species||""; $("c_concept").value=p.concept||""; $("c_level").value=p.level||1;
+  if(p.resources&&p.resources.hp&&p.resources.hp.max) $("c_hp").value=p.resources.hp.max;
+  if(p.stats) Object.assign(statVals, p.stats); buildStats();
+  if(p.skills){ for(const k in skillRanks) skillRanks[k]=0; Object.assign(skillRanks, p.skills); }
+  buildSkills();
+  buildAbilities(); (p.abilities||[]).forEach(aid=>{ const c=$("ab_"+aid); if(c) c.checked=true; });
+  $("c_cskills").innerHTML=""; $("c_cabil").innerHTML="";
+  if(p.defs&&p.defs.skills) Object.values(p.defs.skills).forEach(addCustomSkill);
+  if(p.defs&&p.defs.abilities) Object.values(p.defs.abilities).forEach(addCustomAbil);
+  refreshSkillMods(); }
+
+// ---- AI authoring (2026-07-06: an AI failure shows the reason and leaves the form
+// alone — templates are an explicit button now, never a silent substitute)
+async function authorWorld(){ const b=$("w_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take a minute)";
+  try{ const r=await api(`/aether/session/${SID}/author`, {method:"POST", body:JSON.stringify({mode:"world", doc:worldDoc(), model:$("modelSel").value||undefined})});
+    if(r.source==="llm"){ applyWorld(r.doc); toast(`World authored by AI ✨ (${r.model||"auto"})`, "ok"); }
+    else toast("AI fill failed: "+(r.detail||"unknown")+" — your form is untouched", "bad");
+  }catch(e){ toast("Authoring failed: "+e.message, "bad"); }
+  b.disabled=false; b.textContent="✨ Auto-fill blanks with AI"; }
+async function authorPlayer(){ const b=$("c_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take a minute)";
+  try{ const r=await api(`/aether/session/${SID}/author`, {method:"POST", body:JSON.stringify({mode:"player", doc:playerDoc(), world:WORLD_CACHE||worldDoc(), model:$("modelSel").value||undefined})});
+    if(r.source==="llm"){ applyPlayer(r.doc); toast(`Character authored by AI ✨ (${r.model||"auto"})`, "ok"); }
+    else toast("AI fill failed: "+(r.detail||"unknown")+" — your form is untouched", "bad");
+  }catch(e){ toast("Authoring failed: "+e.message, "bad"); }
+  b.disabled=false; b.textContent="✨ Auto-fill blanks with AI"; }
+async function fillOffline(mode){
+  try{ const r=await api(`/aether/session/${SID}/author`, {method:"POST", body:JSON.stringify({mode, offline:1, doc:mode==="world"?worldDoc():playerDoc(), world:WORLD_CACHE||worldDoc()})});
+    if(mode==="world") applyWorld(r.doc); else applyPlayer(r.doc);
+    toast(mode==="world"?"Blanks filled from the genre template":"Blanks filled from registry defaults", "ok");
+  }catch(e){ toast("Fill failed: "+e.message, "bad"); } }
+
+// ---- presets (2026-07-06: save a world/character once, reuse it on any session)
+async function loadPresets(){
+  try{ const d=await api("/aether/presets"); PRESETS=d.presets||[];
+    for(const [kind,selId] of [["world","w_presets"],["player","c_presets"]]){
+      const sel=$(selId); if(!sel) continue;
+      const items=PRESETS.filter(p=>p.kind===kind);
+      sel.innerHTML=`<option value="">${kind==="world"?"world":"character"} presets…</option>`+
+        items.map(p=>`<option value="${p.preset_id}">${(p.name||"").replace(/</g,"&lt;")}</option>`).join("");
+    }
+  }catch(e){} }
+async function savePreset(kind){
+  const name=prompt(`Name this ${kind==="world"?"world":"character"} preset:`); if(!name) return;
+  try{ await api("/aether/presets", {method:"POST", body:JSON.stringify({kind, name, doc:kind==="world"?worldDoc():playerDoc()})});
+    toast(`Preset “${name}” saved`, "ok"); loadPresets();
+  }catch(e){ toast("Preset save failed: "+e.message, "bad"); } }
+async function loadPreset(kind){
+  const sel=$(kind==="world"?"w_presets":"c_presets"); if(!sel.value){ toast("pick a preset first",""); return; }
+  try{ const p=await api(`/aether/presets/${sel.value}`);
+    if(kind==="world") applyWorld(p.doc); else applyPlayer(normalizePresetPlayer(p.doc));
+    toast(`Preset “${p.name}” loaded — now Save it to the session you want`, "ok");
+  }catch(e){ toast("Preset load failed: "+e.message, "bad"); } }
+function normalizePresetPlayer(d){ d=d||{}; if(d.custom&&!d.defs){ d=Object.assign({},d);
+  d.defs={skills:Object.fromEntries((d.custom.skills||[]).map(s=>[s.name,s])),
+          abilities:Object.fromEntries((d.custom.abilities||[]).map(a=>[a.name,a]))}; } return d; }
+async function deletePreset(kind){
+  const sel=$(kind==="world"?"w_presets":"c_presets"); if(!sel.value){ toast("pick a preset first",""); return; }
+  if(!confirm("Delete this preset?")) return;
+  try{ await api(`/aether/presets/${sel.value}`, {method:"DELETE"}); loadPresets(); toast("Preset deleted","ok");
+  }catch(e){ toast("Delete failed: "+e.message, "bad"); } }
+
+// ---- session review (2026-07-06: SEE what the session actually has committed)
+function chipRow(label, arr){ return arr&&arr.length?`<div style="margin:6px 0"><span style="color:var(--dim);font-size:12px">${label}:</span> `+
+  arr.map(x=>`<span class="chip" style="background:var(--panel2);border:1px solid var(--edge);border-radius:7px;padding:2px 8px;font-size:12px;display:inline-block;margin:2px">${String(x).replace(/</g,"&lt;")}</span>`).join(" ")+`</div>`:""; }
+async function renderReview(){
+  const host=$("rv_body"); if(!SID){ host.textContent="No session selected — pick one in the header."; return; }
+  host.textContent="Loading…";
+  try{
+    const pre=await api(`/aether/session/${SID}/creator`);
+    const st=await api(`/aether/session/${SID}/state`);
+    const s=st.state||{};
+    let h="";
+    const w=pre.world;
+    if(w){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:4px 0 8px">🌍 World — ${(w.name||"(unnamed)").replace(/</g,"&lt;")}${w.genre?` <span style="color:var(--dim)">(${w.genre})</span>`:""}</h3>`;
+      if(w.setting) h+=`<p style="margin:4px 0;color:var(--fg)">${w.setting.replace(/</g,"&lt;")}</p>`;
+      if(w.date||w.time) h+=`<div style="color:var(--dim);font-size:12px">${[w.date,w.time].filter(Boolean).join(" · ")}</div>`;
+      h+=chipRow("factions", w.factions)+chipRow("locations", w.locations)
+        +chipRow("npcs", (w.npcs||[]).map(n=>n.name+(n.role?` — ${n.role}`:"")))
+        +chipRow("aspects", w.aspects);
+      if(w.opening_scene) h+=`<div style="margin:6px 0;font-size:12.5px"><span style="color:var(--dim)">opening scene:</span> ${w.opening_scene.replace(/</g,"&lt;")}</div>`;
+      if(w.opening_quest) h+=`<div style="margin:6px 0;font-size:12.5px"><span style="color:var(--dim)">opening quest:</span> ${w.opening_quest.replace(/</g,"&lt;")}</div>`;
+    } else h+=`<div class="hint">No world seeded in this session yet.</div>`;
+    const p=pre.player;
+    if(p){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:16px 0 8px">🧑 Player — ${(pre.player_name||"Player").replace(/</g,"&lt;")}${p.level?` · level ${p.level}`:""}${p.concept?` · ${String(p.concept).replace(/</g,"&lt;")}`:""}</h3>`;
+      h+=chipRow("stats", Object.entries(p.stats||{}).map(([k,v])=>`${k} ${v}`));
+      h+=chipRow("skills", Object.entries(p.skills||{}).filter(([,v])=>v>0).map(([k,v])=>`${k} r${v}`));
+      h+=chipRow("abilities", p.abilities||[]);
+      const defs=p.defs||{};
+      h+=chipRow("custom (frozen)", [...Object.values(defs.skills||{}),...Object.values(defs.abilities||{})].map(x=>x.name).filter(Boolean));
+      const hp=(p.resources||{}).hp; if(hp&&hp.max) h+=`<div style="font-size:12.5px;color:var(--dim)">HP ${hp.current??hp.max}/${hp.max}</div>`;
+    } else h+=`<div class="hint" style="margin-top:12px">No Player Card in this session yet.</div>`;
+    const effs=s.effects&&Object.keys(s.effects).length;
+    if(effs) h+=chipRow("active effects", Object.entries(s.effects).flatMap(([who,m])=>Object.values(m||{}).map(f=>`${who}: ${f.name}`)));
+    host.innerHTML=h;
+  }catch(e){ host.textContent="Could not load session state: "+e.message; } }
+async function loadCommitted(kind){
+  try{ const pre=await api(`/aether/session/${SID}/creator`);
+    if(kind==="world"){ if(!pre.world){ toast("No world committed yet",""); return; } applyWorld(pre.world); showTab("world"); toast("Committed world loaded into the form","ok"); }
+    else { if(!pre.player){ toast("No character committed yet",""); return; }
+      const p=Object.assign({}, pre.player, {name:pre.player_name||""}); applyPlayer(p); showTab("char"); toast("Committed character loaded into the form","ok"); }
+  }catch(e){ toast("Load failed: "+e.message, "bad"); } }
+
+// ---- session switcher (2026-07-06: apply the same world/char to ANY session)
+async function loadSessions(){
+  try{ const d=await api("/aether/sessions"); const list=d.sessions||[];
+    const sel=$("sessSel");
+    // 2026-07-06 creator-first: a brand-new chat isn't in the proxy's session list yet —
+    // show it honestly as the selected target instead of silently displaying another session.
+    const known = SID && list.some(x=>x.session_id===SID||x.external_id===SID);
+    sel.innerHTML=(SID&&!known?`<option value="${SID.replace(/"/g,'&quot;')}" selected>this chat (new) · ${SID.slice(0,18).replace(/</g,"&lt;")}</option>`:"")+
+      (list.length||SID?"":`<option value="">no sessions yet</option>`)+
+      list.map(x=>`<option value="${x.session_id}" ${x.session_id===SID||x.external_id===SID?"selected":""}>${((x.label||x.external_id||x.session_id).slice(0,24)).replace(/</g,"&lt;")} · t${x.head_turn??"?"}</option>`).join("");
+    if(!SID&&list.length){ SID=list[0].session_id; }
+    sel.onchange=async()=>{ SID=sel.value; history.replaceState(null,"",`?session=${encodeURIComponent(SID)}`);
+      try{ const pre=await api(`/aether/session/${SID}/creator`);
+        SPEC=pre.specialization||"none"; renderSpec();
+        toast("Creator now targets this session — Save buttons apply here","ok");
+      }catch(e){}
+      if($("review").classList.contains("on")) renderReview(); };
+  }catch(e){} }
+
+// ---- save
+function sessLabel(){ const sel=$("sessSel"); return sel&&sel.selectedIndex>=0&&sel.value?sel.options[sel.selectedIndex].text.split(" · ")[0]:"session"; }
+async function saveWorld(){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
+  try{ const r=await api(`/aether/session/${SID}/world`, {method:"POST", body:JSON.stringify({world:worldDoc()})});
+    WORLD_CACHE=worldDoc(); toast(`World saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
+  }catch(e){ toast("Save failed: "+e.message, "bad"); } }
+async function savePlayer(){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
+  try{ const r=await api(`/aether/session/${SID}/player`, {method:"POST", body:JSON.stringify({player:playerDoc()})});
+    toast(`Character saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
+  }catch(e){ toast("Save failed: "+e.message, "bad"); } }
+
+async function switchRpg(){ try{ await api("/aether/specialization", {method:"POST", body:JSON.stringify({name:"rpg"})});
+  SPEC="rpg"; renderSpec(); toast("Specialization set to RPG", "ok"); }catch(e){ toast("Could not switch: "+e.message, "bad"); } }
+function renderSpec(){ const c=$("specChip"); c.textContent="spec: "+SPEC; c.className="chip "+(SPEC==="rpg"?"rpg":"none");
+  $("specBanner").style.display = SPEC==="rpg" ? "none" : "flex"; }
+
+// ---- model menu (detected server-side at the configured endpoints; fail-open)
+async function loadModels(){
+  try{ const m = await api("/aether/creator/models");
+    const ids=[...new Set((m.endpoints||[]).flatMap(e=>e.models||[]))];
+    const sel=$("modelSel");
+    sel.innerHTML=`<option value="">model: auto</option>`+ids.map(i=>`<option value="${i.replace(/"/g,'&quot;')}">${i}</option>`).join("");
+    const saved=localStorage.getItem("aether_creator_model")||"";
+    if(saved && ids.includes(saved)) sel.value=saved;
+    sel.onchange=()=>localStorage.setItem("aether_creator_model", sel.value);
+    if(!ids.length) sel.title="No models detected — check Console → Connection";
+  }catch(e){ /* fail-open: 'auto' stays */ }
+}
+
+// ---- boot
+async function boot(){
+  try{ REG = await api("/aether/registry"); }
+  catch(e){ toast("Could not load registry — is the proxy running?", "bad"); return; }
+  // genre + time selects
+  $("w_genre").innerHTML = REG.genres.map(g=>`<option value="${g}">${g.replace(/_/g,' ')}</option>`).join("");
+  $("w_genre").addEventListener("change", genreChanged);   // preset floor follows the genre
+  $("w_time").innerHTML = REG.times.map(t=>`<option value="${t}">${t.replace(/_/g,' ')}</option>`).join("");
+  ["w_factions","w_locations","w_aspects"].forEach(id=>addLine(id));
+  loadModels(); loadPresets(); await loadSessions();
+  buildStats(); buildSkills(); buildAbilities();
+  if(SID){ try{ const pre = await api(`/aether/session/${SID}/creator`);
+    SPEC = pre.specialization || "none"; if(pre.persona && !$("c_name").value) $("c_name").value=pre.persona;
+    if(pre.world){ WORLD_CACHE = pre.world;  // char authoring sees the committed world —
+      genreChanged(); }                      // and the sheet's preset floor follows its genre
+    if(pre.player) applyPlayer(Object.assign({}, pre.player, {name: pre.player_name||""}));
+  }catch(e){ /* no session yet — fine */ } }
+  genreChanged();                            // set the genre-true concept hint on first paint
+  renderSpec();
+}
+boot();
+</script>
+</body>
+</html>

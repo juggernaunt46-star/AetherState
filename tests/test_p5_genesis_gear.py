@@ -131,6 +131,44 @@ async def test_stage_b_garbage_fails_open_and_marks_done():
     assert store.genesis_state(sid) == "done"    # never retry-loops
 
 
+async def test_stage_b_hard_failure_leaves_session_reseedable():
+    """2026-07-06: a transport/endpoint failure (no reply AT ALL) must not lock the
+    session 'done' — the marker returns to 'rules' so the next trigger (first message,
+    chat re-open, /aether-genesis) retries. Garbage-with-a-reply still marks done."""
+    cfg, store, sid, bid = mk()
+    genesis.seed_rules(store, cfg, sid, bid, doc())
+    mock = MockUpstream()                         # unscripted -> 500 on every request
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=mock),
+                               base_url="http://mock-upstream")
+    ep = Endpoint(base_url="http://mock-upstream/v1", model="tiny")
+    assert await genesis.seed_llm(store, cfg, lambda: client, ep, sid, bid,
+                                  "card text", "") == 0
+    assert store.genesis_state(sid) == "rules"    # re-seedable, not locked out
+
+
+async def test_stage_b_resolves_model_from_assist_config():
+    """2026-07-06 chat-open repro: nothing proxied yet -> ep.model=''. seed_llm now
+    resolves a real model (the configured assist pick) instead of posting model=''."""
+    from aetherstate.config import AssistEndpointConfig
+    cfg, store, sid, bid = mk()
+    genesis.seed_rules(store, cfg, sid, bid, doc())
+    cfg.assist.endpoints = [AssistEndpointConfig(
+        name="mech", base_url="http://mock-upstream/v1", model="glm-mech")]
+    mock = MockUpstream()
+    client = httpx.AsyncClient(transport=httpx.ASGITransport(app=mock),
+                               base_url="http://mock-upstream")
+    ops = [{"op": "entity_add", "name": "Mercer"}]
+    mock.enqueue(Reply(body=json.dumps(
+        {"choices": [{"message": {"content": json.dumps(ops)}}]}).encode()))
+    ep = Endpoint(base_url="http://mock-upstream/v1", model="")   # chat-open: no model yet
+    n = await genesis.seed_llm(store, cfg, lambda: client, ep, sid, bid,
+                               "card text", "")
+    assert n >= 1
+    sent = json.loads(mock.requests[-1].body)
+    assert sent["model"] == "glm-mech"
+    assert store.genesis_state(sid) == "done"
+
+
 # ------------------------------ authority (Q23.2) ------------------------------
 def test_genesis_source_may_set_organics_user_still_gated():
     cfg, store, sid, bid = mk()

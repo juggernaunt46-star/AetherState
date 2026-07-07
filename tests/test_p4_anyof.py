@@ -88,8 +88,12 @@ def test_op_add_stays_one_table_cheap():
     """Q22 standing directive: adding an op kind (inventory ops are the first customers)
     touches the tables only — builders, scrub, and salvage all derive. This weld breaks
     loudly if the tables drift apart."""
-    assert set(EXTRACTION_OPS) == set(_OP_ALLOWED)
-    assert set(EXTRACTION_OPS) <= set(state._SPEC)
+    from aetherstate.extraction import (EXTRACTION_OPS_RPG, RPG_EFFECT_OPS, RPG_ITEM_OPS,
+                                        RPG_SOCIAL_OPS, _RPG_OP_FIELDS)
+    rpg_ops = set(RPG_ITEM_OPS) | set(RPG_EFFECT_OPS) | set(RPG_SOCIAL_OPS)   # RPG-2 + 3 + 3b
+    assert set(EXTRACTION_OPS) | rpg_ops == set(_OP_ALLOWED)   # are the rpg tier
+    assert set(EXTRACTION_OPS_RPG) == set(EXTRACTION_OPS) | rpg_ops
+    assert set(EXTRACTION_OPS_RPG) <= set(state._SPEC)
     for kind, enums in OP_FIELD_ENUMS.items():
         assert kind in _OP_ALLOWED, kind
         assert set(enums) <= _OP_ALLOWED[kind], (kind, enums)
@@ -97,6 +101,8 @@ def test_op_add_stays_one_table_cheap():
             assert vocab == sorted(vocab) or f == "to_time_of_day", (kind, f)
     for kind in EXTRACTION_OPS:                        # every wire field is typed
         assert _OP_ALLOWED[kind] & set(_OP_FIELDS), kind
+    for kind in sorted(rpg_ops):                       # ...including the rpg-gated tier
+        assert _OP_ALLOWED[kind] & (set(_OP_FIELDS) | set(_RPG_OP_FIELDS)), kind
 
 
 # ------------------------------ validate_op agrees with the table ------------------------------

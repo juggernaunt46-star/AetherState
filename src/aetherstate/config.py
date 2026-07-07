@@ -28,6 +28,10 @@ class ServerConfig(BaseModel):
 class UpstreamConfig(BaseModel):
     base_url: str = ""
     api_key: str = ""
+    model: str = ""                  # DEFAULT model for engine-initiated calls (creator
+    #                                  authoring, genesis stage B) when nothing has been
+    #                                  proxied yet. The RELAY never uses it — the frontend
+    #                                  names its own model per request. Console-set.
     force_rung: int = 0
     probe_ttl_days: int = 7
     idle_timeout_s: int = 0          # 0 = no proxy-imposed stream timeout (09 U6)
@@ -178,6 +182,48 @@ class AssistConfig(BaseModel):
     groups: AssistGroupsConfig = Field(default_factory=AssistGroupsConfig)
 
 
+class SpecializationConfig(BaseModel):
+    """Q27 / doc 05: narrative-mode profile. name='none' is byte-identical to pre-RPG
+    behaviour (invariant 3 — non-RPG sessions never see RPG blocks or the DM guard). When
+    name='rpg' the built-in RPG_PROFILE supplies lower-priority DEFAULTS for OTHER sections
+    (injection priorities today; beats/knobs as later phases land); the user's own config
+    always wins (overlay applied in load_config). The fields below are consulted ONLY when
+    name == 'rpg' and are the profile's own knobs a table may override normally."""
+    name: str = "none"               # none | rpg
+    blocks: list[str] = ["PLAYER", "EFFECTS", "GEAR", "INVENTORY", "FACTIONS",
+                         "RELATIONS", "QUEST", "WORLD", "DIRECTIVE"]   # doc 05 §6 catalog
+    dm_guard: bool = True            # DM/Game-Master framing of the Q12 user guard (05 §3.2)
+    dice: str = "2d6"                # D1 resolution dice knob   (consumed at RPG-1)
+    tiers: str = "pbta3"             # resolution tier model     (consumed at RPG-1)
+    nemesis_enabled: bool = False    # RPG-3b: single-nemesis machinery (D6 — off by default;
+    #                                  gates the one_nemesis linter rule, not the op itself)
+    faction_cascade: float = 0.1     # RPG-3b (05 §5.4): NPC->faction affinity ripple factor
+    #                                  (negatives halved; 0 disables the cascade entirely)
+    contract: str = "full"           # RPG-4 (05 §5.9/D7): DM rules-contract size — "full"
+    #                                  for strong models, "compact" for weak/local budgets
+
+
+# Built-in RPG specialization profile (Q27 / doc 05 §7): lower-priority DEFAULTS overlaid
+# UNDER the user's config when [specialization].name == 'rpg' (see _apply_specialization).
+# Every value here is a default a table may override; the overlay only fills gaps, so the
+# effective precedence is user-override > profile > base-default. Non-RPG loads never touch
+# it. Keep entries to things a later RPG phase actually consumes — no dead config.
+RPG_PROFILE: dict[str, Any] = {
+    "injection": {
+        # RPG header-class ranking (doc 05 §6): directive very high so it is never
+        # budget-dropped, player_card high, then quest/relations/factions/gear/inventory/
+        # world. A superset of the base priorities so no base class is lost on override.
+        "priorities": {
+            "state_header": 100, "directive": 98, "player_card": 90, "director_note": 80,
+            "quest": 70, "relations": 66, "factions": 62, "gear": 58, "effects": 56,
+            "inventory": 54,
+            "world": 50, "rules_contract": 46, "memories": 60,
+            "relationship_belief": 40, "lore": 20,
+        },
+    },
+}
+
+
 class PrivacyConfig(BaseModel):
     trace_level: str = "meta"        # off | meta | full
     trace_ring: int = 200
@@ -202,6 +248,7 @@ class Config(BaseModel):
     memory: MemoryConfig = MemoryConfig()
     assist: AssistConfig = Field(default_factory=AssistConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
+    specialization: SpecializationConfig = Field(default_factory=SpecializationConfig)
     # Later phases append their sections here (memory/linter/degradation/ui)
     source: str = "defaults"         # which config actually loaded: file | last_known_good | defaults
     source_path: str = ""            # absolute path the config loaded from (where Console saves write back)
@@ -238,6 +285,21 @@ def _merge(base: dict, extra: dict) -> dict:
     return base
 
 
+def _apply_specialization(user: dict) -> dict:
+    """Overlay the built-in profile UNDER the user's config so precedence is
+    user-override > profile > base-default (doc 05 §7). No-op unless [specialization].name
+    resolves to a known profile. Never raises (invariant 1: config never blocks startup)."""
+    try:
+        name = str((user.get("specialization") or {}).get("name", "none")).lower()
+    except Exception:
+        return user
+    profile = {"rpg": RPG_PROFILE}.get(name)
+    if not profile:
+        return user
+    import copy
+    return _merge(copy.deepcopy(profile), user)   # user keys win over profile keys
+
+
 def load_config(path: str | Path | None) -> Config:
     """Never raises. Returns a valid Config with .source recording what was loaded."""
     data: dict[str, Any] = {}
@@ -250,7 +312,8 @@ def load_config(path: str | Path | None) -> Config:
                 continue
             try:
                 raw = tomllib.loads(candidate.read_text(encoding="utf-8"))
-                cfg = Config.model_validate(_merge(dict(raw), _env_overrides()))
+                cfg = Config.model_validate(
+                    _apply_specialization(_merge(dict(raw), _env_overrides())))
                 cfg.source = label
                 cfg.source_path = str(p)
                 if label == "file":  # write last-known-good on every successful load (09 F1)
@@ -261,7 +324,7 @@ def load_config(path: str | Path | None) -> Config:
                 return cfg
             except Exception:
                 continue
-    data = _merge(data, _env_overrides())
+    data = _apply_specialization(_merge(data, _env_overrides()))
     try:
         cfg = Config.model_validate(data)
     except Exception:

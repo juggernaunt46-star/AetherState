@@ -15,9 +15,13 @@ def mock_upstream() -> MockUpstream:
 
 
 @pytest.fixture()
-def cfg() -> Config:
+def cfg(tmp_path) -> Config:
     c = Config()
     c.upstream.base_url = "http://mock-upstream/v1"   # convention: base INCLUDES version segment
+    # 2026-07-06: route tests that persist (connection/extraction/specialization) used to
+    # write ./aetherstate-data/config.toml — running the suite from the repo root CLOBBERED
+    # the developer's real config with mock values. Persist into the pytest tmp dir instead.
+    c.server.data_dir = str(tmp_path)
     return c
 
 

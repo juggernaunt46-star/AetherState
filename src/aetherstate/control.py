@@ -12,6 +12,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from .state import apply_delta, current_state, state_summary, translate_path, validate_op
+from . import creator as _creator
+from .extraction import Endpoint
 
 log = logging.getLogger("aetherstate.control")
 
@@ -25,6 +27,52 @@ def _head(store, branch_id: str) -> int:
     row = store.db.execute("SELECT head_turn FROM branches WHERE branch_id=?",
                            (branch_id,)).fetchone()
     return row["head_turn"] if row else -1
+
+
+def _world_seeded(state: dict) -> bool:
+    """True once a world genesis has written entities (faction/location/npc) into state."""
+    ents = (state.get("entities") or {}).values()
+    return any((e or {}).get("kind") in ("faction", "location", "npc") for e in ents)
+
+
+def _next_turn(store, branch_id: str) -> int:
+    """Turn index for a creator write. Genesis checkpoints turn 0 while head_turn can still be -1
+    (no real message yet); state_at replays only journal rows with turn_hi > the latest checkpoint,
+    so a creator write must land ONE turn past both the head AND the latest checkpoint or it would
+    be shadowed (and invisible to current_state). Fresh session (nothing yet) -> turn 0."""
+    head = _head(store, branch_id)
+    ck = -1
+    try:
+        row = store.db.execute("SELECT MAX(turn_index) AS m FROM checkpoints WHERE branch_id=?",
+                               (branch_id,)).fetchone()
+        if row and row["m"] is not None:
+            ck = int(row["m"])
+    except Exception:
+        ck = -1
+    base = max(head, ck)
+    return base + 1 if base >= 0 else 0
+
+
+async def _list_models(get_client, base_url: str, api_key: str = "") -> list[str]:
+    """GET {base}/models -> sorted model ids, [] on ANY failure (fail-open; creation-time
+    cold path only — never called from the relay's hot path)."""
+    base = (base_url or "").strip().rstrip("/")
+    if not base:
+        return []
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        if get_client is not None:
+            r = await get_client().get(base + "/models", headers=headers, timeout=15.0)
+        else:
+            import httpx
+            async with httpx.AsyncClient(timeout=15.0) as c:
+                r = await c.get(base + "/models", headers=headers)
+        if r.status_code >= 400:
+            return []
+        return sorted([m.get("id") for m in (r.json().get("data") or []) if m.get("id")])
+    except Exception as exc:
+        log.debug("model list failed open: %s", type(exc).__name__)
+        return []
 
 
 def _toml_val(v) -> str:
@@ -117,6 +165,7 @@ def _persist_config(cfg) -> bool:
         # [upstream]
         up = _sec("upstream")
         up["base_url"] = cfg.upstream.base_url
+        up["model"] = cfg.upstream.model
         if _os.environ.get("AETHERSTATE_UPSTREAM__API_KEY"):
             up.pop("api_key", None)        # env is authoritative -> keep the secret off disk
         else:
@@ -144,12 +193,18 @@ def _persist_config(cfg) -> bool:
         _sec("manual_override")["enabled"] = bool(cfg.manual_override.enabled)
         _sec("user_guard")["name"] = cfg.user_guard.name
         _sec("consent")["safewords"] = list(cfg.consent.safewords)
+        _sec("specialization")["name"] = cfg.specialization.name
 
         base.pop("source", None)           # runtime-only load marker; never persist
         header = ("# AetherState config -- the [server]/[upstream]/[assist]/[extraction] keys "
                   "below are\n# managed by the Console. Other sections are preserved on save; "
                   "comments are not.\n")
-        target.write_text(header + _toml_dumps(base) + "\n", encoding="utf-8")
+        # atomic write (2026-07-06): write a sibling temp file then os.replace, so a crash
+        # mid-save can never leave a truncated config.toml behind (load would fall back to
+        # .bak/defaults and the Console would look mysteriously wiped).
+        tmp = target.with_suffix(target.suffix + ".tmp")
+        tmp.write_text(header + _toml_dumps(base) + "\n", encoding="utf-8")
+        _os.replace(tmp, target)
         if _os.name == "posix":            # POSIX-only; NTFS ACLs differ and chmod is a no-op there
             try:
                 _os.chmod(target, 0o600)
@@ -169,6 +224,33 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         return FileResponse(Path(__file__).parent / "static" / "console.html",
                             media_type="text/html")
 
+    @router.get("/creator")
+    async def creator_page():
+        """The World Generator + Character Creator window (doc 09). Same-origin, no CORS."""
+        return FileResponse(Path(__file__).parent / "static" / "creator.html",
+                            media_type="text/html")
+
+    @router.get("/registry")
+    async def registry_view():
+        """The curated stats/skills/abilities for the creator sheet (cached load, cold-path)."""
+        return _creator.registry_export(cfg)
+
+    @router.get("/creator/models")
+    async def creator_models():
+        """Models detected at the configured endpoints — feeds the Creator's model menu.
+        Server-side (no CORS), fail-open: a dead endpoint just contributes an empty list."""
+        get_client = jobs.ladder.get_client if jobs is not None else None
+        eps = []
+        if cfg.upstream.base_url:
+            eps.append({"target": "main", "base_url": cfg.upstream.base_url, "default": "",
+                        "models": await _list_models(get_client, cfg.upstream.base_url,
+                                                     cfg.upstream.api_key)})
+        for e in cfg.assist.endpoints:
+            eps.append({"target": f"assist:{e.name}", "base_url": e.base_url, "default": e.model,
+                        "models": await _list_models(get_client, e.base_url,
+                                                     e.api_key or cfg.upstream.api_key)})
+        return {"endpoints": eps}
+
     @router.get("/override")
     async def override_get():
         return {"enabled": bool(cfg.manual_override.enabled)}
@@ -184,7 +266,7 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         return {"enabled": bool(cfg.manual_override.enabled)}
 
     @router.post("/session/{sid}/genesis")
-    async def genesis_seed(sid: str, request: Request, force: int = 0):
+    async def genesis_seed(sid: str, request: Request, force: int = 0, ifearly: int = 0):
         """Turn-0 genesis at chat-open (handoff 2026-07-04, REQUIRED). The extension
         posts card/greeting/speaker the moment a chat opens — state is seeded BEFORE
         the first message. Idempotent via the genesis marker; the first-request
@@ -192,7 +274,12 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
 
         ?force=1 clears the marker first so a session that once seeded empty (the
         pre-fix thinking-model bug marked those 'done' forever) can re-seed without
-        starting a new chat. The slash command sends force — explicit user intent."""
+        starting a new chat. The slash command sends force — explicit user intent.
+
+        ?ifearly=1 (2026-07-06, greeting swipes): only act if the session has no real
+        exchange yet (head_turn < 1). The extension sends force=1&ifearly=1 when the
+        FIRST message is swiped so the seed reflects the greeting actually chosen —
+        but an established chat is never re-seeded by a stray swipe event."""
         from . import genesis as _genesis
         try:
             payload = await request.json()
@@ -202,6 +289,9 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         if not row:
             session_id, _branch = store.create_session(external_id=sid)
             row = _session(store, session_id)
+        if ifearly and _head(store, row["active_branch"]) >= 1:
+            return {"session_id": row["session_id"], "applied": 0, "scheduled": False,
+                    "skipped": "session already has real turns (ifearly)"}
         prior = store.genesis_state(row["session_id"])
         if force and prior:
             store.genesis_mark(row["session_id"], "")
@@ -214,6 +304,7 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
             {"role": "user", "content": str(payload.get("opening", ""))[:4000]}]}
         applied = _genesis.seed_rules(store, cfg, row["session_id"],
                                       row["active_branch"], doc, speaker=speaker)
+        _genesis.seed_player(store, cfg, row["session_id"], row["active_branch"], doc)
         scheduled = False
         if jobs is not None and cfg.extraction.mode not in ("off", "rules"):
             try:
@@ -338,21 +429,61 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
                 out[group] = mode
         return {"applied": out}
 
-    @router.get("/connection")
-    async def connection_get():
-        return {"upstream": {"base_url": cfg.upstream.base_url, "has_key": bool(cfg.upstream.api_key)},
+    def _spec_view() -> dict:
+        s = cfg.specialization
+        return {"name": s.name, "blocks": list(s.blocks), "dm_guard": bool(s.dm_guard),
+                "dice": s.dice, "tiers": s.tiers}
+
+    @router.get("/specialization")
+    async def specialization_get():
+        return _spec_view()
+
+    @router.post("/specialization")
+    async def specialization_set(request: Request):
+        """Q27 / doc 05: switch narrative specialization (none|rpg) at runtime. Live for
+        rendering + the DM guard immediately (compose reads cfg per request); persisted so the
+        profile overlay (injection priorities etc.) fully re-applies on next load."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        name = str(payload.get("name", "")).strip().lower()
+        if name not in ("none", "rpg"):
+            return JSONResponse({"error": "name must be none|rpg"}, status_code=422)
+        cfg.specialization.name = name
+        log.info("specialization set: %s", name)
+        return {**_spec_view(), "persisted": _persist_config(cfg)}
+
+    def _connection_view() -> dict:
+        return {"upstream": {"base_url": cfg.upstream.base_url,
+                             "has_key": bool(cfg.upstream.api_key),
+                             "model": cfg.upstream.model},
                 "assist": [{"name": e.name, "base_url": e.base_url, "has_key": bool(e.api_key),
                             "model": e.model, "tier": e.tier} for e in cfg.assist.endpoints]}
 
+    @router.get("/connection")
+    async def connection_get():
+        return _connection_view()
+
     @router.post("/connection/models")
     async def connection_models(request: Request):
-        """List models from an endpoint, server-side (no CORS, uses the truststore/Avast fix)."""
+        """List models from an endpoint, server-side (no CORS, uses the truststore/Avast fix).
+
+        2026-07-06: when the key field is blank the SAVED key for `target` is used — the
+        Console leaves saved keys out of the DOM, so 'Connect / test' with a blank field
+        used to run the auth check keyless and toast a false 'KEY REJECTED'."""
         try:
             p = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
         base = str(p.get("base_url", "")).strip().rstrip("/")
         key = str(p.get("api_key", ""))
+        if not key:                          # fall back to the saved key for this target
+            target = str(p.get("target", ""))
+            if target == "upstream":
+                key = cfg.upstream.api_key
+            elif target == "assist" and cfg.assist.endpoints:
+                key = cfg.assist.endpoints[0].api_key or cfg.upstream.api_key
         if not base:
             return JSONResponse({"error": "base_url required"}, status_code=400)
         headers = {"Authorization": f"Bearer {key}"} if key else {}
@@ -396,6 +527,8 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
                 cfg.upstream.base_url = str(p["base_url"]).strip()
             if p.get("api_key"):
                 cfg.upstream.api_key = str(p["api_key"])
+            if "model" in p:                 # default for engine-initiated calls (creator/genesis)
+                cfg.upstream.model = str(p["model"]).strip()
         elif target == "assist":
             from .config import AssistEndpointConfig
             e = cfg.assist.endpoints[0] if cfg.assist.endpoints else None
@@ -412,10 +545,7 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
                 e.tier = str(p["tier"])
         else:
             return JSONResponse({"error": "target must be upstream|assist"}, status_code=422)
-        return {"ok": True, "persisted": _persist_config(cfg),
-                "upstream": {"base_url": cfg.upstream.base_url, "has_key": bool(cfg.upstream.api_key)},
-                "assist": [{"name": e.name, "base_url": e.base_url, "has_key": bool(e.api_key),
-                            "model": e.model, "tier": e.tier} for e in cfg.assist.endpoints]}
+        return {"ok": True, "persisted": _persist_config(cfg), **_connection_view()}
 
     @router.get("/sessions")
     async def sessions():
@@ -467,6 +597,151 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
     async def unfreeze(sid: str):   # unfreeze is user-only by design (02 SS6)
         return _user_ops(sid, [{"op": "unfreeze"}])
 
+    @router.get("/session/{sid}/creator")
+    async def creator_prefill(sid: str):
+        """Prefill the creator window: current Player Card + the committed world doc (best
+        effort), whether a world was seeded, the active specialization, and the user persona
+        name (the default player name). 2026-07-06: `world` + `player_name` added so the
+        window can SHOW what is actually set (review tab / load-into-form)."""
+        spec = getattr(getattr(cfg, "specialization", None), "name", "none")
+        persona = getattr(getattr(cfg, "user_guard", None), "name", "") or ""
+        row = _session(store, sid)
+        if not row:
+            return {"session_id": None, "specialization": spec, "persona": persona,
+                    "player": None, "player_name": "", "world": None, "world_seeded": False}
+        state = current_state(store, row["active_branch"])
+        players = state.get("player") or {}
+        pkey = next(iter(players), None)
+        seeded = _world_seeded(state)
+        return {"session_id": row["session_id"], "specialization": spec, "persona": persona,
+                "player": players.get(pkey) if pkey else None,
+                "player_name": (state.get("entities", {}).get(pkey, {}) or {}).get("name")
+                               or (pkey or ""),
+                "world": _creator.world_from_state(state) if seeded else None,
+                "world_seeded": seeded}
+
+    # ---- creator presets (2026-07-06): named world/player docs, reusable across sessions
+    @router.get("/presets")
+    async def presets_list():
+        return {"presets": store.preset_list()}
+
+    @router.post("/presets")
+    async def presets_save(request: Request):
+        try:
+            p = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        kind = str(p.get("kind", "")).lower()
+        name = str(p.get("name", "")).strip()
+        doc = p.get("doc") if isinstance(p.get("doc"), dict) else None
+        if kind not in ("world", "player") or not name or doc is None:
+            return JSONResponse({"error": "need kind=world|player, name, doc"},
+                                status_code=422)
+        pid = store.preset_save(kind, name, doc)
+        return {"preset_id": pid, "kind": kind, "name": name}
+
+    @router.get("/presets/{pid}")
+    async def presets_get(pid: int):
+        p = store.preset_get(pid)
+        if not p:
+            return JSONResponse({"error": "unknown preset"}, status_code=404)
+        return p
+
+    @router.delete("/presets/{pid}")
+    async def presets_delete(pid: int):
+        store.preset_delete(pid)
+        return {"deleted": pid}
+
+    @router.post("/session/{sid}/author")
+    async def creator_author(sid: str, request: Request):
+        """Assist-LLM 'fill the blanks' authoring (doc 09 §1). Cold-path, creation-time; returns
+        the completed doc for the window to review (NOT yet persisted). Fail-open: with no assist
+        endpoint it returns the deterministic fill, so the creator always works."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        mode = str(payload.get("mode", "world")).lower()
+        seed = payload.get("doc") if isinstance(payload.get("doc"), dict) else {}
+        world = payload.get("world") if isinstance(payload.get("world"), dict) else None
+        if payload.get("offline"):             # explicit template fill — never an LLM call
+            if mode != "world":                # ranks on genre-pack ids must freeze into defs
+                seed = _creator._inject_pack_defs(seed, _creator._pack_for(world))
+            doc = (_creator.deterministic_world(seed) if mode == "world"
+                   else _creator.deterministic_player(seed, cfg))
+            return {"source": "deterministic", "mode": mode, "doc": doc,
+                    "detail": "template fill (offline, by request)"}
+        row = _session(store, sid)
+        ep = None
+        if jobs is not None and row is not None:
+            try:
+                ep, _, _ = jobs.endpoint_for(row["session_id"])
+            except Exception:
+                ep = None
+        if ep is None and jobs is not None:
+            # creator-first flow: no session yet — build from config so the AI fill works
+            # before the first chat message ever flows through the proxy
+            if cfg.assist.endpoints:
+                e = cfg.assist.endpoints[0]
+                ep = Endpoint(base_url=e.base_url, model=e.model, api_key=e.api_key,
+                              assist_tier=e.tier in ("nano", "small"))
+            elif cfg.upstream.base_url:
+                ep = Endpoint(base_url=cfg.upstream.base_url, model="")
+        want = str(payload.get("model") or "").strip()
+        if ep is not None and want:
+            ep.model = want                    # explicit pick from the Creator's model menu
+        if ep is not None and jobs is not None and not ep.model:
+            # nothing proxied yet on this session -> resolve a real model (assist pick >
+            # upstream.model default > GET /models detection), same ladder genesis uses
+            from .assist import resolve_endpoint
+            ep = await resolve_endpoint(jobs.ladder.get_client, cfg, ep)
+        if ep is None or jobs is None or not ep.model:
+            # No model to call: honest error — the window offers templates as an explicit
+            # button instead of silently swapping them in (2026-07-06).
+            return {"source": "error", "mode": mode,
+                    "detail": "no model reachable — pick one in the Creator menu or "
+                              "configure an endpoint in Console → Connection"}
+        try:
+            if mode in ("player", "character"):
+                out = await _creator.author_player(jobs.ladder.get_client, cfg, ep, seed, world)
+            else:
+                out = await _creator.author_world(jobs.ladder.get_client, cfg, ep, seed)
+        except Exception as exc:
+            out = {"source": "error", "detail": f"authoring failed: {type(exc).__name__}"}
+        out["mode"] = mode
+        out["model"] = ep.model
+        return out
+
+    @router.post("/session/{sid}/world")
+    async def creator_world(sid: str, request: Request):
+        """Persist a finalized world doc as shipped ops (entities / memory-lore / scene). The
+        world is authored FIRST; ops apply with source='user' (privileged entity creation)."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        world = payload.get("world") if isinstance(payload.get("world"), dict) else payload
+        ops = _creator.world_to_ops(world or {})
+        res = _creator_apply(sid, ops)
+        if isinstance(res, dict):
+            res["ops"] = len(ops)
+        return res
+
+    @router.post("/session/{sid}/player")
+    async def creator_player(sid: str, request: Request):
+        """Persist a finalized Player Card as [entity_add, player_seed, set_attribute...]. Mirrors
+        genesis seed_player; ops apply with source='user' (privileged player card)."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        player = payload.get("player") if isinstance(payload.get("player"), dict) else payload
+        ops = _creator.player_to_ops(player or {}, cfg)
+        res = _creator_apply(sid, ops)
+        if isinstance(res, dict):
+            res["ops"] = len(ops)
+        return res
+
     @router.patch("/session/{sid}/state")
     async def patch_state(sid: str, request: Request):
         try:
@@ -476,7 +751,9 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         ops = []
         rejected = []
         if "path" in payload:
-            op = translate_path(str(payload["path"]), str(payload.get("value", "")))
+            rpg = getattr(cfg, "specialization", None) is not None \
+                and cfg.specialization.name == "rpg"     # RPG-3b paths ride only under rpg
+            op = translate_path(str(payload["path"]), str(payload.get("value", "")), rpg=rpg)
             if op is None:
                 return JSONResponse({"applied": 0, "rejected": [{
                     "path": payload["path"],
@@ -491,12 +768,90 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         result = _user_ops(sid, ops, extra_rejected=rejected)
         return result
 
+    @router.get("/session/{sid}/journal")
+    async def session_journal(sid: str, limit: int = 40):
+        """RPG-4 inspector feed (doc 05 §9: visible state-change feedback): the tail of the
+        ops journal, newest first, one row per applied op — turn, source, op kind and its
+        salient fields. Read-only; never rewrites anything."""
+        row = _session(store, sid)
+        if not row:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        import json as _json
+        lim = max(1, min(int(limit), 200))
+        rows = store.db.execute(
+            "SELECT turn_hi, source, ops, ts FROM ops_journal WHERE branch_id=?"
+            " ORDER BY rowid DESC LIMIT ?", (row["active_branch"], lim)).fetchall()
+        entries = []
+        for r in rows:
+            try:
+                ops = _json.loads(r["ops"])
+            except Exception:
+                continue
+            for op in reversed(ops if isinstance(ops, list) else []):
+                if not isinstance(op, dict):
+                    continue
+                brief = {k: op[k] for k in (
+                    "name", "entity", "char", "kind", "skill", "tier", "effect", "location",
+                    "template", "item", "slot", "target", "key", "value", "delta", "present",
+                    "text", "statement", "reason", "phase", "ability", "valence") if k in op}
+                for tk in ("text", "statement", "reason"):   # reveal_fact rows were empty {}
+                    if isinstance(brief.get(tk), str) and len(brief[tk]) > 80:
+                        brief[tk] = brief[tk][:77] + "..."
+                entries.append({"turn": r["turn_hi"], "source": r["source"],
+                                "op": op.get("op"), "brief": brief})
+                if len(entries) >= lim:
+                    break
+            if len(entries) >= lim:
+                break
+        return {"entries": entries, "rolls": (current_state(store, row["active_branch"])
+                                              .get("rolls") or [])[-10:]}
+
+    def _creator_apply(sid: str, ops: list):
+        """Apply creator (world/player) ops at the next free turn so they survive the genesis
+        checkpoint shadow (see _next_turn). Privileged source='user'.
+
+        2026-07-06 creator-first flow (live repro: 'Save failed: HTTP 404'): a brand-new chat
+        has no session row until its FIRST message flows through the relay, so saving a world
+        or character built creator-first bounced with 404. On a miss we now mint the session
+        by external id — the exact row session_engine._session_for_external adopts when the
+        chat's first stamped message arrives, so the creator save and the chat converge on
+        one session. Authoring got this fix in the QoL sweep; this is the save-side half."""
+        row = _session(store, sid)
+        if not row:
+            try:
+                row = store.get_or_create_session(sid)
+                log.info("creator save minted session %s for creator-first external id %r",
+                         row["session_id"][:8], sid)
+            except Exception:
+                return JSONResponse({"error": "unknown session"}, status_code=404)
+        branch = row["active_branch"]
+        turn = _next_turn(store, branch)
+        res = apply_delta(store, row["session_id"], branch, turn, ops, "user", cfg)
+        rejected = [{"op": q["op"].get("op"), "reason": q["reason"]} for q in res.quarantined]
+        return {"applied": len(res.applied), "rejected": rejected,
+                "frozen": bool(res.state.get("frozen")), "turn": turn,
+                "session_id": row["session_id"]}
+
     def _user_ops(sid: str, ops: list, extra_rejected: list | None = None):
         row = _session(store, sid)
         if not row:
             return JSONResponse({"error": "unknown session"}, status_code=404)
+        turn = _head(store, row["active_branch"])
+        try:
+            ckrow = store.db.execute(
+                "SELECT MAX(turn_index) AS m FROM checkpoints WHERE branch_id=?",
+                (row["active_branch"],)).fetchone()
+            ck = int(ckrow["m"]) if ckrow and ckrow["m"] is not None else -1
+        except Exception:
+            ck = -1
+        if ck > turn:
+            # Pre-first-message session: genesis/creator checkpointed AHEAD of head, so an op
+            # journaled at head would be shadowed by state_at's `turn_hi > checkpoint` replay
+            # (2026-07-06 live repro: a Console/PATCH edit reported applied=1 yet was invisible).
+            # Land it one turn past the horizon — the same rule as _next_turn.
+            turn = ck + 1
         res = apply_delta(store, row["session_id"], row["active_branch"],
-                          _head(store, row["active_branch"]), ops, "user", cfg)
+                          turn, ops, "user", cfg)
         rejected = (extra_rejected or []) + [
             {"op": q["op"].get("op"), "reason": q["reason"]} for q in res.quarantined]
         return {"applied": len(res.applied), "rejected": rejected,

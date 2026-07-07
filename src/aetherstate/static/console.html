@@ -120,8 +120,10 @@ async function sessions(){const d=await j("/aether/sessions");const s=d.sessions
   `${esc(x.label||(x.external_id||x.session_id).slice(0,20))} · t${x.head_turn??"?"}</option>`).join("")
   :`<option value="">no sessions yet</option>`;
  if(!sid&&s.length)sid=s[0].session_id;return s}
-async function load(){if(!sid){S=null;return}
- try{S=await j(`/aether/session/${sid}/state`)}catch(e){S=null}}
+let J=null;   /* RPG-4: journal tail for the activity feed */
+async function load(){if(!sid){S=null;J=null;return}
+ try{S=await j(`/aether/session/${sid}/state`)}catch(e){S=null}
+ try{J=await j(`/aether/session/${sid}/journal?limit=25`)}catch(e){J=null}}
 const chars=()=>Object.entries(S?.state?.entities||{});
 const cnames=()=>chars().map(([id,e])=>[id,e.name||id]);
 const nameOf=id=>(S?.state?.entities?.[id]?.name)||id;
@@ -153,6 +155,18 @@ function overview(){if(!S)return `<div class="card">No session selected — open
   <span style="flex:1"></span><span class="hint">turn ${S.head_turn}</span></div>
   ${meter("tension",sc.tension||0,100,"var(--bad)")}
   ${meter("intimacy",sc.intimacy||0,100,"var(--vio)")}</div>`;
+ /* player card (RPG) — 2026-07-06: the committed Player Card is finally visible */
+ for(const [pid,p] of Object.entries(st.player||{})){
+  const pname=st.entities?.[pid]?.name||pid;
+  h+=`<div class="card"><h3>Player — ${esc(pname)}${p.level?` <span class="pill vio">lv ${p.level}</span>`:""}${p.concept?` <span class="pill dim">${esc(p.concept)}</span>`:""}</h3>`;
+  if(p.stats)h+=`<div class="row">`+Object.entries(p.stats).map(([k,v])=>`<span class="pill dim">${esc(k)} ${v}</span>`).join("")+`</div>`;
+  const sk=Object.entries(p.skills||{}).filter(([,v])=>v>0);
+  if(sk.length)h+=`<div class="row"><span class="hint">skills:</span>`+sk.map(([k,v])=>`<span class="pill vio">${esc(k)} r${v}</span>`).join("")+`</div>`;
+  if((p.abilities||[]).length)h+=`<div class="row"><span class="hint">abilities:</span>`+p.abilities.map(x=>`<span class="pill ok">${esc(x)}</span>`).join("")+`</div>`;
+  const defs=p.defs||{};const dn=[...Object.values(defs.skills||{}),...Object.values(defs.abilities||{})].map(x=>x.name).filter(Boolean);
+  if(dn.length)h+=`<div class="row"><span class="hint">custom (frozen):</span>`+dn.map(x=>`<span class="pill warn">${esc(x)}</span>`).join("")+`</div>`;
+  const hp=p.resources?.hp;if(hp&&hp.max)h+=meter("HP",hp.current??hp.max,hp.max,"var(--ok)");
+  h+=`</div>`}
  /* characters */
  h+=`<div class="grid">`;
  for(const [id,e] of chars()){const c=st.chars?.[id]||{};const a=c.arousal||{};const af=c.affect||{};
@@ -174,6 +188,14 @@ function overview(){if(!S)return `<div class="card">No session selected — open
     <button class="mini" title="consume: −satisfaction" onclick='ops([{op:"craving",char:${JSON.stringify(id)},substance:${JSON.stringify(sub)},action:"consume"}])'>sate</button>
     <button class="mini" onclick='ops([{op:"craving",char:${JSON.stringify(id)},substance:${JSON.stringify(sub)},action:"adjust",delta:10}])'>+</button></div>`
    +((cr.dependency||0)>0?meter("└ dependency",cr.dependency,100,"var(--warn)"):"");
+  const effs=Object.entries(st.effects?.[id]||{});   /* RPG-3: Status/Condition ledger */
+  if(effs.length)h+=`<div class="row"><span class="hint">effects:</span>`+effs.map(([fk,f])=>{
+   const live=f.duration==null||(f.gained_turn||0)+f.duration>(st.meta?.turn??S.head_turn??0);
+   const glyph=f.valence==="negative"?"▼":f.valence==="positive"?"▲":"◆";
+   const col=f.valence==="negative"?"var(--bad)":f.valence==="positive"?"var(--ok)":"var(--dim)";
+   const tip=(f.kind||"condition")+(f.duration!=null?` · ${f.duration}t`:"")+(f.note?` · ${f.note}`:"")+(live?"":" · EXPIRED");
+   return `<span class="chip" title="${esc(tip)}"${live?"":' style="opacity:.45"'}><b style="color:${col}">${glyph}</b> ${esc(f.name||fk)}${(f.stacks||1)>1?" ×"+f.stacks:""}
+    <button title="remove" onclick='ops([{op:"effect_remove",char:${JSON.stringify(id)},effect:${JSON.stringify(fk)}}])'>×</button></span>`}).join("")+`</div>`;
   if(worn.length)h+=`<div class="row"><span class="hint">worn:</span>`+worn.map(([item,g])=>
    `<span class="chip" title="${esc((g.covers||[]).join(", ")||"covers nothing")}">${esc(item)}${g.state!=="worn"?" ("+esc(g.state)+")":""}
     <button title="remove" onclick='ops([{op:"clothing",char:${JSON.stringify(id)},item:${JSON.stringify(item)},action:"remove"}])'>×</button></span>`).join("")+`</div>`;
@@ -183,6 +205,39 @@ function overview(){if(!S)return `<div class="card">No session selected — open
   if(goals.length)h+=`<div class="hint">goals: ${goals.map(g=>esc(g.text||g)).join(" · ")}</div>`;
   h+=`</div>`}
  h+=`</div>`;
+ /* RPG-3b: affinity ledgers, bonds, factions, world flags */
+ const aff=Object.entries(st.affinity||{});
+ const pl0=Object.values(st.player||{})[0]||{};
+ if(aff.length||pl0.soulmate||pl0.nemesis){h+=`<div class="card"><h3>Relations (RPG)</h3>`;
+  const affTier=v=>v>=80?"Devoted":v>=40?"Ally":v>=10?"Warm":v>=-9?"Neutral":v>=-39?"Cold":v>=-79?"Hostile":"Nemesis";
+  const shown=new Set();
+  for(const [k,a] of aff){const b=k.split("->")[1];shown.add(b);
+   const val=a.value||0,tier=a.tier||affTier(val);
+   const bond=pl0.soulmate===b?"♥ soulmate":pl0.nemesis===b?"☠ nemesis":"";
+   const cls=val>=40?"ok":val<=-40?"bad":"dim";
+   const last=(a.ledger&&a.ledger.length)?a.ledger[a.ledger.length-1]:null;
+   h+=`<div class="row"><b style="font-weight:500">${esc(nameOf(b))}</b>
+    <span class="pill ${cls}" title="clamped ledger sum">${esc(tier)} · ${val}</span>
+    ${a.kind==="faction"?`<span class="pill dim">faction</span>`:""}
+    ${bond?`<span class="pill vio">${bond}</span>`:""}
+    ${(a.labels||[]).map(l=>`<span class="pill warn">${esc(l)}</span>`).join("")}
+    <button class="mini" title="needs override ON" onclick='ops([{op:"affinity_adj",target:${JSON.stringify(b)},delta:5,reason:"console nudge"}])'>+</button>
+    <button class="mini" title="needs override ON" onclick='ops([{op:"affinity_adj",target:${JSON.stringify(b)},delta:-5,reason:"console nudge"}])'>−</button>
+    ${last?`<span class="hint" title="latest ledger entry">t${last.turn}: ${last.delta>0?"+":""}${last.delta}${last.reason?" · "+esc(last.reason):""}</span>`:""}</div>`}
+  for(const [b,g] of [[pl0.soulmate,"♥ soulmate"],[pl0.nemesis,"☠ nemesis"]])
+   if(b&&![...shown].some(x=>x===b))h+=`<div class="row"><b style="font-weight:500">${esc(nameOf(b))}</b><span class="pill vio">${g}</span></div>`;
+  h+=`</div>`}
+ const facs=Object.entries(st.factions||{});const wflags=Object.entries(st.world||{});
+ if(facs.length||wflags.length){h+=`<div class="card"><h3>Factions &amp; world</h3>`;
+  for(const [fid,f] of facs){const circ=Object.entries(f.circumstances||{});
+   h+=`<div class="row"><b style="font-weight:500">${esc(f.name||nameOf(fid))}</b>`+
+    (circ.length?circ.map(([k,v])=>`<span class="chip">${esc(k)}=${esc(String(v))}
+     <button title="clear" onclick='ops([{op:"world_flag",key:${JSON.stringify(k)},value:null,faction:${JSON.stringify(fid)}}])'>×</button></span>`).join("")
+    :`<span class="hint">no standing circumstances</span>`)+`</div>`}
+  if(wflags.length)h+=`<div class="row"><span class="hint">world:</span>`+wflags.map(([k,v])=>
+   `<span class="chip">${esc(k)}=${esc(String(v))}
+    <button title="clear" onclick='ops([{op:"world_flag",key:${JSON.stringify(k)},value:null}])'>×</button></span>`).join("")+`</div>`;
+  h+=`</div>`}
  /* relationships + consent */
  const rels=Object.entries(st.relationships||{});
  if(rels.length){h+=`<div class="card"><h3>Relationships</h3>`;
@@ -202,6 +257,14 @@ function overview(){if(!S)return `<div class="card">No session selected — open
  const mems=(st.memories||[]).slice(-6).reverse();
  if(mems.length)h+=`<div class="card"><h3>Recent memories</h3>`+
   mems.map(m=>`<div class="hint">t${m.turn} · ${esc(m.text)}</div>`).join("")+`</div>`;
+ /* RPG-4: visible roll + state-change feedback (doc 05 §9 inspectors) */
+ const je=(J&&J.entries)||[],jr=(J&&J.rolls)||[];
+ if(je.length||jr.length){h+=`<div class="card"><h3>Recent activity (RPG)</h3>`;
+  if(jr.length)h+=`<div class="row"><span class="hint">rolls:</span>`+jr.slice(-6).reverse().map(r=>
+   `<span class="chip">t${r.turn} · ${esc(String(r.spec))} → ${esc(String(r.result))}</span>`).join("")+`</div>`;
+  h+=je.slice(0,14).map(e=>{const b=Object.entries(e.brief||{}).map(([k,v])=>`${esc(k)}=${esc(String(v))}`).join(" · ");
+   return `<div class="hint">t${e.turn} · <b>${esc(e.op||"?")}</b> <span class="pill dim">${esc(e.source||"")}</span>${b?" · "+b:""}</div>`}).join("");
+  h+=`</div>`}
  return h}
 /* ---------- Edit (guided forms) ---------- */
 const F={
@@ -249,6 +312,16 @@ const F={
   ["to_char","to","char"],["type","type","sel",TOUCH],["intensity","intensity 0-3","num"]],fix:{action:"start"}},
  contact_stop:{op:"contact",g:"Touch & position",t:"Stop touch",f:[["from_char","from","char"],
   ["to_char","to","char"],["type","type","sel",TOUCH]],fix:{action:"stop"}},
+ affinity_adj:{g:"RPG",t:"Affinity ±",f:[["target","toward (NPC / faction)","char"],
+  ["delta","change ±15","num"],["reason","reason","text"]],
+  note:"the PLAYER's standing; manual edits need the override switch ON (header)"},
+ world_flag:{g:"RPG",t:"World flag",f:[["key","flag (snake_case)","text"],
+  ["value","value — empty clears","text"],["faction","scope to faction (optional)","char"]],
+  nulls:["value"],note:"standing world circumstance; renders in [WORLD] / [FACTIONS]"},
+ set_soulmate:{g:"RPG",t:"Soulmate",f:[["target","who — empty clears","char"]],nulls:["target"],
+  note:"unique bond: promoting demotes the incumbent to 'beloved' (linter checks Devoted ≥80)"},
+ set_nemesis:{g:"RPG",t:"Nemesis",f:[["target","who — empty clears","char"]],nulls:["target"],
+  note:"unique bond, no affinity floor"},
 };
 function editTab(){const groups={};for(const [k,d] of Object.entries(F))(groups[d.g]??=[]).push([k,d]);
  let h=`<div class="card"><div class="opsel">`;
@@ -284,6 +357,7 @@ function applyForm(){const d=F[editOp];const op={op:d.op||editOp,...(d.fix||{})}
   else if(type==="check")op[k]=el.checked;
   else if(type==="num"){if(el.value!=="")op[k]=Number(el.value)}
   else if(el.value)op[k]=el.value}
+ for(const k of d.nulls||[])if(!(k in op))op[k]=null;  /* required-but-clearable fields */
  ops([op])}
 function applyRaw(){try{ops(JSON.parse($("#raw").value))}catch(e){toast("bad JSON: "+e,1)}}
 /* ---------- other tabs ---------- */
@@ -307,36 +381,60 @@ async function sessionsTab(){const s=await sessions();
     <button class="mini" onclick='deleteSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||x.external_id||x.session_id)})'>delete</button></td></tr>`).join("")+
   `</table><p class="hint">Rename a chat to give it a friendly name. Delete permanently removes a session and its tracked state. Freeze pauses a scene like a safeword.</p></div>`}
 async function connectionTab(){const d=await j("/aether/connection");const a=(d.assist&&d.assist[0])||{};
+ setTimeout(()=>{listConn("upstream","up_url","up_key","up_models",d.upstream.model||"");
+                 listConn("assist","as_url","as_key","as_models",a.model||"")},0);
  return `<div class="card"><h3>Main writer — the model that writes the story</h3>
   <div class="formgrid">
    <label class="field">Endpoint URL (OpenAI-compatible, include /v1)<input id="up_url" value="${esc(d.upstream.base_url||"")}"></label>
    <label class="field">API key ${d.upstream.has_key?"(saved — blank keeps it)":""}<input id="up_key" type="password" placeholder="${d.upstream.has_key?"••••••":"paste key"}"></label></div>
-  <div class="row"><button class="act" onclick="testConn('up_url','up_key','up_models')">Connect / test</button>
-   <select id="up_models" style="min-width:220px"><option value="">(connect to list models)</option></select>
-   <button class="act" onclick="saveConn('upstream','up_url','up_key','up_models')">Save</button></div>
-  <p class="hint">The story model is chosen in SillyTavern's own connection; here you just point AetherState's upstream at the API and verify it. Any OpenAI-compatible endpoint + key works.</p></div>
+  <div class="row"><button class="act" onclick="testConn('upstream','up_url','up_key','up_models')">Connect / test</button>
+   <select id="up_models" style="min-width:220px"><option value="${esc(d.upstream.model||"")}">${esc(d.upstream.model||"(loading models…)")}</option></select>
+   <button class="act" onclick="saveConn('upstream','up_url','up_key','up_models')">Save</button>
+   <span class="hint" id="up_saved">${d.upstream.model?"saved model: "+esc(d.upstream.model):""}</span></div>
+  <p class="hint">SillyTavern picks the story model per request — the model chosen here is AetherState's own
+   DEFAULT (used by the Creator's auto-fill and chat-open genesis before any message has flowed). Saved keys stay
+   saved; leaving the key box blank keeps the stored key.</p></div>
   <div class="card"><h3>Local helper — the mechanics (genesis, extraction, memory)</h3>
   <div class="formgrid">
    <label class="field">Endpoint URL<input id="as_url" value="${esc(a.base_url||"")}"></label>
    <label class="field">API key ${a.has_key?"(saved — blank keeps it)":""}<input id="as_key" type="password" placeholder="${a.has_key?"••••••":"optional"}"></label></div>
-  <div class="row"><button class="act" onclick="testConn('as_url','as_key','as_models')">Connect / test</button>
-   <select id="as_models" style="min-width:220px"><option value="${esc(a.model||"")}">${esc(a.model||"(connect to list models)")}</option></select>
-   <button class="act" onclick="saveConn('assist','as_url','as_key','as_models')">Save</button></div>
+  <div class="row"><button class="act" onclick="testConn('assist','as_url','as_key','as_models')">Connect / test</button>
+   <select id="as_models" style="min-width:220px"><option value="${esc(a.model||"")}">${esc(a.model||"(loading models…)")}</option></select>
+   <button class="act" onclick="saveConn('assist','as_url','as_key','as_models')">Save</button>
+   <span class="hint" id="as_saved">${a.model?"saved model: "+esc(a.model):""}</span></div>
   <p class="hint">Can be your local Llama OR any hosted OpenAI-compatible API. Connect, pick the model, Save. Changes apply immediately and are saved to config.</p></div>`}
-async function testConn(urlId,keyId,selId){const base=$("#"+urlId).value.trim();const key=$("#"+keyId).value;
+async function listConn(target,urlId,keyId,selId,savedModel){
+ /* auto-populate the model menu with the SAVED key (server-side) so the saved pick is
+    visible + changeable without re-pasting anything (2026-07-06). */
+ try{const base=$("#"+urlId)?.value.trim();if(!base)return;
+  const d=await j("/aether/connection/models",{method:"POST",headers:{"content-type":"application/json"},
+   body:JSON.stringify({base_url:base,api_key:$("#"+keyId)?.value||"",target})});
+  const sel=$("#"+selId);if(!sel)return;
+  if(d.ok&&d.models&&d.models.length){
+   sel.innerHTML=`<option value="">(no default)</option>`+d.models.map(m=>`<option ${m===savedModel?"selected":""}>${esc(m)}</option>`).join("");
+   if(savedModel&&!d.models.includes(savedModel))sel.insertAdjacentHTML("afterbegin",`<option selected>${esc(savedModel)}</option>`)}
+ }catch(e){}}
+async function testConn(target,urlId,keyId,selId){const base=$("#"+urlId).value.trim();const key=$("#"+keyId).value;
  if(!base){toast("enter an endpoint URL",1);return}
  toast("connecting…");
- const d=await j("/aether/connection/models",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({base_url:base,api_key:key})});
+ const cur=$("#"+selId)?.value||"";
+ const d=await j("/aether/connection/models",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({base_url:base,api_key:key,target})});
  const sel=$("#"+selId);
- if(d.ok&&d.models&&d.models.length){sel.innerHTML=d.models.map(m=>`<option>${esc(m)}</option>`).join("");
-   if(d.auth_ok===false){toast("Endpoint reachable but the KEY was REJECTED (auth "+d.auth_status+"). The mechanics will fail — use a valid key for THIS service (not another provider's).",1)}
+ if(d.ok&&d.models&&d.models.length){sel.innerHTML=`<option value="">(no default)</option>`+d.models.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
+   if(d.auth_ok===false){toast("Endpoint reachable but the key was rejected (auth "+d.auth_status+"). Paste a valid key for THIS service, or Save one first — the saved key is used when the box is blank.",1)}
    else{toast("connected + key verified — "+d.models.length+" models")}}
  else{sel.innerHTML=`<option value="">(no models)</option>`;toast("connect failed: "+(d.error||("status "+d.status)),1)}}
 async function saveConn(target,urlId,keyId,selId){const base=$("#"+urlId).value.trim();const key=$("#"+keyId).value;
  const body={target:target,base_url:base};if(key)body.api_key=key;
- const sel=$("#"+selId);if(target==="assist"&&sel&&sel.value)body.model=sel.value;
+ const sel=$("#"+selId);if(sel)body.model=sel.value||"";
  const d=await j("/aether/connection",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
- toast(d.ok?("saved"+(d.persisted?" + will persist across restarts":" (this run only)")):"save failed",d.ok?0:1);render()}
+ /* no full re-render: the model list + picks stay exactly as they are (2026-07-06) */
+ if(d.ok){const label=$(target==="upstream"?"#up_saved":"#as_saved");
+  const m=target==="upstream"?(d.upstream?.model||""):((d.assist&&d.assist[0]&&d.assist[0].model)||"");
+  if(label)label.textContent=m?"saved model: "+m:"saved (no default model)";
+  if(key)$("#"+keyId).value="";
+  toast("saved"+(d.persisted?" — persists across restarts":" (this run only)"))}
+ else toast("save failed",1)}
 async function statusTab(){const d=await j("/aether/status");
  return `<div class="card"><h3>Proxy</h3><div class="row">
   <span class="pill ok">${d.name} ${d.version}</span><span class="pill dim">${d.mode}</span>

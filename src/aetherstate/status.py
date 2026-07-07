@@ -52,6 +52,7 @@ def make_status_router(cfg, store=None, jobs=None) -> APIRouter:
             "version": __version__,
             "mode": "enriched",              # P2+: Tier-0 + header composition active
             "degradation": "none",
+            "specialization": cfg.specialization.name,   # Q27 / doc 05 (none|rpg)
             "config_source": cfg.source,
             "upstream_configured": bool(cfg.upstream.base_url),
             "data_dir": cfg.server.data_dir,
