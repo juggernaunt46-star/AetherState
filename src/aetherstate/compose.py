@@ -95,8 +95,19 @@ def _render_player(state: dict, cfg=None) -> str:
                     mab = reg.merged_abilities(p)
                 except Exception:
                     mab = {}
-            block.append("Abilities: " + ", ".join(
-                str((mab.get(str(a)) or {}).get("name", a)) for a in abil))
+            tag = {"edge": "passive: advantage", "ward": "passive: no fumble",
+                   "extra_die": "active: extra die on a miss", "reroll": "active: reroll a miss",
+                   "surge": "active: big swing + higher ceiling", "basis": "grants a basis"}
+            bits = []
+            for a in abil:
+                d = mab.get(str(a)) or {}
+                nm = str(d.get("name", a))
+                try:
+                    mech = _registry.ability_mechanic(d)
+                except Exception:
+                    mech = "mod"
+                bits.append(f"{nm} [{tag[mech]}]" if mech in tag else nm)
+            block.append("Abilities: " + ", ".join(bits))
         cards.append("\n".join(block))
     return "[PLAYER] " + "\n".join(cards) if cards else ""
 
@@ -222,7 +233,16 @@ def _render_directive(state: dict) -> str:
         tier = str(c.get("tier"))
         skill = str(c.get("skill") or "the")
         phrase = _DIRECTIVE_PHRASE.get(tier, tier)
-        clauses.append(f"{phrase} — the {skill} check resolved as {tier.upper()}")
+        clause = f"{phrase} — the {skill} check resolved as {tier.upper()}"
+        sh = c.get("shape") if isinstance(c.get("shape"), dict) else None
+        if sh and sh.get("fired"):            # 2026-07-07: an active ability fired on the miss —
+            if sh.get("improved"):            # narrate it HONESTLY: did it actually turn the roll?
+                clause += (f" (the player spent {sh['fired']} and it turned the roll — "
+                           f"narrate that reversal of fortune)")
+            else:
+                clause += (f" (the player spent {sh['fired']} but the roll still fell short — "
+                           f"narrate the effort and the failure, no rescue)")
+        clauses.append(clause)
     for eid, p in (state.get("player") or {}).items():   # RPG-5 (doc 10 §7): a defeat this
         d = p.get("defeated") if isinstance(p, dict) else None   # turn is a code-decided
         if isinstance(d, dict) and d.get("turn") == turn:        # outcome CLASS to narrate

@@ -318,11 +318,22 @@ weld is untouched. The reducer **reuses the `rolls` buffer** (a check is a riche
 literal fields on the journaled op, so `state_at` reproduces the tier with no RNG.
 
 **R8 resolution (`tier0.py`, hot path, µs).** On an explicit `((aether.check <skill> [+N|-N]
-[vs DC]))` in the new user message (RPG only): map the token to a registered skill, compute the
-effective modifier (`stat_mod(keyed_stat)+base_mod+rank+passive-ability mods`) plus the declared
-situational mod, roll real multi-die per the dice knob, compute the PbtA tier (10+/7-9; crits on
-all-max/all-min; a `vs DC` shifts the thresholds), and emit a `check` rule op. Arithmetic only —
-no LLM (invariant 2). Inert unless `rpg`; the OOC span is stripped from the forwarded message.
+[vs DC] [scope minor..mythic] [use <ability>]))` in the new user message (RPG only): map the token
+to a registered skill, compute the effective modifier (`stat_mod(keyed_stat)+base_mod+rank+passive-
+ability mods`) plus the declared situational mod, roll real multi-die per the dice knob, compute the
+PbtA tier (10+/7-9; crits on all-max/all-min; a `vs DC` shifts the thresholds), and emit a `check`
+rule op. Arithmetic only — no LLM (invariant 2). Inert unless `rpg`; the OOC span is stripped from
+the forwarded message.
+
+**Ability mechanics (2026-07-07 — abilities SHAPE THE DICE, they don't buff a number).** A skill
+sets the modifier; an ability's curated, frozen `mechanic` reshapes the roll: **`edge`** (advantage
+— roll an extra die, keep best), **`ward`** (a crit-fumble floors up to a plain miss), **`extra_die`**
+(on a **miss**, roll another die keep best — the "second chance"), **`reroll`**, **`surge`** (a big
+bonus that ALSO lifts the scope tier ceiling one step), plus legacy **`mod`** (flat +N) and
+**`basis`** (the eligibility-gate key). Passive edge/ward auto-apply; active surge/extra_die/reroll
+are invoked with `use <ability>`, gated on `has_ability` + affordability + a per-ability cooldown
+(`player["ability_cd"]`), and fire (+ are paid) only when they help. The whole dice narrative bakes
+into `check._shape` (`pool/kept/fired/improved/edge/ward/surge`) so replay reads no registry/RNG.
 
 **Render (`compose.py`).** `[DIRECTIVE]` renders the pre-decided outcome of THIS turn's check
 ("NARRATE: <tier> — the <skill> check resolved as <TIER>. …") and rides the never-dropped

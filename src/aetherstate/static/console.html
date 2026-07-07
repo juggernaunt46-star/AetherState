@@ -99,9 +99,9 @@ const TOUCH=["touching","caressing","gripping","kissing","licking","sucking","pe
  "grinding","restraining","impact"];
 const FLAVORS=["romantic","possessive","protective","hostile","curious","ambition","reverent","other"];
 const TKINDS=["entity","act_category","substance","object","concept"];
-const TABS=["Overview","Edit","Sessions","Connection","Status","Models","Raw"];
+const TABS=["Player","Overview","Edit","Sessions","Connection","Status","Models","Raw"];
 /* ---------- app state ---------- */
-let tab="Overview",sid="",S=null,editOp="scene_set",timer=null;
+let tab="Player",sid="",S=null,editOp="scene_set",timer=null;
 const $=q=>document.querySelector(q);
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const j=async(u,o)=>{const r=await fetch(u,o);return r.json()};
@@ -121,9 +121,11 @@ async function sessions(){const d=await j("/aether/sessions");const s=d.sessions
   :`<option value="">no sessions yet</option>`;
  if(!sid&&s.length)sid=s[0].session_id;return s}
 let J=null;   /* RPG-4: journal tail for the activity feed */
-async function load(){if(!sid){S=null;J=null;return}
+let HUD=null; /* 2026-07-07: the resolved player-facing view — SAME payload the ST HUD renders */
+async function load(){if(!sid){S=null;J=null;HUD=null;return}
  try{S=await j(`/aether/session/${sid}/state`)}catch(e){S=null}
- try{J=await j(`/aether/session/${sid}/journal?limit=25`)}catch(e){J=null}}
+ try{J=await j(`/aether/session/${sid}/journal?limit=25`)}catch(e){J=null}
+ try{HUD=await j(`/aether/session/${sid}/hud`)}catch(e){HUD=null}}
 const chars=()=>Object.entries(S?.state?.entities||{});
 const cnames=()=>chars().map(([id,e])=>[id,e.name||id]);
 const nameOf=id=>(S?.state?.entities?.[id]?.name)||id;
@@ -459,13 +461,83 @@ async function modelsTab(){const d=await j("/aether/status");
     <span class="hint">${esc(e.model)} · ${esc(e.tier)}</span></div>`).join(""):
    `<p class="hint">No local helper configured — everything still works; a local model adds
     smarter memory, card-reading, and contradiction checks at zero API cost.</p>`)+`</div>`}
+/* ---------- Player dashboard (2026-07-07): renders the /hud payload — the SAME resolved
+   view the SillyTavern HUD shows, so nothing player-facing lives only in ST or only in 'raw' */
+function hudMeter(kind,cur,max){const col=kind==="hp"?"var(--bad)":kind==="mana"?"var(--vio)":"var(--ok)";
+ return meter(kind.toUpperCase(),cur,max,col)}
+/* an inline op button for the Player dashboard — same privileged ops() the Overview uses */
+function hact(label,opsArr,title){return `<button class="mini" title="${esc(title||"")}" onclick='ops(${JSON.stringify(opsArr).replace(/'/g,"&#39;")})'>${esc(label)}</button>`}
+function playerView(){
+ if(!HUD)return `<div class="card">No session selected — open a chat in SillyTavern (or send one
+  message) and your character appears here.</div>`;
+ const v=HUD,s=v.scene||{};let h="";
+ h+=`<div class="card"><div class="row" style="margin-top:0"><h3 style="margin:0">Player dashboard</h3>
+  <span class="pill ${v.spec==="rpg"?"vio":"dim"}" title="narrative mode">spec: ${esc(v.spec)}</span>
+  <span style="flex:1"></span>${v.frozen?`<span class="pill bad">FROZEN</span>`:""}
+  <span class="hint">turn ${v.head_turn??"?"}</span></div>`;
+ const sb=[];if(s.location)sb.push(`📍 ${esc(String(s.location).replace(/_/g," "))}`);
+ const tod=[s.time_of_day,s.day?("day "+s.day):""].filter(Boolean).join(", ");if(tod)sb.push(`🕓 ${esc(tod)}`);
+ if(s.phase)sb.push("phase "+esc(s.phase));
+ if((s.present||[]).length)sb.push("👥 "+s.present.map(esc).join(", "));
+ h+=`<div class="row">${sb.map(x=>`<span class="pill dim">${x}</span>`).join("")||`<span class="hint">no scene set yet</span>`}</div></div>`;
+ if(!(v.players||[]).length)h+=`<div class="card"><span class="hint">No player character yet.${v.spec!=="rpg"?" Set narrative mode to RPG (Overview or the ST panel), then build one in the Creator.":" Build one in the Creator."}</span></div>`;
+ for(const p of v.players||[]){
+  const eid=p.eid;
+  h+=`<div class="card"><div class="row" style="margin-top:0"><h3 style="margin:0">${esc(p.name)}</h3>
+   <span class="pill vio">Lv ${p.level}${p.xp?(" · XP "+p.xp):""}</span>
+   ${p.concept?`<span class="pill dim">${esc(p.concept)}</span>`:""}
+   ${p.species?`<span class="pill dim">${esc(p.species)}</span>`:""}
+   ${p.mood?`<span class="pill dim" title="mood">${esc(p.mood)}</span>`:""}
+   ${p.stat_points?`<span class="pill warn">${p.stat_points} stat pt</span>`:""}</div>`;
+  if(p.appearance)h+=`<p class="hint" style="font-style:italic;border-left:2px solid var(--vio);padding-left:8px;margin:6px 0;line-height:1.45">${esc(p.appearance)}</p>`;
+  if(p.hp&&p.hp.max)h+=hudMeter("hp",p.hp.cur,p.hp.max);
+  for(const k in (p.resources||{}))h+=hudMeter(k,p.resources[k].cur,p.resources[k].max);
+  h+=`<div class="row"><span class="hint">HP:</span>${hact("−5",[{op:"hp_adj",char:eid,delta:-5}],"lose 5")}${hact("−1",[{op:"hp_adj",char:eid,delta:-1}])}${hact("+1",[{op:"hp_adj",char:eid,delta:1}])}${hact("+5",[{op:"hp_adj",char:eid,delta:5}],"heal 5")}</div>`;
+  if((p.stats||[]).length)h+=`<div class="row">`+p.stats.map(st=>`<span class="pill dim" title="modifier">${esc(st.key)} ${esc(st.val)} <b style="color:var(--acc)">(${st.mod>=0?"+":""}${st.mod})</b>${p.stat_points?hact("+1",[{op:"stat_spend",char:eid,stat:st.key}],"spend a banked point on "+st.key):""}</span>`).join("")+`</div>`;
+  if((p.skills||[]).length)h+=`<div class="row"><span class="hint">skills:</span>`+p.skills.map(sk=>`<span class="pill vio" title="${sk.mastery?"mastery "+sk.mastery:""}">${esc(sk.label)} ${sk.mod>=0?"+":""}${sk.mod}${sk.mastery?" · m"+sk.mastery:""}</span>`).join("")+`</div>`;
+  if((p.abilities||[]).length)h+=`<div class="row"><span class="hint">abilities / spells:</span>`+p.abilities.map(a=>`<span class="pill ok" title="${esc(a.desc)}">${esc(a.name)}${a.kind?" · "+esc(a.kind):""}</span>`).join("")+`</div>`;
+  h+=`<div class="row"><span class="hint">statuses / conditions / diseases:</span>`+((p.effects||[]).length?p.effects.map(e=>{const col=e.valence==="negative"?"bad":e.valence==="positive"?"ok":"dim";return `<span class="pill ${col}" title="${esc((e.note||"")+(e.mods?" · "+e.mods:""))}">${esc(e.glyph)} ${esc(e.name)} <b style="opacity:.65">${esc(e.kind_label)}</b>${e.stacks>1?" ×"+e.stacks:""}${e.remaining!=null?" · "+e.remaining+"t":""} ${hact("×",[{op:"effect_remove",char:eid,effect:e.key}],"remove")}</span>`}).join(""):`<span class="hint">none active</span>`)+`</div>`;
+  const dr=p.drives||{},db=[];
+  (dr.obsessions||[]).forEach(o=>db.push(`<span class="pill warn">☄ ${esc(o.target)} ${o.intensity} ${hact("−",[{op:"obsession",char:eid,target_kind:o.target_kind,target:o.target,delta:-10}],"ease")}${hact("+",[{op:"obsession",char:eid,target_kind:o.target_kind,target:o.target,delta:10}],"deepen")}</span>`));
+  (dr.cravings||[]).forEach(c=>db.push(`<span class="pill ${c.withdrawal?"bad":"dim"}">♦ ${esc(c.substance)} ${c.level}${c.withdrawal?" ⚠ withdrawal":""} ${hact("sate",[{op:"craving",char:eid,substance:c.substance,action:"consume"}],"sate")}${hact("+",[{op:"craving",char:eid,substance:c.substance,action:"adjust",delta:10}],"intensify")}</span>`));
+  if(db.length)h+=`<div class="row"><span class="hint">drives:</span>`+db.join("")+`</div>`;
+  h+=`<div class="row"><span class="hint">gear (worn):</span>`+((p.gear||[]).length?p.gear.map(g=>`<span class="chip"><b>${esc(g.slot)}</b> ${esc(g.name)}${g.mods?" ("+esc(g.mods)+")":""} ${hact("unequip",[{op:"item_unequip",instance:g.iid}],"move to inventory")}</span>`).join(""):`<span class="hint">nothing equipped</span>`)+`</div>`;
+  if((p.inventory||[]).length)h+=p.inventory.map(c=>`<div class="row"><span class="hint">${esc(c.container)}:</span>`+c.items.map(i=>`<span class="chip">${esc((i.qty>1?i.qty+"× ":"")+i.name)}${i.slot?" "+hact("equip",[{op:"item_equip",instance:i.iid,slot:i.slot}],"wear/wield"):""}${i.consumable?" "+hact("use",[{op:"item_consume",instance:i.iid}],"consume one"):""}</span>`).join("")+`</div>`).join("");
+  else h+=`<div class="row"><span class="hint">inventory:</span><span class="hint">empty</span></div>`;
+  h+=`</div>`}
+ if((v.cast||[]).length){h+=`<div class="card"><h3>Cast <small>everyone AetherState is tracking</small></h3>`;
+  for(const c of v.cast){
+   h+=`<div class="row" style="margin-top:8px"><b style="font-weight:600">${esc(c.name)}</b>`+
+    (c.present?`<span class="pill ok">here</span>`:`<span class="pill dim">away${c.location?" · "+esc(String(c.location).replace(/_/g," ")):""}</span>`)+
+    (c.rel_tier?`<span class="pill vio">${esc(c.rel_tier)}</span>`:"")+
+    (c.mood?`<span class="hint">${esc(c.mood)}</span>`:"")+
+    (c.arousal>0?`<span class="hint">arousal ${c.arousal}</span>`:"")+`</div>`;
+   if((c.effects||[]).length)h+=`<div class="row"><span class="hint">status:</span>`+c.effects.map(e=>{const col=e.valence==="negative"?"bad":e.valence==="positive"?"ok":"dim";return `<span class="pill ${col}" title="${esc(e.note||"")}">${esc(e.glyph)} ${esc(e.name)} <b style="opacity:.65">${esc(e.kind_label)}</b>${e.remaining!=null?" · "+e.remaining+"t":""} ${hact("×",[{op:"effect_remove",char:c.eid,effect:e.key}],"remove")}</span>`}).join("")+`</div>`;
+   const dr=c.drives||{};const db=[...(dr.obsessions||[]).map(o=>`<span class="pill warn">☄ ${esc(o.target)} ${o.intensity}</span>`),...(dr.cravings||[]).map(cr=>`<span class="pill ${cr.withdrawal?"bad":"dim"}">♦ ${esc(cr.substance)} ${cr.level}</span>`)];
+   if(db.length)h+=`<div class="row"><span class="hint">drives:</span>`+db.join("")+`</div>`;
+   if((c.rel_dims||[]).length)h+=`<div class="row"><span class="hint">toward you:</span>`+c.rel_dims.map(d=>`<span class="pill dim">${esc(d.dim)} ${d.val>=0?"+":""}${d.val}</span>`).join("")+`</div>`;
+   if((c.worn||[]).length)h+=`<div class="hint">wearing: ${c.worn.map(esc).join(", ")}</div>`;
+   if((c.exposed||[]).length)h+=`<div class="hint">exposed: ${c.exposed.map(esc).join(", ")}</div>`;
+   if((dr.goals||[]).length)h+=`<div class="hint">goals: ${dr.goals.map(esc).join(" · ")}</div>`;
+  }
+  h+=`</div>`}
+ if((v.relationships||[]).length)h+=`<div class="card"><h3>Relationships</h3>`+v.relationships.map(r=>`<div class="row"><b style="font-weight:500">${esc(r.a)} → ${esc(r.b)}</b>`+r.dims.map(d=>`<span class="pill ${d.val>=45?"vio":d.val<=-30?"bad":"dim"}">${esc(d.dim)} ${d.val>=0?"+":""}${d.val}</span>`).join("")+`</div>`).join("")+`</div>`;
+ if((v.quests||[]).length)h+=`<div class="card"><h3>Quests</h3>`+v.quests.map(q=>`<div class="row"><b style="font-weight:600">${esc(q.name)}</b>${q.stakes?`<span class="pill warn">${esc(q.stakes)}</span>`:""}<span class="pill ${q.status==="active"?"dim":q.status==="complete"?"ok":"bad"}">${esc(q.status)}</span>${q.note?`<span class="hint">${esc(q.note)}</span>`:""}</div>`).join("")+`</div>`;
+ if((v.rolls||[]).length)h+=`<div class="card"><h3>Dice &amp; Checks</h3>`+v.rolls.slice().reverse().map(r=>`<div class="row"><span class="pill dim">t${r.turn??"?"}</span><b>${esc(r.skill||r.spec||"roll")}</b>${r.spec?`<span class="hint">${esc(r.spec)}</span>`:""}<span class="pill vio">= ${esc(r.result)}</span>${r.tier_label?`<span class="pill ${(r.tier==="fail"||r.tier==="crit_fail")?"bad":r.tier==="partial"?"warn":"ok"}">${esc(r.tier_label)}</span>`:""}</div>`).join("")+`</div>`;
+ const rel=[...(v.relations||[]),...(v.factions||[]).map(f=>Object.assign({fac:true},f))];
+ if(rel.length)h+=`<div class="card"><h3>Relations &amp; Factions</h3><div class="row">`+rel.map(r=>`<span class="pill ${r.fac?"dim":"vio"}">${r.fac?"⚑ ":""}${esc(r.name)} · ${esc(r.tier)}</span>`).join("")+`</div></div>`;
+ if(Object.keys(v.world_flags||{}).length)h+=`<div class="card"><h3>World flags</h3><div class="row">`+Object.entries(v.world_flags).map(([k,val])=>`<span class="pill dim">${esc(k)}=${esc(String(val))}</span>`).join("")+`</div></div>`;
+ if((v.consent||[]).length)h+=`<div class="card"><h3>Consent</h3>`+v.consent.map(c=>`<div class="row"><b style="font-weight:500">${esc(c.pair)}</b><span class="pill dim">${esc(c.category)}</span><span class="pill ${["granted","enthusiastic"].includes(c.level)?"ok":["hard_limit","withdrawn"].includes(c.level)?"bad":"warn"}">${esc(c.level)}</span>${c.cap!=null?`<span class="hint">≤${c.cap}</span>`:""}</div>`).join("")+`</div>`;
+ if((v.memories||[]).length)h+=`<div class="card"><h3>Recent events</h3>`+v.memories.map(m=>`<div class="hint">t${m.turn} · ${esc(m.text)}</div>`).join("")+`</div>`;
+ return h}
 /* ---------- shell ---------- */
 function nav(){$("#tabs").innerHTML=TABS.map(t=>
  `<button class="${t===tab?"on":""}" onclick="go('${t}')">${t}</button>`).join("")}
 async function go(t){tab=t;nav();await load();headerRefresh();render()}
 async function render(){const v=$("#view");
  try{
-  if(tab==="Overview")v.innerHTML=overview();
+  if(tab==="Player")v.innerHTML=playerView();
+  else if(tab==="Overview")v.innerHTML=overview();
   else if(tab==="Edit")v.innerHTML=S?editTab():overview();
   else if(tab==="Sessions")v.innerHTML=await sessionsTab();
   else if(tab==="Connection")v.innerHTML=await connectionTab();
@@ -476,7 +548,7 @@ async function render(){const v=$("#view");
 async function boot(){nav();await sessions();await load();headerRefresh();
  try{$("#ovr").checked=!!(await j("/aether/override")).enabled}catch(e){}
  render();
- timer=setInterval(async()=>{if(tab==="Overview"&&document.visibilityState==="visible"){
+ timer=setInterval(async()=>{if((tab==="Overview"||tab==="Player")&&document.visibilityState==="visible"){
   const before=JSON.stringify(S);await sessions();await load();
   if(JSON.stringify(S)!==before){headerRefresh();render()}}},4000)}
 boot();

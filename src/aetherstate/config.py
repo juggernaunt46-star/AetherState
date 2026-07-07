@@ -203,6 +203,9 @@ class SpecializationConfig(BaseModel):
     #                                  for strong models, "compact" for weak/local budgets
     hardcore: bool = False           # RPG-5 (doc 10 §7): defeat_resolve routes to DEATH —
     #                                  permadeath; off = contextual non-lethal outcomes
+    narrator_card_dir: str = ""      # optional: a SillyTavern characters dir where the
+    #                                  world-specific Narrator card (narrator.py) is installed
+    #                                  on request; empty = download-only (never writes out)
 
 
 # Built-in RPG specialization profile (Q27 / doc 05 §7): lower-priority DEFAULTS overlaid

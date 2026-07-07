@@ -82,6 +82,11 @@ name = "none"         # none | rpg
 #                           # (same non-negotiables in ~40 tokens; part of the degradation ladder)
 # hardcore = false          # RPG-5: defeat becomes DEATH (permadeath). Off = contextual
 #                           # non-lethal outcomes (captured / wake safe / robbed / rescued)
+# narrator_card_dir = ""    # optional: a SillyTavern characters dir (e.g.
+#                           # ".../SillyTavern/data/default-user/characters"). When set, the
+#                           # Creator's "Generate Narrator card" button installs a world-named
+#                           # card there so you SEE which world you're playing; empty = the
+#                           # browser just downloads the PNG for a manual Characters -> Import.
 #
 # RPG-4 location registry: under rpg, scene locations CANONICALIZE — a revisit under any name
 # variant ("Gilded Lantern" vs "The Gilded Lantern") resolves to the same location entity

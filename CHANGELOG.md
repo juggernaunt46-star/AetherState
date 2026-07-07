@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.3.0 — 2026-07-07
+
+Skills and abilities become two genuinely different things, and you finally get to *see* your
+whole character. Everything below is RPG-mode only — a non-RPG session is byte-identical.
+
+### Abilities now shape the dice (they don't just buff a number)
+- A **skill** sets the modifier you roll. An **ability** bends the dice: **advantage** (roll an
+  extra die, keep the best), a **guard** against critical fumbles, a **second-chance extra die**
+  when a roll misses, a **reroll**, or a **surge** that adds a big bonus *and* lifts the ceiling on
+  an ambitious attempt. There's still a humble flat "+1" tier and the "basis" marker that unlocks
+  gated skills.
+- Passive edges apply on their own; you invoke an active in a check with
+  `((aether.check <skill> use <ability>))`. Actives cost a resource and have a cooldown, and the
+  on-miss ones only spend when they actually fire — so they feel like insurance, not a tax.
+- The Creator can author bespoke abilities with these mechanics; they're clamped and frozen into
+  fixed rules before they can ever be rolled (nothing freestyle at the table).
+
+### A player HUD — see everything you have, always
+- A movable, themeable in-page window with tabs: **Char · Skills · Abilities · Gear · Status ·
+  World**, and your vitals (HP / stamina / mana) always visible on top.
+- **Skills** print the dice rules right there (how a roll resolves, what the tiers mean).
+  **Abilities** are grouped into Spells / Techniques / Talents, each spelling out its mechanic,
+  cost, cooldown and what it applies to. **Gear is a paper-doll** — labeled equip slots for
+  weapons, armor and trinkets, worn items shown with their bonuses, empty slots clearly marked,
+  and one-click equip / unequip / use. **Status** always shows your statuses, conditions and
+  diseases. Open it from the panel or `/aether-hud`; the Console mirrors the same view.
+- **Edit from the HUD.** An edit toggle lets you spend banked stat points, equip / unequip / use
+  gear, adjust HP, and clear statuses right from the window (the Console has the same controls);
+  a compact/minimized mode collapses it to a vitals strip.
+
+### A Narrator card named after your world
+- The Creator can generate a **Dungeon-Master card built from your committed world** — named after
+  the world, opening on its first scene, seeded with its setting, factions and places, with a
+  genre-tinted avatar — so you can see which world you're traversing from your character list.
+  Optionally auto-installs into your SillyTavern characters folder.
+
+### Cleaner play
+- The DM's raw ledger tags (`[hp | …]`, `[scene | …]`, …) are now hidden from the reader — the
+  engine still parses them, you just see clean prose. Toggle in the extension if you want them.
+- A gated skill you actually have the basis for no longer warns "needs a basis," and an on-miss
+  ability that fires but can't save the roll is narrated honestly (no phantom rescue).
+- The extension backs off its polling when the proxy is offline, so a stopped proxy no longer
+  floods the browser console with failed-request errors.
+
 ## 1.2.0 — 2026-07-07
 
 The ledger keeps up with the story: every recording gap found in live play is closed, and the

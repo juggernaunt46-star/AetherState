@@ -64,6 +64,70 @@ def roll_dice(spec: str, rng: random.Random) -> Optional[tuple[list[int], int, i
     return [rng.randint(1, sides) for _ in range(n)], sides, flat
 
 
+def roll_keep(n_keep: int, extra: int, sides: int, rng: random.Random) -> tuple[list[int], list[int]]:
+    """Roll (n_keep + max(0, extra)) dice of `sides`; return (kept_best_n, full_pool). The
+    generalized ADVANTAGE primitive (RPG abilities, 2026-07-07): 2d6 +1 extra = roll 3d6 keep
+    the best 2; 1d20 +1 extra = roll 2d20 keep best 1 (classic advantage). Pure given `rng` —
+    the pool + the kept subset are baked into the check op, so replay never re-rolls."""
+    n_keep = max(1, int(n_keep))
+    total = n_keep + max(0, int(extra))
+    pool = [rng.randint(1, int(sides)) for _ in range(total)]
+    kept = sorted(pool, reverse=True)[:n_keep]
+    return kept, pool
+
+
+# ---- Ability mechanics (2026-07-07 redesign, Bean): a skill sets the MODIFIER; an ability
+# SHAPES THE DICE. `mechanic` is curated + frozen; these normalizers keep resolution replay-safe
+# and let a legacy `passive_mod`-only ability keep working (it normalizes to "mod").
+ABILITY_MECHANICS = {"mod", "edge", "ward", "extra_die", "reroll", "surge", "basis"}
+ABILITY_MECHANIC_LABEL = {
+    "mod": "flat bonus", "edge": "advantage — roll an extra die, keep the best",
+    "ward": "guard — raises your failure floor (no critical fumble)",
+    "extra_die": "second chance — on a failed roll, roll an extra die and keep the best",
+    "reroll": "reroll — on a failed roll, roll again and take the better",
+    "surge": "surge — a big bonus that also lifts the outcome ceiling for one check",
+    "basis": "grants the in-world basis for a gated skill",
+}
+ACTIVE_MECHANICS = {"extra_die", "reroll", "surge"}     # require `use`; cost + cooldown
+ON_FAIL_MECHANICS = {"extra_die", "reroll"}             # fire (and are paid) only on a miss
+
+
+def ability_mechanic(entry: dict) -> str:
+    """Normalized mechanic for an ability def (registry or frozen). A def with only a legacy
+    `passive_mod`/`resolution_mod` reads as "mod"; a bare passive marker reads as "basis"."""
+    if not isinstance(entry, dict):
+        return "mod"
+    m = str(entry.get("mechanic", "")).strip().lower()
+    if m in ABILITY_MECHANICS:
+        return m
+    if entry.get("passive_mod") or entry.get("resolution_mod"):
+        return "mod"
+    return "basis" if str(entry.get("kind", "")).lower() == "passive" else "mod"
+
+
+def ability_applies(entry: dict, skill_id: str) -> bool:
+    """Does this ability shape a check on `skill_id`? `applies_to` = "all" | id | [ids]."""
+    a = (entry or {}).get("applies_to", "all")
+    if isinstance(a, str):
+        a = a.strip().lower()
+        return a in ("", "all", "any") or a == str(skill_id).lower()
+    if isinstance(a, (list, tuple, set)):
+        return str(skill_id).lower() in {str(x).lower() for x in a}
+    return True
+
+
+def ability_magnitude(entry: dict, default: int = 1) -> int:
+    """Extra dice (edge/extra_die), floor steps (ward), or flat bonus (surge/mod)."""
+    for k in ("magnitude", "resolution_mod", "dice"):
+        v = (entry or {}).get(k)
+        if isinstance(v, int):
+            return v
+    pm = (entry or {}).get("passive_mod")
+    if isinstance(pm, dict) and isinstance(pm.get("amount"), int):
+        return int(pm["amount"])
+    return default
+
+
 # PbtA + optional crits — the single tier-resolution function (tier0 + tests share it).
 # CHECK_TIERS is imported from state (op-vocab home); resolve_tier only emits its members.
 
@@ -140,6 +204,17 @@ class Registry:
     def merged_abilities(self, player: Optional[dict] = None) -> dict:
         pd = self._pdefs(player, "abilities")
         return {**self.abilities, **pd} if pd else self.abilities
+
+    def known_abilities(self, player: Optional[dict] = None) -> dict:
+        """aid -> def for the abilities THIS player actually knows (merged snapshot ⊕ registry,
+        matched by id or display name). The set the dice-shaping resolver iterates."""
+        known = {str(a).lower() for a in (player or {}).get("abilities", [])}
+        out: dict = {}
+        for aid, a in self.merged_abilities(player).items():
+            a = a or {}
+            if str(aid).lower() in known or str(a.get("name", aid)).lower() in known:
+                out[aid] = a
+        return out
 
     def skill_entry(self, skill_id: str, player: Optional[dict] = None) -> dict:
         """The definition that governs `skill_id` for THIS player: snapshot first, else global."""

@@ -8,5 +8,9 @@ aetherstate-data/
 tests/fixtures/local/
 *.db
 *.log
+# secrets — a live config.toml holds your API key in plaintext; never commit one.
+config.toml
 config.toml.bak
+.env
+.env.*
 dist/

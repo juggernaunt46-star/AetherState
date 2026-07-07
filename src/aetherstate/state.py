@@ -208,6 +208,7 @@ _SPEC: dict[str, set[str]] = {
     "master_tick": {"char", "skill", "amount"},
     "evolve_def": {"char", "table", "id", "def"},
     "defeat_resolve": {"char", "outcome"},
+    "stat_spend": {"char", "stat"},            # spend a banked stat point: +1 stat, -1 point
 }
 
 # 08 E2 deterministic family apply-order (freeze first so mid-delta safewords gate the rest)
@@ -245,6 +246,7 @@ _FAMILY = {
     "quest_add": "facts", "quest_update": "facts",                    # RPG-5 (G3)
     "award_exp": "player", "level_up": "player", "master_tick": "player",   # RPG-5
     "evolve_def": "player", "defeat_resolve": "player",               # progression (privileged)
+    "stat_spend": "player",                                            # spend a banked stat point
 }
 # frozen-session suppression set (02 SS6: arousal/escalation/consent families)
 _FROZEN_SUPPRESSED = {"arousal", "scene_dial", "consent_signal"}
@@ -377,6 +379,8 @@ def validate_op(op: Any) -> Optional[dict]:
         if kind == "item_equip" and not isinstance(op["slot"], str):
             return None                # slot-vs-profile validity is baked at _enrich (doc 07 §5)
         if kind == "item_consume" and int(op.get("amount", 1)) < 1:
+            return None
+        if kind == "stat_spend" and not str(op.get("stat", "")).strip():   # spend a stat point
             return None
         if kind in ("effect_add", "effect_update", "effect_remove"):   # RPG-3 (doc 05 §5.4)
             if not str(op.get("effect", "")).strip():
@@ -574,6 +578,10 @@ def authority_violation(op: dict, source: str, state: dict, cfg) -> Optional[str
         return None if source in ("user", "genesis", "rule") else \
             "progression is code-awarded: XP, levels, mastery, and defeat are earned " \
             "through resolved play, never asserted (doc 10)"   # RPG-5
+
+    if kind == "stat_spend":                   # spending a banked point is the player's call
+        return None if source in ("user", "genesis", "rule") else \
+            "stat points are spent by the player, never asserted by a model (doc 10)"
 
     if kind == "consent_signal" and op["signal"] == "safeword":
         return None if not raw else None  # handled at apply: freeze in non-raw, log-only in raw
@@ -1104,7 +1112,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         state["rolls"].append({"skill": op["skill"], "result": op["result"],
                                "tier": op["tier"], "mod": op.get("_mod"),
                                "dice": op.get("_dice"), "dc": op.get("dc"),
-                               "char": op.get("char"), "turn": turn})
+                               "char": op.get("char"), "turn": turn,
+                               "shape": op.get("_shape")})   # 2026-07-07: dice-shaping audit
         del state["rolls"][:-10]
         cost = op.get("_cost")                  # RPG-5 (doc 10 §5.4): resource cost charged
         pl = state.get("player", {}).get(op.get("char")) if op.get("char") else None
@@ -1114,6 +1123,14 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 if isinstance(pool, dict):
                     pool["cur"] = _clamp(int(pool.get("cur", 0)) - max(0, int(amt)),
                                          0, int(pool.get("max", 0)))
+        cds = op.get("_ability_cd")             # 2026-07-07: active-ability cooldowns (baked)
+        if isinstance(cds, dict) and isinstance(pl, dict):
+            cd = pl.setdefault("ability_cd", {})
+            for aid, ready in cds.items():
+                try:
+                    cd[str(aid)] = max(int(cd.get(str(aid), 0)), int(ready))
+                except (TypeError, ValueError):
+                    continue
     elif kind == "item_mint":                   # RPG-2 (doc 07 §7.2): instance from template
         iid, snap = op.get("_iid"), op.get("_snapshot") or {}
         if not iid or not snap:                 # template unknown at _enrich -> visible reject
@@ -1498,6 +1515,21 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 r["max"] = _clamp(int(r.get("max", 0)) + int(g.get("pool", 0)), 0, 10**6)
                 r["cur"] = _clamp(int(r.get("cur", 0)) + int(g.get("pool", 0)), 0, r["max"])
         pl["stat_points"] = int(pl.get("stat_points", 0)) + int(g.get("stat_points", 0))
+    elif kind == "stat_spend":                  # spend a banked point: +1 to a stat, -1 point.
+        pl = state.get("player", {}).get(op["char"])   # TRANSACTIONAL — reject before mutation.
+        if not isinstance(pl, dict):
+            raise OpReject("no Player Card to raise")
+        if int(pl.get("stat_points", 0)) < 1:
+            raise OpReject("no banked stat points to spend")
+        stat = str(op["stat"]).upper()
+        stats = pl.setdefault("stats", {})
+        if stat not in stats:
+            raise OpReject(f"unknown stat {stat!r} on this card")
+        cap = int(op.get("_max", 20))           # registry max baked at _enrich (replay-pure)
+        if int(stats[stat]) >= cap:
+            raise OpReject(f"{stat} is already at its max ({cap})")
+        stats[stat] = int(stats[stat]) + 1
+        pl["stat_points"] = int(pl.get("stat_points", 0)) - 1
     elif kind == "master_tick":                 # RPG-5 (doc 10 §4): use grows mastery —
         pl = state.get("player", {}).get(op["char"])   # scene-capped so spam can't cheese it
         if not isinstance(pl, dict):
@@ -1772,6 +1804,13 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
             out["_eff_id"] = fid
             out["_snapshot"] = {k: e[k] for k in (
                 "name", "kind", "valence", "mods", "duration", "requires") if k in e}
+    if op["op"] == "stat_spend":               # bake the stat's registry max (replay-pure clamp)
+        from . import registry as _registry
+        try:
+            sdef = _registry.load(cfg).stats.get(str(op.get("stat", "")).upper()) or {}
+            out["_max"] = int(sdef.get("max", 20))
+        except Exception:
+            out["_max"] = 20
     if op["op"] == "ability_grant":            # RPG-3: registry membership baked (replay purity)
         from . import registry as _registry
         try:

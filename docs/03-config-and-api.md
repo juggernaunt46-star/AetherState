@@ -203,6 +203,15 @@ headers are consumed, never forwarded. Errors are OpenAI-shaped JSON (502 `not_c
 | `GET /aether/session/{sid}/search?q=&limit=N` | RPG-5: search the session's memory/summary ledger with the composite recall scorer (lexical + importance + recency; embeddings when staged). Read-only, fail-open to `[]` |
 | `POST /aether/session/{sid}/world` | persist a world doc as shipped ops (entities/lore/scene); creator-first: an unknown `sid` mints the session by external id (2026-07-06 — the row the relay adopts on the chat's first stamped message); response carries `session_id` |
 | `POST /aether/session/{sid}/player` | persist a Player Card (`entity_add`+`player_seed`+attrs); same creator-first session-minting as the world route |
+| `GET /aether/session/{sid}/narrator-card.png` | download a **world-specific Narrator card** (PNG with the V2 chara card embedded — ST import format), built by `narrator.build_card` from the committed world (`creator.world_from_state`) + Player Card. Read-only ledger projection; a `none` session is unaffected (control route, off the relay) |
+| `GET /aether/session/{sid}/narrator-card.json` | the same card as JSON (inspect / manual import) |
+| `POST /aether/session/{sid}/narrator-card` | build the card and, when `[specialization].narrator_card_dir` is a real directory, install the PNG there (so it shows in SillyTavern's character list); always returns `{name, world, bytes, installed, filename, tags, download}`. Best-effort, fail-open |
+
+| `GET /aether/session/{sid}/hud` | the **resolved player-facing HUD payload** (`hud.hud_view`): scene, player card(s) with EFFECTIVE skill mods + resolved abilities + appearance, statuses/conditions, drives, gear (worn) + inventory (carried), quests, dice rolls/checks, relations/factions. Registry math done server-side; the ONE source both the SillyTavern HUD and the Console "Player" tab render. Read-only, fail-open |
+
+The **player HUD** (2026-07-07, `hud.py` + the ST extension window + the Console "Player" tab) closes the "AetherState hides everything from the human" gap. AetherState computes a rich player state and injects it into the MODEL as bracketed blocks — the HUD surfaces that same truth to the PLAYER. `hud.hud_view(state, cfg)` is the single resolved projection; `GET .../hud` serves it; the SillyTavern extension renders it in a movable, themeable (`neutral`/`fantasy`/`scifi`/`modern`) window (launcher tab, `/aether-hud`, or the panel link), and the Console renders the identical payload in its **Player** tab (now the default) — so nothing player-facing lives only in ST or only in `raw`. The active specialization (`rpg`/`none`) is shown in the HUD header, the panel chip, and the status chip, and the panel has a narrative-mode selector. **Player appearance/description** is a new field (Creator form → `set_attribute appearance` on the player entity → HUD/Console/Narrator card); it did not exist before (only NPCs had descriptions). The HUD and the Console "Player" tab are also EDITABLE (HUD via an ✎ edit-mode toggle): HP ±  (`hp_adj`), spend a banked stat point (the new privileged `stat_spend {char, stat}` op — +1 to a stat clamped to the registry max, −1 point), equip/unequip (`item_equip`/`item_unequip`), use (`item_consume`), remove a status (`effect_remove`), and sate/± drives (`craving`/`obsession`, override-gated like all organic edits). All buttons build ops and go through the privileged `PATCH /state` path. The HUD also has a **▁ compact/minimize** mode. `/hud` carries the ids these controls need (item `iid`, effect `key`, obsession `target_kind`, item `slot`/`consumable`). The payload is COMPREHENSIVE — not just the player: effect rows carry `kind`/`kind_label` (**Status / Condition / Disease**) + `note` + `mods`; a **`cast`** array surfaces every tracked non-player entity (presence, location, mood, their statuses/conditions/diseases, drives, goals, worn/exposed, relationship tier + dims to the player); plus player `mood` + skill `mastery`, `relationships` (dims), `memories` (recent events), `consent`, and world flags/factions/affinity. Both the HUD and the Console "Player" tab render all of it (statuses shown even when empty), so nothing tracked stays hidden.
+
+The **world Narrator card** (2026-07-07, `narrator.py`) closes the "hard to see which world I'm in" gap: the card is NAMED after the world, its first message opens on the committed opening scene, its description carries the setting/laws/factions/places/cast + the Player, and its avatar is genre-tinted. The Creator's "🎭 Generate Narrator card" button (Session review tab / Character tab) POSTs the install route then downloads the PNG. It projects `world_from_state`, so a session that has accumulated more than one world's lore will surface all of it — generate from a single-world (or fresh) session. This is additive to the world-agnostic `build_narrator_card.py` at the repo root (still the floor card for "no world yet").
 
 Config-mutating routes persist to `config.toml` (`_persist_config`). State-mutating routes go through
 `state.apply_delta` / `translate_path` — never write state directly.
@@ -288,9 +297,18 @@ loaded once and cached (`registry.load(cfg)`); a user extends/overrides via
 `<data_dir>/registry/*.toml` (per-table merge, like beat libraries). `meta.dice`/`meta.tiers` are
 DEFAULTS; the `[specialization].dice`/`.tiers` knobs win under `rpg` (D1).
 
-**OOC command (`tier0.py` R8).** `((aether.check <skill> [+N|-N] [vs DC | dc DC]))` — resolves an
-explicit skill-check on the hot path and injects the `[DIRECTIVE]` the SAME turn. Stripped from the
-forwarded message like every OOC span. Unknown skill → a visible notice, no op (nothing freestyle).
+**OOC command (`tier0.py` R8).** `((aether.check <skill> [+N|-N] [vs DC | dc DC] [scope
+minor..mythic] [use <ability>]))` — resolves an explicit skill-check on the hot path and injects the
+`[DIRECTIVE]` the SAME turn. `use <ability>` invokes an ACTIVE dice-shaping ability (surge /
+extra_die / reroll); passive shapers (edge / ward) apply on their own. Stripped from the forwarded
+message like every OOC span. Unknown skill → a visible notice, no op (nothing freestyle).
+
+**Player HUD (`GET /aether/session/{sid}/hud`; `hud.py`).** The one resolved player-facing payload,
+rendered by the ST extension HUD (now **tabbed**: Char · Skills · Abilities · Gear · Status · World,
+with the dice rules on Skills, abilities grouped Spells/Techniques/Talents with each mechanic spelled
+out, and Gear as a paper-doll of equip slots) and the Console "Player" tab. Read-only, off the relay
+— a `none` session's wire is untouched. The extension hides the DM's raw `[tag | …]` lines from the
+reader (display-only; `settings.hud.hideTags`), never altering the message the proxy parses.
 
 **Header blocks (`compose.py`).** `[DIRECTIVE]` (per-turn resolved outcome; rides the never-dropped
 header) and a droppable `[RULES]` DM rules-contract (`rules_contract` component; `RPG_PROFILE`

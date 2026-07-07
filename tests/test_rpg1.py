@@ -45,8 +45,11 @@ def test_registry_effective_mod_includes_stat_rank_and_passive():
     player = {"stats": {"DEX": 14, "CHA": 16, "CUN": 12}, "skills": {"stealth": 3, "persuasion": 2},
               "abilities": ["keen_senses", "silver_tongue"]}
     assert reg.effective_mod(player, "stealth") == 5          # DEX+2, base0, rank3
-    assert reg.effective_mod(player, "persuasion") == 6       # CHA+3, rank2, silver_tongue +1
-    assert reg.effective_mod(player, "perception") == 2       # CUN+1, rank0, keen_senses +1
+    assert reg.effective_mod(player, "persuasion") == 6       # CHA+3, rank2, silver_tongue +1 (mod)
+    # 2026-07-07 redesign: keen_senses is now `edge` (advantage — it shapes the DICE, not the
+    # modifier), so it adds NOTHING to effective_mod. Only legacy `mod` abilities (silver_tongue)
+    # touch the number; the flat-buff era is over (Bean: "one shouldn't just buff a stat").
+    assert reg.effective_mod(player, "perception") == 1       # CUN+1, rank0 (keen_senses = advantage)
 
 
 def test_resolve_tier_is_pure_and_bounded():

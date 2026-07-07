@@ -172,6 +172,8 @@ summary:hover{color:var(--fg)}
         <div class="field"><label>Species / race</label><input id="c_species" placeholder="Human, or freestyle — AI authors traits"></div>
         <div class="field"><label>Class / concept</label><input id="c_concept" placeholder="e.g. Storm-Touched Skald"></div>
       </div>
+      <div class="field" style="margin-bottom:12px"><label>Appearance / description <span class="aes-opt">— what others see when they meet you</span></label>
+        <textarea id="c_appearance" placeholder="Face, build, dress, notable marks… leave blank and the AI writes it to fit the world."></textarea></div>
       <div class="field" style="margin-bottom:12px"><label>Creative direction / notes — anything goes, the AI follows it</label>
         <textarea id="c_notes" placeholder="Optional, free-form: backstory beats, vibe, powers you want, how they talk…"></textarea></div>
       <div class="hint">Type as much or as little as you like — leave the rest blank and the AI fills it to fit the world.</div>
@@ -218,6 +220,7 @@ summary:hover{color:var(--fg)}
       <button class="act ai" id="c_ai" onclick="authorPlayer()">✨ Auto-fill blanks with AI</button>
       <button class="act ghost" onclick="fillOffline('player')" title="No AI — fill blanks from registry defaults">Fill blanks with defaults</button>
       <button class="act" id="c_save" onclick="savePlayer()">Save Character to session</button>
+      <button class="act ghost" onclick="genNarratorCard()" title="After saving your world & character, build the SillyTavern card for this world">🎭 Generate Narrator card</button>
     </div>
     <div class="actions" style="margin-top:10px">
       <select id="c_presets" class="chip" style="max-width:260px"><option value="">character presets…</option></select>
@@ -237,6 +240,10 @@ summary:hover{color:var(--fg)}
         <button class="act ghost" onclick="loadCommitted('player')">Load character into form</button>
         <button class="mini" onclick="renderReview()">↻ refresh</button>
       </div>
+      <div class="actions" style="margin-top:10px;border-top:1px solid var(--line);padding-top:12px">
+        <button class="act" onclick="genNarratorCard()" title="Build a SillyTavern character card for THIS world so you can see where you're playing">🎭 Generate Narrator card for this world</button>
+      </div>
+      <div id="rv_card" class="hint" style="margin-top:8px">Makes a SillyTavern card named after your world, opening on its first scene — so you can see the world you're in.</div>
     </div>
   </section>
 </main>
@@ -416,7 +423,7 @@ function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks
     for(const [aid,def] of Object.entries(p.abilities||{})){
       if((picked.has(aid)||needBasis.has(aid)) && !haveA.has(aid)) custom.abilities.push(Object.assign({id:aid},def)); } }
   return { name:$("c_name").value.trim(), sex:$("c_sex").value.trim(), pronouns:$("c_pronouns").value.trim(),
-  species:$("c_species").value.trim(), concept:$("c_concept").value.trim(), level:+$("c_level").value||1,
+  species:$("c_species").value.trim(), appearance:$("c_appearance").value.trim(), concept:$("c_concept").value.trim(), level:+$("c_level").value||1,
   stats:Object.assign({},statVals), skills, abilities:pickedAbilities(),
   custom,
   notes:$("c_notes").value.trim(),
@@ -434,7 +441,7 @@ function applyWorld(w){ if(!w) return; const genreBefore=currentGenre(); WORLD_C
 function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); }
 function applyPlayer(p){ if(!p) return;
   $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
-  $("c_species").value=p.species||""; $("c_concept").value=p.concept||""; $("c_level").value=p.level||1;
+  $("c_species").value=p.species||""; $("c_appearance").value=p.appearance||""; $("c_concept").value=p.concept||""; $("c_level").value=p.level||1;
   if(p.resources&&p.resources.hp&&p.resources.hp.max) $("c_hp").value=p.resources.hp.max;
   if(Array.isArray(p.gear)&&p.gear.length) $("c_gear").value=p.gear.join(", ");
   if(p.stats) Object.assign(statVals, p.stats); buildStats();
@@ -536,6 +543,26 @@ async function loadCommitted(kind){
     else { if(!pre.player){ toast("No character committed yet",""); return; }
       const p=Object.assign({}, pre.player, {name:pre.player_name||""}); applyPlayer(p); showTab("char"); toast("Committed character loaded into the form","ok"); }
   }catch(e){ toast("Load failed: "+e.message, "bad"); } }
+
+// ---- world Narrator card (2026-07-07): make the built world VISIBLE in SillyTavern.
+// POSTs to build/install the card, then downloads the PNG so it can be imported anywhere.
+async function genNarratorCard(){
+  if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
+  const status=$("rv_card");
+  try{
+    if(status) status.textContent="Building the card for this world…";
+    const r=await api(`/aether/session/${SID}/narrator-card`, {method:"POST"});
+    const a=document.createElement("a");        // download the PNG (works with or without install)
+    a.href=`/aether/session/${SID}/narrator-card.png`; a.download=r.filename||"Narrator.png";
+    document.body.appendChild(a); a.click(); a.remove();
+    let msg=`Card “${r.name}”`+(r.world?` for ${r.world}`:"")+" is ready.";
+    if(r.installed) msg+=` Installed into SillyTavern — refresh its character list and open a chat with “${r.name}”.`;
+    else msg+=" Downloaded — in SillyTavern go Characters → Import and pick it (or set [specialization].narrator_card_dir to auto-install next time).";
+    if(r.error) msg+=` (install note: ${r.error})`;
+    toast("Narrator card ready — check your downloads", "ok");
+    if(status) status.textContent=msg;
+  }catch(e){ toast("Card generation failed: "+e.message, "bad"); if(status) status.textContent=""; }
+}
 
 // ---- session switcher (2026-07-06: apply the same world/char to ANY session)
 async function loadSessions(){

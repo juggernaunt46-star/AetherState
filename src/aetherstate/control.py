@@ -9,10 +9,12 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from .state import apply_delta, current_state, state_summary, translate_path, validate_op
 from . import creator as _creator
+from . import narrator as _narrator
+from . import hud as _hud
 from .extraction import Endpoint
 
 log = logging.getLogger("aetherstate.control")
@@ -599,6 +601,26 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
                 "head_turn": _head(store, row["active_branch"]),
                 "state": state_summary(state)}
 
+    @router.get("/session/{sid}/hud")
+    async def hud_now(sid: str):
+        """The resolved player-facing HUD payload (registry math done server-side): scene,
+        player card(s) with effective skill mods + resolved abilities, statuses/conditions,
+        drives, gear (worn) + inventory (carried), quests, dice rolls/checks, relations/
+        factions. The ONE source both the SillyTavern HUD and the Console render, so they
+        never diverge. Read-only, fail-open."""
+        row = _session(store, sid)
+        if not row:
+            return {"session_id": None, "spec": getattr(getattr(cfg, "specialization", None),
+                                                        "name", "none"),
+                    "players": [], "scene": {}, "quests": [], "rolls": [],
+                    "relations": [], "factions": [], "world_flags": {}}
+        state = current_state(store, row["active_branch"])
+        view = _hud.hud_view(state, cfg)
+        view["session_id"] = row["session_id"]
+        view["external_id"] = row["external_id"]
+        view["head_turn"] = _head(store, row["active_branch"])
+        return view
+
     @router.post("/session/{sid}/freeze")
     async def freeze(sid: str):
         return _user_ops(sid, [{"op": "freeze", "reason": "user"}])
@@ -623,8 +645,13 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         players = state.get("player") or {}
         pkey = next(iter(players), None)
         seeded = _world_seeded(state)
+        pcard = players.get(pkey) if pkey else None
+        if pcard is not None:                    # appearance lives in attributes, not the card —
+            attrs = (state.get("attributes", {}) or {}).get(pkey, {}) or {}
+            if attrs.get("appearance") and "appearance" not in pcard:
+                pcard = {**pcard, "appearance": attrs.get("appearance")}
         return {"session_id": row["session_id"], "specialization": spec, "persona": persona,
-                "player": players.get(pkey) if pkey else None,
+                "player": pcard,
                 "player_name": (state.get("entities", {}).get(pkey, {}) or {}).get("name")
                                or (pkey or ""),
                 "world": _creator.world_from_state(state) if seeded else None,
@@ -842,6 +869,86 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         except Exception as exc:
             log.warning("session search failed open: %s", type(exc).__name__)
             return {"query": q, "hits": []}
+
+    # ---- world-specific Narrator card (2026-07-07): make the built world VISIBLE in the
+    # frontend. Projects committed world (creator.world_from_state) + Player Card into a V2
+    # SillyTavern card. Read-only; never touches the stream; a `none` session's wire is
+    # unaffected (control routes are off the relay).
+    def _narrator_sources(sid: str):
+        """(world_doc, player_card) from committed state — fail-open to ({}, None)."""
+        row = _session(store, sid)
+        if not row:
+            return {}, None
+        try:
+            state = current_state(store, row["active_branch"])
+        except Exception:
+            return {}, None
+        try:
+            world = _creator.world_from_state(state)
+        except Exception:
+            world = {}
+        players = state.get("player") or {}
+        pkey = next(iter(players), None)
+        player = None
+        if pkey:
+            card = dict(players.get(pkey) or {})
+            nm = (state.get("entities", {}).get(pkey, {}) or {}).get("name") or pkey
+            card.setdefault("name", nm)
+            attrs = (state.get("attributes", {}) or {}).get(pkey, {}) or {}
+            if attrs.get("appearance"):
+                card.setdefault("appearance", attrs.get("appearance"))
+            player = card
+        return world, player
+
+    def _card_filename(name: str) -> str:
+        keep = "".join(c if (c.isalnum() or c in " -_") else "_" for c in (name or "Narrator"))
+        return (keep.strip() or "Narrator")[:48] + ".png"
+
+    @router.get("/session/{sid}/narrator-card.png")
+    async def narrator_card_png(sid: str):
+        """Downloadable world Narrator card (PNG with the V2 chara card embedded in a tEXt
+        chunk — SillyTavern's import format), built from this session's committed world."""
+        world, player = _narrator_sources(sid)
+        card = _narrator.build_card(world, player)
+        png = _narrator.card_png(card, world)
+        fname = _card_filename(card["data"]["name"])
+        return Response(content=png, media_type="image/png",
+                        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+    @router.get("/session/{sid}/narrator-card.json")
+    async def narrator_card_json(sid: str):
+        """The V2 chara card JSON for this session's world (inspect / manual import)."""
+        world, player = _narrator_sources(sid)
+        return _narrator.build_card(world, player)
+
+    @router.post("/session/{sid}/narrator-card")
+    async def narrator_card_install(sid: str):
+        """Build the world Narrator card and, when [specialization].narrator_card_dir is a real
+        directory, install the PNG there so it appears in SillyTavern's character list. Always
+        returns metadata + a download URL; the install is best-effort and fail-open."""
+        world, player = _narrator_sources(sid)
+        card = _narrator.build_card(world, player)
+        png = _narrator.card_png(card, world)
+        name = card["data"]["name"]
+        fname = _card_filename(name)
+        installed, err = "", ""
+        target = str(getattr(getattr(cfg, "specialization", None),
+                             "narrator_card_dir", "") or "").strip()
+        if target:
+            try:
+                d = Path(target).expanduser()
+                if d.is_dir():
+                    out = d / fname
+                    out.write_bytes(png)
+                    installed = str(out)
+                else:
+                    err = "narrator_card_dir is not a directory"
+            except Exception as exc:
+                err = f"install failed: {type(exc).__name__}"
+        return {"name": name, "world": str((world or {}).get("name") or ""),
+                "bytes": len(png), "installed": installed, "error": err,
+                "filename": fname, "tags": card["data"]["tags"],
+                "download": f"/aether/session/{sid}/narrator-card.png"}
 
     def _creator_apply(sid: str, ops: list):
         """Apply creator (world/player) ops at the next free turn so they survive the genesis

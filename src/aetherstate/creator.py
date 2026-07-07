@@ -457,6 +457,7 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
         "sex": _s(doc.get("sex"), 40),
         "pronouns": _s(doc.get("pronouns"), 40),
         "species": _s(doc.get("species"), 120),
+        "appearance": _s(doc.get("appearance") or doc.get("description"), 800),
         "concept": _s(doc.get("concept") or doc.get("class"), 200),
         "level": _clampi(doc.get("level", 1), 1, 999),
         "stats": stats, "skills": skills, "abilities": abilities,
@@ -515,10 +516,42 @@ def _coerce_defs(custom, reg) -> dict:
             kind = "active"                              # in-world basis for a gated skill
         entry = {"name": _s(ab.get("name") or aid, 60), "kind": kind,
                  "effect": _s(ab.get("effect"), 400), "desc": _s(ab.get("desc"), 400)}
-        if kind == "passive":
+        # 2026-07-07 redesign: an ability's MECHANIC — how it bends the dice, frozen at authoring.
+        # edge/ward = passive dice-shapers; extra_die/reroll/surge = active dice-shapers;
+        # mod = legacy flat bonus; basis = a gate key. Everything clamped, never model-typed at roll.
+        from . import registry as _registry
+        mech = _s(ab.get("mechanic"), 16).lower()
+        if mech not in _registry.ABILITY_MECHANICS:
+            mech = "basis" if kind == "basis" else ""
+        at = ab.get("applies_to")
+        if isinstance(at, str) and at.strip():
+            entry["applies_to"] = "all" if at.strip().lower() in ("all", "any") else slug(at)
+        elif isinstance(at, (list, tuple)) and at:
+            entry["applies_to"] = [slug(_s(x, 40)) for x in at if _s(x, 40)][:6]
+        grp = _s(ab.get("group"), 12).lower()
+        if grp in ("talent", "technique", "spell"):
+            entry["group"] = grp
+        mag = ab.get("magnitude")
+        if mech in ("extra_die", "reroll", "surge"):
+            kind = entry["kind"] = "active"
+            entry["mechanic"] = mech
+            entry["magnitude"] = _clampi(mag if mag is not None else (2 if mech == "surge" else 1), 1, 4)
+            entry["cooldown_turns"] = _clampi(ab.get("cooldown_turns", 1), 0, 10)
+            cost = ab.get("cost") if isinstance(ab.get("cost"), dict) else {"stamina": 2}
+            cc = {str(k).lower(): _clampi(v, 1, 10) for k, v in cost.items()
+                  if str(k).lower() in ("stamina", "mana", "hp")}
+            entry["cost"] = {k: v for k, v in cc.items() if v > 0} or {"stamina": 2}
+        elif mech in ("edge", "ward"):
+            kind = entry["kind"] = "passive"
+            entry["mechanic"] = mech
+            entry["magnitude"] = _clampi(mag if mag is not None else 1, 1, 3)
+        elif mech == "basis":
+            entry["mechanic"] = "basis"
+        elif kind == "passive":
             pm = ab.get("passive_mod") if isinstance(ab.get("passive_mod"), dict) else {}
             skl = _s(pm.get("skill"), 40)
             if skl:
+                entry["mechanic"] = "mod"
                 entry["passive_mod"] = {"skill": slug(skl),
                                         "amount": _clampi(pm.get("amount", 1), -5, 5)}
         elif kind == "active":
@@ -537,6 +570,12 @@ def _coerce_defs(custom, reg) -> dict:
                 pm["skill"] = hit
             else:
                 del entry["passive_mod"]         # keep the ability as flavor, kill the dead mod
+        at = entry.get("applies_to")             # 2026-07-07: resolve the target skill, or broaden
+        if isinstance(at, str) and at != "all":  # to "all" so a shaper never silently applies to
+            entry["applies_to"] = _resolve_skill_ref(at, known) or "all"   # a skill that isn't there
+        elif isinstance(at, list):
+            hits = [h for h in (_resolve_skill_ref(x, known) for x in at) if h]
+            entry["applies_to"] = hits or "all"
     known_abils = set(reg.abilities) | set(out.get("abilities", {}))
     for sid, entry in list(out.get("skills", {}).items()):
         req = entry.get("requires_ability")
@@ -610,6 +649,9 @@ def player_to_ops(player: dict, cfg=None) -> list[dict]:
         ops.append({"op": "set_attribute", "entity": eid, "key": "sex", "value": p["sex"]})
     if p["concept"]:
         ops.append({"op": "set_attribute", "entity": eid, "key": "class", "value": p["concept"]})
+    if p.get("appearance"):                     # player appearance/description — was missing
+        ops.append({"op": "set_attribute", "entity": eid, "key": "appearance",
+                    "value": p["appearance"]})   # entirely (only NPCs had one); HUD/Console/card read it
     for g in p.get("gear") or []:               # RPG-5 (G2): starting gear becomes INSTANCES —
         ops.append({"op": "item_gain", "char": name, "name": g})   # template names ground
     return ops                                  # mechanics; the rest commit mechanics-free
@@ -690,14 +732,19 @@ _CHAR_SYSTEM_TMPL = (
     "You are a character-creation assistant for a tabletop RPG set in the world described. The "
     "player gives a few seed details; you fill in what they left blank into a complete character "
     "that FITS THE WORLD. Output ONLY minified JSON, no prose, matching this schema: "
-    "{{\"name\":str,\"sex\":str,\"pronouns\":str,\"species\":str,\"concept\":str,"
+    "{{\"name\":str,\"sex\":str,\"pronouns\":str,\"species\":str,\"appearance\":str,"
+    "\"concept\":str,"
     "\"stats\":{{STAT:int}},\"skills\":{{skill_id:rank}},\"abilities\":[ability_id],"
     "\"gear\":[str],"
     "\"defs\":{{\"skills\":[{{\"id\":str,\"name\":str,\"keyed_stat\":STAT,\"base_mod\":int,"
     "\"max_rank\":int,\"governs\":[str],\"desc\":str,\"requires_ability\":str,"
     "\"cost\":{{\"stamina\":int,\"mana\":int}}}}],"
     "\"abilities\":[{{\"id\":str,\"name\":str,"
-    "\"kind\":\"active|passive|basis\",\"passive_mod\":{{\"skill\":str,\"amount\":int}},"
+    "\"kind\":\"active|passive|basis\","
+    "\"mechanic\":\"edge|ward|extra_die|reroll|surge|mod|basis\","
+    "\"applies_to\":str,\"magnitude\":int,\"group\":\"talent|technique|spell\","
+    "\"cost\":{{\"stamina\":int,\"mana\":int}},\"cooldown_turns\":int,"
+    "\"passive_mod\":{{\"skill\":str,\"amount\":int}},"
     "\"resolution_mod\":int,\"effect\":str,\"desc\":str}}]}}}}. "
     "`concept` is the character's CLASS/archetype. STATS are: {stats}. Assign stats by point-buy "
     "in [{lo}..{hi}], defaulting to {default}, favouring the concept — SPEND about 6 points over "
@@ -708,10 +755,19 @@ _CHAR_SYSTEM_TMPL = (
     "invented skill in `skills`, list an invented ability id in `abilities`. The 2-4 skills that "
     "DEFINE the concept must carry the highest ranks (2-3), invented ones included. In a `defs` "
     "ability, `kind` \"basis\" means it grants the in-world BASIS for a gated skill (its "
-    "`requires_ability`); when a passive boosts a skill, `passive_mod.skill` must repeat that "
-    "skill's id EXACTLY. Skills are things you TRY (ranked, rolled); abilities are things you "
-    "HAVE (owned facts: a basis, a permanent edge, a spendable surge). Inventing bespoke "
-    "mechanics for the concept is encouraged: be flavorful and specific, never generic. "
+    "`requires_ability`). An ability's `mechanic` is HOW it bends the dice — NOT a flat number: "
+    "`edge`=advantage (roll an extra die, keep the best) on `applies_to`; `ward`=no critical "
+    "fumble on `applies_to`; `extra_die`=on a FAILED roll, roll another die and keep the best "
+    "(active, the powerful one); `reroll`=reroll a failed roll (active); `surge`=a big bonus that "
+    "ALSO lifts the outcome ceiling for one check (active); `basis`=grants a gated skill's basis. "
+    "PREFER these dice-shapers over dull flat bonuses; use `mechanic`:`mod` + `passive_mod` only "
+    "for a plain humble +1. `applies_to` is a skill id or \"all\"; `magnitude` is the extra dice or "
+    "bonus (1-3); actives set `cost` (stamina/mana 1-5) and `cooldown_turns`; `group` is talent "
+    "(passive) / technique (active) / spell (magic). Skills are things you TRY (ranked, rolled); "
+    "abilities are things you HAVE that RESHAPE the roll. Give the concept 1-2 signature abilities "
+    "with real dice-shaping mechanics — be flavorful and specific, never generic. "
+    "`appearance` is a vivid 1-3 sentence PHYSICAL description of the character (face, build, "
+    "dress, notable marks) that fits the world — what someone would see on meeting them. "
     "`gear` is 2-5 STARTING ITEMS that fit the concept — plain names ('worn leather satchel', "
     "'combat knife'), no stats. A def skill may carry `cost` (stamina and/or mana, 1-5) when "
     "using it should visibly tire or drain the character; omit it otherwise. If the "

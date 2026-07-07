@@ -18,10 +18,11 @@ prompt, so the model stops forgetting.
 - **Memory** — events condense into summaries and durable facts, recalled when relevant.
 - **Console** — a built-in web dashboard to watch and edit state live.
 - **RPG / DM mode (optional)** — a full code-authoritative game layer: real dice, a Player Card,
-  a World & Character Creator, items & gear, statuses & conditions, factions & affinity,
-  persistent locations, quests, and a complete progression system (XP, levels, mastery that
-  grows by use, resource pools, defeat & optional permadeath). Off by default; a non-RPG
-  session is byte-identical to plain AetherState.
+  a World & Character Creator, items & gear, dice-shaping abilities, statuses & conditions,
+  factions & affinity, persistent locations, quests, a complete progression system (XP, levels,
+  mastery that grows by use, resource pools, defeat & optional permadeath), and a **tabbed player
+  HUD** that always shows your sheet. Off by default; a non-RPG session is byte-identical to plain
+  AetherState.
 - **Fail-open by design** — if anything inside AetherState breaks, your chat continues untouched.
   It never blocks or edits the story stream.
 - **Local-first, private** — everything lives in a local SQLite file. No telemetry; there is no
@@ -118,6 +119,20 @@ rollable, without an in-world basis.**
   can cost stamina/mana, charged on attempt; critical failures leave real marks; HP 0 routes
   to contextual defeat (captured / robbed / rescued / wake safe) — or death with
   `[specialization] hardcore = true`.
+- **Abilities that shape the dice (new in 1.3).** A skill sets the *modifier* you roll; an
+  ability *bends the dice* — **advantage** (roll an extra die, keep the best), a **guard**
+  against critical fumbles, a **second-chance extra die** when a roll misses, a **reroll**, or a
+  **surge** that adds a big bonus and lifts the ceiling on ambitious attempts. Passive edges apply
+  on their own; you invoke an active with `((aether.check <skill> use <ability>))` (it costs a
+  resource and has a cooldown, and only spends when it actually helps). The Creator can author
+  bespoke abilities with these mechanics, frozen into fixed rules before they can be rolled.
+- **A player HUD (new in 1.3).** A movable, themeable in-page window — tabs for **Char · Skills ·
+  Abilities · Gear · Status · World**, with your vitals always on top. Skills print the **dice
+  rules** so you always know how a roll resolves; every ability spells out its mechanic, cost and
+  cooldown in plain English; **Gear is a paper-doll** of equip slots (weapons / armor / trinkets,
+  worn vs. carried, click to equip/unequip/use); Status always shows your conditions and diseases.
+  The DM's raw ledger tags are hidden from the reader (the engine still reads them). Open it from
+  the panel or with `/aether-hud`. The Console mirrors the same view.
 
 ## How state develops (priority)
 

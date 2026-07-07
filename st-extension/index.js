@@ -20,8 +20,11 @@
     stamp: { header: true, sentinel: true },
     guard: { override_name: null },
     panel: { show_status_chip: true },
+    hud: { open: false, theme: "neutral", top: 70, left: null, right: 18, width: 360,
+           edit: false, compact: false, tab: "char", hideTags: true },
   };
   const settings = Object.assign({}, defaults, ctx.extensionSettings[MODULE]);
+  if (!settings.hud) settings.hud = Object.assign({}, defaults.hud);   // migrate older saves
   ctx.extensionSettings[MODULE] = settings;
   const save = () => { try { ctx.saveSettingsDebounced(); } catch (e) {} };
 
@@ -150,6 +153,7 @@
     on("CHAT_CHANGED", () => {                              // 05 §5
       turnCounter = 0; stampHeader(); hint("chat_changed"); refreshChip();
       genesisAtChatOpen();                                  // turn-0 seed (proxy idempotent)
+      try { setTimeout(scrubTags, 400); setTimeout(scrubTags, 1400); } catch (e) {}   // hide ledger tags
       try {                                                 // 2026-07-07 live repro: the panel's
         const a = document.getElementById("aes_creator");   // Creator link kept the PREVIOUS
         if (a) a.href = settings.proxy_url                  // chat's session — copy-link or
@@ -163,22 +167,39 @@
         if (!type || type === "normal" || type === "continue") turnCounter++;
       } catch (e) {}
     });
-    on("MESSAGE_SWIPED", (i) => { hint("swipe", Number(i)); genesisAtGreetingSwipe(i); });
-    on("MESSAGE_EDITED", (i) => hint("edit", Number(i)));
+    on("MESSAGE_SWIPED", (i) => { hint("swipe", Number(i)); genesisAtGreetingSwipe(i);
+      try { setTimeout(scrubTags, 120); setTimeout(scrubTags, 900); } catch (e) {} });
+    on("MESSAGE_EDITED", (i) => { hint("edit", Number(i)); try { setTimeout(scrubTags, 120); } catch (e) {} });
     on("MESSAGE_DELETED", (i) => hint("delete", Number(i)));
-    on("MESSAGE_RECEIVED", () => { refreshChip(); lastGen = Date.now(); });
+    on("MESSAGE_RECEIVED", () => { refreshChip(); lastGen = Date.now();
+      try { setTimeout(scrubTags, 80); setTimeout(scrubTags, 500); setTimeout(scrubTags, 1600); } catch (e) {}
+      try { if (hudVisible()) { setTimeout(hudRefresh, 1500); setTimeout(hudRefresh, 6000); } } catch (e) {} });
   } catch (e) { console.warn("[AetherState] event wiring unavailable", e); }
 
   // ---- quick panel (05 §7)
   let lastGen = 0;
+  // Circuit breaker (2026-07-07): the browser logs a failed request for EVERY poll while the
+  // proxy is down — with the HUD/writeback/chip loops that is a console flood. When calls start
+  // failing we mark the proxy offline and the periodic POLLERS back off to one probe / 20 s
+  // (user-initiated calls always go through); the first success resumes normal cadence.
+  let _offlineSince = 0, _lastProbe = 0;
+  const _mark = (ok) => { if (ok) _offlineSince = 0; else if (!_offlineSince) _offlineSince = Date.now(); };
+  const pollSkip = () => {                 // a poller calls this and returns early when true
+    if (!_offlineSince) return false;
+    const now = Date.now();
+    if (now - _lastProbe < 20000) return true;
+    _lastProbe = now; return false;        // let ONE probe through every 20 s while offline
+  };
   const api = async (path, opts = {}) => {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), 2000);           // 05 §9: 2 s, silent degrade
     try {
       const r = await fetch(settings.proxy_url.replace(/\/$/, "") + path,
                             { ...opts, signal: ac.signal });
-      return await r.json();
-    } finally { clearTimeout(t); }
+      const j = await r.json();
+      _mark(true);
+      return j;
+    } catch (e) { _mark(false); throw e; } finally { clearTimeout(t); }
   };
 
   // ---- native writeback loop (05 §6): v1 applies the chat-metadata patch; WI/AN
@@ -186,6 +207,7 @@
   let wbCursor = 0;
   async function writebackTick() {
     try {
+      if (pollSkip()) return;              // proxy offline → don't hammer it every 4 s
       const drawerOpen = !!document.querySelector("#aetherstate_panel .inline-drawer-content:not([style*='display: none'])");
       if (!drawerOpen && Date.now() - lastGen > 60000) return;
       const d = await api(`/aether/session/${sid()}/writeback?cursor=${wbCursor}`);
@@ -199,13 +221,17 @@
     } catch (e) {}
   }
   setInterval(writebackTick, 4000);
+  setInterval(scrubTags, 2500);          // safety net: catch tags on messages the events missed
   async function refreshChip() {
     const el = document.getElementById("aes_chip");
     if (!el) return;
+    if (pollSkip()) return;                 // offline → the shared 20 s probe covers recovery
     try {
       const d = await api("/aether/status");
+      let spec = "";
+      try { const sp = await api("/aether/specialization"); spec = sp && sp.name ? ` · ${sp.name.toUpperCase()}` : ""; } catch (e) {}
       el.className = "aes-chip";
-      el.textContent = `AetherState ${d.version} · ${d.mode} · ${d.extraction.mode}`;
+      el.textContent = `AetherState ${d.version} · ${d.mode} · ${d.extraction.mode}${spec}`;
     } catch (e) { el.className = "aes-chip bad"; el.textContent = "AetherState: offline"; }
   }
   async function drawPanel() {
@@ -232,6 +258,12 @@
               <label class="aes-check"><input type="checkbox" id="aes_mode" checked> enrichment</label>
               <a id="aes_console" class="aes-link" target="_blank">open Console</a>
               <a id="aes_creator" class="aes-link" target="_blank">open Creator</a>
+              <a id="aes_hud_open" class="aes-link" href="#">🎛 player HUD</a>
+            </div>
+            <div class="aes-row">
+              <label class="aes-inline">narrative mode
+                <select id="aes_spec"><option value="none">none (chat RP)</option><option value="rpg">rpg (DM mode)</option></select></label>
+              <span id="aes_spec_state" class="aes-chip">spec: …</span>
             </div>
             <div class="aes-field">
               <label class="aes-label" for="aes_proxy">Proxy URL</label>
@@ -265,6 +297,17 @@
       const creatorHref = () => settings.proxy_url + "/aether/creator?session=" + encodeURIComponent(sid());
       $("aes_creator").href = creatorHref();
       $("aes_creator").onclick = () => { $("aes_creator").href = creatorHref(); };
+      $("aes_hud_open").onclick = (e) => { e.preventDefault(); openHud(); };
+      try {                                    // narrative mode: show it + let the user switch it
+        const sp = await api("/aether/specialization");
+        if (sp && sp.name) { $("aes_spec").value = sp.name; $("aes_spec_state").textContent = "spec: " + sp.name; }
+      } catch (e) {}
+      $("aes_spec").onchange = async (e) => {
+        const d = await api("/aether/specialization", { method: "POST",
+          headers: { "content-type": "application/json" }, body: JSON.stringify({ name: e.target.value }) }).catch(() => null);
+        if (d && d.name) { $("aes_spec_state").textContent = "spec: " + d.name; refreshChip();
+          try { if (hudVisible()) hudRefresh(); } catch (err) {} }
+      };
       $("aes_enabled").onchange = (e) => { settings.enabled = e.target.checked; save(); };
       $("aes_proxy").onchange = (e) => {
         settings.proxy_url = e.target.value; save();
@@ -319,8 +362,303 @@
       refreshChip(); setInterval(refreshChip, 15000);
     } catch (e) { console.warn("[AetherState] panel failed open", e); }
   }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", drawPanel);
-  else drawPanel();
+  // =============================== player HUD (2026-07-07) =====================
+  // A movable, themeable window surfacing the ledger's player-facing truth, fetched
+  // from GET /aether/session/{sid}/hud — the SAME payload the Console renders, so the
+  // two never diverge. Fail-open: proxy down -> a quiet "offline" line, ST untouched.
+  const HUD_THEMES = { neutral: "Neutral", fantasy: "Fantasy", scifi: "Sci-Fi", modern: "Modern" };
+  const HUD_TABS = [
+    ["char", "◈ Char"], ["skills", "✦ Skills"], ["abilities", "❋ Abilities"],
+    ["gear", "⚔ Gear"], ["status", "☤ Status"], ["world", "🌍 World"],
+  ];
+  let hudTimer = null;
+  let lastHudView = null;             // cache the last /hud payload so tab-switching never refetches
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  // ---- display-only ledger-tag hider (2026-07-07): the DM emits bracketed protocol tags
+  // ([hp | ...], [scene | ...], and often invented ones) that the ENGINE parses from the raw
+  // message — but they are engine plumbing, not prose. This hides them from the READER only:
+  // it rewrites the RENDERED .mes_text, never message.mes, so the proxy still gets every tag
+  // and the ledger keeps updating. Fail-open; toggle with settings.hud.hideTags.
+  const _TAG_RE = () => /\[\s*[A-Za-z][^\]\n|]*\|[^\]\n]*\]/g;
+  function scrubTags() {
+    try {
+      if (settings.hud && settings.hud.hideTags === false) return;
+      document.querySelectorAll("#chat .mes_text").forEach((t) => {
+        if (!t || t.dataset.aesScrubbed === "1") return;
+        const html = t.innerHTML;
+        if (!_TAG_RE().test(html)) return;
+        t.innerHTML = html.replace(_TAG_RE(),
+          (m) => `<span class="aes-hidden-tag" title="AetherState ledger tag (hidden)">${m}</span>`);
+        t.dataset.aesScrubbed = "1";
+      });
+    } catch (e) { /* fail-open: never touch the chat if this errors */ }
+  }
+
+  function buildHud() {
+    if (document.getElementById("aes_hud_launch")) return;
+    const launch = document.createElement("button");
+    launch.id = "aes_hud_launch"; launch.className = "aes-hud-launch";
+    launch.title = "AetherState player HUD"; launch.textContent = "◈";
+    launch.onclick = toggleHud; document.body.appendChild(launch);
+    const hud = document.createElement("div");
+    hud.id = "aes_hud"; hud.className = "aes-hud hidden t-" + (settings.hud.theme || "neutral");
+    hud.innerHTML = `
+      <div class="aes-hud-bar" id="aes_hud_bar">
+        <span class="aes-hud-title">◈ AetherState</span>
+        <span class="aes-hud-spec none" id="aes_hud_spec">…</span>
+        <span class="aes-hud-grow"></span>
+        <select id="aes_hud_theme" title="theme">${Object.entries(HUD_THEMES).map(
+          ([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select>
+        <button id="aes_hud_edit" title="edit mode — spend points, equip, use, adjust">✎</button>
+        <button id="aes_hud_min" title="minimize / expand">▁</button>
+        <button id="aes_hud_ref" title="refresh">⟳</button>
+        <button id="aes_hud_close" title="close">✕</button>
+      </div>
+      <div class="aes-hud-body" id="aes_hud_body"><div class="aes-hud-empty">Loading…</div></div>`;
+    document.body.appendChild(hud);
+    const p = settings.hud, $h = (id) => document.getElementById(id);
+    hud.style.top = (p.top || 70) + "px";
+    if (p.left != null) { hud.style.left = p.left + "px"; hud.style.right = "auto"; }
+    else hud.style.right = (p.right != null ? p.right : 18) + "px";
+    if (p.width) hud.style.width = p.width + "px";
+    $h("aes_hud_theme").value = settings.hud.theme || "neutral";
+    $h("aes_hud_theme").onchange = (e) => applyTheme(e.target.value);
+    $h("aes_hud_ref").onclick = hudRefresh;
+    $h("aes_hud_close").onclick = closeHud;
+    if (settings.hud.edit) hud.classList.add("editing");
+    if (settings.hud.compact) hud.classList.add("compact");
+    $h("aes_hud_edit").onclick = () => { settings.hud.edit = hud.classList.toggle("editing"); save(); };
+    $h("aes_hud_min").onclick = () => { settings.hud.compact = hud.classList.toggle("compact"); save(); hudRefresh(); };
+    makeDraggable(hud, $h("aes_hud_bar"));
+    if (settings.hud.open) openHud();
+  }
+  // apply a state op (or ops) via the same privileged PATCH the Console uses, then refresh
+  async function hudOp(ops) {
+    try {
+      await api(`/aether/session/${sid()}/state`, { method: "PATCH",
+        headers: { "content-type": "application/json" }, body: JSON.stringify({ ops }) });
+    } catch (e) {}
+    setTimeout(hudRefresh, 120);
+  }
+  window.aetherHudOp = hudOp;        // inline row buttons call this (delegated onclick handlers)
+  function applyTheme(t) { const h = document.getElementById("aes_hud"); if (!h) return;
+    h.className = h.className.replace(/t-\w+/, "t-" + t); settings.hud.theme = t; save(); }
+  function hudVisible() { const h = document.getElementById("aes_hud");
+    return h && !h.classList.contains("hidden"); }
+  function openHud() { const h = document.getElementById("aes_hud"); if (!h) return;
+    h.classList.remove("hidden"); settings.hud.open = true; save(); hudRefresh();
+    if (!hudTimer) hudTimer = setInterval(() => { if (hudVisible() && !pollSkip()) hudRefresh(); }, 5000); }
+  function closeHud() { const h = document.getElementById("aes_hud"); if (!h) return;
+    h.classList.add("hidden"); settings.hud.open = false; save(); }
+  function toggleHud() { hudVisible() ? closeHud() : openHud(); }
+  function makeDraggable(box, handle) {
+    let sx, sy, ox, oy, drag = false;
+    handle.addEventListener("mousedown", (e) => {
+      if (e.target.tagName === "SELECT" || e.target.tagName === "BUTTON") return;
+      drag = true; sx = e.clientX; sy = e.clientY;
+      const r = box.getBoundingClientRect(); ox = r.left; oy = r.top;
+      box.style.right = "auto"; e.preventDefault();
+    });
+    window.addEventListener("mousemove", (e) => { if (!drag) return;
+      box.style.left = Math.max(0, ox + e.clientX - sx) + "px";
+      box.style.top = Math.max(0, oy + e.clientY - sy) + "px"; });
+    window.addEventListener("mouseup", () => { if (!drag) return; drag = false;
+      const r = box.getBoundingClientRect();
+      settings.hud.left = Math.round(r.left); settings.hud.top = Math.round(r.top);
+      settings.hud.right = null; save(); });
+  }
+  async function hudRefresh() {
+    const body = document.getElementById("aes_hud_body"); if (!body) return;
+    let v = null; try { v = await api(`/aether/session/${sid()}/hud`); } catch (e) {}
+    const spec = document.getElementById("aes_hud_spec");
+    const hud = document.getElementById("aes_hud");
+    if (!v) { body.innerHTML = `<div class="aes-hud-empty aes-hud-off">AetherState proxy offline.</div>`; return; }
+    if (spec) { spec.textContent = v.spec || "none"; spec.className = "aes-hud-spec" + (v.spec === "rpg" ? "" : " none"); }
+    lastHudView = v;
+    body.innerHTML = (hud && hud.classList.contains("compact")) ? renderCompact(v) : renderHud(v);
+  }
+  // tab switch: re-render the cached payload in place (no network round-trip)
+  window.aetherHudTab = (t) => {
+    settings.hud.tab = t; save();
+    const body = document.getElementById("aes_hud_body");
+    if (body && lastHudView) body.innerHTML = renderHud(lastHudView);
+  };
+  // an inline op button (edit-mode only via CSS). JSON is single-quote-safe for the attribute.
+  function actBtn(label, ops, title, cls) {
+    const j = JSON.stringify(ops).replace(/'/g, "&#39;");
+    return `<button class="aes-act ${cls || ""}" title="${esc(title || "")}" onclick='window.aetherHudOp(${j})'>${esc(label)}</button>`;
+  }
+  function renderCompact(v) {
+    const p = (v.players || [])[0], s = v.scene || {};
+    const loc = s.location ? esc(String(s.location).replace(/_/g, " ")) : "—";
+    let h = `<div class="aes-kv" style="margin:2px 0">📍 ${loc}${s.time_of_day ? " · " + esc(s.time_of_day) : ""}</div>`;
+    if (!p) return h + `<div class="aes-hud-empty">no player</div>`;
+    h += `<div class="aes-sub" style="margin:2px 0">${esc(p.name)} · Lv${p.level}</div>`;
+    const bars = []; if (p.hp && p.hp.max) bars.push(bar("hp", p.hp.cur, p.hp.max));
+    for (const k in (p.resources || {})) { const r = p.resources[k]; bars.push(bar(k, r.cur, r.max)); }
+    if (bars.length) h += `<div class="aes-bars">${bars.join("")}</div>`;
+    if ((p.effects || []).length) h += `<div class="aes-rows" style="margin-top:4px">${p.effects.map((e) => { const cls = e.valence === "positive" ? "pos good" : e.valence === "negative" ? "neg bad" : "neu"; return `<span class="aes-pill ${cls}"><span class="g">${esc(e.glyph)}</span> ${esc(e.name)}</span>`; }).join("")}</div>`;
+    return h;
+  }
+  function bar(kind, cur, max) { const pct = max ? Math.max(0, Math.min(100, Math.round(100 * cur / max))) : 0;
+    return `<div class="aes-bar ${kind}"><i style="width:${pct}%"></i><span>${esc(kind.toUpperCase())} ${esc(cur)}/${esc(max)}</span></div>`; }
+  function sec(title, ic, html) { return `<div class="aes-sec"><div class="aes-sec-h"><span class="ic">${ic}</span>${esc(title)}</div>${html}</div>`; }
+  function sechdr(t) { return `<div class="aes-sec-h" style="margin-top:8px">${esc(t)}</div>`; }
+  // Tabbed HUD (2026-07-07): a persistent vitals strip + a tab bar so the whole tracked sheet
+  // is organized, not dumped in one scroll. Char · Skills · Abilities · Gear (paper-doll) ·
+  // Status · World. The player always sees vitals; the detail lives one tap away.
+  function renderHud(v) {
+    const p = (v.players || [])[0];
+    let head = renderVitals(v, p);
+    if (v.frozen) head += `<div class="aes-hud-off">⏸ scene frozen${v.frozen_reason ? " (" + esc(v.frozen_reason) + ")" : ""}</div>`;
+    const tab = HUD_TABS.some((t) => t[0] === settings.hud.tab) ? settings.hud.tab : "char";
+    head += `<div class="aes-tabs">${HUD_TABS.map(([k, label]) =>
+      `<button class="aes-tab ${k === tab ? "on" : ""}" onclick="window.aetherHudTab('${k}')">${esc(label)}</button>`).join("")}</div>`;
+    let body;
+    if (!p) body = `<div class="aes-hud-empty">No player character yet.${v.spec !== "rpg"
+      ? " Narrative mode is “" + esc(v.spec) + "” — switch to RPG to track a player." : " Build one in the Creator."}</div>`;
+    else if (tab === "skills") body = tabSkills(v, p);
+    else if (tab === "abilities") body = tabAbilities(v, p);
+    else if (tab === "gear") body = tabGear(v, p);
+    else if (tab === "status") body = tabStatus(v, p);
+    else if (tab === "world") body = tabWorld(v, p);
+    else body = tabChar(v, p);
+    return head + `<div class="aes-tabbody">${body}</div>`;
+  }
+  function renderVitals(v, p) {
+    const s = v.scene || {};
+    const loc = s.location ? esc(String(s.location).replace(/_/g, " ")) : "—";
+    let h = `<div class="aes-vitals"><div class="aes-vit-scene">📍 ${loc}${s.time_of_day ? " · " + esc(s.time_of_day) : ""}${s.phase ? " · " + esc(s.phase) : ""}</div>`;
+    if (p) {
+      h += `<div class="aes-vit-name">${esc(p.name)} <span class="m">Lv${esc(p.level)}${p.xp ? " · XP " + esc(p.xp) : ""}</span>${p.stat_points ? ` <span class="aes-tag warn">${esc(p.stat_points)} pt</span>` : ""}${p.mood ? ` <span class="aes-dim">${esc(p.mood)}</span>` : ""}</div>`;
+      const bars = []; if (p.hp && p.hp.max) bars.push(bar("hp", p.hp.cur, p.hp.max));
+      for (const k in (p.resources || {})) { const r = p.resources[k]; bars.push(bar(k, r.cur, r.max)); }
+      if (bars.length) h += `<div class="aes-bars">${bars.join("")}</div>`;
+      h += `<div class="aes-act-row">${actBtn("HP −5", [{ op: "hp_adj", char: p.eid, delta: -5 }], "lose 5 HP")}${actBtn("−1", [{ op: "hp_adj", char: p.eid, delta: -1 }], "lose 1 HP")}${actBtn("+1", [{ op: "hp_adj", char: p.eid, delta: 1 }], "heal 1 HP")}${actBtn("+5", [{ op: "hp_adj", char: p.eid, delta: 5 }], "heal 5 HP")}</div>`;
+    }
+    return h + `</div>`;
+  }
+  function renderRules(rules) {
+    if (!rules || !rules.dice) return "";
+    let h = `<div class="aes-rules"><div class="aes-rules-h">🎲 How checks work — roll ${esc(rules.dice)}, keep best ${esc(rules.keep)}, add your modifier</div>`;
+    h += `<div class="aes-rules-rows">${(rules.thresholds || []).map((t) =>
+      `<div><b>${esc(t.range)}</b> <span class="t ${t.tier === "Success" ? "success" : t.tier === "Partial" ? "partial" : "fail"}">${esc(t.tier)}</span> — ${esc(t.desc)}</div>`).join("")}</div>`;
+    if (rules.crits) h += `<div class="aes-rules-crit">${esc(rules.crits)}</div>`;
+    if (rules.check_syntax) h += `<div class="aes-rules-syntax"><code>${esc(rules.check_syntax)}</code></div>`;
+    if (rules.note) h += `<div class="aes-rules-note">${esc(rules.note)}</div>`;
+    return h + `</div>`;
+  }
+  function renderCast(cast) {
+    const rows = cast.map((c) => {
+      let r = `<div class="aes-cast"><div class="aes-cast-h"><b>${esc(c.name)}</b>${c.present ? `<span class="aes-tag ok">here</span>` : `<span class="aes-tag">away${c.location ? " · " + esc(String(c.location).replace(/_/g, " ")) : ""}</span>`}${c.rel_tier ? `<span class="m">${esc(c.rel_tier)}</span>` : ""}${c.mood ? `<span class="aes-dim">${esc(c.mood)}</span>` : ""}${c.arousal > 0 ? `<span class="aes-dim">arousal ${esc(c.arousal)}</span>` : ""}</div>`;
+      if ((c.effects || []).length) r += `<div class="aes-rows">${c.effects.map((e) => { const cls = e.valence === "positive" ? "pos good" : e.valence === "negative" ? "neg bad" : "neu"; return `<span class="aes-pill ${cls}" title="${esc(e.kind_label + (e.note ? " · " + e.note : ""))}"><span class="g">${esc(e.glyph)}</span> ${esc(e.name)} <span class="aes-tag">${esc(e.kind_label)}</span>${e.remaining != null ? ` <span class="m">${e.remaining}t</span>` : ""}${actBtn("×", [{ op: "effect_remove", char: c.eid, effect: e.key }], "remove", "x")}</span>`; }).join("")}</div>`;
+      const dr = c.drives || {}, db = [...(dr.obsessions || []).map((o) => `<span class="aes-pill warn">☄ ${esc(o.target)} ${esc(o.intensity)}</span>`), ...(dr.cravings || []).map((cr) => `<span class="aes-pill ${cr.withdrawal ? "bad" : ""}">♦ ${esc(cr.substance)} ${esc(cr.level)}</span>`)];
+      if (db.length) r += `<div class="aes-rows">${db.join("")}</div>`;
+      if ((c.rel_dims || []).length) r += `<div class="aes-kv">${c.rel_dims.map((d) => `<span class="aes-dim">${esc(d.dim)} ${d.val >= 0 ? "+" : ""}${esc(d.val)}</span>`).join(" · ")}</div>`;
+      if ((c.worn || []).length) r += `<div class="aes-kv"><span class="aes-dim">wearing</span> ${c.worn.map(esc).join(", ")}</div>`;
+      if ((c.exposed || []).length) r += `<div class="aes-kv"><span class="aes-dim">exposed</span> ${c.exposed.map(esc).join(", ")}</div>`;
+      if ((dr.goals || []).length) r += `<div class="aes-kv"><span class="aes-dim">goals</span> ${dr.goals.map(esc).join(" · ")}</div>`;
+      return r + `</div>`;
+    }).join("");
+    return sec("Cast", "👥", rows);
+  }
+  function tabChar(v, p) {
+    let h = "";
+    if (p.appearance) h += `<div class="aes-appear">${esc(p.appearance)}</div>`;
+    const sub = [p.concept, p.species, p.pronouns].filter(Boolean).join(" · ");
+    if (sub) h += `<div class="aes-sub">${esc(sub)}</div>`;
+    if ((p.stats || []).length) h += sechdr("Attributes") + `<div class="aes-stats">${p.stats.map((s) => `<div class="aes-stat"><small>${esc(s.key)}</small><b>${esc(s.val)}</b><em>${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</em>${p.stat_points ? actBtn("+1", [{ op: "stat_spend", char: p.eid, stat: s.key }], "spend a banked point on " + s.key, "mini") : ""}</div>`).join("")}</div>`;
+    const dr = p.drives || {}, dbits = [];
+    (dr.obsessions || []).forEach((o) => dbits.push(`<span class="aes-pill warn">obsession: ${esc(o.target)} <span class="m">${esc(o.intensity)}</span>${actBtn("−", [{ op: "obsession", char: p.eid, target_kind: o.target_kind, target: o.target, delta: -10 }], "ease", "mini")}${actBtn("+", [{ op: "obsession", char: p.eid, target_kind: o.target_kind, target: o.target, delta: 10 }], "deepen", "mini")}</span>`));
+    (dr.cravings || []).forEach((c) => dbits.push(`<span class="aes-pill ${c.withdrawal ? "bad" : ""}">craving: ${esc(c.substance)} <span class="m">${esc(c.level)}</span>${c.withdrawal ? " ⚠" : ""}${actBtn("sate", [{ op: "craving", char: p.eid, substance: c.substance, action: "consume" }], "sate the craving", "mini")}</span>`));
+    if (dbits.length) h += sechdr("Drives") + `<div class="aes-rows">${dbits.join("")}</div>`;
+    if ((dr.goals || []).length) h += sechdr("Goals") + `<div class="aes-kv">${dr.goals.map(esc).join(" · ")}</div>`;
+    return h || `<div class="aes-hud-empty">No character detail recorded yet.</div>`;
+  }
+  function tabSkills(v, p) {
+    let h = renderRules(v.rules || {});
+    if ((p.skills || []).length) h += sechdr("Skills — your competencies (the modifier you roll)") + `<div class="aes-skills">${p.skills.map((s) => `<div class="aes-skill"><span class="aes-skl"><b>${esc(s.label)}</b> <span class="m big">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></span><span class="aes-skmeta">${s.keyed_stat ? esc(s.keyed_stat) : ""}${s.bracket ? " · " + esc(s.bracket) : ""}${s.mastery ? " · m" + esc(s.mastery) : ""}${s.cost ? " · costs " + esc(s.cost) : ""}${s.gated ? (s.basis_met ? ` · <span class="aes-tag ok">✦ ${esc(s.basis_name)}</span>` : ` · <span class="aes-tag bad">needs ${esc(s.basis_name || "a basis")}</span>`) : ""}</span></div>`).join("")}</div>`;
+    else h += `<div class="aes-hud-empty">No skills yet.</div>`;
+    if ((v.rolls || []).length) h += sechdr("Recent checks") + `<div class="aes-rows2">${v.rolls.slice().reverse().map((r) => `<div class="aes-roll"><span>${esc(r.skill || r.spec || "roll")} = <b>${esc(r.result)}</b>${r.mod != null ? ` <span class="aes-dim">(mod ${r.mod >= 0 ? "+" : ""}${esc(r.mod)})</span>` : ""}</span>${r.tier_label ? `<span class="t ${esc(r.tier)}">${esc(r.tier_label)}</span>` : ""}${r.note ? `<div class="aes-roll-note">↳ ${esc(r.note)}</div>` : ""}</div>`).join("")}</div>`;
+    return h;
+  }
+  function tabAbilities(v, p) {
+    const abils = p.abilities || [];
+    if (!abils.length) return `<div class="aes-hud-empty">No abilities yet. Abilities bend the dice — earn them in-world or author them in the Creator.</div>`;
+    const groups = { spell: [], technique: [], talent: [] };
+    abils.forEach((a) => (groups[a.group] || groups.talent).push(a));
+    const GH = { spell: "✨ Spells", technique: "⚡ Techniques — active, you invoke them", talent: "🜂 Talents — passive, always on" };
+    let h = "";
+    for (const g of ["spell", "technique", "talent"]) {
+      if (!groups[g].length) continue;
+      h += sechdr(GH[g]) + groups[g].map((a) => renderAbility(a)).join("");
+    }
+    const ms = (v.rules || {}).mechanics || [];
+    if (ms.length) h += `<div class="aes-rules"><div class="aes-rules-h">What the mechanics mean</div>${ms.map((m) => `<div class="aes-mech"><b>${esc(m.mechanic)}</b> — ${esc(m.label)}</div>`).join("")}<div class="aes-rules-note">Invoke an active in a check: <code>((aether.check &lt;skill&gt; use &lt;ability&gt;))</code></div></div>`;
+    return h;
+  }
+  function renderAbility(a) {
+    const badge = a.active ? `<span class="aes-tag act">ACTIVE</span>` : `<span class="aes-tag">passive</span>`;
+    const bits = [];
+    bits.push(a.applies_to && a.applies_to !== "all checks" ? "on " + esc(a.applies_to) : "any check");
+    if (a.cost) bits.push("costs " + esc(a.cost));
+    if (a.cooldown) bits.push(a.on_cd ? `recharging ${esc(a.on_cd)}t` : `cooldown ${esc(a.cooldown)}t`);
+    return `<div class="aes-abil ${a.active ? "act" : ""} ${a.on_cd ? "cd" : ""}"><div class="aes-abil-h"><b>${esc(a.name)}</b> ${badge}</div>${a.mechanic_label ? `<div class="aes-abil-mech">${esc(a.mechanic_label)}</div>` : ""}${bits.length ? `<div class="aes-abil-meta">${bits.join(" · ")}</div>` : ""}${a.desc ? `<div class="aes-abil-desc">${esc(a.desc)}</div>` : ""}</div>`;
+  }
+  function tabGear(v, p) {
+    let h = renderPaperdoll(p);
+    if ((p.inventory || []).length) h += sechdr("Carried — not worn") + p.inventory.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}${i.consumable ? actBtn("use", [{ op: "item_consume", instance: i.iid }], "consume one", "mini") : ""}</span>`).join(" ")}</div>`).join("");
+    else h += `<div class="aes-kv" style="opacity:.5;margin-top:6px">nothing carried</div>`;
+    return h;
+  }
+  function renderPaperdoll(p) {
+    const slots = p.gear_slots || [];
+    if (!slots.length) return `<div class="aes-hud-empty">No equip slots.</div>`;
+    const groups = { weapon: [], armor: [], trinket: [] };
+    slots.forEach((s) => (groups[s.kind] || groups.armor).push(s));
+    const GH = { weapon: "⚔ Weapons", armor: "🛡 Armor", trinket: "💍 Trinkets" };
+    let h = sechdr("Equipped — worn on the body") + `<div class="aes-doll">`;
+    for (const g of ["weapon", "armor", "trinket"]) {
+      if (!groups[g].length) continue;
+      h += `<div class="aes-doll-gh">${GH[g]}</div>`;
+      h += groups[g].map((s) => {
+        const it = s.item;
+        if (it) return `<div class="aes-slot filled ${g}"><span class="aes-slot-l">${esc(s.label)}</span><span class="aes-slot-i">${esc(it.name)}${it.mods ? ` <span class="m">${esc(it.mods)}</span>` : ""}</span>${actBtn("✕", [{ op: "item_unequip", instance: it.iid }], "take off", "x")}</div>`;
+        return `<div class="aes-slot empty ${g}"><span class="aes-slot-l">${esc(s.label)}</span><span class="aes-slot-i">— empty —</span></div>`;
+      }).join("");
+    }
+    return h + `</div>`;
+  }
+  function tabStatus(v, p) {
+    let h = sechdr("Statuses · Conditions · Diseases");
+    if ((p.effects || []).length) h += `<div class="aes-rows">${p.effects.map((e) => { const cls = e.valence === "positive" ? "pos good" : e.valence === "negative" ? "neg bad" : "neu"; return `<span class="aes-pill ${cls}" title="${esc(e.kind_label + (e.note ? " · " + e.note : "") + (e.mods ? " · " + e.mods : ""))}"><span class="g">${esc(e.glyph)}</span> ${esc(e.name)} <span class="aes-tag">${esc(e.kind_label)}</span>${e.stacks > 1 ? " ×" + e.stacks : ""}${e.remaining != null ? ` <span class="m">${e.remaining}t</span>` : ""}${actBtn("×", [{ op: "effect_remove", char: p.eid, effect: e.key }], "remove", "x")}</span>`; }).join("")}</div>`;
+    else h += `<div class="aes-kv" style="opacity:.55">none active — you're unharmed and unafflicted</div>`;
+    return h;
+  }
+  function tabWorld(v, p) {
+    const parts = [], s = v.scene || {};
+    const sceneBits = [];
+    if (s.location) sceneBits.push("📍 " + esc(String(s.location).replace(/_/g, " ")));
+    const tod = [s.time_of_day, s.day ? ("day " + s.day) : ""].filter(Boolean).join(", ");
+    if (tod) sceneBits.push("🕓 " + esc(tod));
+    if (s.phase) sceneBits.push("phase " + esc(s.phase));
+    if ((s.present || []).length) sceneBits.push("👥 " + s.present.map(esc).join(", "));
+    if (sceneBits.length) parts.push(sec("Scene", "🗺", `<div class="aes-kv">${sceneBits.join(" · ")}</div>`));
+    if ((v.cast || []).length) parts.push(renderCast(v.cast));
+    if ((v.quests || []).length) parts.push(sec("Quests", "🎯", v.quests.map((q) => `<div class="aes-quest ${q.status !== "active" ? "done" : ""}"><b>${esc(q.name)}</b>${q.stakes ? " (" + esc(q.stakes) + ")" : ""}${q.status !== "active" ? " — " + esc(q.status.toUpperCase()) : (q.note ? " — " + esc(q.note) : "")}</div>`).join("")));
+    const rel = [...(v.relations || []).map((r) => `<span class="aes-pill">${esc(r.name)} <span class="m">${esc(r.tier)}</span></span>`), ...(v.factions || []).map((f) => `<span class="aes-pill">⚑ ${esc(f.name)} <span class="m">${esc(f.tier)}</span></span>`)];
+    if (rel.length) parts.push(sec("Relations & Factions", "♥", `<div class="aes-rows">${rel.join("")}</div>`));
+    if ((v.relationships || []).length) parts.push(sec("Relationships", "🔗", v.relationships.map((r) => `<div class="aes-kv"><b>${esc(r.a)} → ${esc(r.b)}</b> ${r.dims.map((d) => `<span class="aes-dim">${esc(d.dim)} ${d.val >= 0 ? "+" : ""}${esc(d.val)}</span>`).join(" ")}</div>`).join("")));
+    if (Object.keys(v.world_flags || {}).length) parts.push(sec("World", "🌍", `<div class="aes-rows">${Object.entries(v.world_flags).map(([k, val]) => `<span class="aes-pill">${esc(k)}=${esc(String(val))}</span>`).join("")}</div>`));
+    if ((v.memories || []).length) parts.push(sec("Recent events", "📜", v.memories.map((m) => `<div class="aes-kv"><span class="m">t${esc(m.turn)}</span> ${esc(m.text)}</div>`).join("")));
+    if ((v.consent || []).length) parts.push(sec("Consent", "✔", v.consent.map((c) => `<div class="aes-kv"><b>${esc(c.pair)}</b> · ${esc(c.category)} <span class="m">${esc(c.level)}</span>${c.cap != null ? " ≤" + esc(c.cap) : ""}</div>`).join("")));
+    return parts.join("") || `<div class="aes-hud-empty">The world is quiet.</div>`;
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => { drawPanel(); buildHud(); });
+  else { drawPanel(); buildHud(); }
 
   // ---- slash commands (05 §8). Registered via SlashCommandParser.addCommandObject —
   // called ON the class (a detached reference loses `this` and threw silently before:
@@ -419,6 +757,10 @@
         try { window.open(url, "_blank"); } catch (e) { return "open " + url; }
         return "opening the World & Character creator\u2026";
       }, "Open the AetherState World Generator & Character Creator window.");
+      cmd("aether-hud", async () => {
+        try { toggleHud(); return hudVisible() ? "player HUD opened" : "player HUD closed"; }
+        catch (e) { return "HUD unavailable"; }
+      }, "Toggle the movable player HUD (stats, statuses, drives, gear, dice, scene).");
       console.log("[AetherState] slash commands registered");
     }
   } catch (e) { console.warn("[AetherState] slash registration failed", e); }

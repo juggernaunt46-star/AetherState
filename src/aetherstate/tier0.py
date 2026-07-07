@@ -121,9 +121,10 @@ def _parse_check(rest: str, res: Tier0Result) -> None:
     resolution + rolling happen in run() where state/cfg/registry/rng are in hand."""
     toks = rest.split()
     if not toks:
-        res.notices.append("check needs a skill: ((aether.check <skill> [+N] [vs DC]))")
+        res.notices.append("check needs a skill: ((aether.check <skill> [+N] [vs DC] "
+                           "[scope ...] [use <ability>]))")
         return
-    skill, mod, dc, scope, i = toks[0], 0, None, None, 1
+    skill, mod, dc, scope, use, i = toks[0], 0, None, None, [], 1
     while i < len(toks):
         tk = toks[i].lower()
         if tk in ("vs", "dc", "target") and i + 1 < len(toks):
@@ -137,10 +138,15 @@ def _parse_check(rest: str, res: Tier0Result) -> None:
             scope = toks[i + 1].lower()
             i += 2
             continue
+        if tk in ("use", "using", "with") and i + 1 < len(toks):   # 2026-07-07: invoke an
+            use.append(toks[i + 1].strip("\"'"))                    # ACTIVE ability for this roll
+            i += 2
+            continue
         if _CHECK_MOD_RE.match(toks[i]):
             mod += int(toks[i])
         i += 1
-    res.checks.append({"skill": skill, "mod": mod, "dc": dc, "scope": scope, "raw": rest})
+    res.checks.append({"skill": skill, "mod": mod, "dc": dc, "scope": scope,
+                       "use": use, "raw": rest})
 
 
 def _player_card(state: dict) -> tuple[Optional[str], dict]:
@@ -152,6 +158,43 @@ def _player_card(state: dict) -> tuple[Optional[str], dict]:
 
 
 _SCOPE_RANK = {"minor": 0, "standard": 1, "major": 2, "epic": 3, "mythic": 4}
+
+
+def _tracked_pool(player: dict, rname: str) -> bool:
+    """A resource the card actually TRACKS (a dict with a max) — the gate the cost logic uses."""
+    pool = (player.get("hp") if rname == "hp"
+            else (player.get("resources") or {}).get(rname)) if player else None
+    return isinstance(pool, dict) and bool(pool.get("max"))
+
+
+def _ability_affordable(player: dict, cost: dict) -> bool:
+    """A TRACKED pool must cover the cost; an untracked pool waives it (weak-model floor)."""
+    for rname, amt in (cost or {}).items():
+        pool = (player.get("hp") if rname == "hp"
+                else (player.get("resources") or {}).get(rname)) if player else None
+        if isinstance(pool, dict) and pool.get("max") and int(pool.get("cur", 0)) < int(amt):
+            return False
+    return True
+
+
+def _merge_cost(dst: dict, cost: dict) -> None:
+    for k, v in (cost or {}).items():
+        try:
+            dst[k] = dst.get(k, 0) + int(v)
+        except (TypeError, ValueError):
+            continue
+
+
+def _find_active_ability(reg, player: dict, ref: str):
+    """Resolve `ref` (id | display name | slug) to a KNOWN ability (aid, def) or (None, None)."""
+    r = str(ref or "").strip().lower()
+    if not r:
+        return None, None
+    for aid, adef in reg.known_abilities(player).items():
+        nm = str((adef or {}).get("name", aid))
+        if r in (str(aid).lower(), nm.lower()) or slug(r) in (slug(nm), str(aid).lower()):
+            return aid, adef
+    return None, None
 
 
 def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> None:
@@ -174,6 +217,7 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
     dice = registry.dice_spec(reg, cfg)
     tiers = registry.tiers_model(reg, cfg)
     now = state.get("meta", {}).get("turn", -1) + 1   # ops apply at the NEXT turn index
+    ability_cd = (player or {}).get("ability_cd") or {}   # per-ability cooldown ledger (RPG)
     for c in res.checks:
         sid = reg.resolve_skill(c["skill"], player)   # snapshot-first: a freestyle/evolved skill resolves too
         if sid is None:
@@ -200,15 +244,60 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
             res.notices.append(f"not enough {short[0]} for {reg.skill_label(sid, player)} "
                                f"({short[1]}/{short[2]} needed) — recover first; not a roll")
             continue
-        rolled = registry.roll_dice(dice, rng)
-        if rolled is None:
+        # ---- dice-shaping abilities (2026-07-07, Bean): a SKILL sets the modifier; an
+        # ABILITY shapes the dice. Passive edge/ward auto-apply to matching checks; active
+        # extra_die/reroll/surge fire only when the player invokes `use <ability>` (freedom is
+        # routed — an unknown/unaffordable/cooling ability is a visible notice, the roll goes on).
+        pd = registry.parse_dice(dice)
+        if pd is None:
             res.notices.append(f"bad dice spec: {dice}")
             continue
-        naturals, sides, flat = rolled
-        eff = (reg.effective_mod(player, sid) if player else 0) + int(c["mod"]) + flat
-        if player_eid:                # RPG-2: equipped-gear mods naming the skill flow into the
-            eff += registry.gear_skill_mod(state, player_eid, sid)   # roll (doc 06 §2.2), baked
-            eff += registry.effect_skill_mod(state, player_eid, sid, now)   # RPG-3: ledger effects
+        n_keep, sides, flat = pd
+        edge_extra, ward, shaped = 0, 0, []
+        for aid, adef in (reg.known_abilities(player).items() if player else ()):
+            if not registry.ability_applies(adef, sid):
+                continue
+            mech = registry.ability_mechanic(adef)
+            if mech == "edge":                      # passive advantage: +dice, keep best
+                edge_extra += max(1, registry.ability_magnitude(adef, 1))
+                shaped.append(str(adef.get("name", aid)))
+            elif mech == "ward":                    # passive guard: raise the failure floor
+                ward = max(ward, max(1, registry.ability_magnitude(adef, 1)))
+                shaped.append(str(adef.get("name", aid)))
+        surge_mod, surge_lift, onfail, pay_ability, cd_set = 0, 0, None, {}, {}
+        for ref in c.get("use", []):                # active abilities the player invoked
+            aid, adef = _find_active_ability(reg, player, ref) if player else (None, None)
+            if adef is None:
+                res.notices.append(f"you don't know an activated ability '{ref}'")
+                continue
+            mech, label = registry.ability_mechanic(adef), str(adef.get("name", aid))
+            if mech not in registry.ACTIVE_MECHANICS:
+                res.notices.append(f"{label} is passive — it already applies, no need to use it")
+                continue
+            if not registry.ability_applies(adef, sid):
+                res.notices.append(f"{label} does not apply to {reg.skill_label(sid, player)}")
+                continue
+            if int(ability_cd.get(aid, 0)) > now:
+                res.notices.append(f"{label} is recharging (ready on turn {int(ability_cd[aid])})")
+                continue
+            if not _ability_affordable(player, registry.skill_cost(adef)):
+                res.notices.append(f"not enough resources to use {label} — recover first")
+                continue
+            if mech == "surge":                     # on use: big bonus + lift the scope ceiling
+                surge_mod += max(1, registry.ability_magnitude(adef, 2))
+                surge_lift += 1
+                _merge_cost(pay_ability, registry.skill_cost(adef))
+                if int(adef.get("cooldown_turns", 0)) > 0:
+                    cd_set[aid] = now + int(adef["cooldown_turns"])
+                shaped.append(label)
+            elif onfail is None:                    # extra_die / reroll: applied ONLY on a miss
+                onfail = (aid, adef)
+
+        kept, pool = registry.roll_keep(n_keep, edge_extra, sides, rng)
+        eff = (reg.effective_mod(player, sid) if player else 0) + int(c["mod"]) + flat + surge_mod
+        if player_eid:                # RPG-2/3: equipped-gear + active-effect mods flow in, baked
+            eff += registry.gear_skill_mod(state, player_eid, sid)
+            eff += registry.effect_skill_mod(state, player_eid, sid, now)
         cap = None
         over = 0
         scope = c.get("scope")
@@ -222,32 +311,73 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
             over = max(0, srank - band)
             if over:
                 eff -= 2 * over                     # punishing odds...
-                cap = registry.CHECK_TIERS[max(2, 4 - over)]   # ...and a low ceiling
-        tier, total = registry.resolve_tier(naturals, eff, sides, c["dc"], tiers)
-        if cap is not None and registry.CHECK_TIERS.index(tier) \
-                > registry.CHECK_TIERS.index(cap):
-            tier = cap                              # baked FINAL — replay never re-derives it
+                ceil = min(len(registry.CHECK_TIERS) - 1, max(2, 4 - over) + surge_lift)
+                cap = registry.CHECK_TIERS[ceil]    # ...and a low ceiling (surge lifts one step)
+
+        def _settle(nats):                          # tier from naturals, then ward floor + cap
+            t, tot = registry.resolve_tier(nats, eff, sides, c["dc"], tiers)
+            if ward >= 1 and t == "crit_fail":
+                t = "fail"
+            if ward >= 2 and t == "fail":
+                t = "partial"
+            if cap is not None and registry.CHECK_TIERS.index(t) \
+                    > registry.CHECK_TIERS.index(cap):
+                t = cap
+            return t, tot
+
+        tier, total = _settle(kept)
+        fired, improved = None, False               # the on-fail power fires only when it helps
+        if onfail is not None and over < 3 and tier in ("fail", "crit_fail"):
+            base_tier = tier                        # remember what the miss WAS, to tell if it lifted
+            oaid, oadef = onfail
+            omech = registry.ability_mechanic(oadef)
+            mag = max(1, registry.ability_magnitude(oadef, 1))
+            if omech == "reroll":                   # roll a fresh pool, keep the BETTER outcome
+                kept2, pool2 = registry.roll_keep(n_keep, edge_extra, sides, rng)
+                t2, tot2 = _settle(kept2)
+                if registry.CHECK_TIERS.index(t2) >= registry.CHECK_TIERS.index(tier):
+                    kept, pool, tier, total = kept2, pool2, t2, tot2
+            else:                                   # extra_die: literally ADD dice to the pool
+                pool = pool + [rng.randint(1, sides) for _ in range(mag)]
+                kept = sorted(pool, reverse=True)[:n_keep]
+                tier, total = _settle(kept)
+            fired = str(oadef.get("name", oaid))
+            improved = registry.CHECK_TIERS.index(tier) > registry.CHECK_TIERS.index(base_tier)
+            _merge_cost(pay_ability, registry.skill_cost(oadef))
+            if int(oadef.get("cooldown_turns", 0)) > 0:
+                cd_set[oaid] = now + int(oadef["cooldown_turns"])
+            shaped.append(fired)
         if over >= 3:                               # RPG-5 (doc 10 §8): reaching THAT far past
-            forced = "crit_fail" if over >= 4 else "fail"   # mastery fails outright — Bean's
+            forced = "crit_fail" if over >= 4 else "fail"   # mastery fails outright — surge
             if registry.CHECK_TIERS.index(tier) > registry.CHECK_TIERS.index(forced):
-                tier = forced                       # a CEILING: a natural crit_fail stays worse
+                tier = forced                       # can't beat the wall; deep mastery can
             res.notices.append(f"scope '{scope}' is far beyond {sid} mastery — "
                                f"the attempt fails outright (doc 10 §8)")   # "Alter Reality" rule
+
         op = {"op": "check", "skill": sid, "result": total, "tier": tier,
-              "_mod": eff, "_dice": dice, "_seed": naturals}
+              "_mod": eff, "_dice": dice, "_seed": kept}
         if player_eid:
             op["char"] = player_eid          # a real entity (kind=player) -> resolves cleanly
         if c["dc"] is not None:
             op["dc"] = c["dc"]
         if scope is not None:
             op["scope"], op["_scope_over"] = scope, over
-        if cost and player_eid:                     # RPG-5 (M8): charge on attempt — fail pays
-            pay = {r: (a if tier != "fail" else max(1, (a + 1) // 2))   # half, the rest full
-                   for r, a in cost.items()
-                   if isinstance((player.get("hp") if r == "hp"
-                                  else (player.get("resources") or {}).get(r)), dict)}
-            if pay:
-                op["_cost"] = pay
+        if shaped or fired or edge_extra or ward or surge_mod:   # audit for the HUD/roll log
+            op["_shape"] = {"abilities": sorted(set(shaped)), "fired": fired,
+                            "improved": improved, "pool": list(pool), "kept": list(kept),
+                            "edge": edge_extra, "ward": ward, "surge": surge_mod}
+        pay: dict = {}                              # SKILL cost (half on a miss) + ABILITY costs
+        if cost and player_eid:                     # (full) — tracked pools only; untracked waives
+            for r, a in cost.items():
+                if _tracked_pool(player, r):
+                    pay[r] = a if tier != "fail" else max(1, (a + 1) // 2)
+        for r, a in pay_ability.items():
+            if _tracked_pool(player, r):
+                pay[r] = pay.get(r, 0) + int(a)
+        if pay:
+            op["_cost"] = pay
+        if cd_set:
+            op["_ability_cd"] = cd_set              # cooldowns set for fired/used actives
         res.rule_ops.append(op)
         if player_eid:                              # RPG-5 (doc 10 §4): use grows mastery —
             amt = MASTERY_TICKS.get(tier, 0)        # code-side, scene-capped in the reducer

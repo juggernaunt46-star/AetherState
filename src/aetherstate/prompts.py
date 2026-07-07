@@ -202,8 +202,10 @@ _EFFECTS_PROTOCOL = (
     "or heals — a wound worth describing is worth an hp tag, alongside any condition. "
     "Statuses are combat effects; Conditions anything else in-world. Known presets — "
     "Statuses: {statuses}. Conditions: {conditions}. You may mint NEW effect/item/quest "
-    "names with the same tags. The state blocks are the ledger of what is true — never "
-    "contradict them, and do not re-tag what they already show.")
+    "names with the same tags. The engine itself tracks HP, stamina and mana and charges "
+    "ability costs — use ONLY the tags listed here; never invent resource, dice, or ability "
+    "tags of your own (no [stamina | ...], no [Second Wind | ...]). The state blocks are the "
+    "ledger of what is true — never contradict them, and do not re-tag what they already show.")
 
 
 # RPG-4 (doc 05 §5.9 / D7): the degradation ladder's contract rung — a shrunk contract for
