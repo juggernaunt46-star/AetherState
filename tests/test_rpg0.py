@@ -293,6 +293,7 @@ def test_dm_contract_v2_in_fiction_and_known_vs_present():
     """dm-rules/2 (2026-07-06): no out-of-character endings; state-block NPCs are known,
     not on-scene."""
     from aetherstate.prompts import DM_CONTRACT_VERSION, DM_RULES_CONTRACT
-    assert DM_CONTRACT_VERSION == "dm-rules/2"
+    assert DM_CONTRACT_VERSION == "dm-rules/3"
+    assert "settles THIS attempt NOW" in DM_RULES_CONTRACT   # RPG-5: no directive-dodging
     assert "What will you do?" in DM_RULES_CONTRACT
     assert "KNOWN, not on-scene" in DM_RULES_CONTRACT

@@ -1,5 +1,59 @@
 # Changelog
 
+## 1.2.0 — 2026-07-07
+
+The ledger keeps up with the story: every recording gap found in live play is closed, and the
+full progression capstone lands — XP, levels, mastery that grows by use, resource pools,
+consequences, and defeat. Everything below is inert unless `[specialization].name = "rpg"` —
+a non-RPG session's requests stay byte-identical.
+
+### The world-tag protocol (R10) — the recording floor
+- The narrating model can now commit EVERY kind of tracked truth inline, and the engine owns
+  it: `[scene | <place> | <phase?> | present: <names?>]` (scene moves + who's on stage),
+  `[item gained/lost | <char> | <Item> | <qty?>]`, `[quest | <Name> | new|update|complete|
+  failed|abandoned | <note?>]`, `[affinity | <target> | ±N | <why>]`, `[hp | <char> | ±N |
+  <why>]` — all parsed deterministically from the settled reply, clamped, quarantined
+  visibly, and fed back as committed state. Same propose-then-commit spine as the status
+  tags; the prose is never the truth.
+
+### Items, quests, and consequences become ledger truth
+- **Organic item channel.** `item_gain`/`item_lose`: acquisitions the story grants become
+  real inventory instances — a curated-template name grounds its mechanics, any other name
+  commits MECHANICS-FREE (no power from prose), re-gains stack instead of duplicating, and
+  losing what the ledger doesn't show is a visible reject. The Creator now seeds STARTING
+  GEAR as instances (new sheet field) and records the opening quest in the quest ledger.
+- **Quest ledger.** `quest_add`/`quest_update` + a `[QUEST]` block that renders active
+  objectives (stakes, notes) and recent resolutions; near-duplicate objectives merge.
+- **Bounded HP channel.** `hp_adj` with a baked per-op swing clamp — the narrator proposes
+  severity, the engine owns the number.
+
+### Progression (the doc-10 capstone) — code-awarded, never asserted
+- **XP & levels.** Quest completions (by stakes), fulfilled goals, and won-over standings
+  award curated XP; levels grant +HP, +pools, and banked stat points. All privileged ops —
+  the model can't type a number that sticks.
+- **Mastery by use.** Every resolved check ticks its skill (anti-grind scene cap); named
+  brackets (Novice → Grandmaster) add a curated bonus to the effective mod, and crossing a
+  bracket triggers a cold-path assist re-authoring of the skill's frozen definition (the
+  evolution loop — with the curated bump as the no-assist floor).
+- **Resources.** Skills may carry frozen stamina/mana costs, charged on attempt (failure
+  pays half); pools regen on scene changes and rest. Untracked pools waive costs — weak
+  setups keep playing.
+- **Consequences & defeat.** Critical failures leave a mark (Strained; Backlash when you
+  overreached your scope — and reaching FAR past mastery now fails outright). HP 0 routes to
+  a contextual non-lethal outcome (captured / robbed / rescued / wake safe) narrated from a
+  directive — or to death under the new `hardcore` flag.
+- **Adventure beats & search.** A director beat pack (stale quests, wounded player, defeat
+  aftermath, missing hook) plus `GET /aether/session/{sid}/search` over the memory ledger.
+
+### DM contract v3 + live-play fixes
+- **dm-rules/3:** a resolved check settles THIS attempt NOW — no stalling a rolled outcome
+  into an open negotiation. The tag protocol teaches standing/harm recording insistently.
+- Robustness from a 23-round live playtest: model JSON with unescaped inner quotes now heals;
+  a first-name reference can never mint a twin of the player; AI-filled characters always
+  spend their stat points and KNOW their own custom abilities; extraction survives proxy
+  restarts without a model hint; duplicate lore/memory writes are guarded; the SillyTavern
+  panel's Creator link always targets the current chat.
+
 ## 1.1.0 — 2026-07-06
 
 RPG mode grows up: items, a character creator, statuses & conditions, a social plane, and

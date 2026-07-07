@@ -15,6 +15,7 @@ resolution (registry invariant 5).
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Optional
 
@@ -375,6 +376,25 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
     # knowable — filtering against registry ∪ defs (was registry-only) is what lets an authored
     # custom passive actually apply (its id must reach the player's known-abilities list).
     defs = _coerce_defs(doc.get("defs") or doc.get("custom"), reg)
+    # RPG-5 floor (2026-07-07 live repro: GLM leaves every stat at baseline despite the
+    # spend-6-points instruction — F6 persists): when ALL stats sit at default and the sheet
+    # HAS ranked skills, spend deterministically along the concept's keyed stats.
+    gsk0 = doc.get("skills") if isinstance(doc.get("skills"), dict) else {}
+    if stats and gsk0 and all(
+            int(v) == int((reg.stats.get(k) or {}).get("default", 10))
+            for k, v in stats.items()):
+        ranked = sorted(gsk0.items(), key=lambda kv: -_clampi(kv[1], 0, 99))
+        spent, gives = [], [2, 2, 1, 1]
+        merged_sk = {**reg.skills, **(defs.get("skills") or {})}
+        for sid, _r in ranked:
+            sdef = merged_sk.get(str(sid)) or merged_sk.get(slug(str(sid))) or {}
+            keyed = str(sdef.get("keyed_stat", "")).upper()
+            if keyed in stats and keyed not in spent:
+                hi = int((reg.stats.get(keyed) or {}).get("max", 20))
+                stats[keyed] = min(hi, stats[keyed] + gives[len(spent)])
+                spent.append(keyed)
+            if len(spent) >= len(gives):
+                break
     def_skills = defs.get("skills", {})
     def_abils = defs.get("abilities", {})
     skills = {}
@@ -401,13 +421,38 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
                 continue
         if aid not in abilities:
             abilities.append(aid)
-    abilities = abilities[:_MAX_LIST]
+    for aid in def_abils:                    # RPG-5 floor (2026-07-07 live repro): a frozen
+        if aid not in abilities:             # def ability on YOUR OWN sheet is definitionally
+            abilities.append(aid)            # KNOWN — GLM listed the Quirk only under defs and
+    abilities = abilities[:_MAX_LIST]        # its mechanics were dead on arrival
     hp_max = 20
     try:
         hp_max = max(1, min(10000, int((doc.get("resources") or {}).get("hp", {}).get("max", 20))))
     except (TypeError, ValueError, AttributeError):
         hp_max = 20
-    return {
+    # RPG-5 (doc 10 §6): pools. Stamina is universal; mana materializes only when the sheet
+    # is magic-shaped (a basis ability, a gated skill, or a def that spends mana) — a
+    # low-magic character never shows a Mana bar. All Console-editable afterwards.
+    res_doc = doc.get("resources") if isinstance(doc.get("resources"), dict) else {}
+
+    def _pool(key: str, dflt: int) -> int:
+        try:
+            return max(0, min(10000, int((res_doc.get(key) or {}).get("max", dflt))))
+        except (TypeError, ValueError, AttributeError):
+            return dflt
+    resources: dict = {"hp": {"max": hp_max}}
+    stam = _pool("stamina", 12)
+    if stam:
+        resources["stamina"] = {"max": stam}
+    magicish = any((a or {}).get("kind") == "basis" for a in def_abils.values()) \
+        or any(isinstance(sk, dict) and "mana" in (sk.get("cost") or {})
+               for sk in def_skills.values()) \
+        or any((reg.skills.get(s) or {}).get("requires_ability") for s in skills)
+    mana = _pool("mana", 10 if magicish else 0)
+    if mana:
+        resources["mana"] = {"max": mana}
+    gear = [_s(g, 60) for g in _lst(doc.get("gear")) if _s(g)][:8]   # RPG-5 (G2): starting
+    return {                                                         # gear finally SEEDS
         "name": _s(doc.get("name"), 80) or "Player",
         "sex": _s(doc.get("sex"), 40),
         "pronouns": _s(doc.get("pronouns"), 40),
@@ -415,8 +460,8 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
         "concept": _s(doc.get("concept") or doc.get("class"), 200),
         "level": _clampi(doc.get("level", 1), 1, 999),
         "stats": stats, "skills": skills, "abilities": abilities,
-        "defs": defs,
-        "resources": {"hp": {"max": hp_max}},
+        "defs": defs, "gear": gear,
+        "resources": resources,
     }
 
 
@@ -451,6 +496,13 @@ def _coerce_defs(custom, reg) -> dict:
         req = slug(_s(sk.get("requires_ability"), 40))
         if req:                                  # eligibility gate rides the def (validated below)
             entry["requires_ability"] = req
+        cost = sk.get("cost") if isinstance(sk.get("cost"), dict) else None
+        if cost:                                 # RPG-5 (doc 10 §5.4): frozen resource cost —
+            cc = {str(k).lower(): _clampi(v, 1, 10) for k, v in cost.items()   # clamped, never
+                  if str(k).lower() in ("stamina", "mana", "hp")}              # model-typed at
+            cc = {k: v for k, v in cc.items() if v > 0}                        # roll time
+            if cc:
+                entry["cost"] = cc
         out.setdefault("skills", {})[sid] = entry
     for ab in _lst(custom.get("abilities"))[:_MAX_LIST]:
         if not isinstance(ab, dict):
@@ -533,6 +585,9 @@ def world_to_ops(world: dict) -> list[dict]:
         ops.append({"op": "time_advance", "to_time_of_day": w["time"]})
     if w["opening_quest"]:
         ops.append({"op": "memory_event", "text": f"Opening quest: {w['opening_quest']}"})
+        qname = _split_name_desc(w["opening_quest"])[0][:80] or w["opening_quest"][:80]
+        ops.append({"op": "quest_add", "name": qname,      # RPG-5 (G3): the opening quest is
+                    "detail": w["opening_quest"][:300]})   # LEDGER truth, not just lore prose
     return ops
 
 
@@ -555,7 +610,9 @@ def player_to_ops(player: dict, cfg=None) -> list[dict]:
         ops.append({"op": "set_attribute", "entity": eid, "key": "sex", "value": p["sex"]})
     if p["concept"]:
         ops.append({"op": "set_attribute", "entity": eid, "key": "class", "value": p["concept"]})
-    return ops
+    for g in p.get("gear") or []:               # RPG-5 (G2): starting gear becomes INSTANCES —
+        ops.append({"op": "item_gain", "char": name, "name": g})   # template names ground
+    return ops                                  # mechanics; the rest commit mechanics-free
 
 
 # ------------------------------------------------------------------ state -> world doc
@@ -635,8 +692,10 @@ _CHAR_SYSTEM_TMPL = (
     "that FITS THE WORLD. Output ONLY minified JSON, no prose, matching this schema: "
     "{{\"name\":str,\"sex\":str,\"pronouns\":str,\"species\":str,\"concept\":str,"
     "\"stats\":{{STAT:int}},\"skills\":{{skill_id:rank}},\"abilities\":[ability_id],"
+    "\"gear\":[str],"
     "\"defs\":{{\"skills\":[{{\"id\":str,\"name\":str,\"keyed_stat\":STAT,\"base_mod\":int,"
-    "\"max_rank\":int,\"governs\":[str],\"desc\":str,\"requires_ability\":str}}],"
+    "\"max_rank\":int,\"governs\":[str],\"desc\":str,\"requires_ability\":str,"
+    "\"cost\":{{\"stamina\":int,\"mana\":int}}}}],"
     "\"abilities\":[{{\"id\":str,\"name\":str,"
     "\"kind\":\"active|passive|basis\",\"passive_mod\":{{\"skill\":str,\"amount\":int}},"
     "\"resolution_mod\":int,\"effect\":str,\"desc\":str}}]}}}}. "
@@ -652,7 +711,10 @@ _CHAR_SYSTEM_TMPL = (
     "`requires_ability`); when a passive boosts a skill, `passive_mod.skill` must repeat that "
     "skill's id EXACTLY. Skills are things you TRY (ranked, rolled); abilities are things you "
     "HAVE (owned facts: a basis, a permanent edge, a spendable surge). Inventing bespoke "
-    "mechanics for the concept is encouraged: be flavorful and specific, never generic. If the "
+    "mechanics for the concept is encouraged: be flavorful and specific, never generic. "
+    "`gear` is 2-5 STARTING ITEMS that fit the concept — plain names ('worn leather satchel', "
+    "'combat knife'), no stats. A def skill may carry `cost` (stamina and/or mana, 1-5) when "
+    "using it should visibly tire or drain the character; omit it otherwise. If the "
     "player gives `notes`, treat them as creative direction and follow them faithfully.")
 
 
@@ -766,6 +828,9 @@ def _char_user(seed: dict, world: Optional[dict]) -> str:
             f"{k}={v}" for k, v in seed["skills"].items()))
     if _lst(seed.get("abilities")):
         lines.append("- abilities picked: " + ", ".join(str(a) for a in seed["abilities"][:20]))
+    if _lst(seed.get("gear")):
+        lines.append("- starting gear given: " + ", ".join(
+            _s(g, 60) for g in seed["gear"][:8] if _s(g)))
     cust = seed.get("custom") if isinstance(seed.get("custom"), dict) else {}
     for kind in ("skills", "abilities"):
         names = [_s((c or {}).get("name"), 60) for c in _lst(cust.get(kind))
@@ -811,8 +876,8 @@ async def author_world(get_client, cfg, ep, seed: dict) -> dict:
                 if _s(seed.get(k)):
                     merged[k] = seed[k]
             return {"source": "llm", "doc": deterministic_world(merged)}
-        log.warning("world authoring: unparseable reply (%d chars): %r",
-                    len(raw), raw[:200])
+        log.warning("world authoring: unparseable reply (%d chars): head=%r tail=%r",
+                    len(raw), raw[:200], raw[-240:])
         return {"source": "error",
                 "detail": f"{ep.model} replied but not with usable JSON — try again"}
     except Exception as exc:                 # fail-open: report, never crash the route
@@ -844,10 +909,74 @@ async def author_player(get_client, cfg, ep, seed: dict, world: Optional[dict] =
                 merged.setdefault("stats", {}).update(seed["stats"])
             merged = _inject_pack_defs(merged, pack)   # ranks on pack ids must freeze into defs
             return {"source": "llm", "doc": deterministic_player(merged, cfg)}
-        log.warning("player authoring: unparseable reply (%d chars): %r",
-                    len(raw), raw[:200])
+        log.warning("player authoring: unparseable reply (%d chars): head=%r tail=%r",
+                    len(raw), raw[:200], raw[-240:])
         return {"source": "error",
                 "detail": f"{ep.model} replied but not with usable JSON — try again"}
     except Exception as exc:
         log.warning("player authoring failed open: %s", type(exc).__name__)
         return {"source": "error", "detail": f"authoring failed: {type(exc).__name__}"}
+
+
+# ------------------------------------------------------------------ RPG-5: Q27 evolution
+_EVOLVE_SYSTEM = (
+    "You are the mechanics assistant for a tabletop RPG engine. A character's skill just "
+    "crossed a MASTERY BRACKET through real play; author its EVOLVED FORM. Keep the same id "
+    "and keyed_stat; you may refine the name (an evolved title), rewrite desc/effect to show "
+    "the growth, widen `governs`, and raise base_mod by AT MOST +1 over the current value. "
+    "Never change what the skill fundamentally is; never touch requires_ability. Output ONLY "
+    "minified JSON: {\"name\":str,\"keyed_stat\":str,\"base_mod\":int,\"max_rank\":int,"
+    "\"governs\":[str],\"desc\":str}")
+
+
+async def evolve_def_snapshot(store, cfg, get_client, ep, session_id: str, branch_id: str,
+                              char_eid: str, table: str, sid: str, bracket: str,
+                              turn: Optional[int] = None) -> None:
+    """RPG-5 (doc 10 §4 / Q27): cold-path mastery re-authoring. The assist LLM proposes the
+    evolved form; this validates, clamps, and FREEZES it as a new per-character def version
+    via a privileged evolve_def op (the journal keeps every prior version for replay).
+    Fail-open at every step — the curated bracket bonus already applied is the floor."""
+    from . import assist
+    from .state import apply_delta, current_state
+    try:
+        state = current_state(store, branch_id)
+        pl = (state.get("player") or {}).get(char_eid)
+        if not isinstance(pl, dict) or table != "skills":
+            return
+        reg = registry.load(cfg)
+        cur = dict(((pl.get("defs") or {}).get("skills") or {}).get(sid)
+                   or reg.skills.get(sid) or {})
+        if not cur:
+            return
+        mastery = int((pl.get("mastery") or {}).get(sid, 0))
+        ep = await assist.resolve_endpoint(get_client, cfg, ep)
+        user = (f"CURRENT DEFINITION of '{sid}':\n{json.dumps(cur, ensure_ascii=False)}\n"
+                f"MASTERY: {mastery} — just reached the {bracket} bracket.\n"
+                f"Character concept: {_s(pl.get('concept'), 200) or 'unknown'}.\nJSON:")
+        raw = await assist._chat(get_client, cfg, ep, _EVOLVE_SYSTEM, user,
+                                 max_tokens=800, temperature=0.8, timeout_s=90.0)
+        parsed = assist._json_or_none(raw) if raw else None
+        if not isinstance(parsed, dict):
+            return
+        parsed.setdefault("keyed_stat", cur.get("keyed_stat"))
+        parsed["base_mod"] = min(_clampi(parsed.get("base_mod", cur.get("base_mod", 0)),
+                                         -5, 10),
+                                 int(cur.get("base_mod", 0)) + 1)   # at most +1 per bracket
+        coerced = _coerce_defs({"skills": [{**parsed, "id": sid}]}, reg
+                               ).get("skills", {}).get(slug(sid))
+        if not coerced:
+            return
+        for k in ("requires_ability", "cost"):   # engine-owned rows survive evolution intact
+            if cur.get(k) is not None:
+                coerced[k] = cur[k]
+            else:
+                coerced.pop(k, None)
+        t = turn if turn is not None else state.get("meta", {}).get("turn", -1)
+        r = apply_delta(store, session_id, branch_id, max(0, t),
+                        [{"op": "evolve_def", "char": char_eid, "table": "skills",
+                          "id": slug(sid), "def": coerced,
+                          "note": f"mastery evolution: {bracket}"}], "rule", cfg)
+        if r.applied:
+            log.info("evolved %s/%s to %s bracket form", char_eid, sid, bracket)
+    except Exception as exc:
+        log.warning("evolution authoring failed open: %s", type(exc).__name__)

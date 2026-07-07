@@ -15,6 +15,30 @@
 #   desc     narration hint only — never parsed for mechanics
 
 # ---- Statuses (combat-facing) -------------------------------------------------------
+[strained]
+name = "Strained"
+kind = "status"
+valence = "negative"
+mods = { all = -1 }
+duration = 3
+desc = "A critical failure left its mark — pulled muscle, rattled nerve, shaken focus."
+
+[backlash]
+name = "Backlash"
+kind = "status"
+valence = "negative"
+mods = { all = -2 }
+duration = 4
+desc = "Power reached past mastery and bit back — burnout, recoil, wild energy."
+
+[battered]
+name = "Battered"
+kind = "condition"
+valence = "negative"
+mods = { all = -1 }
+duration = 6
+desc = "Beaten down and barely patched up; defeat lingers in every movement."
+
 [bleeding]
 name = "Bleeding"
 kind = "status"

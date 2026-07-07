@@ -209,6 +209,11 @@ summary:hover{color:var(--fg)}
       </div>
     </div>
 
+    <div class="card">
+      <h2>Starting gear <small>comma-separated item names — seeded as real inventory instances at save</small></h2>
+      <div class="field"><input id="c_gear" placeholder="e.g. combat knife, worn leather satchel, med-spray — AI fills if blank"></div>
+    </div>
+
     <div class="actions">
       <button class="act ai" id="c_ai" onclick="authorPlayer()">✨ Auto-fill blanks with AI</button>
       <button class="act ghost" onclick="fillOffline('player')" title="No AI — fill blanks from registry defaults">Fill blanks with defaults</button>
@@ -415,6 +420,7 @@ function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks
   stats:Object.assign({},statVals), skills, abilities:pickedAbilities(),
   custom,
   notes:$("c_notes").value.trim(),
+  gear:$("c_gear").value.split(",").map(s=>s.trim()).filter(Boolean),
   resources:{hp:{max:+$("c_hp").value||20}} }; }
 
 // ---- apply a doc back into the form
@@ -430,6 +436,7 @@ function applyPlayer(p){ if(!p) return;
   $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
   $("c_species").value=p.species||""; $("c_concept").value=p.concept||""; $("c_level").value=p.level||1;
   if(p.resources&&p.resources.hp&&p.resources.hp.max) $("c_hp").value=p.resources.hp.max;
+  if(Array.isArray(p.gear)&&p.gear.length) $("c_gear").value=p.gear.join(", ");
   if(p.stats) Object.assign(statVals, p.stats); buildStats();
   if(p.skills){ for(const k in skillRanks) skillRanks[k]=0; Object.assign(skillRanks, p.skills); }
   buildSkills();

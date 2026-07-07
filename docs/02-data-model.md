@@ -506,3 +506,78 @@ on-scene, and replies end in-fiction — never "What will you do?"-style prompts
 **Inspector feed.** `GET /aether/session/{sid}/journal?limit=N` (03 §2) serves the applied-op
 tail (turn · source · op · salient fields) + the last rolls; the Console Overview renders it
 as "Recent activity (RPG)" — visible roll/state-change feedback without touching the stream.
+
+### 7.10 RPG-5 — recording gaps closed + the progression capstone (2026-07-07)
+
+**The R10 world-tag protocol (tier0).** The R9 spine extended to the whole ledger — parsed
+deterministically from the DM's LAST settled reply, applied as extraction-source proposals
+(clamped, quarantined visibly), rpg-only:
+`[scene | <location> | <phase?> | present: <names?>]` → `scene_set` (canonicalized at
+`_enrich`) + presence ops (a declared cast REPLACES the on-stage list; the player is never
+un-staged) · `[item gained | <char> | <Item> | <qty?>]` / `[item lost | <char> | <Item>]` ·
+`[quest | <Name> | new|update|complete|failed|abandoned | <note?>]` ·
+`[affinity | <target> | ±N | <why>]` · `[hp | <char> | ±N | <why>]`. `_tag_char` maps
+`{{user}}`/`user`/`player` AND the player's own name tokens to the player eid (a DM that says
+"Kaji" must not hit a discovery twin; `discovery.known_names` also treats name tokens as known).
+
+**New PROPOSABLE ops (tag protocol + the rpg extraction wire — `RPG_GAP_OPS`):**
+- `item_gain{char,name,qty?}` — the organic acquisition channel. `_enrich` bakes a registry
+  template snapshot when the name matches one (curated floor); otherwise the instance commits
+  MECHANICS-FREE (no mods from prose — pillar 4). Same-name re-gain STACKS qty on the existing
+  instance (the anti-duplication rule). `item_lose{char,name}` decrements/`gone`s a ledger
+  instance — losing what the ledger doesn't show is a visible reject.
+- `quest_add{name,detail?,giver?,stakes?:minor|serious|epic}` /
+  `quest_update{quest,status?:active|complete|failed|abandoned,note?}` — the quest ledger
+  (`state.quests`, facts family, bounded 40, settled quests age out first). Near-dupe guard:
+  an ACTIVE quest whose ≥4-char name tokens contain/are contained by the new name's tokens is
+  the SAME quest (add merges; update resolves by the same rule, unique hit only). `[QUEST]`
+  renders active quests (+stakes, +note) and recently settled ones; legacy per-char `goal`s
+  remain the fallback.
+- `hp_adj{char,delta,reason?}` — the bounded consequence channel: per-op swing clamped at
+  `_enrich` to ±max(5, hp.max//4) (baked `_delta`), floor 0 / cap max.
+
+**Progression (doc 10) — ALL PRIVILEGED (rule/user/genesis; extraction rejected):**
+- `award_exp{char,amount,reason?}` — code-awarded only: quest completion by stakes
+  (25/75/150), goal completion (15), positive standing-tier crossings ≥Ally (30) — values in
+  `XP_AWARDS`. `xp_level`: cumulative 50·L·(L−1) curve (L2=100, L3=300…).
+- `level_up{char}` — grants baked at `_enrich` (`LEVEL_GRANTS`): +4 max HP, +2 every pool,
+  +1 banked `stat_points` (rendered on `[PLAYER]`, spend UI later).
+- `master_tick{char,skill,amount}` — use grows mastery: emitted by R8 per resolved check
+  (crit 4 / success 3 / partial 1 / fail 1 / crit_fail 0), scene-capped at 6/skill
+  (`mastery_scene`), hard ceiling 120. Brackets Novice/10 Adept/30 Expert/60 Master/100
+  Grandmaster; the bracket BONUS (+0..+4) joins `registry.effective_mod` — the curated
+  evolution floor. A crossing bakes `_bracket_up`, and the cold path schedules
+  `creator.evolve_def_snapshot` (the Q27 loop): assist re-authors the def (base_mod at most
+  +1, gate/cost preserved), clamps, freezes via `evolve_def{char,table,id,def}`.
+- `defeat_resolve{char,outcome}` — HP 0 triggers it from `progression_ops` (deterministic
+  outcome class: hostile present → captured, cool present → robbed, warm present → rescued,
+  else wake_safe; `[specialization].hardcore=true` → death, final). Reducer: HP to max//4
+  (death: 0), baked Battered/Dead condition, `robbed` drops carried unbound items to world.
+  The defeat rides `[DIRECTIVE]` the turn it lands — code decides the class, the DM flavors it.
+- `progression_ops(state, applied, hardcore)` runs post-apply on BOTH paths (pipeline hot
+  µs-arithmetic + jobs post-batch), returning journaled rule ops — never reducer side-effects.
+
+**Resources (doc 10 §6).** Registry/def skills may carry `cost = {stamina|mana|hp: N}`
+(frozen at authoring; clamped 1..10). R8 charges on attempt (fail pays half) via baked
+`_cost`; an insufficient TRACKED pool is a visible non-move ("recover first — not a roll");
+an untracked pool waives the cost (the weak-floor rule). Regen is curated + replay-pure:
+scene boundary +25% of max, `time_advance` with a time-of-day = stamina full / others +50%.
+Creator seeds stamina 12 always; mana 10 only on magic-shaped sheets (basis ability, gated
+skill, or a mana-costed def).
+
+**Consequences of failure.** R8 crit_fail adds a curated status: `Strained` (−1 all, 3t) —
+or `Backlash` (−2 all, 4t) when the check overreached scope; scope `over ≥ 3` now FORCE-fails
+the attempt outright (ceiling — a natural crit_fail stays worse), per Bean's Alter-Reality rule.
+
+**dm-rules/3.** A resolved check settles THIS attempt NOW — no stalling into negotiation, no
+premise-nullifying, no deferral (two live playtests of directive-dodging). [TAGS] grew the
+full R10 grammar with an affinity example and the "real harm = hp tag" rule.
+
+**Director additions.** `rpg_adventure` beat pack (profile default): stale-quest push, wounded
+player, defeat aftermath, no-active-quest hook. New DSL paths: `quest.active_count`,
+`quest.<qid>.<field>`/`.stale_turns`, `player.hp_frac|level|xp|defeated_ago`, `world.<key>`;
+new binds kind `quest`. `GET /aether/session/{sid}/search?q=` reuses the memory scorer over
+the summary/memory ledger (the AI-search hook, read-only, fail-open).
+
+A `none` session remains byte-identical: every surface above is rpg-gated (tags, wire tier,
+progression passes, pools only exist on rpg cards), welded by the test suite (453 green).

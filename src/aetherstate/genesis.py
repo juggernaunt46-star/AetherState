@@ -257,7 +257,8 @@ def _player_seed_from_doc(doc: dict, cfg) -> tuple[str, dict]:
         "skills": seed["skills"] if isinstance(seed.get("skills"), dict) else {},
         "abilities": seed["abilities"] if isinstance(seed.get("abilities"), list) else [],
         "resources": seed["resources"] if isinstance(seed.get("resources"), dict)
-                     else {"hp": {"max": DEFAULT_PLAYER_HP_MAX}},
+                     else {"hp": {"max": DEFAULT_PLAYER_HP_MAX},
+                           "stamina": {"max": 12}},   # RPG-5 (doc 10 §6): the universal pool
     }
     if not seed:
         # No explicit seed anywhere: this is the registry-less PLACEHOLDER card (the floor so

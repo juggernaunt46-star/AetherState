@@ -23,6 +23,9 @@ R8 skill-check       ((aether.check stealth [+N] [vs DC] [scope minor..mythic]))
 R9 effect tags       [status gained | <char> | <Name> | <valence>] etc. in the DM's LAST reply
                      -> effect_add/remove/update PROPOSALS (extraction-sourced; the ledger,
                      not the prose, is what's true — RPG only, acts once per settled reply)
+R10 world tags       [scene | ...] / [item gained|lost | ...] / [quest | ...] /
+                     [affinity | ...] / [hp | ...] -> scene/item/quest/affinity/hp PROPOSALS
+                     (RPG-5: the recording floor for the whole ledger — same spine as R9)
 """
 from __future__ import annotations
 
@@ -32,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import registry
-from .state import EFFECT_VALENCES, translate_path
+from .state import EFFECT_VALENCES, MASTERY_TICKS, slug, translate_path
 
 OOC_RE = re.compile(r"\(\(\s*(aether\.[a-z_]+[^)]*?|roll\s+[^)]*?)\s*\)\)", re.IGNORECASE)
 _DICE_RE = re.compile(r"^(\d*)d(\d+)\s*([+-]\s*\d+)?$", re.IGNORECASE)
@@ -185,6 +188,18 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
             res.notices.append(f"no in-world basis: {label} requires {aname} — not a roll. "
                                f"You cannot declare power; acquire it in-world first (doc 10)")
             continue
+        cost = registry.skill_cost(entry)       # RPG-5 (doc 10 §5.4): the resource gate —
+        short = None                            # a pool the card TRACKS must cover the cost;
+        for rname, amt in cost.items():         # an untracked pool waives it (fail-open floor)
+            pool = (player.get("hp") if rname == "hp"
+                    else (player.get("resources") or {}).get(rname)) if player else None
+            if isinstance(pool, dict) and pool.get("max") and int(pool.get("cur", 0)) < amt:
+                short = (rname, int(pool.get("cur", 0)), amt)
+                break
+        if short:                               # spent, not blocked: rest/recover re-opens it
+            res.notices.append(f"not enough {short[0]} for {reg.skill_label(sid, player)} "
+                               f"({short[1]}/{short[2]} needed) — recover first; not a roll")
+            continue
         rolled = registry.roll_dice(dice, rng)
         if rolled is None:
             res.notices.append(f"bad dice spec: {dice}")
@@ -212,6 +227,12 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
         if cap is not None and registry.CHECK_TIERS.index(tier) \
                 > registry.CHECK_TIERS.index(cap):
             tier = cap                              # baked FINAL — replay never re-derives it
+        if over >= 3:                               # RPG-5 (doc 10 §8): reaching THAT far past
+            forced = "crit_fail" if over >= 4 else "fail"   # mastery fails outright — Bean's
+            if registry.CHECK_TIERS.index(tier) > registry.CHECK_TIERS.index(forced):
+                tier = forced                       # a CEILING: a natural crit_fail stays worse
+            res.notices.append(f"scope '{scope}' is far beyond {sid} mastery — "
+                               f"the attempt fails outright (doc 10 §8)")   # "Alter Reality" rule
         op = {"op": "check", "skill": sid, "result": total, "tier": tier,
               "_mod": eff, "_dice": dice, "_seed": naturals}
         if player_eid:
@@ -220,7 +241,23 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
             op["dc"] = c["dc"]
         if scope is not None:
             op["scope"], op["_scope_over"] = scope, over
+        if cost and player_eid:                     # RPG-5 (M8): charge on attempt — fail pays
+            pay = {r: (a if tier != "fail" else max(1, (a + 1) // 2))   # half, the rest full
+                   for r, a in cost.items()
+                   if isinstance((player.get("hp") if r == "hp"
+                                  else (player.get("resources") or {}).get(r)), dict)}
+            if pay:
+                op["_cost"] = pay
         res.rule_ops.append(op)
+        if player_eid:                              # RPG-5 (doc 10 §4): use grows mastery —
+            amt = MASTERY_TICKS.get(tier, 0)        # code-side, scene-capped in the reducer
+            if amt:
+                res.rule_ops.append({"op": "master_tick", "char": player_eid,
+                                     "skill": sid, "amount": amt})
+            if tier == "crit_fail":                 # RPG-5 (doc 10 §5/§8): a crit-fail leaves
+                res.rule_ops.append({                # a mark; overreach bites back harder
+                    "op": "effect_add", "char": player_eid,
+                    "effect": "Backlash" if over else "Strained", "kind": "status"})
 
 
 # ---- R9: the effect tag protocol (RPG-3, doc 05 §5.4) --------------------------------
@@ -238,9 +275,17 @@ _USER_TOKENS = {"{{user}}", "{{char}}", "user", "player"}   # {{user}} -> the Pl
 
 def _tag_char(token: str, state: dict) -> str:
     t = str(token or "").strip()
-    if t.lower() in _USER_TOKENS:
+    low = t.lower()
+    if low in _USER_TOKENS:
         eid, _ = _player_card(state)
         return eid or t
+    eid, _ = _player_card(state)               # 2026-07-07 live repro: the DM tags the player
+    if eid:                                     # by FIRST NAME ('Kaji'), which alias-resolved to
+        ent = state.get("entities", {}).get(eid) or {}   # a discovery-minted twin entity — the
+        name = str(ent.get("name", eid))                 # player's own name tokens are the player
+        toks = {name.lower()} | {w for w in name.lower().split() if len(w) >= 3}
+        if low == eid or low in toks:
+            return eid
     return t
 
 
@@ -267,6 +312,134 @@ def _parse_effect_tags(text: str, state: dict) -> list[dict]:
         if who:
             ops.append({"op": "effect_update", "char": who, "effect": m.group(2).strip(),
                         "valence": m.group(3).lower()})
+    return ops
+
+
+# ---- R10: the world tag protocol (RPG-5, playtest 2026-07-06 G1-G5) -------------------
+# The R9 spine extended to the rest of the ledger: the narrating model marks scene moves,
+# item acquisitions/losses, quest beats, standing shifts, and harm inline; the ENGINE
+# commits them (extraction-source authority: clamped, quarantined visibly). This is the
+# recording floor the sci-fi playtest proved missing — 27 turns where the [SCENE] block
+# lied, items lived only in prose, and quest tags parsed to nothing.
+_SCENE_TAG_RE = re.compile(
+    r"\[\s*scene\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]",
+    re.IGNORECASE)
+_ITEM_TAG_RE = re.compile(
+    r"\[\s*item\s+(gained|lost)\s*\|\s*([^|\[\]]+?)\s*\|\s*([^|\[\]]+?)"
+    r"\s*(?:\|\s*(\d+)\s*)?\]", re.IGNORECASE)
+_QUEST_TAG_RE = re.compile(
+    r"\[\s*quest\s*\|\s*([^|\[\]]+?)\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]",
+    re.IGNORECASE)
+_AFFINITY_TAG_RE = re.compile(
+    r"\[\s*affinity\s*\|\s*([^|\[\]]+?)\s*\|\s*([+-]?\d+)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]",
+    re.IGNORECASE)
+_HP_TAG_RE = re.compile(
+    r"\[\s*hp\s*\|\s*([^|\[\]]+?)\s*\|\s*([+-]?\d+)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]",
+    re.IGNORECASE)
+_QUEST_NEW = {"new", "add", "added", "start", "started", "begin", "begins", "accepted",
+              "offered"}
+_QUEST_STATUS_WORDS = {"complete": "complete", "completed": "complete", "done": "complete",
+                       "fulfilled": "complete", "success": "complete",
+                       "failed": "failed", "fail": "failed",
+                       "abandoned": "abandoned", "dropped": "abandoned",
+                       "active": "active", "update": None, "updated": None,
+                       "progress": None, "in progress": None}
+
+
+def _parse_world_tags(text: str, state: dict) -> list[dict]:
+    """Deterministic regex pass over the DM's settled reply -> ledger proposals for scene,
+    items, quests, affinity, and HP. Mints no mechanics, decides no outcomes: item names
+    ground on a registry template or commit MECHANICS-FREE; affinity/HP deltas are clamped
+    at _enrich; quest facts are text. Unknown bracket tags are ignored (invariant 2)."""
+    ops: list[dict] = []
+    for m in _SCENE_TAG_RE.finditer(text):
+        loc = m.group(1).strip()
+        if not loc:
+            continue
+        op: dict = {"op": "scene_set", "location": loc}
+        present: list[str] = []
+        for seg in (m.group(2), m.group(3)):
+            if not seg:
+                continue
+            seg = seg.strip()
+            if seg.lower().startswith("present:"):
+                present = [p.strip() for p in seg[8:].split(",") if p.strip()]
+            elif len(seg) <= 40:
+                op["phase"] = seg
+        ops.append(op)
+        if present:
+            names = {_tag_char(p, state) for p in present}
+            ops.extend({"op": "presence", "entity": n, "present": True} for n in sorted(names))
+            here = {eid for eid, e in (state.get("entities") or {}).items()
+                    if isinstance(e, dict) and e.get("present")
+                    and e.get("kind") in ("character", "npc", "player")}
+            lowset = {str(n).lower() for n in names}
+            for eid in sorted(here):             # a declared cast REPLACES the present list
+                nm = str((state["entities"][eid] or {}).get("name", eid))
+                if eid not in names and nm.lower() not in lowset \
+                        and (state.get("player") or {}).get(eid) is None:
+                    ops.append({"op": "presence", "entity": eid, "present": False})
+    for m in _ITEM_TAG_RE.finditer(text):
+        verb, who, name = m.group(1).lower(), _tag_char(m.group(2), state), m.group(3).strip()
+        if not who or not name:
+            continue
+        op = {"op": "item_gain" if verb == "gained" else "item_lose",
+              "char": who, "name": name}
+        if verb == "gained" and m.group(4):
+            op["qty"] = int(m.group(4))
+        ops.append(op)
+    qs = state.get("quests") or {}
+    for m in _QUEST_TAG_RE.finditer(text):
+        qname, word, note = m.group(1).strip(), m.group(2).strip().lower(), \
+            (m.group(3) or "").strip()
+        if not qname:
+            continue
+        known = slug(qname)[:64] in qs or any(
+            str((r or {}).get("name", "")).lower() == qname.lower() for r in qs.values())
+        if word in _QUEST_NEW or not known:
+            op = {"op": "quest_add", "name": qname}
+            if note:
+                op["detail"] = note
+            if word in _QUEST_STATUS_WORDS and _QUEST_STATUS_WORDS[word]:
+                ops.append(op)                    # e.g. unseen quest tagged complete: record
+                ops.append({"op": "quest_update", "quest": qname,   # it, then settle it
+                            "status": _QUEST_STATUS_WORDS[word]})
+                continue
+            ops.append(op)
+            continue
+        st = _QUEST_STATUS_WORDS.get(word)
+        op = {"op": "quest_update", "quest": qname}
+        if st:
+            op["status"] = st
+        if note:
+            op["note"] = note
+        if st is None and not note:
+            op["note"] = m.group(2).strip()       # free-text beat -> the quest's note line
+        ops.append(op)
+    for m in _AFFINITY_TAG_RE.finditer(text):
+        tgt = m.group(1).strip()
+        if not tgt or tgt.lower() in _USER_TOKENS:
+            continue                              # standing is measured FROM the player
+        try:
+            d = int(m.group(2))
+        except ValueError:
+            continue
+        op = {"op": "affinity_adj", "target": tgt, "delta": d}
+        if m.group(3):
+            op["reason"] = m.group(3).strip()
+        ops.append(op)
+    for m in _HP_TAG_RE.finditer(text):
+        who = _tag_char(m.group(1), state)
+        try:
+            d = int(m.group(2))
+        except ValueError:
+            continue
+        if not who or d == 0:
+            continue
+        op = {"op": "hp_adj", "char": who, "delta": d}
+        if m.group(3):
+            op["reason"] = m.group(3).strip()
+        ops.append(op)
     return ops
 
 
@@ -362,8 +535,11 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
     # R9 — effect tag protocol (RPG only, doc 05 §5.4): the DM's LAST settled reply is
     # scanned once per new turn; proposals apply with source="extraction" (pipeline). A
     # swiped reply never half-applies: tags parse only when its replacement settles.
+    # R10 — world tag protocol (RPG-5): scene / items / quests / affinity / HP ride the
+    # same spine — the ledger, not the prose, is what's true.
     if is_new and last_assistant and rpg:
         res.proposal_ops.extend(_parse_effect_tags(last_assistant, state))
+        res.proposal_ops.extend(_parse_world_tags(last_assistant, state))
 
     # R0 — safeword scan (Q13/Q14 scopes)
     if is_new:

@@ -19,7 +19,7 @@ from . import compose, director, discovery, genesis, linter, tier0
 from .config import Config
 from .session_engine import SessionEngine
 from . import memory
-from .state import apply_delta, current_state
+from .state import apply_delta, current_state, progression_ops
 from .stamps import Stamp
 from .store import Store
 
@@ -36,6 +36,8 @@ class PostContext:
     speaker: Optional[str] = None
     card: str = ""                # Q23: genesis stage-B inputs (new_session only)
     opening: str = ""
+    evolutions: Optional[list] = None   # RPG-5: (char, table, id, bracket) crossings this
+    #                                     turn — the cold path schedules Q27 re-authoring
 
 
 class Pipeline:
@@ -62,26 +64,32 @@ class Pipeline:
             genesis.seed_player(self.store, self.cfg, res.session_id, res.branch_id, doc)
         state = current_state(self.store, res.branch_id)
 
+        evolutions: list = []
         if not res.duplicate:                 # 08 S7: retries never double-apply
             t0 = tier0.run(doc, res.klass.value, res.duplicate, state, self.cfg, self.rng)
             if t0.doc is not None:            # OOC spans stripped (03 R1)
                 doc = t0.doc
                 changed = True
+            applied_now: list = []
             if t0.user_ops:                   # user source FIRST: freeze gates the rule batch
                 r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
                                 t0.user_ops, "user", self.cfg)
                 state = r.state
+                applied_now += r.applied
                 self._index_memories(res, r)
             if t0.rule_ops:
                 r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
                                 t0.rule_ops, "rule", self.cfg)
                 state = r.state
+                applied_now += r.applied
                 self._index_memories(res, r)
-            if t0.proposal_ops:               # R9 (RPG-3): model-authored effect tags apply
+            if t0.proposal_ops:               # R9/R10: model-authored ledger tags apply
                 r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
                                 t0.proposal_ops, "extraction", self.cfg)   # proposals, clamped
                 state = r.state
+                applied_now += r.applied
                 self._index_memories(res, r)
+            state, evolutions = self._progress(res, state, applied_now)   # RPG-5 (doc 10)
             for n in t0.notices:
                 log.info("tier0 notice: %s", n)
             self._capture_user_text(doc, res)
@@ -111,8 +119,34 @@ class Pipeline:
             pass
         ctx = PostContext(res.session_id, res.branch_id, res.turn_index, res.klass.value,
                           speaker=(res.stamp.speaker if res.stamp else None),
-                          card=card, opening=opening)
+                          card=card, opening=opening,
+                          evolutions=evolutions or None)
         return (compose.to_bytes(doc) if changed else body), ctx
+
+    def _progress(self, res, state: dict, applied: list) -> tuple[dict, list]:
+        """RPG-5 hot-path progression pass (µs, pure arithmetic + one apply): XP awards,
+        level-ups, and defeat resolution derived from THIS turn's applied ops; also
+        collects mastery-bracket crossings for the cold-path Q27 evolution hook.
+        Fail-open — any error leaves state exactly as it was (invariant 1)."""
+        evolutions: list = []
+        try:
+            spec = getattr(self.cfg, "specialization", None)
+            if spec is None or spec.name != "rpg" or not state.get("player"):
+                return state, evolutions
+            for op in applied:
+                if op.get("op") == "master_tick" and op.get("_bracket_up"):
+                    evolutions.append((op.get("char"), "skills", op.get("skill"),
+                                       op.get("_bracket_up")))
+            pro = progression_ops(state, applied,
+                                  hardcore=getattr(spec, "hardcore", False))
+            if pro:
+                r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
+                                pro, "rule", self.cfg)
+                self._index_memories(res, r)
+                return r.state, evolutions
+        except Exception as exc:
+            log.warning("progression pass failed open: %s", type(exc).__name__)
+        return state, evolutions
 
     def _index_memories(self, res, r) -> None:
         """Mirror user/rule memory_event ops into the retrieval index (fail-open)."""
@@ -166,6 +200,7 @@ class Pipeline:
             self._recall_pass(ctx)            # P4/Q15: keep recall fresh in rules-only mode
             self._lint_pass(ctx, text)        # 03 SS9 (full in off/rules; L9-only otherwise)
             self._genesis_pass(ctx)           # Q23 stage B: assist-LLM seed (cold path)
+            self._evolve_pass(ctx)            # RPG-5: Q27 mastery re-authoring (cold path)
             if self.jobs is not None:
                 self.jobs.notify(ctx.session_id, ctx.branch_id, ctx.turn_index)
         except Exception as exc:
@@ -206,6 +241,29 @@ class Pipeline:
             t.add_done_callback(self.jobs._tasks.discard)
         except Exception as exc:
             log.warning("genesis schedule failed open: %s", type(exc).__name__)
+
+    def _evolve_pass(self, ctx: PostContext) -> None:
+        """RPG-5 (doc 10 §4 / Q27): a mastery bracket crossed this turn schedules a cold-path
+        assist re-authoring of that skill's frozen def. Fail-open at every step — without an
+        assist model the curated bracket bonus (registry.effective_mod) IS the evolution."""
+        try:
+            if not ctx.evolutions or self.jobs is None:
+                return
+            spec = getattr(self.cfg, "specialization", None)
+            if spec is None or spec.name != "rpg":
+                return
+            from . import creator as _creator
+            ep, _, _ = self.jobs.endpoint_for(ctx.session_id)
+            for (char, table, sid, bracket) in ctx.evolutions[:2]:   # bounded per turn
+                t = asyncio.get_running_loop().create_task(
+                    _creator.evolve_def_snapshot(
+                        self.store, self.cfg, self.jobs.ladder.get_client, ep,
+                        ctx.session_id, ctx.branch_id, str(char), str(table), str(sid),
+                        str(bracket), turn=ctx.turn_index))
+                self.jobs._tasks.add(t)
+                t.add_done_callback(self.jobs._tasks.discard)
+        except Exception as exc:
+            log.warning("evolve schedule failed open: %s", type(exc).__name__)
 
     def _lint_pass(self, ctx: PostContext, text: Optional[str]) -> None:
         """Cold-path lint. off/rules extraction: the Tier-0 apply IS the post-apply

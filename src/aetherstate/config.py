@@ -201,6 +201,8 @@ class SpecializationConfig(BaseModel):
     #                                  (negatives halved; 0 disables the cascade entirely)
     contract: str = "full"           # RPG-4 (05 §5.9/D7): DM rules-contract size — "full"
     #                                  for strong models, "compact" for weak/local budgets
+    hardcore: bool = False           # RPG-5 (doc 10 §7): defeat_resolve routes to DEATH —
+    #                                  permadeath; off = contextual non-lethal outcomes
 
 
 # Built-in RPG specialization profile (Q27 / doc 05 §7): lower-priority DEFAULTS overlaid
@@ -209,6 +211,11 @@ class SpecializationConfig(BaseModel):
 # effective precedence is user-override > profile > base-default. Non-RPG loads never touch
 # it. Keep entries to things a later RPG phase actually consumes — no dead config.
 RPG_PROFILE: dict[str, Any] = {
+    "director": {
+        # RPG-5: the adventure beat pack rides the profile default (user's own list wins).
+        "beat_libraries": ["core_drama", "erp_tension", "erp_escalation",
+                           "erp_aftercare", "aftercare_checkin", "rpg_adventure"],
+    },
     "injection": {
         # RPG header-class ranking (doc 05 §6): directive very high so it is never
         # budget-dropped, player_card high, then quest/relations/factions/gear/inventory/

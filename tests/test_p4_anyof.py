@@ -88,9 +88,10 @@ def test_op_add_stays_one_table_cheap():
     """Q22 standing directive: adding an op kind (inventory ops are the first customers)
     touches the tables only — builders, scrub, and salvage all derive. This weld breaks
     loudly if the tables drift apart."""
-    from aetherstate.extraction import (EXTRACTION_OPS_RPG, RPG_EFFECT_OPS, RPG_ITEM_OPS,
-                                        RPG_SOCIAL_OPS, _RPG_OP_FIELDS)
-    rpg_ops = set(RPG_ITEM_OPS) | set(RPG_EFFECT_OPS) | set(RPG_SOCIAL_OPS)   # RPG-2 + 3 + 3b
+    from aetherstate.extraction import (EXTRACTION_OPS_RPG, RPG_EFFECT_OPS, RPG_GAP_OPS,
+                                        RPG_ITEM_OPS, RPG_SOCIAL_OPS, _RPG_OP_FIELDS)
+    rpg_ops = set(RPG_ITEM_OPS) | set(RPG_EFFECT_OPS) | set(RPG_SOCIAL_OPS) \
+        | set(RPG_GAP_OPS)                             # RPG-2 + 3 + 3b + 5
     assert set(EXTRACTION_OPS) | rpg_ops == set(_OP_ALLOWED)   # are the rpg tier
     assert set(EXTRACTION_OPS_RPG) == set(EXTRACTION_OPS) | rpg_ops
     assert set(EXTRACTION_OPS_RPG) <= set(state._SPEC)
@@ -121,6 +122,9 @@ _MINIMAL: dict[str, dict] = {
     "obsession": {"op": "obsession", "char": "a", "target_kind": "entity", "target": "b",
                   "delta": 1},
     "craving": {"op": "craving", "char": "a", "substance": "wine", "action": "consume"},
+    # RPG-5 quest ledger (rpg wire tier)
+    "quest_add": {"op": "quest_add", "name": "q", "stakes": "serious"},
+    "quest_update": {"op": "quest_update", "quest": "q", "status": "complete"},
 }
 
 

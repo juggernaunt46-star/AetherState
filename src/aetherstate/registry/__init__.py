@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..state import CHECK_TIERS as CHECK_TIERS  # re-export: state owns the op vocab (single source)
-from ..state import GEAR_SLOTS
+from ..state import GEAR_SLOTS, mastery_bracket
 
 try:
     import tomllib  # py311+
@@ -219,7 +219,8 @@ class Registry:
         return total
 
     def effective_mod(self, player: dict, skill_id: str) -> int:
-        """stat_mod(keyed_stat) + base_mod + rank + passive-ability mods (doc 06 §2.2).
+        """stat_mod(keyed_stat) + base_mod + rank + passive-ability mods (doc 06 §2.2)
+        + the mastery bracket bonus (RPG-5, doc 10 §4 — the curated evolution floor).
         The skill definition is resolved snapshot-first (per-character freeze wins)."""
         s = self.skill_entry(skill_id, player)
         keyed = str(s.get("keyed_stat", "")).upper()
@@ -228,6 +229,7 @@ class Registry:
         mod += int(s.get("base_mod", 0))
         mod += int((player or {}).get("skills", {}).get(skill_id, 0))
         mod += self.passive_mod(player, skill_id)
+        mod += mastery_bracket(((player or {}).get("mastery") or {}).get(skill_id, 0))[1]
         return mod
 
     def skill_label(self, skill_id: str, player: Optional[dict] = None) -> str:
@@ -293,6 +295,23 @@ def load(cfg=None) -> Registry:
     except Exception:
         override = ""
     return _load(override)
+
+
+def skill_cost(entry: dict) -> dict:
+    """Normalized resource cost {resource: amount>0} from a skill/ability def (RPG-5,
+    doc 10 §5.4). Costs are declared in the registry / frozen defs — never by the model
+    mid-roll. Empty dict = free (worlds without pools play exactly as before)."""
+    c = (entry or {}).get("cost")
+    out: dict[str, int] = {}
+    if isinstance(c, dict):
+        for k, v in c.items():
+            try:
+                iv = int(v)
+            except (TypeError, ValueError):
+                continue
+            if iv > 0:
+                out[str(k).lower()] = iv
+    return out
 
 
 def gear_skill_mod(state: dict, eid: str, skill_id: str) -> int:

@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — swiped-greeting genesis build (2026-07-06b)");
+  console.log("[AetherState] Companion loaded — fresh-creator-link build (2026-07-07a)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -150,6 +150,11 @@
     on("CHAT_CHANGED", () => {                              // 05 §5
       turnCounter = 0; stampHeader(); hint("chat_changed"); refreshChip();
       genesisAtChatOpen();                                  // turn-0 seed (proxy idempotent)
+      try {                                                 // 2026-07-07 live repro: the panel's
+        const a = document.getElementById("aes_creator");   // Creator link kept the PREVIOUS
+        if (a) a.href = settings.proxy_url                  // chat's session — copy-link or
+          + "/aether/creator?session=" + encodeURIComponent(sid());   // middle-click then saved
+      } catch (e) { /* fail-open */ }                       // the world to the WRONG session
     });
     on("GENERATION_STARTED", (type, opts, dryRun) => {
       try {

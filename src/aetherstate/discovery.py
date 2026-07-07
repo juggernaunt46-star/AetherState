@@ -76,11 +76,16 @@ def scan(text: str) -> set[str]:
 
 
 def known_names(state: dict, extra: tuple[str, ...] = ()) -> set[str]:
-    """Registered entity names + aliases + guard/persona names, lowercased."""
+    """Registered entity names + aliases + guard/persona names, lowercased — plus each
+    name's individual TOKENS (2026-07-07 live repro: 'Kaji' minted a twin of the player
+    'Kaji Hoshino'; a first/last name alone is never a NEW person)."""
     out = {str(x).lower() for x in extra if x}
     for e in state.get("entities", {}).values():
-        out.add(str(e.get("name", "")).lower())
-        out.update(str(a).lower() for a in e.get("aliases", []))
+        name = str(e.get("name", "")).lower()
+        out.add(name)
+        out.update(w for w in name.split() if len(w) >= 3)
+        for a in e.get("aliases", []):
+            out.add(str(a).lower())
     return out
 
 

@@ -126,21 +126,50 @@ async def _chat(get_client, cfg, ep: Endpoint, system: str, user: str,
 _FENCE_RE = re.compile(r"```(?:json)?\s*|\s*```", re.IGNORECASE)
 
 
+def _heal_stray_quotes(t: str, rounds: int = 40):
+    """Last-resort healer for the classic large-model failure: an UNESCAPED double quote
+    inside a JSON string ('the hero "Hawks" swaggers...') closes the string early and no
+    brace/comma repair can save it. Bounded loop: at each decode error, escape the quote
+    nearest before the failure point and retry (2026-07-07 live repro: GLM-5.2's MHA
+    world JSON died exactly this way). Returns the parsed object or None."""
+    for _ in range(rounds):
+        try:
+            return json.loads(t)
+        except json.JSONDecodeError as e:
+            q = t.rfind('"', 0, e.pos)
+            if q <= 0:
+                return None
+            t = t[:q] + '\\"' + t[q + 1:]
+        except ValueError:
+            return None
+    return None
+
+
 def _json_or_none(text):
     """Parse a JSON object out of a model reply. 2026-07-06 live repro: GLM wraps its
     (otherwise perfect) creator JSON in a ```json fence — strip fences first, then try
-    the whole reply, then the outermost {...} slice (prose-préfixed replies)."""
+    the whole reply, the outermost {...} slice (prose-prefixed replies), and the BALANCED
+    slice (trailing commentary after the JSON). Unescaped-quote healing is the last rung."""
     if not text:
         return None
     text = _FENCE_RE.sub("", text)
     i, k = text.find("{"), text.rfind("}")
-    for cand in (text, text[i:k + 1] if 0 <= i < k else ""):
+    cands = [text]
+    if 0 <= i < k:
+        from .extraction import _last_balanced
+        cands.append(text[i:k + 1])
+        cands.append(text[i:_last_balanced(text, i)])   # ignores junk past the object
+    for cand in cands:
         if not cand:
             continue
         try:
             return json.loads(repair_json(cand))
         except (json.JSONDecodeError, ValueError):
             continue
+    for cand in cands[1:] if len(cands) > 1 else cands:   # heal unescaped inner quotes
+        doc = _heal_stray_quotes(repair_json(cand))
+        if isinstance(doc, dict):
+            return doc
     return None
 
 

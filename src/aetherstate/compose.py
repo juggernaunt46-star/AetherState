@@ -56,12 +56,16 @@ def _render_player(state: dict, cfg=None) -> str:
         if not isinstance(p, dict):
             continue
         head = f'{_name(state, eid)} · Lv{p.get("level", 1)}'
+        if int(p.get("xp", 0) or 0) > 0:
+            head += f' (XP {p["xp"]})'          # RPG-5: progression is visible truth
         hp = p.get("hp") or {}
         if hp.get("max"):
             head += f' · HP {hp.get("cur", hp["max"])}/{hp["max"]}'
         for rname, r in (p.get("resources") or {}).items():
             if isinstance(r, dict) and r.get("max"):
                 head += f' · {str(rname).capitalize()} {r.get("cur", r["max"])}/{r["max"]}'
+        if int(p.get("stat_points", 0) or 0) > 0:
+            head += f' · {p["stat_points"]} stat pt unspent'
         block = [head]
         stats = p.get("stats") or {}
         if stats:
@@ -196,6 +200,15 @@ _DIRECTIVE_PHRASE = {
     "crit_success": "critical success",
 }
 
+# RPG-5 (doc 10 §7): defeat outcome classes — code picks the class, the narrator flavors it.
+_DEFEAT_PHRASE = {
+    "captured": "overcome and taken by the victors; narrate the capture, not a rescue",
+    "wake_safe": "knocked out of the fight; they come to somewhere safe, time having passed",
+    "robbed": "beaten and stripped of their carried goods; the loss is real",
+    "rescued": "downed until someone intervenes to pull them out",
+    "death": "this is death, final and unsoftened — narrate it with the weight it deserves",
+}
+
 
 def _render_directive(state: dict) -> str:
     """[DIRECTIVE] — the pre-decided outcome(s) of THIS turn's check(s) (doc 05 §4/§5.2). Reads
@@ -204,22 +217,47 @@ def _render_directive(state: dict) -> str:
     never-dropped header so the resolve-then-narrate contract can't be budget-cut."""
     turn = state.get("meta", {}).get("turn", -1)
     checks = [r for r in state.get("rolls", []) if r.get("turn") == turn and r.get("tier")]
-    if not checks:
-        return ""
     clauses = []
     for c in checks:
         tier = str(c.get("tier"))
         skill = str(c.get("skill") or "the")
         phrase = _DIRECTIVE_PHRASE.get(tier, tier)
         clauses.append(f"{phrase} — the {skill} check resolved as {tier.upper()}")
+    for eid, p in (state.get("player") or {}).items():   # RPG-5 (doc 10 §7): a defeat this
+        d = p.get("defeated") if isinstance(p, dict) else None   # turn is a code-decided
+        if isinstance(d, dict) and d.get("turn") == turn:        # outcome CLASS to narrate
+            phrase = _DEFEAT_PHRASE.get(str(d.get("outcome")), "defeated")
+            clauses.append(f"{_name(state, eid)} is DEFEATED — {phrase}")
+    if not clauses:
+        return ""
     what = "these outcomes" if len(clauses) > 1 else "this outcome"
     return ("[DIRECTIVE] NARRATE: " + "; ".join(clauses) + f". Narrate exactly {what}; "
             "do not soften, upgrade, or override the result of a roll.")
 
 
 def _render_quest(state: dict) -> str:
-    """[QUEST] — over the existing per-character `goal` ops (doc 05 §5.6): the Player's goals
-    are the quests; fall back to any character's goals before a Player Card exists."""
+    """[QUEST] — the quest LEDGER first (RPG-5, G3): active quests with stakes/notes, plus
+    recently-settled ones so the narrator can close arcs. Falls back to the legacy
+    per-character `goal` lines when no quest has ever been recorded."""
+    qs = state.get("quests") or {}
+    turn = state.get("meta", {}).get("turn", -1)
+    bits: list[str] = []
+    for qid, q in qs.items():
+        if not isinstance(q, dict):
+            continue
+        st = q.get("status", "active")
+        if st == "active":
+            t = str(q.get("name", qid))
+            if q.get("stakes"):
+                t += f" ({q['stakes']})"
+            if q.get("note"):
+                t += f" — {str(q['note'])[:80]}"
+            bits.append(t)
+        elif st in ("complete", "failed") \
+                and turn - int(q.get("updated_turn", -10**9)) <= 4:
+            bits.append(f"{q.get('name', qid)} — {st.upper()}")
+    if bits:
+        return "[QUEST] " + " · ".join(bits)
     chars = state.get("chars", {})
     order = list((state.get("player") or {}).keys()) or list(chars.keys())
     quests: list[str] = []

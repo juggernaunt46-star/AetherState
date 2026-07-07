@@ -28,7 +28,8 @@ from typing import Optional
 
 from . import assist, compose, director, discovery, linter, memory
 from .extraction import Endpoint, Ladder
-from .state import apply_delta, current_state, faction_cascade_ops, is_empty, reduce_state
+from .state import (apply_delta, current_state, faction_cascade_ops, is_empty,
+                    progression_ops, reduce_state)
 
 log = logging.getLogger("aetherstate.jobs")
 
@@ -78,8 +79,12 @@ class JobRunner:
                 log.warning("extraction mode 'assist' but no [assist] endpoints configured "
                             "— falling back to the main upstream (fail-open)")
                 self._warned_no_assist = True
+        # 2026-07-07 live repro: after a proxy restart the in-memory model hint is gone and
+        # resume_pending fired extraction with model="" -> upstream 404 x ladder. The
+        # configured [upstream].model is the engine-default fallback (same rule as assist).
         return (Endpoint(base_url=self.cfg.upstream.base_url,
-                         model=self.models.get(session_id, "")), "main", 1)
+                         model=self.models.get(session_id, "")
+                         or getattr(self.cfg.upstream, "model", "") or ""), "main", 1)
 
     # ------------------------------------------------------------------ scheduling
     def notify(self, session_id: str, branch_id: str, head_turn: int) -> None:
@@ -231,6 +236,18 @@ class JobRunner:
                     log.info("faction cascade: %d op(s) applied", len(r2.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("faction cascade skipped: %s", type(exc).__name__)
+        try:                                   # RPG-5 (doc 10): code-awarded progression —
+            spec = getattr(self.cfg, "specialization", None)   # XP / level-ups / defeat from
+            if spec is not None and spec.name == "rpg" and res.state.get("player"):
+                pro = progression_ops(res.state, res.applied,
+                                      hardcore=getattr(spec, "hardcore", False))
+                if pro:
+                    r3 = apply_delta(self.store, b.session_id, b.branch_id, b.hi, pro,
+                                     "rule", self.cfg)
+                    res.state = r3.state
+                    log.info("progression: %d op(s) applied", len(r3.applied))
+        except Exception as exc:               # never fails the batch (invariant 3)
+            log.warning("progression pass skipped: %s", type(exc).__name__)
         self.store.mark_extraction(b.branch_id, b.lo, b.hi, "done")
         log.info("extracted [%d,%d]: %d applied, %d quarantined, %d retro-applied",
                  b.lo, b.hi, len(res.applied), len(res.quarantined), requeued)

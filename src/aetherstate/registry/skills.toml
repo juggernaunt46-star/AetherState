@@ -75,5 +75,6 @@ keyed_stat = "INT"
 base_mod = 0
 max_rank = 5
 requires_ability = "arcane_gift"
+cost = { mana = 2 }
 governs = ["cast", "spell", "channel", "mana", "weave", "incant", "conjure"]
 desc = "Shaping magic. Requires the Arcane Gift — you cannot declare power; you acquire it."

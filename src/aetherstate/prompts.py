@@ -72,11 +72,22 @@ One op per change. An op carries ONLY its listed fields — everything else null
 RPG_ITEM_CARD = """RPG ITEM OPS (propose only when [GEAR]/[INVENTORY] blocks appear in CURRENT STATE):
 item_move{instance,to} · item_equip{instance,slot,swap?} · item_unequip{instance,to?}
 item_consume{instance,amount?} · item_transfer{instance,to_owner,to?}
+item_gain{char,name,qty?} — char ACQUIRED an item in the story (bought, looted, was handed,
+found). item_lose{char,name} — an item they carry was lost, destroyed, or given away for good.
 instance = the item's exact name (or id) from [GEAR]/[INVENTORY]. to: inv:loose | inv:<container> |
 world (dropped) | gone (destroyed). slots: head face neck shoulders body cape arms hands mainhand
 offhand waist legs feet back accessory1 accessory2
-You never create items — the engine mints them. Only move/equip/unequip/consume/transfer items
-that already exist in the state blocks."""
+item_gain is the ONLY way you record a new possession — log every acquisition the exchange
+shows; a known template name grounds its mechanics, any other name commits as a plain item.
+Only move/equip/unequip/consume/transfer items that already exist in the state blocks."""
+
+# RPG-5 (playtest G3/G7): quest ledger + bounded consequence ops — appended under rpg only.
+RPG_QUEST_CARD = """RPG QUEST & CONSEQUENCE OPS (the [QUEST] block is the ledger of objectives):
+quest_add{name,detail?,giver?,stakes?:minor|serious|epic} — the story created a real objective.
+quest_update{quest,status?:active|complete|failed|abandoned,note?} — it advanced or resolved;
+quest = its exact name. Log EVERY quest beat — an objective that only lives in prose is lost.
+hp_adj{char,delta,reason?} — the Player visibly took harm or was healed; small integers
+(the engine clamps swings). Never invent numbers for anything else."""
 
 # RPG-3 (doc 05 §5.4): the effect-op card — appended alongside the item card under rpg only.
 # Teaches the three PROPOSABLE effect ops; the LLM proposes, the ledger owns the truth.
@@ -95,7 +106,9 @@ Never remove or contradict an effect [EFFECTS] does not show."""
 RPG_SOCIAL_CARD = """RPG SOCIAL OPS (propose when standing or world circumstances visibly shift):
 affinity_adj{target,delta,reason} — how the PLAYER's standing with an NPC or faction moved this
 exchange. delta -15..15 (typical 2-8); target = the NPC's or faction's exact name. Only for
-characters/factions in CHARACTERS; never for the player themselves.
+characters/factions in CHARACTERS; never for the player themselves. Any exchange where an
+NPC's attitude toward the Player visibly warms or cools warrants one — never leave standing
+stale while the story moves it.
 world_flag{key,value,faction?} — a standing world circumstance changed (war declared, plague
 spreading, gates sealed). key: short snake_case name; value: a short word, number, or
 true/false; value null clears the flag. faction: name a faction to scope it to that faction.
@@ -147,12 +160,15 @@ JSON: {"schema":"aetherstate/delta/1","turn_range":[19,19],"ops":[
 # non-negotiables (honor the [DIRECTIVE]; never invent mechanics). Droppable under budget
 # (rides its own component, not the never-dropped header) — the [DIRECTIVE] itself is what is
 # load-bearing per turn and rides the header.
-DM_CONTRACT_VERSION = "dm-rules/2"
+DM_CONTRACT_VERSION = "dm-rules/3"
 DM_RULES_CONTRACT = (
     "[RULES] You are the Game Master of a mechanical RPG. The engine — not you — resolves "
     "dice, skill checks, damage, loot, and stats; you only NARRATE the results it hands you. "
     "When a [DIRECTIVE] is present, narrate exactly that outcome (the dice already decided it) "
-    "— never soften, upgrade, downgrade, or reverse a resolved check. Use only the skills, "
+    "— never soften, upgrade, downgrade, or reverse a resolved check. A resolved check "
+    "settles THIS attempt NOW: never stall it into an open negotiation, have an NPC nullify "
+    "its premise, or defer the result to a later reply — the roll happened; spend it in this "
+    "scene. Use only the skills, "
     "abilities, and items shown in the state blocks; never invent new mechanics, roll your own "
     "dice, or grant items/skills the engine has not. Speak the world and its NPCs; never the "
     "Player. Characters named in state blocks are KNOWN, not on-scene — only [SCENE]'s "
@@ -167,17 +183,27 @@ DM_RULES_CONTRACT = (
 # the change inline, the ENGINE commits it to the ledger, and the [EFFECTS] block feeds the
 # committed truth back every turn. Re-sent with the contract each request (droppable under
 # budget), so even after a context rollover the model is re-anchored. ~120 tokens.
-EFFECTS_PROTOCOL_VERSION = "effect-tags/1"
+EFFECTS_PROTOCOL_VERSION = "world-tags/2"
 _EFFECTS_PROTOCOL = (
-    "\n[TAGS] When the fiction changes what afflicts or empowers a character, emit the tag on "
-    "its own line so the engine can commit it to the ledger: "
+    "\n[TAGS] When the fiction changes tracked truth, emit the matching tag on its own line "
+    "so the engine commits it to the ledger: "
     "[status gained | <char> | <Name> | negative|neutral|positive] · "
-    "[status lost | <char> | <Name>] · [condition gained | <char> | <Name> | <valence>] · "
-    "[condition lost | <char> | <Name>] · [valence shift | <char> | <Name> | <valence>]. "
-    "Statuses are combat effects; Conditions are anything else that makes in-world sense. "
-    "Known presets — Statuses: {statuses}. Conditions: {conditions}. You may mint NEW ones "
-    "with the same tags. The [EFFECTS] block is the ledger of what is true — never contradict "
-    "it, and do not re-tag what it already shows.")
+    "[status lost | <char> | <Name>] · [condition gained/lost | <char> | <Name> | <valence>] · "
+    "[valence shift | <char> | <Name> | <valence>] · "
+    "[scene | <location> | <phase?> | present: <names?>] EVERY time the scene moves or the "
+    "on-stage cast changes · "
+    "[item gained | <char> | <Item> | <qty?>] / [item lost | <char> | <Item>] for every "
+    "acquisition or loss · "
+    "[quest | <Name> | new|update|complete|failed|abandoned | <note?>] for every objective "
+    "beat · [affinity | <NPC or faction> | +N/-N | <why>] when standing with the Player "
+    "shifts — an NPC who warms, cools, owes, or trusts differently after a scene and gets no "
+    "affinity tag is a RECORDING FAILURE (e.g. [affinity | Ren | +6 | she repaid the coffee "
+    "honestly]) · [hp | <char> | -N/+N | <why>] whenever the Player takes REAL physical harm "
+    "or heals — a wound worth describing is worth an hp tag, alongside any condition. "
+    "Statuses are combat effects; Conditions anything else in-world. Known presets — "
+    "Statuses: {statuses}. Conditions: {conditions}. You may mint NEW effect/item/quest "
+    "names with the same tags. The state blocks are the ledger of what is true — never "
+    "contradict them, and do not re-tag what they already show.")
 
 
 # RPG-4 (doc 05 §5.9 / D7): the degradation ladder's contract rung — a shrunk contract for
@@ -185,7 +211,8 @@ _EFFECTS_PROTOCOL = (
 # Selected by [specialization].contract = "compact" (default "full").
 DM_RULES_CONTRACT_COMPACT = (
     "[RULES] The engine resolves ALL mechanics (dice, checks, damage, items); you only "
-    "narrate its results — a [DIRECTIVE] outcome is final. Use only shown skills/items; "
+    "narrate its results — a [DIRECTIVE] outcome is final and settles the attempt NOW. "
+    "Use only shown skills/items; "
     "invent none. Never write the Player. Only [SCENE]'s present list is on-scene. End "
     "in-fiction — no 'What will you do?'.")
 
@@ -224,7 +251,7 @@ def system_prompt(rung: int, assist_tier: bool = False, include_card: bool = Tru
     if not include_card and rung <= 2 and not assist_tier:
         return SYSTEM_CORE
     card = OP_CARD + ("\n" + RPG_ITEM_CARD + "\n" + RPG_EFFECT_CARD + "\n" + RPG_SOCIAL_CARD
-                      if rpg else "")
+                      + "\n" + RPG_QUEST_CARD if rpg else "")
     return SYSTEM_CORE + "\n\n" + card
 
 

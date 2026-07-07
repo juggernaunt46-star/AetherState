@@ -146,6 +146,39 @@ def resolve_path(state: dict, path: str):
                     return False, None
                 return (rest[2] in o), o.get(rest[2])
             return False, None
+        if path.startswith("quest."):            # RPG-5: quest.active_count | quest.<qid>.<f>
+            qs = state.get("quests", {}) or {}   # (.stale_turns = turns since last update)
+            key = path[6:]
+            if key == "active_count":
+                return True, sum(1 for q in qs.values()
+                                 if isinstance(q, dict) and q.get("status") == "active")
+            qid, _, fieldname = key.partition(".")
+            q = qs.get(qid)
+            if not isinstance(q, dict) or not fieldname:
+                return False, None
+            if fieldname == "stale_turns":
+                return True, (state.get("meta", {}).get("turn", -1)
+                              - int(q.get("updated_turn", -1)))
+            return (fieldname in q), q.get(fieldname)
+        if path.startswith("player."):           # RPG-5: player.hp_frac | level | xp |
+            pl = next((p for p in (state.get("player") or {}).values()   # defeated_ago
+                       if isinstance(p, dict)), None)
+            if pl is None:
+                return False, None
+            key = path[7:]
+            if key == "hp_frac":
+                hp = pl.get("hp") or {}
+                mx = int(hp.get("max", 0) or 0)
+                return (mx > 0), ((int(hp.get("cur", 0)) / mx) if mx else None)
+            if key == "defeated_ago":
+                d = pl.get("defeated") or {}
+                if "turn" not in d:
+                    return False, None
+                return True, state.get("meta", {}).get("turn", -1) - int(d["turn"])
+            return (key in pl), pl.get(key)
+        if path.startswith("world."):            # RPG-5: standing world flags
+            w = state.get("world", {}) or {}
+            return (path[6:] in w), w.get(path[6:])
         return False, None
     except Exception:
         return False, None
@@ -232,6 +265,10 @@ def bindings(beat: dict, state: dict, user_ids: set) -> list[dict]:
             for key, o in sorted(state.get("chars", {}).get(c, {}).get("obsessions", {}).items()):
                 out.append({"char": c, "obs_key": key, "obs_target": str(o.get("target", ""))})
         return out
+    if kind == "quest":                          # RPG-5: one binding per ACTIVE quest
+        return [{"quest": qid, "quest_name": str((q or {}).get("name", qid))}
+                for qid, q in sorted((state.get("quests") or {}).items())
+                if isinstance(q, dict) and q.get("status") == "active"]
     return []
 
 

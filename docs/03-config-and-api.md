@@ -200,6 +200,7 @@ headers are consumed, never forwarded. Errors are OpenAI-shaped JSON (502 `not_c
 | `GET /aether/presets` · `POST /aether/presets` | list / upsert named creator presets (kind `world\|player`, name, doc) |
 | `GET /aether/presets/{id}` · `DELETE /aether/presets/{id}` | fetch / delete one preset |
 | `GET /aether/session/{sid}/journal?limit=N` | RPG-4 inspector feed: applied-op tail (turn · source · op · brief fields) + last rolls — the Console's "Recent activity (RPG)" card |
+| `GET /aether/session/{sid}/search?q=&limit=N` | RPG-5: search the session's memory/summary ledger with the composite recall scorer (lexical + importance + recency; embeddings when staged). Read-only, fail-open to `[]` |
 | `POST /aether/session/{sid}/world` | persist a world doc as shipped ops (entities/lore/scene); creator-first: an unknown `sid` mints the session by external id (2026-07-06 — the row the relay adopts on the chat's first stamped message); response carries `session_id` |
 | `POST /aether/session/{sid}/player` | persist a Player Card (`entity_add`+`player_seed`+attrs); same creator-first session-minting as the world route |
 
@@ -258,6 +259,7 @@ the character card into a Dungeon Master and tracks the user's persona as a Play
 | `nemesis_enabled` | `false` | RPG-3b: gates the `one_nemesis` linter rule (D6; the op itself always exists) |
 | `faction_cascade` | `0.1` | RPG-3b: NPC→faction affinity ripple factor (negatives halved; `0` disables) |
 | `contract` | `"full"` | RPG-4 (D7): DM rules-contract size — `"compact"` (~40 tokens, same non-negotiables) for weak/local model budgets |
+| `hardcore` | `false` | RPG-5 (doc 10 §7): `defeat_resolve` routes to DEATH (permadeath) instead of the contextual non-lethal outcomes (captured / wake safe / robbed / rescued) |
 
 **Overlay resolver (`config._apply_specialization`).** When `name == "rpg"` the built-in
 `RPG_PROFILE` is deep-merged UNDER the user's config, so precedence is **user-override >

@@ -96,8 +96,14 @@ RPG_EFFECT_OPS = ("effect_add", "effect_remove", "effect_update")
 # Affinity `kind` is DERIVED engine-side (from the target entity's kind) and never rides
 # the wire; set_soulmate/set_nemesis are privileged and NEVER appear on the wire.
 RPG_SOCIAL_OPS = ("affinity_adj", "world_flag")
+# RPG-5 (playtest 2026-07-06 G2/G3/G7): the recording-gap ops — organic item channel
+# (mechanics-free unless a registry template grounds them at _enrich), the quest ledger,
+# and the clamped HP consequence channel. Proposable; same rpg-only wire discipline.
+# award_exp / level_up / master_tick / evolve_def / defeat_resolve are privileged and
+# NEVER appear on the wire — progression is code-awarded (doc 10).
+RPG_GAP_OPS = ("hp_adj", "item_gain", "item_lose", "quest_add", "quest_update")
 EXTRACTION_OPS_RPG = sorted(EXTRACTION_OPS + list(RPG_ITEM_OPS) + list(RPG_EFFECT_OPS)
-                            + list(RPG_SOCIAL_OPS))
+                            + list(RPG_SOCIAL_OPS) + list(RPG_GAP_OPS))
 _RPG_OP_FIELDS: dict[str, list[str]] = {
     "instance": ["string", "null"], "to": ["string", "null"], "slot": ["string", "null"],
     "to_owner": ["string", "null"], "amount": ["integer", "null"], "swap": ["boolean", "null"],
@@ -111,6 +117,11 @@ _RPG_OP_FIELDS: dict[str, list[str]] = {
     # RPG-3b social fields. `target`/`delta`/`reason`/`key`/`value` reuse base _OP_FIELDS
     # types; only world_flag's optional faction scope is new.
     "faction": ["string", "null"],
+    # RPG-5 recording-gap fields (item_gain/item_lose/quest_add/quest_update; hp_adj
+    # reuses char/delta/reason). `name` is new to the wire; `note` reuses the effect field.
+    "name": ["string", "null"], "qty": ["integer", "null"], "detail": ["string", "null"],
+    "giver": ["string", "null"], "stakes": ["string", "null"], "quest": ["string", "null"],
+    "status": ["string", "null"],
 }
 # RPG-3 branch-level vocabularies/types (anyOf rung only; the flat schema can't carry them
 # without disturbing mood — the OP CARD + apply-side validation stay load-bearing there).
@@ -334,6 +345,12 @@ _OP_ALLOWED: dict[str, set[str]] = {
     # never types records); the bond ops are absent entirely (privileged).
     "affinity_adj": {"target", "delta", "reason"},
     "world_flag": {"key", "value", "faction"},
+    # RPG-5 recording-gap ops (playtest G2/G3/G7) — scrub rows; on the wire only under rpg.
+    "item_gain": {"char", "name", "qty"},
+    "item_lose": {"char", "name"},
+    "quest_add": {"name", "detail", "giver", "stakes"},
+    "quest_update": {"quest", "status", "note"},
+    "hp_adj": {"char", "delta", "reason"},
 }
 
 

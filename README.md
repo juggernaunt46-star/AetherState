@@ -19,7 +19,9 @@ prompt, so the model stops forgetting.
 - **Console** — a built-in web dashboard to watch and edit state live.
 - **RPG / DM mode (optional)** — a full code-authoritative game layer: real dice, a Player Card,
   a World & Character Creator, items & gear, statuses & conditions, factions & affinity,
-  persistent locations. Off by default; a non-RPG session is byte-identical to plain AetherState.
+  persistent locations, quests, and a complete progression system (XP, levels, mastery that
+  grows by use, resource pools, defeat & optional permadeath). Off by default; a non-RPG
+  session is byte-identical to plain AetherState.
 - **Fail-open by design** — if anything inside AetherState breaks, your chat continues untouched.
   It never blocks or edits the story stream.
 - **Local-first, private** — everything lives in a local SQLite file. No telemetry; there is no
@@ -104,6 +106,18 @@ rollable, without an in-world basis.**
   protocol the narrator writes, the engine commits), **factions, affinity & bonds** (standing
   is journaled truth, not sentiment), **persistent locations** (canonical names, aliases,
   visit history).
+- **The world-tag protocol (new in 1.2).** The narrator marks story-changes inline —
+  `[scene | …]`, `[item gained | …]`, `[quest | …]`, `[affinity | …]`, `[hp | …]` — and the
+  engine commits them to the ledger the same round: scene moves and who's on stage, organic
+  item acquisitions (curated templates ground mechanics; unknown names commit mechanics-free —
+  no power from prose), a real quest ledger, standing shifts, and clamped HP changes.
+- **Progression (new in 1.2).** All code-awarded, never model-asserted: XP from completed
+  quests, goals, and won-over standings; levels grant HP/pools/stat points; **mastery grows by
+  use** through named brackets (Novice → Grandmaster) with an AI-authored evolution of the
+  skill's frozen definition at each crossing (curated bump without an assist model); skills
+  can cost stamina/mana, charged on attempt; critical failures leave real marks; HP 0 routes
+  to contextual defeat (captured / robbed / rescued / wake safe) — or death with
+  `[specialization] hardcore = true`.
 
 ## How state develops (priority)
 

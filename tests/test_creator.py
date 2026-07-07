@@ -69,7 +69,9 @@ def test_deterministic_player_ranks_and_knows_freestyle_defs():
     from aetherstate import registry as _reg
     card = {"stats": p["stats"], "skills": p["skills"], "abilities": p["abilities"],
             "defs": p["defs"]}
-    assert _reg.load().effective_mod(card, "stormsong") == 5     # CHA0 + base1 + rank2 + passive2
+    # RPG-5 deterministic stat spend: all-baseline stats + ranked skills -> the keyed stat
+    # of the top skill gets +2 (CHA 12 -> +1), so: CHA1 + base1 + rank2 + passive2 = 6
+    assert _reg.load().effective_mod(card, "stormsong") == 6
 
 
 def test_world_ops_use_only_shipped_vocab_and_validate():
@@ -77,7 +79,8 @@ def test_world_ops_use_only_shipped_vocab_and_validate():
     assert ops and all(validate_op(o) is not None for o in ops)
     kinds = {o["op"] for o in ops}
     assert kinds <= set(_SPEC)                                 # no new op vocabulary (invariant 3)
-    assert kinds <= {"memory_event", "entity_add", "set_attribute", "scene_set", "time_advance"}
+    assert kinds <= {"memory_event", "entity_add", "set_attribute", "scene_set",
+                     "time_advance", "quest_add"}     # RPG-5: the opening quest is ledger truth
 
 
 def test_player_ops_shape_and_validate():

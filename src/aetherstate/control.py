@@ -210,6 +210,16 @@ def _persist_config(cfg) -> bool:
                 _os.chmod(target, 0o600)
             except OSError:
                 pass
+        elif _os.name == "nt":             # 2026-07-07: NTFS equivalent — strip inherited ACLs,
+            try:                            # grant the current user only (the upstream key must
+                import subprocess as _sp    # not be world/other-user readable even locally)
+                user = _os.environ.get("USERNAME", "")
+                if user:
+                    _sp.run(["icacls", str(target), "/inheritance:r",
+                             "/grant:r", f"{user}:F"],
+                            capture_output=True, timeout=10, check=False)
+            except Exception:               # fail-open: hardening never blocks a config save
+                pass
         return True
     except Exception:
         return False
@@ -793,7 +803,8 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
                 brief = {k: op[k] for k in (
                     "name", "entity", "char", "kind", "skill", "tier", "effect", "location",
                     "template", "item", "slot", "target", "key", "value", "delta", "present",
-                    "text", "statement", "reason", "phase", "ability", "valence") if k in op}
+                    "text", "statement", "reason", "phase", "ability", "valence",
+                    "quest", "status", "note", "outcome", "amount", "qty") if k in op}
                 for tk in ("text", "statement", "reason"):   # reveal_fact rows were empty {}
                     if isinstance(brief.get(tk), str) and len(brief[tk]) > 80:
                         brief[tk] = brief[tk][:77] + "..."
@@ -805,6 +816,32 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
                 break
         return {"entries": entries, "rolls": (current_state(store, row["active_branch"])
                                               .get("rolls") or [])[-10:]}
+
+    @router.get("/session/{sid}/search")
+    async def session_search(sid: str, q: str = "", limit: int = 8):
+        """RPG-5: search over the session's memory/summary ledger (the deferred
+        AI-search-over-summaries hook, doc 10). Uses the same composite scorer recall
+        uses (lexical BM25-ish + importance + recency; embeddings when the assist tier
+        has them staged). Read-only, cold-path, fail-open to []."""
+        row = _session(store, sid)
+        if not row:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        if not q.strip():
+            return {"query": q, "hits": []}
+        try:
+            from . import memory as _memory
+            branch = row["active_branch"]
+            state = current_state(store, branch)
+            now = state.get("meta", {}).get("turn", -1)
+            rows = _memory.retrieve(store, cfg, branch, state, q.strip(), max(0, now))
+            hits = [{"text": r["text"], "turn": r["created_turn"],
+                     "importance": r["importance"],
+                     "when": _memory.when_phrase(max(0, now - r["created_turn"]))}
+                    for r in rows[:max(1, min(int(limit), 25))]]
+            return {"query": q, "hits": hits}
+        except Exception as exc:
+            log.warning("session search failed open: %s", type(exc).__name__)
+            return {"query": q, "hits": []}
 
     def _creator_apply(sid: str, ops: list):
         """Apply creator (world/player) ops at the next free turn so they survive the genesis

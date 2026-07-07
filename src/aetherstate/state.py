@@ -95,6 +95,49 @@ def affinity_tier(value) -> str:
             return label
     return "Nemesis"
 
+
+# ---- RPG-5 progression & recording vocab (doc 10; playtest 2026-07-06 G-series) ------
+# Curated, Bean-editable constants: code awards XP/mastery, the LLM never types a number
+# that sticks unclamped. Quests are a first-class ledger family (G3); items gain an organic
+# acquisition channel (G2); HP gains a bounded consequence channel (G7).
+QUEST_STATUSES = ["abandoned", "active", "complete", "failed"]
+QUEST_STAKES = ["epic", "minor", "serious"]              # sorted (stable wire schema)
+XP_AWARDS = {"quest_minor": 25, "quest_serious": 75, "quest_epic": 150,
+             "goal": 15, "defeat": 50, "faction_tier": 30}
+LEVEL_GRANTS = {"hp": 4, "pool": 2, "stat_points": 1}    # per level_up, baked at _enrich
+MASTERY_CAP = 120                                        # the hard ceiling (Bean: "a limit")
+MASTERY_BRACKETS = [(100, "Grandmaster"), (60, "Master"), (30, "Expert"),
+                    (10, "Adept"), (0, "Novice")]
+MASTERY_TICKS = {"crit_success": 4, "success": 3, "partial": 1, "fail": 1, "crit_fail": 0}
+MASTERY_SCENE_CAP = 6            # anti-grind (doc 10 M2): ticks per skill per scene
+DEFEAT_OUTCOMES = {"captured", "wake_safe", "robbed", "rescued", "death"}
+HP_ADJ_MIN_CAP = 5               # per-op swing clamp floor: max(5, hp.max // 4)
+
+
+def mastery_bracket(m) -> tuple[str, int]:
+    """(label, bonus). The bonus joins effective_mod — the curated bracket bump
+    (doc 10 §4), the evolution floor that needs no assist model."""
+    try:
+        v = int(m)
+    except (TypeError, ValueError):
+        v = 0
+    for i, (floor, label) in enumerate(MASTERY_BRACKETS):
+        if v >= floor:
+            return label, len(MASTERY_BRACKETS) - 1 - i
+    return "Novice", 0
+
+
+def xp_level(xp) -> int:
+    """Cumulative curve: level L needs 50*L*(L-1) total XP (L2=100, L3=300, L4=600…)."""
+    try:
+        v = max(0, int(xp))
+    except (TypeError, ValueError):
+        v = 0
+    lvl = 1
+    while 50 * (lvl + 1) * lvl <= v and lvl < 999:
+        lvl += 1
+    return lvl
+
 # ---- op spec: op -> (required fields, per-field validator hints) (02 SS11) --------
 _SPEC: dict[str, set[str]] = {
     "set_attribute": {"entity", "key", "value"},
@@ -149,14 +192,32 @@ _SPEC: dict[str, set[str]] = {
     "set_soulmate": {"target"},
     "set_nemesis": {"target"},
     "world_flag": {"key", "value"},
+    # RPG-5 recording gaps (playtest 2026-07-06 G1-G8): item_gain/item_lose (the organic
+    # acquisition channel — templateless names commit MECHANICS-FREE; a registry-template
+    # name grounds its mechanics), quest_add/quest_update (the quest ledger family), and
+    # hp_adj (bounded consequence channel) are PROPOSABLE (tag protocol + rpg wire).
+    "item_gain": {"char", "name"},
+    "item_lose": {"char", "name"},
+    "quest_add": {"name"},
+    "quest_update": {"quest"},
+    "hp_adj": {"char", "delta"},
+    # RPG-5 progression (doc 10): ALL PRIVILEGED (rule/user/genesis; extraction rejected).
+    # Growth is code-awarded from resolved play — never asserted, never typed by a model.
+    "award_exp": {"char", "amount"},
+    "level_up": {"char"},
+    "master_tick": {"char", "skill", "amount"},
+    "evolve_def": {"char", "table", "id", "def"},
+    "defeat_resolve": {"char", "outcome"},
 }
 
 # 08 E2 deterministic family apply-order (freeze first so mid-delta safewords gate the rest)
 _ORDER = {"freeze": -1, "unfreeze": 0, "entity_add": 0, "presence": 1, "move_entity": 2,
-          "scene_set": 2, "scene_mode": 2, "item_mint": 2, "item_transfer": 3, "position": 3,
-          "clothing": 4, "item_move": 4, "item_equip": 4, "item_unequip": 4, "contact": 5,
-          "item_consume": 5, "effect_add": 5, "arousal": 6, "effect_update": 6,
-          "effect_remove": 6}
+          "scene_set": 2, "scene_mode": 2, "item_mint": 2, "item_gain": 2,
+          "item_transfer": 3, "position": 3,
+          "clothing": 4, "item_move": 4, "item_equip": 4, "item_unequip": 4, "item_lose": 4,
+          "contact": 5, "item_consume": 5, "effect_add": 5, "arousal": 6, "effect_update": 6,
+          "effect_remove": 6, "hp_adj": 6, "award_exp": 8, "level_up": 9,
+          "defeat_resolve": 9}
 _DEFAULT_ORDER = 7
 
 # 02 SS12b families
@@ -180,6 +241,10 @@ _FAMILY = {
     #                                        frozen-suppression + manual_override for free
     "set_soulmate": "facts", "set_nemesis": "facts",   # narrative truth; privileged (§5.1 guard)
     "world_flag": "facts",                 # extraction may propose world truth (doc 07 §3)
+    "item_gain": "scene", "item_lose": "scene", "hp_adj": "scene",    # RPG-5 (G2/G7)
+    "quest_add": "facts", "quest_update": "facts",                    # RPG-5 (G3)
+    "award_exp": "player", "level_up": "player", "master_tick": "player",   # RPG-5
+    "evolve_def": "player", "defeat_resolve": "player",               # progression (privileged)
 }
 # frozen-session suppression set (02 SS6: arousal/escalation/consent families)
 _FROZEN_SUPPRESSED = {"arousal", "scene_dial", "consent_signal"}
@@ -205,13 +270,19 @@ OP_FIELD_ENUMS: dict[str, dict[str, list]] = {
     "time_advance": {"to_time_of_day": list(TIMES)},
     "obsession": {"target_kind": ["act_category", "concept", "entity", "object", "substance"]},
     "craving": {"action": ["adjust", "consume"]},
+    # RPG-5 (rpg wire only — the fields are absent from the base _OP_FIELDS, so the base
+    # flat schema stays byte-identical; the rpg schema attaches these enums).
+    "quest_add": {"stakes": list(QUEST_STAKES)},
+    "quest_update": {"status": list(QUEST_STATUSES)},
 }
 # 08 B4: non-live scenes quarantine physical/consent mutations (a flashback can't undress the present)
 _NONLIVE_SUPPRESSED = {"clothing", "position", "contact", "arousal", "consent_signal",
                        "consent_set", "time_advance", "clock_tick", "check",
                        "item_mint", "item_move", "item_equip", "item_unequip",   # a flashback
                        "item_consume", "item_transfer",               # can't touch live items
-                       "effect_add", "effect_remove", "effect_update"}   # ...or live effects (RPG-3)
+                       "effect_add", "effect_remove", "effect_update",   # ...or live effects
+                       "item_gain", "item_lose", "hp_adj", "defeat_resolve"}   # RPG-5: nor
+#                        grant items / deal harm — a dream can't rob or wound the present
 
 
 def slug(name: str) -> str:
@@ -223,7 +294,7 @@ def empty_state() -> dict:
             "poses": {}, "contacts": {}, "consent": {}, "relationships": {}, "facts": {},
             "beliefs": {}, "memories": [], "scene": {}, "clock": {"day": 1, "time_of_day": "evening",
             "minutes": 0, "calendar_note": None}, "frozen": False, "rolls": [], "player": {},
-            "items": {}, "gear": {}, "inventory": {}, "effects": {},
+            "items": {}, "gear": {}, "inventory": {}, "effects": {}, "quests": {},
             "affinity": {}, "factions": {}, "world": {}, "meta": {"turn": -1}}
 
 
@@ -340,6 +411,40 @@ def validate_op(op: Any) -> Optional[dict]:
                 return None
             if op["value"] is not None and not isinstance(op["value"], (str, int, float, bool)):
                 return None
+        if kind in ("item_gain", "item_lose"):         # RPG-5 (doc 07 §7 addendum)
+            if not str(op.get("name", "")).strip():
+                return None
+            if kind == "item_gain" and op.get("qty") is not None and int(op["qty"]) < 1:
+                return None
+        if kind == "quest_add":                        # RPG-5 quest ledger (G3)
+            if not str(op.get("name", "")).strip():
+                return None
+            if "stakes" in op and op["stakes"] is not None and op["stakes"] not in QUEST_STAKES:
+                return None
+        if kind == "quest_update":
+            if not str(op.get("quest", "")).strip():
+                return None
+            if "status" in op and op["status"] is not None \
+                    and op["status"] not in QUEST_STATUSES:
+                return None
+            if op.get("status") is None and not str(op.get("note") or "").strip():
+                return None                            # an update must change something
+        if kind == "hp_adj" and (isinstance(op["delta"], bool)
+                                 or not isinstance(op["delta"], (int, float))):
+            return None
+        if kind == "award_exp" and (isinstance(op["amount"], bool)
+                                    or not isinstance(op["amount"], (int, float))
+                                    or int(op["amount"]) < 0):
+            return None
+        if kind == "master_tick" and (not str(op.get("skill", "")).strip()
+                                      or int(op.get("amount", 0)) < 0):
+            return None
+        if kind == "evolve_def":
+            if op["table"] not in ("skills", "abilities") \
+                    or not str(op.get("id", "")).strip() or not isinstance(op["def"], dict):
+                return None
+        if kind == "defeat_resolve" and op["outcome"] not in DEFEAT_OUTCOMES:
+            return None
     except (TypeError, KeyError, ValueError):
         return None
     return op
@@ -464,6 +569,11 @@ def authority_violation(op: dict, source: str, state: dict, cfg) -> Optional[str
         return None if source in ("user", "genesis", "rule") else \
             "abilities are earned in-world: the engine grants them (quest/ritual/user) — " \
             "extraction may only witness, not bestow (doc 10)"
+
+    if kind in ("award_exp", "level_up", "master_tick", "evolve_def", "defeat_resolve"):
+        return None if source in ("user", "genesis", "rule") else \
+            "progression is code-awarded: XP, levels, mastery, and defeat are earned " \
+            "through resolved play, never asserted (doc 10)"   # RPG-5
 
     if kind == "consent_signal" and op["signal"] == "safeword":
         return None if not raw else None  # handled at apply: freeze in non-raw, log-only in raw
@@ -879,9 +989,12 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         mode = state.get("scene", {}).get("mode")
         if mode in ("flashback", "dream") and mode not in tags:
             tags.append(mode)                              # 08 B4: tag non-live memories
-        state["memories"].append({"text": op["text"], "participants": op.get("participants", []),
-                                  "importance": _clamp(op.get("importance", 3), 1, 10),
-                                  "tags": tags, "turn": turn})
+        if not any(m.get("text") == op["text"]             # 2026-07-07: a double-clicked
+                   for m in state["memories"][-20:]):      # creator save duplicated every
+            state["memories"].append({                     # lore row — exact-dupe guard
+                "text": op["text"], "participants": op.get("participants", []),
+                "importance": _clamp(op.get("importance", 3), 1, 10),
+                "tags": tags, "turn": turn})
         del state["memories"][:-100]
     elif kind == "goal":
         goals = _char(state, op["char"])["goals"]
@@ -901,6 +1014,15 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             clock["minutes"] = 0
         if op.get("calendar_note"):
             clock["calendar_note"] = op["calendar_note"]
+        if op.get("to_time_of_day"):                       # RPG-5 (doc 10 §6): a real time
+            for p in (state.get("player") or {}).values():   # skip is rest — pools refill
+                if not isinstance(p, dict):                   # (stamina full, others +50%)
+                    continue
+                for rname, r in (p.get("resources") or {}).items():
+                    if isinstance(r, dict) and r.get("max"):
+                        full = str(rname).lower() == "stamina"
+                        gain = int(r["max"]) if full else max(1, int(r["max"]) // 2)
+                        r["cur"] = _clamp(int(r.get("cur", 0)) + gain, 0, int(r["max"]))
         _craving_ramp(state)                               # 03 R4 (replay-safe: lives in reducer)
     elif kind == "clock_tick":
         state["clock"]["minutes"] = int(state["clock"].get("minutes", 0)) + int(op["minutes"])
@@ -943,6 +1065,12 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             boundary = sc.get("location_id") != op["location"]
             if boundary:                                     # scene boundary counter — pure
                 sc["scene_index"] = int(sc.get("scene_index", 0)) + 1   # function of ops
+                for p in (state.get("player") or {}).values():   # RPG-5 (doc 10 §6): a scene
+                    for r in (p.get("resources") or {}).values() \
+                            if isinstance(p, dict) else ():      # change catches the breath —
+                        if isinstance(r, dict) and r.get("max"):   # +25% of max, curated
+                            r["cur"] = _clamp(int(r.get("cur", 0)) + max(1, int(r["max"]) // 4),
+                                              0, int(r["max"]))
             sc["location_id"] = op["location"]               # (replay-safe; 08 L2 cadence)
             ent = state["entities"].get(op["location"])
             if op.get("_canon") and isinstance(ent, dict):   # RPG-4 (op-driven: none untouched)
@@ -978,6 +1106,14 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                                "dice": op.get("_dice"), "dc": op.get("dc"),
                                "char": op.get("char"), "turn": turn})
         del state["rolls"][:-10]
+        cost = op.get("_cost")                  # RPG-5 (doc 10 §5.4): resource cost charged
+        pl = state.get("player", {}).get(op.get("char")) if op.get("char") else None
+        if isinstance(cost, dict) and isinstance(pl, dict):
+            for rname, amt in cost.items():
+                pool = pl.get("hp") if rname == "hp" else (pl.get("resources") or {}).get(rname)
+                if isinstance(pool, dict):
+                    pool["cur"] = _clamp(int(pool.get("cur", 0)) - max(0, int(amt)),
+                                         0, int(pool.get("max", 0)))
     elif kind == "item_mint":                   # RPG-2 (doc 07 §7.2): instance from template
         iid, snap = op.get("_iid"), op.get("_snapshot") or {}
         if not iid or not snap:                 # template unknown at _enrich -> visible reject
@@ -1230,6 +1366,184 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 w[key] = val
                 while len(w) > 32:
                     w.pop(next(iter(w)))
+    elif kind == "item_gain":                   # RPG-5 (G2): the organic acquisition channel.
+        owner, name = op["char"], str(op["name"]).strip()   # Re-tagged acquisitions STACK on
+        items = state.setdefault("items", {})               # the existing row — never a dupe
+        low = name.lower()                                  # (the AI-Roguelite failure mode).
+        hit = next((i for i, it0 in items.items()
+                    if (it0 or {}).get("owner") == owner and (it0 or {}).get("loc") != "gone"
+                    and str((it0 or {}).get("name", "")).lower() == low), None)
+        if hit:
+            items[hit]["qty"] = int(items[hit].get("qty", 1)) + max(1, int(op.get("qty", 1)))
+        else:
+            base = slug(name)[:48]
+            iid, n = base, 1
+            while iid in items:                 # pure fn of (state, op): replay-deterministic
+                n += 1
+                iid = f"{base}#{n}"
+            snap = op.get("_snapshot") or {}    # template bake (_enrich) — {} = mechanics-free
+            loc = f"inv:{_default_container(state, owner)}"
+            rec = {"template_id": snap.get("_template"), "name": snap.get("name", name),
+                   "qty": max(1, int(op.get("qty", 1))), "loc": loc, "owner": owner,
+                   "mods_snapshot": dict(snap.get("mods") or {}), "minted_turn": turn}
+            for k in ("slot", "covers", "on_consume", "stackable", "max_stack",
+                      "capacity", "is_container", "worn", "type"):
+                if k in snap:
+                    rec[k] = snap[k]
+            items[iid] = rec
+            if not _index_add(state, owner, iid, loc):
+                del items[iid]                  # transactional rollback (doc 07 §7)
+                raise OpReject(f"cannot add '{name}': inventory full")
+    elif kind == "item_lose":                   # RPG-5 (G2): narrated loss, ledger-checked
+        owner, name = op["char"], str(op["name"]).strip()
+        items = state.get("items", {})
+        low = name.lower()
+        hits = [i for i, it0 in items.items()
+                if (it0 or {}).get("owner") == owner and (it0 or {}).get("loc") != "gone"
+                and str((it0 or {}).get("name", "")).lower() == low]
+        if not hits:
+            iid0 = _resolve_instance(state, name)
+            if iid0 and (items.get(iid0) or {}).get("owner") == owner:
+                hits = [iid0]
+        if not hits:
+            raise OpReject(f"'{name}' is not in {owner}'s ledger — nothing to lose "
+                           f"(the ledger, not the prose, is what's true)")
+        it = items[hits[0]]
+        q = int(it.get("qty", 1))
+        if q > 1:
+            it["qty"] = q - 1
+        else:
+            _index_remove(state, hits[0])
+            it["loc"], it["owner"] = "gone", None
+    elif kind == "quest_add":                   # RPG-5 (G3): the quest ledger family
+        qid = slug(op["name"])[:64]
+        qs = state.setdefault("quests", {})
+        if qid not in qs:                       # near-dupe guard (2026-07-07 live repro:
+            new_toks = {w for w in qid.split("_") if len(w) >= 4}   # 'takoba_arena' beside
+            for k, r in qs.items():             # 'pass_the_..._at_takoba_arena') — an ACTIVE
+                if (r or {}).get("status") != "active" or not new_toks:   # quest whose name
+                    continue                    # tokens contain/are-contained by the new
+                old_toks = {w for w in k.split("_") if len(w) >= 4}   # name is the SAME quest
+                if old_toks and (new_toks <= old_toks or old_toks <= new_toks):
+                    qid = k
+                    break
+        if qid in qs:                           # re-add refreshes, never duplicates
+            q = qs[qid]
+            q["updated_turn"] = turn
+            if op.get("detail"):
+                q["detail"] = str(op["detail"])[:300]
+        else:
+            q = {"name": str(op["name"]).strip()[:120], "status": "active",
+                 "created_turn": turn, "updated_turn": turn}
+            for k in ("detail", "giver"):
+                if op.get(k):
+                    q[k] = str(op[k])[:300]
+            if op.get("stakes") in QUEST_STAKES:
+                q["stakes"] = op["stakes"]
+            qs[qid] = q
+            while len(qs) > 40:                 # bounded: settled quests age out first
+                dead = next((k for k, r in qs.items()
+                             if (r or {}).get("status") != "active"), next(iter(qs)))
+                qs.pop(dead)
+    elif kind == "quest_update":
+        qs = state.setdefault("quests", {})
+        tok = str(op["quest"]).strip()
+        qid = tok if tok in qs else slug(tok)[:64]
+        if qid not in qs:
+            low = tok.lower()
+            hits = [k for k, r in qs.items()
+                    if str((r or {}).get("name", "")).lower() == low]
+            if len(hits) != 1:                  # token-subset fallback, UNIQUE hit only
+                toks = {w for w in slug(tok).split("_") if len(w) >= 4}
+                hits = [k for k in qs if toks and (
+                    toks <= {w for w in k.split("_") if len(w) >= 4}
+                    or {w for w in k.split("_") if len(w) >= 4} <= toks)] if toks else []
+            if len(hits) != 1:
+                raise OpReject(f"unknown quest '{tok}' — record it first "
+                               f"([quest | {tok} | new])")
+            qid = hits[0]
+        q = qs[qid]
+        if op.get("status") in QUEST_STATUSES and q.get("status") != op["status"]:
+            q["status"] = op["status"]
+            if op["status"] == "complete":
+                q["completed_turn"] = turn
+        if op.get("note"):
+            q["note"] = str(op["note"])[:300]
+        q["updated_turn"] = turn
+    elif kind == "hp_adj":                      # RPG-5 (G7): bounded consequence channel —
+        pl = state.get("player", {}).get(op["char"])   # the narrator proposes severity, the
+        if not isinstance(pl, dict) or not isinstance(pl.get("hp"), dict) \
+                or not pl["hp"].get("max"):     # clamp (baked) owns the number
+            raise OpReject(f"no HP pool for '{op['char']}' — hp_adj tracks the Player Card")
+        hp = pl["hp"]
+        d = int(op.get("_delta", op["delta"]))
+        hp["cur"] = _clamp(int(hp.get("cur", hp["max"])) + d, 0, int(hp["max"]))
+    elif kind == "award_exp":                   # RPG-5 progression (privileged, code-awarded)
+        pl = state.get("player", {}).get(op["char"])
+        if not isinstance(pl, dict):
+            raise OpReject("no Player Card: XP is the player's (seed one first)")
+        pl["xp"] = _clamp(int(pl.get("xp", 0)) + max(0, int(op["amount"])), 0, 10**7)
+    elif kind == "level_up":
+        pl = state.get("player", {}).get(op["char"])
+        if not isinstance(pl, dict):
+            raise OpReject("no Player Card to level")
+        pl["level"] = _clamp(int(pl.get("level", 1)) + 1, 1, 999)
+        g = op.get("_grants") or {}             # curated grants, baked at _enrich
+        hp = pl.setdefault("hp", {"cur": 0, "max": 0})
+        inc = int(g.get("hp", 0))
+        hp["max"] = _clamp(int(hp.get("max", 0)) + inc, 0, 10**6)
+        hp["cur"] = _clamp(int(hp.get("cur", 0)) + inc, 0, hp["max"])
+        for r in (pl.get("resources") or {}).values():
+            if isinstance(r, dict):
+                r["max"] = _clamp(int(r.get("max", 0)) + int(g.get("pool", 0)), 0, 10**6)
+                r["cur"] = _clamp(int(r.get("cur", 0)) + int(g.get("pool", 0)), 0, r["max"])
+        pl["stat_points"] = int(pl.get("stat_points", 0)) + int(g.get("stat_points", 0))
+    elif kind == "master_tick":                 # RPG-5 (doc 10 §4): use grows mastery —
+        pl = state.get("player", {}).get(op["char"])   # scene-capped so spam can't cheese it
+        if not isinstance(pl, dict):
+            raise OpReject("no Player Card for mastery")
+        sid = str(op["skill"])
+        mastery = pl.setdefault("mastery", {})
+        si = state.get("scene", {}).get("scene_index", 0)
+        ms = pl.get("mastery_scene")
+        if not isinstance(ms, dict) or ms.get("scene_index") != si:
+            ms = {"scene_index": si, "ticks": {}}
+            pl["mastery_scene"] = ms
+        used = int(ms["ticks"].get(sid, 0))
+        amt = min(max(0, int(op["amount"])), max(0, MASTERY_SCENE_CAP - used))
+        if amt:
+            ms["ticks"][sid] = used + amt
+            mastery[sid] = min(MASTERY_CAP, int(mastery.get(sid, 0)) + amt)
+    elif kind == "evolve_def":                  # RPG-5: the Q27 re-snapshot loop lands here —
+        pl = state.get("player", {}).get(op["char"])   # a new FROZEN def version; the journal
+        if not isinstance(pl, dict):            # keeps every prior version for replay
+            raise OpReject("no Player Card to evolve")
+        table = str(op["table"])
+        if table not in ("skills", "abilities") or not isinstance(op.get("def"), dict):
+            raise OpReject("evolve_def needs table skills|abilities and an authored def")
+        pl.setdefault("defs", {}).setdefault(table, {})[str(op["id"])] = dict(op["def"])
+    elif kind == "defeat_resolve":              # RPG-5 (doc 10 §7): defeat, not death (unless
+        pl = state.get("player", {}).get(op["char"])            # hardcore chose the outcome)
+        if not isinstance(pl, dict) or not isinstance(pl.get("hp"), dict):
+            raise OpReject("no Player Card to defeat")
+        outcome = str(op["outcome"])
+        pl["defeated"] = {"turn": turn, "outcome": outcome}
+        hp = pl["hp"]
+        if outcome == "death":                  # hardcore: the ledger records it; nothing revives
+            hp["cur"] = 0
+        else:
+            hp["cur"] = max(1, int(hp.get("max", 0)) // 4)
+            if outcome == "robbed":             # consequences via ordinary item state
+                for iid, it in state.get("items", {}).items():
+                    if (it or {}).get("owner") == op["char"] \
+                            and str(it.get("loc", "")).startswith("inv:") \
+                            and not it.get("bound"):
+                        _index_remove(state, iid)
+                        it["loc"], it["owner"] = "world", None
+        eff = op.get("_effect") or {}           # baked condition (Battered / Dead)
+        if eff.get("id"):
+            effs = state.setdefault("effects", {}).setdefault(op["char"], {})
+            effs[eff["id"]] = {**eff, "gained_turn": turn}
     elif kind == "stagnation":
         state["scene"]["stagnation"] = round(float(op["value"]), 3)
     elif kind == "player_seed":
@@ -1291,6 +1605,92 @@ def faction_cascade_ops(state: dict, applied: list[dict], factor: float = 0.1) -
             out.append({"op": "affinity_adj", "target": fid, "delta": step,
                         "kind": "faction",
                         "reason": f"standing with {ents.get(tgt, {}).get('name', tgt)}"})
+    return out
+
+
+# ---- RPG-5 progression pass (doc 10) — pure, deterministic, journaled ---------------
+def _defeat_outcome(state: dict, peid: str) -> str:
+    """Contextual non-lethal outcome CLASS, code-decided (doc 10 M5): judged from the
+    player's standing with whoever is present. The LLM flavors within the class."""
+    aff = state.get("affinity") or {}
+    present = [eid for eid, e in (state.get("entities") or {}).items()
+               if isinstance(e, dict) and e.get("present") and eid != peid]
+    worst, best = 0, 0
+    for eid in present:
+        rec = aff.get(f"{peid}->{eid}")
+        if isinstance(rec, dict):
+            v = int(rec.get("value", 0))
+            worst, best = min(worst, v), max(best, v)
+    if worst <= -40:
+        return "captured"
+    if worst <= -10:
+        return "robbed"
+    if best >= 10:
+        return "rescued"
+    return "wake_safe"
+
+
+def progression_ops(state: dict, applied: list[dict], hardcore: bool = False) -> list[dict]:
+    """RPG-5 (doc 10): code-awarded progression — XP from quest/goal completion and positive
+    standing-tier crossings; level_up when the curve is crossed; defeat_resolve when the
+    Player's HP hits 0. Pure reader over (state, this batch's applied ops); returns
+    PRIVILEGED rule ops for the caller to apply — propose-then-commit, journaled, never a
+    hidden reducer side-effect (pillar 2). Values are curated (XP_AWARDS), never model-typed."""
+    out: list[dict] = []
+    peid = _player_eid(state)
+    if not peid:
+        return out
+    pl = state.get("player", {}).get(peid) or {}
+    turn = state.get("meta", {}).get("turn", -1)
+    xp_add = 0
+    for op in (applied or []):
+        if not isinstance(op, dict):
+            continue
+        k = op.get("op")
+        if k == "quest_update" and op.get("status") == "complete":
+            qs = state.get("quests") or {}
+            tok = str(op.get("quest", "")).strip()
+            q = qs.get(tok) or qs.get(slug(tok)[:64]) or next(
+                (r for r in qs.values()
+                 if str((r or {}).get("name", "")).lower() == tok.lower()), {})
+            stakes = str((q or {}).get("stakes") or "minor")
+            amt = XP_AWARDS.get(f"quest_{stakes}", XP_AWARDS["quest_minor"])
+            out.append({"op": "award_exp", "char": peid, "amount": amt,
+                        "reason": f"quest complete: {(q or {}).get('name', tok)}"})
+            xp_add += amt
+        elif k == "goal" and op.get("action") == "complete":
+            out.append({"op": "award_exp", "char": peid, "amount": XP_AWARDS["goal"],
+                        "reason": f"completed: {str(op.get('text', ''))[:60]}"})
+            xp_add += XP_AWARDS["goal"]
+        elif k == "defeat_resolve":
+            pass                                 # defeat never awards the defeated
+        elif k == "affinity_adj":
+            rec = (state.get("affinity") or {}).get(f"{peid}->{op.get('target')}")
+            if isinstance(rec, dict):
+                try:
+                    d = int(op.get("_delta", op.get("delta", 0)) or 0)
+                except (TypeError, ValueError):
+                    d = 0
+                after = int(rec.get("value", 0))
+                if d > 0 and after >= 40 \
+                        and affinity_tier(after) != affinity_tier(after - d):
+                    out.append({"op": "award_exp", "char": peid,
+                                "amount": XP_AWARDS["faction_tier"],
+                                "reason": f"standing risen to {affinity_tier(after)}"})
+                    xp_add += XP_AWARDS["faction_tier"]
+    # level-ups from the projected total (may cross several thresholds at once)
+    want = xp_level(int(pl.get("xp", 0)) + xp_add)
+    have = int(pl.get("level", 1))
+    for _ in range(max(0, want - have)):
+        out.append({"op": "level_up", "char": peid})
+    # defeat: HP floored at 0 and not already resolved this turn (death is final)
+    hp = pl.get("hp") or {}
+    defeated = pl.get("defeated") or {}
+    if isinstance(hp, dict) and int(hp.get("max", 0)) > 0 and int(hp.get("cur", 1)) <= 0 \
+            and str(defeated.get("outcome", "")) != "death" \
+            and int(defeated.get("turn", -10**9)) != turn:
+        out.append({"op": "defeat_resolve", "char": peid,
+                    "outcome": "death" if hardcore else _defeat_outcome(state, peid)})
     return out
 
 
@@ -1381,6 +1781,55 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
     if op["op"] == "affinity_adj":             # RPG-3b (doc 07 §6): the per-turn clamp is baked
         out["_delta"] = _clamp(op.get("delta", 0), *AFFINITY_DELTA_CLAMP)   # so history is
                                                # stable even if the constant is tuned later
+    if op["op"] == "item_gain":                # RPG-5 (G2): template-snapshot floor — a name
+        from . import registry as _registry    # matching a curated template grounds its
+        try:                                    # mechanics; anything else commits MECHANICS-FREE
+            reg = _registry.load(cfg)           # (no power minted from prose)
+            want = str(op.get("name", "")).strip().lower()
+            tid = next((t for t, tp in reg.items.items()
+                        if t == slug(want) or str((tp or {}).get("name", "")).lower() == want),
+                       None)
+        except Exception:
+            tid = None
+        if tid:
+            tpl = reg.items.get(tid) or {}
+            out["_snapshot"] = {**{k: tpl[k] for k in (
+                "name", "worn", "slot", "mods", "covers", "on_consume", "stackable",
+                "max_stack", "capacity", "is_container", "type") if k in tpl},
+                "_template": tid}
+    if op["op"] == "hp_adj":                   # RPG-5 (G7): per-op swing clamp baked — the
+        try:                                    # narrator proposes, the clamp owns the number
+            mx = int((((state or {}).get("player", {}).get(op.get("char")) or {})
+                      .get("hp") or {}).get("max", 0))
+        except Exception:
+            mx = 0
+        cap = max(HP_ADJ_MIN_CAP, mx // 4)
+        out["_delta"] = _clamp(op.get("delta", 0), -cap, cap)
+    if op["op"] == "level_up":                 # RPG-5: curated grants baked (tuning the table
+        out.setdefault("_grants", dict(LEVEL_GRANTS))   # later never rewrites old level-ups)
+    if op["op"] == "master_tick":              # RPG-5: bracket crossing baked for the Q27
+        try:                                    # evolution hook (jobs reads _bracket_up)
+            pl = ((state or {}).get("player", {}) or {}).get(op.get("char")) or {}
+            sid = str(op.get("skill"))
+            cur = int((pl.get("mastery") or {}).get(sid, 0))
+            si = ((state or {}).get("scene", {}) or {}).get("scene_index", 0)
+            ms = pl.get("mastery_scene") if isinstance(pl.get("mastery_scene"), dict) else {}
+            used = int((ms.get("ticks") or {}).get(sid, 0)) if ms.get("scene_index") == si else 0
+            eff_amt = min(max(0, int(op.get("amount", 0))), max(0, MASTERY_SCENE_CAP - used))
+            b0 = mastery_bracket(cur)[0]
+            b1 = mastery_bracket(min(MASTERY_CAP, cur + eff_amt))[0]
+            if b1 != b0:
+                out["_bracket_up"] = b1
+        except Exception:
+            pass
+    if op["op"] == "defeat_resolve":           # RPG-5: the outcome's condition baked
+        if str(op.get("outcome")) == "death":
+            out.setdefault("_effect", {"id": "dead", "name": "Dead", "kind": "condition",
+                                       "valence": "negative", "mods": {}, "preset": True})
+        else:
+            out.setdefault("_effect", {"id": "battered", "name": "Battered",
+                                       "kind": "condition", "valence": "negative",
+                                       "duration": 6, "mods": {"all": -1}, "preset": True})
     if op["op"] == "scene_set" and "location" in op \
             and getattr(cfg, "specialization", None) is not None \
             and cfg.specialization.name == "rpg":
@@ -1499,6 +1948,20 @@ def translate_path(path: str, value: str, rpg: bool = False) -> Optional[dict]:
         if low in ("player.soulmate", "player.nemesis"):
             return {"op": "set_soulmate" if low.endswith("soulmate") else "set_nemesis",
                     "target": None if clear else v0}
+        if low.startswith("quest.") and len(path) > 6:     # RPG-5 (G3): quest ledger paths
+            tok = path[6:]
+            if clear or v0.lower() in ("abandoned", "abandon", "drop"):
+                return {"op": "quest_update", "quest": tok, "status": "abandoned"}
+            vv = v0.lower()
+            if vv in ("new", "add", "start", "started"):
+                return {"op": "quest_add", "name": tok.replace("_", " ")}
+            if vv in ("complete", "completed", "done"):
+                return {"op": "quest_update", "quest": tok, "status": "complete"}
+            if vv in ("failed", "fail"):
+                return {"op": "quest_update", "quest": tok, "status": "failed"}
+            if vv == "active":
+                return {"op": "quest_update", "quest": tok, "status": "active"}
+            return {"op": "quest_update", "quest": tok, "note": v0}
     m = _PATH_RE.match(path)
     if not m:
         return None
@@ -1597,6 +2060,7 @@ def state_summary(state: dict) -> dict:
         "gear": state.get("gear", {}),
         "inventory": state.get("inventory", {}),
         "effects": state.get("effects", {}),
+        "quests": state.get("quests", {}),
         # RPG-3b: affinity with the DERIVED tier attached (the ledger tail trimmed for the
         # payload), plus factions + world flags — the Console renders these directly.
         "affinity": {k: {**{kk: vv for kk, vv in rec.items() if kk != "ledger"},
