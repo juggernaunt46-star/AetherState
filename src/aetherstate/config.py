@@ -119,6 +119,12 @@ class ExtractionConfig(BaseModel):
     mode: str = "main"               # off | rules | main | assist ("Q8 group shortcut", 12)
     lag_turns: int = 1               # settle-before-extract (swipe protection)
     debounce_s: float = 20.0         # idle flush (also settles the head turn — see jobs)
+    live_recalc: bool = True         # 2026-07-07 (Bean): the NEWEST reply is ingested the
+    #                                  instant its stream ends — the DM's world-tags commit and
+    #                                  Tier-1 extraction flushes on the head turn's OWN cold path
+    #                                  (was lag-1: the reply-before-last was the newest state saw).
+    #                                  A swipe retracts the extracted turn (retract_extraction_at)
+    #                                  and re-derives it. false = legacy lag-1 settle-on-next-turn.
     cadence_turns: int = 1           # 2026-07-04: update state every N settled turns
     #                                  (1 = every turn, immediate). Idle flush still catches
     #                                  stragglers below the cadence so state never lags a walk-away.
@@ -220,14 +226,21 @@ RPG_PROFILE: dict[str, Any] = {
                            "erp_aftercare", "aftercare_checkin", "rpg_adventure"],
     },
     "injection": {
+        # RPG genuinely injects more than chat — the whole sheet PLUS the DM rules-contract.
+        # A bigger budget (Bean 07-07) keeps the state blocks AND the contract from colliding
+        # at the default 1200 (the contract alone is ~1k tokens). The user's own value wins.
+        "max_tokens": 2200,
         # RPG header-class ranking (doc 05 §6): directive very high so it is never
         # budget-dropped, player_card high, then quest/relations/factions/gear/inventory/
         # world. A superset of the base priorities so no base class is lost on override.
         "priorities": {
+            # RPG ordering (Bean 07-07): the DM rules-contract is what MAKES rpg mode an RPG —
+            # it must survive budget pressure, so it now outranks memories. The state header +
+            # directive stay top (never dropped); the sheet/quest/social blocks follow.
             "state_header": 100, "directive": 98, "player_card": 90, "director_note": 80,
-            "quest": 70, "relations": 66, "factions": 62, "gear": 58, "effects": 56,
-            "inventory": 54,
-            "world": 50, "rules_contract": 46, "memories": 60,
+            "rules_contract": 72, "quest": 70, "relations": 66, "factions": 62,
+            "gear": 58, "effects": 56, "inventory": 54,
+            "world": 50, "memories": 60,
             "relationship_belief": 40, "lore": 20,
         },
     },

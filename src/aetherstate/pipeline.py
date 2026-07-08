@@ -26,6 +26,11 @@ from .store import Store
 log = logging.getLogger("aetherstate.pipeline")
 
 
+def _live_recalc(cfg) -> bool:
+    """True when the newest reply is ingested immediately (default). Bean 2026-07-07."""
+    return bool(getattr(getattr(cfg, "extraction", None), "live_recalc", True))
+
+
 @dataclass
 class PostContext:
     """What the response tee needs to finish the turn after the stream ends."""
@@ -174,9 +179,15 @@ class Pipeline:
                                    user_text=f"{name}: {text}")
 
     def _swipe_rollback_guard(self, res) -> None:
-        """03 SS3.3 / 08 E7: a swiped turn that already got extracted (early flush) rolls back
-        and re-queues. Lag-1 makes this rare; the guard makes it correct."""
+        """03 SS3.3 / 08 E7: a swiped turn that already got extracted rolls back and re-queues.
+        Under live_recalc the head is extracted on its OWN cold path, so EVERY swipe retracts
+        the prior generation's extraction-source ops BEFORE the new reply re-derives them — the
+        resolved check/roll survives (retract is source-scoped). Legacy lag-1: only when the
+        turn actually reached extraction='done' (rare, hence the whole-turn rollback is fine)."""
         if res.klass.value != "swipe":
+            return
+        if _live_recalc(self.cfg):
+            self.store.retract_extraction_at(res.branch_id, res.turn_index)
             return
         row = self.store.db.execute(
             "SELECT extraction FROM turns WHERE branch_id=? AND turn_index=?",
@@ -196,15 +207,48 @@ class Pipeline:
                 speaker = ctx.speaker or "Narrator"
                 self.store.write_turn_text(ctx.branch_id, ctx.turn_index,
                                            assistant_text=f"{speaker}: {text.strip()}")
+            self._ingest_reply_tags(ctx, text)   # live_recalc: newest reply's world-tags NOW
             self._discover(ctx)               # 08 B2 Tier-0 evidence pass (fail-open)
             self._recall_pass(ctx)            # P4/Q15: keep recall fresh in rules-only mode
             self._lint_pass(ctx, text)        # 03 SS9 (full in off/rules; L9-only otherwise)
             self._genesis_pass(ctx)           # Q23 stage B: assist-LLM seed (cold path)
             self._evolve_pass(ctx)            # RPG-5: Q27 mastery re-authoring (cold path)
             if self.jobs is not None:
+                # settle the head NOW so Tier-1 extracts the newest reply on its OWN cold path
+                # (Bean 07-07). Skip turn-0: let genesis stage-B seed the world first, exactly as
+                # before, so opening-turn extraction still lands on turn 1's cold path.
+                if _live_recalc(self.cfg) and ctx.klass != "new_session":
+                    try:
+                        self.store.settle_head(ctx.branch_id)
+                    except Exception:
+                        pass
                 self.jobs.notify(ctx.session_id, ctx.branch_id, ctx.turn_index)
         except Exception as exc:
             log.warning("response tee failed open: %s", type(exc).__name__)
+
+    def _ingest_reply_tags(self, ctx: PostContext, text: Optional[str]) -> None:
+        """live_recalc (Bean 2026-07-07): parse the DM's FRESH reply's world/effect tags
+        (R9/R10) the instant its stream ends and commit them to the ledger at THIS turn
+        (source='extraction'), so state reflects the NEWEST output — not the reply before it.
+        rpg-gated; a swipe already retracted the prior generation (hot-path guard). Fail-open —
+        any error leaves the ledger exactly as it was (invariant 3)."""
+        try:
+            if not (text and text.strip()) or not _live_recalc(self.cfg):
+                return
+            spec = getattr(self.cfg, "specialization", None)
+            if spec is None or spec.name != "rpg":
+                return
+            state = current_state(self.store, ctx.branch_id)
+            ops = tier0.parse_reply_tags(text, state)
+            if not ops:
+                return
+            r = apply_delta(self.store, ctx.session_id, ctx.branch_id, ctx.turn_index,
+                            ops, "extraction", self.cfg)
+            self._index_memories(ctx, r)
+            for q in r.quarantined:
+                log.info("live tag quarantined: %s", q.get("reason", ""))
+        except Exception as exc:
+            log.warning("live tag ingest failed open: %s", type(exc).__name__)
 
     def _recall_pass(self, ctx: PostContext) -> None:
         """Cold-path recall staging when NO extraction job will run for this session

@@ -155,17 +155,15 @@ def test_tag_parser_gained_lost_shift_and_user_macro():
     cfg = _rpg_cfg()
     store, sid, bid = _seeded(cfg)
     st = current_state(store, bid)
-    doc = {"messages": [
-        {"role": "assistant", "content":
-         "The spikes snap out — a gash opens deep across the thigh. "
-         "[status gained | {{user}} | Bleeding | negative]\n"
-         "[condition gained | Mira | Marked by the Deep]\n"
-         "[status lost | Mira | Poisoned]\n"
-         "[valence shift | Mira | Marked by the Deep | positive]\n"
-         "[negative dice roll] [some other bracket | x]"},
-        {"role": "user", "content": "I press on."}]}
-    res = tier0.run(doc, "new_turn", False, st, cfg, random.Random(3))
-    ops = res.proposal_ops
+    # live_recalc (Bean 2026-07-07): tags parse from the FRESH reply on the cold path via
+    # parse_reply_tags — the same regex spine, now reading the newest output on its own turn.
+    reply = ("The spikes snap out — a gash opens deep across the thigh. "
+             "[status gained | {{user}} | Bleeding | negative]\n"
+             "[condition gained | Mira | Marked by the Deep]\n"
+             "[status lost | Mira | Poisoned]\n"
+             "[valence shift | Mira | Marked by the Deep | positive]\n"
+             "[negative dice roll] [some other bracket | x]")
+    ops = tier0.parse_reply_tags(reply, st)
     assert [o["op"] for o in ops] == ["effect_add", "effect_add", "effect_remove",
                                       "effect_update"]
     assert ops[0] == {"op": "effect_add", "char": "kael", "effect": "Bleeding",
@@ -354,6 +352,7 @@ async def test_rpg_effects_ledger_e2e(client, mock_upstream, cfg):
     """Flagship RPG-3 exit: an effect committed through the control API renders as the
     [EFFECTS] ledger in the very next forwarded request — truth fed back every turn."""
     cfg.specialization.name = "rpg"
+    cfg.injection.max_tokens = 2200          # RPG mode's profile budget (contract ~1k + sheet)
     cfg.user_guard.name = "Bean"
     mock_upstream.enqueue(Reply())
     await client.post("/v1/chat/completions", json=_payload("chat-rpg3", 1))

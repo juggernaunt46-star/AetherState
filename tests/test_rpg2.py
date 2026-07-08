@@ -88,8 +88,12 @@ def test_mint_bakes_snapshot_and_unique_iid():
     assert r.applied[0]["_snapshot"]["mods"] == {"stealth": 1}
     st = current_state(store, bid)
     it = st["items"]["grey_mantle#1"]
-    assert it["owner"] == "kael" and it["loc"] == "inv:loose"
-    assert "grey_mantle#1" in st["inventory"]["kael"]["loose"]
+    # worn gear whose slot is free AUTO-EQUIPS onto the paper-doll (Bean 2026-07-07);
+    # the second mantle finds the cape slot taken and falls to carried.
+    assert it["owner"] == "kael" and it["loc"] == "gear:cape"
+    assert st["gear"]["kael"]["cape"] == "grey_mantle#1"
+    assert st["items"]["grey_mantle#2"]["loc"] == "inv:loose"
+    assert "grey_mantle#2" in st["inventory"]["kael"]["loose"]
 
 
 def test_mint_unknown_template_rejected_visibly():
@@ -244,8 +248,11 @@ def test_gear_inventory_render_and_none_gate():
     cfg = _rpg_cfg()
     st = _geared_state(cfg)
     h = render_header(st, cfg)
-    assert "[GEAR] head=Iron Helm(armor+1) · waist=Utility Belt[4]" in h
-    assert "[INVENTORY] Utility Belt: 3× Healing Draught · loose: Lockpicks" in h
+    # Lockpicks is a TOOL -> gear-class, so it renders as STOWED gear, not inventory (Bean
+    # 2026-07-07: gear = weapons/tools/accessories/bags; inventory = consumables/materials).
+    assert "[GEAR] head=Iron Helm(armor+1) · waist=Utility Belt[4] · stowed: Lockpicks" in h
+    assert "[INVENTORY] Utility Belt: 3× Healing Draught" in h
+    assert "· loose: Lockpicks" not in h                       # the tool moved to [GEAR]
     assert "Stealth+5" in h                                    # [PLAYER] unchanged by non-skill gear
     none_cfg = Config()
     h_none = render_header(st, none_cfg)

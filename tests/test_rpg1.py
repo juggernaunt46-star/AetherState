@@ -195,6 +195,7 @@ def test_none_session_has_no_directive_or_rules_leak():
 def test_rules_contract_present_under_rpg_droppable():
     cfg = Config()
     cfg.specialization.name = "rpg"
+    cfg.injection.max_tokens = 2200          # RPG mode's profile budget (contract ~1k + sheet)
     st = _rpg_setup(cfg)
     out, kept = compose({"messages": [{"role": "user", "content": "hi"}]}, st, cfg,
                         Stamp(session="s", user="Kael"), "new_turn")
@@ -309,7 +310,10 @@ async def test_rpg_check_e2e_injects_directive(client, mock_upstream, cfg):
                       json=_payload("chat-rpg1", 1, "((aether.check lockpicking vs 8))"))
     fwd = mock_upstream.requests[0].body
     assert b"[DIRECTIVE]" in fwd and b"lockpicking check resolved as" in fwd
-    assert b"aether.check" not in fwd                         # engine syntax never forwarded
+    # the USER's OOC command is stripped from the forwarded message; the DM rules-contract's
+    # own generic example (((aether.check athletics))) is allowed — it teaches the DM to call
+    # for checks (dm-rules/4). So assert the user's SPECIFIC declaration is gone, not the substring.
+    assert b"((aether.check lockpicking" not in fwd and b"lockpicking vs 8" not in fwd
     sid = (await client.get("/aether/sessions")).json()["sessions"][0]["session_id"]
     now = (await client.get(f"/aether/session/{sid}/state")).json()
     rolls = now["state"]["rolls"]

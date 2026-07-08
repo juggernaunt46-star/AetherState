@@ -265,6 +265,7 @@
                 <select id="aes_spec"><option value="none">none (chat RP)</option><option value="rpg">rpg (DM mode)</option></select></label>
               <span id="aes_spec_state" class="aes-chip">spec: …</span>
             </div>
+            <div class="aes-help" id="aes_spec_help"></div>
             <div class="aes-field">
               <label class="aes-label" for="aes_proxy">Proxy URL</label>
               <input id="aes_proxy" class="text_pole aes-input" placeholder="http://127.0.0.1:9130" />
@@ -284,8 +285,9 @@
                 <input id="aes_intake" class="text_pole aes-num" type="number" min="0" max="200000" step="1000" /> chars</label>
             </div>
             <div class="aes-row aes-note">
-              Headroom: keep ~1200 tokens free in ST's context size so the state
-              briefing never crowds the chat (Settings → Context Size).
+              Headroom: keep context free for the state briefing so it never crowds the chat
+              (Settings → Context Size) — ~1200 tokens for chat RP, ~2400 for RPG mode (it
+              injects the full sheet plus the DM rules).
             </div>
           </div>
         </div>`;
@@ -298,14 +300,19 @@
       $("aes_creator").href = creatorHref();
       $("aes_creator").onclick = () => { $("aes_creator").href = creatorHref(); };
       $("aes_hud_open").onclick = (e) => { e.preventDefault(); openHud(); };
+      const setSpecHelp = (name) => { const el = $("aes_spec_help"); if (!el) return;
+        el.innerHTML = name === "rpg"
+          ? "<b>RPG (DM mode):</b> the card runs the world as your Dungeon Master. Full engine — dice &amp; skill checks, a Player sheet, gear &amp; inventory, statuses, quests, XP &amp; mastery. Use the 🎛 player HUD and the Creator."
+          : "<b>Chat RP:</b> casual roleplay with silent state-tracking only — no dice, no DM framing, no Player sheet. Byte-identical to plain AetherState 1.0."; };
       try {                                    // narrative mode: show it + let the user switch it
         const sp = await api("/aether/specialization");
-        if (sp && sp.name) { $("aes_spec").value = sp.name; $("aes_spec_state").textContent = "spec: " + sp.name; }
+        if (sp && sp.name) { $("aes_spec").value = sp.name; $("aes_spec_state").textContent = "spec: " + sp.name; setSpecHelp(sp.name); }
       } catch (e) {}
       $("aes_spec").onchange = async (e) => {
+        setSpecHelp(e.target.value);
         const d = await api("/aether/specialization", { method: "POST",
           headers: { "content-type": "application/json" }, body: JSON.stringify({ name: e.target.value }) }).catch(() => null);
-        if (d && d.name) { $("aes_spec_state").textContent = "spec: " + d.name; refreshChip();
+        if (d && d.name) { $("aes_spec_state").textContent = "spec: " + d.name; setSpecHelp(d.name); refreshChip();
           try { if (hudVisible()) hudRefresh(); } catch (err) {} }
       };
       $("aes_enabled").onchange = (e) => { settings.enabled = e.target.checked; save(); };
@@ -369,7 +376,7 @@
   const HUD_THEMES = { neutral: "Neutral", fantasy: "Fantasy", scifi: "Sci-Fi", modern: "Modern" };
   const HUD_TABS = [
     ["char", "◈ Char"], ["skills", "✦ Skills"], ["abilities", "❋ Abilities"],
-    ["gear", "⚔ Gear"], ["status", "☤ Status"], ["world", "🌍 World"],
+    ["gear", "⚔ Gear"], ["inventory", "🎒 Items"], ["status", "☤ Status"], ["world", "🌍 World"],
   ];
   let hudTimer = null;
   let lastHudView = null;             // cache the last /hud payload so tab-switching never refetches
@@ -522,6 +529,7 @@
     else if (tab === "skills") body = tabSkills(v, p);
     else if (tab === "abilities") body = tabAbilities(v, p);
     else if (tab === "gear") body = tabGear(v, p);
+    else if (tab === "inventory") body = tabInventory(v, p);
     else if (tab === "status") body = tabStatus(v, p);
     else if (tab === "world") body = tabWorld(v, p);
     else body = tabChar(v, p);
@@ -577,23 +585,43 @@
     if ((dr.goals || []).length) h += sechdr("Goals") + `<div class="aes-kv">${dr.goals.map(esc).join(" · ")}</div>`;
     return h || `<div class="aes-hud-empty">No character detail recorded yet.</div>`;
   }
+  function skillRowHtml(s) {
+    return `<div class="aes-skill"><span class="aes-skl"><b>${esc(s.label)}</b> <span class="m big">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></span><span class="aes-skmeta">${s.keyed_stat ? esc(s.keyed_stat) : ""}${s.bracket ? " · " + esc(s.bracket) : ""}${s.mastery ? " · m" + esc(s.mastery) : ""}${s.cost ? " · costs " + esc(s.cost) : ""}${s.gated ? (s.basis_met ? ` · <span class="aes-tag ok">✦ ${esc(s.basis_name)}</span>` : ` · <span class="aes-tag bad">needs ${esc(s.basis_name || "a basis")}</span>`) : ""}</span></div>`;
+  }
+  // group skills by their free-form category (Bean 2026-07-07): "Spells", "Cyber-Ware", etc.
+  // Ungrouped skills fall under the default "Skills" heading.
+  function groupByCategory(items, dflt) {
+    const groups = {}, order = [];
+    (items || []).forEach((it) => { const g = it.group || dflt; if (!(g in groups)) { groups[g] = []; order.push(g); } groups[g].push(it); });
+    return { groups, order };
+  }
   function tabSkills(v, p) {
     let h = renderRules(v.rules || {});
-    if ((p.skills || []).length) h += sechdr("Skills — your competencies (the modifier you roll)") + `<div class="aes-skills">${p.skills.map((s) => `<div class="aes-skill"><span class="aes-skl"><b>${esc(s.label)}</b> <span class="m big">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></span><span class="aes-skmeta">${s.keyed_stat ? esc(s.keyed_stat) : ""}${s.bracket ? " · " + esc(s.bracket) : ""}${s.mastery ? " · m" + esc(s.mastery) : ""}${s.cost ? " · costs " + esc(s.cost) : ""}${s.gated ? (s.basis_met ? ` · <span class="aes-tag ok">✦ ${esc(s.basis_name)}</span>` : ` · <span class="aes-tag bad">needs ${esc(s.basis_name || "a basis")}</span>`) : ""}</span></div>`).join("")}</div>`;
-    else h += `<div class="aes-hud-empty">No skills yet.</div>`;
+    const sk = p.skills || [];
+    if (!sk.length) h += `<div class="aes-hud-empty">No skills yet.</div>`;
+    else {
+      const { groups, order } = groupByCategory(sk, "Skills");
+      const solo = order.length === 1 && order[0] === "Skills";
+      for (const g of order) {
+        h += sechdr(solo ? "Skills — your competencies (the modifier you roll)" : g);
+        h += `<div class="aes-skills">${groups[g].map(skillRowHtml).join("")}</div>`;
+      }
+    }
     if ((v.rolls || []).length) h += sechdr("Recent checks") + `<div class="aes-rows2">${v.rolls.slice().reverse().map((r) => `<div class="aes-roll"><span>${esc(r.skill || r.spec || "roll")} = <b>${esc(r.result)}</b>${r.mod != null ? ` <span class="aes-dim">(mod ${r.mod >= 0 ? "+" : ""}${esc(r.mod)})</span>` : ""}</span>${r.tier_label ? `<span class="t ${esc(r.tier)}">${esc(r.tier_label)}</span>` : ""}${r.note ? `<div class="aes-roll-note">↳ ${esc(r.note)}</div>` : ""}</div>`).join("")}</div>`;
     return h;
   }
   function tabAbilities(v, p) {
     const abils = p.abilities || [];
     if (!abils.length) return `<div class="aes-hud-empty">No abilities yet. Abilities bend the dice — earn them in-world or author them in the Creator.</div>`;
-    const groups = { spell: [], technique: [], talent: [] };
-    abils.forEach((a) => (groups[a.group] || groups.talent).push(a));
+    // free-form categories (Bean 2026-07-07): the built-in three sort first, any custom
+    // category the player authored ("Cyber-Ware", "Spells", …) follows with its own header.
+    const { groups, order } = groupByCategory(abils, "talent");
+    const KNOWN = { spell: 0, technique: 1, talent: 2 };
+    order.sort((a, b) => (KNOWN[a] != null ? KNOWN[a] : 3) - (KNOWN[b] != null ? KNOWN[b] : 3));
     const GH = { spell: "✨ Spells", technique: "⚡ Techniques — active, you invoke them", talent: "🜂 Talents — passive, always on" };
     let h = "";
-    for (const g of ["spell", "technique", "talent"]) {
-      if (!groups[g].length) continue;
-      h += sechdr(GH[g]) + groups[g].map((a) => renderAbility(a)).join("");
+    for (const g of order) {
+      h += sechdr(GH[g] || ("❖ " + g.charAt(0).toUpperCase() + g.slice(1))) + groups[g].map((a) => renderAbility(a)).join("");
     }
     const ms = (v.rules || {}).mechanics || [];
     if (ms.length) h += `<div class="aes-rules"><div class="aes-rules-h">What the mechanics mean</div>${ms.map((m) => `<div class="aes-mech"><b>${esc(m.mechanic)}</b> — ${esc(m.label)}</div>`).join("")}<div class="aes-rules-note">Invoke an active in a check: <code>((aether.check &lt;skill&gt; use &lt;ability&gt;))</code></div></div>`;
@@ -608,10 +636,20 @@
     return `<div class="aes-abil ${a.active ? "act" : ""} ${a.on_cd ? "cd" : ""}"><div class="aes-abil-h"><b>${esc(a.name)}</b> ${badge}</div>${a.mechanic_label ? `<div class="aes-abil-mech">${esc(a.mechanic_label)}</div>` : ""}${bits.length ? `<div class="aes-abil-meta">${bits.join(" · ")}</div>` : ""}${a.desc ? `<div class="aes-abil-desc">${esc(a.desc)}</div>` : ""}</div>`;
   }
   function tabGear(v, p) {
+    // Gear = weapons, armor, tools, accessories, bags. Equipped on the paper-doll; the rest
+    // stowed but still gear (a sheathed sword is not "inventory"). Consumables live in 🎒 Items.
     let h = renderPaperdoll(p);
-    if ((p.inventory || []).length) h += sechdr("Carried — not worn") + p.inventory.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}${i.consumable ? actBtn("use", [{ op: "item_consume", instance: i.iid }], "consume one", "mini") : ""}</span>`).join(" ")}</div>`).join("");
-    else h += `<div class="aes-kv" style="opacity:.5;margin-top:6px">nothing carried</div>`;
+    const stow = p.stowed_gear || [];
+    if (stow.length) h += sechdr("Stowed gear — carried, ready to equip") + stow.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}</span>`).join(" ")}</div>`).join("");
+    if (!(p.gear_slots || []).some((s) => s.item) && !stow.length)
+      h += `<div class="aes-kv" style="opacity:.5;margin-top:6px">no gear yet — weapons, armor & tools show here</div>`;
     return h;
+  }
+  function tabInventory(v, p) {
+    // Inventory = everything that isn't gear: consumables, materials, devices, keepsakes.
+    const inv = p.inventory || [];
+    if (!inv.length) return `<div class="aes-hud-empty">Nothing carried. Consumables, materials & odds-and-ends show here — gear lives under ⚔ Gear.</div>`;
+    return sechdr("🎒 Inventory — carried items") + inv.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${i.consumable ? actBtn("use", [{ op: "item_consume", instance: i.iid }], "consume one", "mini") : ""}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}</span>`).join(" ")}</div>`).join("");
   }
   function renderPaperdoll(p) {
     const slots = p.gear_slots || [];

@@ -395,6 +395,37 @@ class Store:
                 "(SELECT session_id FROM branches WHERE branch_id=?)",
                 (turn_index + 1, branch_id))
 
+    def retract_extraction_at(self, branch_id: str, turn_index: int) -> None:
+        """live_recalc swipe retraction (2026-07-07): retract ONLY the extraction-source ops at
+        turn >= turn_index (the head turn's world-tags + Tier-1 delta), leaving user/rule ops
+        (a resolved check, the clock) intact — a swipe re-narrates the SAME roll, then the new
+        reply re-derives its own ledger changes. Requeues those turns for re-extraction. Mirrors
+        rollback_to's downstream cleanup but is source-scoped so the check is never lost."""
+        with self._lock, self.db:
+            self.db.execute("DELETE FROM ops_journal WHERE branch_id=? AND turn_hi>=?"
+                            " AND source='extraction'", (branch_id, turn_index))
+            self.db.execute("DELETE FROM checkpoints WHERE branch_id=? AND turn_index>=?",
+                            (branch_id, turn_index))
+            self.db.execute("UPDATE turns SET extraction='pending' WHERE branch_id=?"
+                            " AND turn_index>=? AND extraction IN ('done','failed')",
+                            (branch_id, turn_index))
+            self.db.execute("DELETE FROM memories WHERE branch_id=? AND created_turn>=?",
+                            (branch_id, turn_index))
+            self.db.execute(
+                "UPDATE memories SET parent_id=NULL WHERE branch_id=? AND parent_id IS NOT"
+                " NULL AND parent_id NOT IN (SELECT memory_id FROM memories WHERE branch_id=?)",
+                (branch_id, branch_id))
+            self.db.execute("DELETE FROM embeddings WHERE memory_id NOT IN"
+                            " (SELECT memory_id FROM memories)")
+            self.db.execute("DELETE FROM lint WHERE branch_id=? AND turn_index>=?",
+                            (branch_id, turn_index))
+            self.db.execute("DELETE FROM director WHERE branch_id=? AND turn_index>=?",
+                            (branch_id, turn_index))
+            self.db.execute(
+                "DELETE FROM notes WHERE for_turn>=? AND session_id="
+                "(SELECT session_id FROM branches WHERE branch_id=?)",
+                (turn_index, branch_id))
+
     # -- memory index (02 SS10; retrieval metadata lives HERE, not in the journal) ----
     def memories_add(self, session_id: str, branch_id: str, tier: str, text: str,
                      participants: list, location_id: Optional[str], tags: list,

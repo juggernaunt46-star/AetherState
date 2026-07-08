@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.4.0 — 2026-07-07
+
+Six fixes to RPG mode that make the sheet, the gear, and the timing behave the way you'd expect.
+As always, a non-RPG (chat) session is byte-identical to before.
+
+### Gear you're wearing actually shows as worn
+- Starting gear that's obviously worn — a helmet, a coat, boots, a sword — now **auto-equips onto
+  the paper-doll** the moment your character is created, instead of sitting in a bag.
+- **Gear and inventory are split by kind, not by whether it's in a slot.** Gear = weapons, armor,
+  tools, accessories, bags (equipped *or* stowed). Inventory = consumables, materials, devices,
+  odds and ends. The HUD gains a dedicated **🎒 Items** tab beside **⚔ Gear**, and a sheathed
+  sword reads as gear, not inventory.
+
+### The newest reply is taken in immediately
+- State now updates from the **latest** thing the story just said — its item/scene/quest/status
+  tags commit and the background state pass runs the instant a reply finishes, rather than a turn
+  behind. Re-rolling (swiping) a reply retracts the change and re-reads it from the new one. A
+  setting (`extraction.live_recalc`) restores the old one-turn-behind behaviour if you want it.
+
+### Make your own skill & ability categories
+- Custom skills and abilities can carry **any category you name** — "Spells", "Cyber-Ware",
+  "Disciplines" — and the HUD groups them under that heading. Pick a suggestion or type your own.
+
+### RPG mode feels like an RPG
+- The Game Master now **drives the dice**: when you try something uncertain it calls for the exact
+  check inline and stops for your roll, instead of narrating past it. RPG mode also gets more room
+  in the prompt so its rules and your full sheet are always present.
+
+### A roomier, open-ended Creator
+- The AI world/character autofill **no longer gets cut off** partway through a big sheet.
+- Add as many **free-form world & character detail categories** as you like — a magic system, a
+  history, a backstory, a code of honor — kept as retrievable lore that surfaces when relevant.
+
+
 ## 1.3.0 — 2026-07-07
 
 Skills and abilities become two genuinely different things, and you finally get to *see* your

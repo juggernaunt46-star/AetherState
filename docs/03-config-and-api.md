@@ -111,6 +111,7 @@ then defaults. `Config.source` records which loaded.
 | mode | `main` | `off \| rules \| main \| assist` (shortcut for `[assist.groups].extraction`) |
 | lag_turns | 1 | settle-before-extract (swipe protection) |
 | debounce_s | 20.0 | idle flush |
+| live_recalc | true | 2026-07-07 (Bean): ingest the NEWEST reply on its own cold path — its R9/R10 world-tags commit and Tier-1 extraction flushes the instant the stream ends (was lag-1: state reflected the reply BEFORE the last). Swipes retract only extraction-source ops (`store.retract_extraction_at`) so a resolved check survives. `false` = legacy lag-1. |
 | cadence_turns | 1 | extract every N settled turns |
 | intake_chars | 12000 | transcript budget per call (newest ships whole) |
 | batch_max_turns | 3 | turns per extraction call |

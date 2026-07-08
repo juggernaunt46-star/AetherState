@@ -98,11 +98,12 @@ def _skill_rows(state: dict, reg, _registry, eid: str, p: dict) -> list[dict]:
             rank = int(skills.get(sid, 0) or 0)
         except Exception:
             rank = 0
-        keyed, cost, gated, basis_met, basis_name = "", "", False, False, ""
+        keyed, cost, gated, basis_met, basis_name, group = "", "", False, False, "", ""
         if reg is not None:
             try:
                 ent = reg.skill_entry(sid, p)
                 keyed = str(ent.get("keyed_stat", ""))
+                group = str(ent.get("group", ""))       # free-form category (Spells, Cyber-Ware…)
                 need = str(ent.get("requires_ability") or "")
                 if need:                          # a gated skill: does THIS player hold the basis?
                     gated = True
@@ -120,7 +121,7 @@ def _skill_rows(state: dict, reg, _registry, eid: str, p: dict) -> list[dict]:
             bracket = ""
         rows.append({"id": str(sid), "label": label, "mod": int(mod), "rank": rank,
                      "keyed_stat": keyed, "bracket": bracket, "cost": cost, "gated": gated,
-                     "basis_met": basis_met, "basis_name": basis_name,
+                     "basis_met": basis_met, "basis_name": basis_name, "group": group,
                      "mastery": int(mastery.get(str(sid), 0) or 0)})
     return rows
 
@@ -304,7 +305,11 @@ def _rules_view(reg, _registry, cfg) -> dict:
     }
 
 
-def _inventory_rows(state: dict, eid: str) -> list[dict]:
+def _carried_rows(state: dict, eid: str, want_gear: bool) -> list[dict]:
+    """Carried instances grouped by container, filtered by CLASS: want_gear=True yields the
+    GEAR-class items (weapons/tools/bags not equipped — 'stowed gear'), want_gear=False the
+    INVENTORY-class items (consumables/materials/devices). Bean 2026-07-07: gear ≠ inventory."""
+    from .state import item_is_gear
     items = state.get("items") or {}
     conts = (state.get("inventory") or {}).get(eid) or {}
     out = []
@@ -312,10 +317,11 @@ def _inventory_rows(state: dict, eid: str) -> list[dict]:
         entries = []
         for iid in conts[cid]:
             it = items.get(iid)
-            if not it or int(it.get("qty", 1)) < 1:
+            if not it or int(it.get("qty", 1)) < 1 or item_is_gear(it) != want_gear:
                 continue
             entries.append({"iid": str(iid), "name": str(it.get("name", iid)),
                             "qty": int(it.get("qty", 1)),
+                            "type": str(it.get("type") or ""),
                             "consumable": bool(it.get("on_consume") or it.get("consumable")),
                             "slot": str(it.get("slot") or "")})   # equippable when a slot is known
         if not entries:
@@ -323,6 +329,14 @@ def _inventory_rows(state: dict, eid: str) -> list[dict]:
         cname = "carried" if cid == "loose" else str((items.get(cid) or {}).get("name", cid))
         out.append({"container": cname, "items": entries})
     return out
+
+
+def _inventory_rows(state: dict, eid: str) -> list[dict]:
+    return _carried_rows(state, eid, want_gear=False)
+
+
+def _stowed_gear_rows(state: dict, eid: str) -> list[dict]:
+    return _carried_rows(state, eid, want_gear=True)
 
 
 def _drives(state: dict, eid: str) -> dict:
@@ -406,6 +420,7 @@ def _player_rows(state: dict, cfg, reg, _registry, turn: int) -> list[dict]:
             "effects": _effect_rows(state, _registry, eid, turn),
             "gear": _gear_rows(state, eid),
             "gear_slots": _gear_slots(state, eid),
+            "stowed_gear": _stowed_gear_rows(state, eid),
             "inventory": _inventory_rows(state, eid),
             "drives": _drives(state, eid),
         })

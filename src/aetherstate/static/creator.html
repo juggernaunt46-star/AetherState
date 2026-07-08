@@ -145,6 +145,13 @@ summary:hover{color:var(--fg)}
       </div>
     </div>
 
+    <div class="card">
+      <h2>Custom details &amp; lore <small>your own categories — magic systems, history, cosmology, laws. Kept as retrievable lore</small></h2>
+      <div id="w_extras" class="list"></div>
+      <button class="mini" onclick="addExtra('w_extras')">+ add a detail category</button>
+      <div class="hint">Each detail is a label (e.g. <i>Magic System</i>, <i>The Sundering</i>) and its text. Add as many as you like — the engine surfaces them when they're relevant, so a big world stays token-cheap.</div>
+    </div>
+
     <div class="actions">
       <button class="act ai" id="w_ai" onclick="authorWorld()">✨ Auto-fill blanks with AI</button>
       <button class="act ghost" onclick="fillOffline('world')" title="No AI — fill blanks from the built-in genre template">Fill blanks with templates</button>
@@ -199,6 +206,8 @@ summary:hover{color:var(--fg)}
       <details>
         <summary>Custom skills & abilities (optional)</summary>
         <div style="margin-top:10px">
+          <div class="hint">Give a custom skill or ability a <b>category</b> to make your own sheet sections — e.g. <i>Spells</i>, <i>Cyber-Ware</i>, <i>Disciplines</i>. The player HUD groups them under that heading. Leave it blank to keep the defaults.</div>
+          <datalist id="aes_cats"><option value="Spells"><option value="Cyber-Ware"><option value="Disciplines"><option value="Techniques"><option value="Maneuvers"><option value="Powers"><option value="Rituals"><option value="Gadgets"><option value="Mutations"><option value="Hexes"></datalist>
           <label>Custom skills</label><div id="c_cskills" class="list"></div>
           <button class="mini" onclick="addCustomSkill()">+ custom skill</button>
           <label style="margin-top:12px">Custom abilities</label><div id="c_cabil" class="list"></div>
@@ -214,6 +223,13 @@ summary:hover{color:var(--fg)}
     <div class="card">
       <h2>Starting gear <small>comma-separated item names — seeded as real inventory instances at save</small></h2>
       <div class="field"><input id="c_gear" placeholder="e.g. combat knife, worn leather satchel, med-spray — AI fills if blank"></div>
+    </div>
+
+    <div class="card">
+      <h2>Custom details &amp; backstory <small>your own categories — history, bonds, code, secrets. Kept as retrievable lore</small></h2>
+      <div id="c_extras" class="list"></div>
+      <button class="mini" onclick="addExtra('c_extras')">+ add a detail category</button>
+      <div class="hint">Each detail is a label (e.g. <i>Backstory</i>, <i>Code of Honor</i>, <i>Secret</i>) and its text. Add as many as you wish — they ground the character and surface when relevant.</div>
     </div>
 
     <div class="actions">
@@ -277,6 +293,17 @@ function addLine(hostId, val){
   host.appendChild(d);
 }
 function readLines(hostId){ return [...$(hostId).querySelectorAll("input")].map(i=>i.value.trim()).filter(Boolean); }
+// free-form custom detail categories (Bean 2026-07-07): label + text -> retrievable lore
+function addExtra(hostId, e){ e=e||{}; const host=$(hostId); const d=document.createElement("div"); d.className="item";
+  d.innerHTML=`<input placeholder="label (e.g. Magic System)" value="${(e.label||'').replace(/"/g,'&quot;')}" style="flex:0 0 34%">
+    <input placeholder="detail — write as much as you like" value="${(e.text||'').replace(/"/g,'&quot;')}" style="flex:1">
+    <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
+  host.appendChild(d);
+}
+function readExtras(hostId){ return [...$(hostId).querySelectorAll(".item")].map(it=>{
+  const el=it.querySelectorAll("input"); return {label:el[0].value.trim(), text:el[1].value.trim()};
+}).filter(e=>e.label||e.text); }
+function fillExtras(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(e=>addExtra(hostId,e)); }
 function addNpc(n){ n=n||{}; const host=$("w_npcs"); const d=document.createElement("div"); d.className="item";
   d.innerHTML=`<input placeholder="name" value="${(n.name||'').replace(/"/g,'&quot;')}" style="flex:0 0 22%">
     <input placeholder="role" value="${(n.role||'').replace(/"/g,'&quot;')}" style="flex:0 0 24%">
@@ -292,13 +319,15 @@ function readNpcs(){ return [...$("w_npcs").querySelectorAll(".item")].map(it=>{
 function addCustomSkill(s){ s=s||{}; const host=$("c_cskills"); const opts=Object.keys(REG.stats).map(k=>`<option ${s.keyed_stat===k?'selected':''}>${k}</option>`).join("");
   const d=document.createElement("div"); d.className="item";
   d.innerHTML=`<input placeholder="skill name" value="${(s.name||'').replace(/"/g,'&quot;')}" style="flex:1">
-    <select style="flex:0 0 90px">${opts}</select>
-    <input type="number" title="base mod" value="${s.base_mod||0}" style="flex:0 0 70px">
+    <select style="flex:0 0 84px">${opts}</select>
+    <input type="number" title="base mod" value="${s.base_mod||0}" style="flex:0 0 56px">
+    <input placeholder="category" title="optional group — e.g. Spells, Cyber-Ware, Disciplines" value="${(s.group||'').replace(/"/g,'&quot;')}" style="flex:0 0 108px" list="aes_cats">
     <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
   host.appendChild(d);
 }
 function readCustomSkills(){ return [...$("c_cskills").querySelectorAll(".item")].map(it=>{
-  const el=it.querySelectorAll("input,select"); return {name:el[0].value.trim(), keyed_stat:el[1].value, base_mod:+el[2].value||0};
+  const el=it.querySelectorAll("input,select"); const o={name:el[0].value.trim(), keyed_stat:el[1].value, base_mod:+el[2].value||0};
+  if(el[3] && el[3].value.trim()) o.group=el[3].value.trim(); return o;
 }).filter(s=>s.name); }
 function addCustomAbil(a){ a=a||{}; const host=$("c_cabil"); const d=document.createElement("div"); d.className="item";
   const pm=a.passive_mod||{}; const amt = pm.amount!=null?pm.amount:(a.resolution_mod!=null?a.resolution_mod:1);
@@ -307,6 +336,7 @@ function addCustomAbil(a){ a=a||{}; const host=$("c_cabil"); const d=document.cr
     <input placeholder="boosted skill" title="passive: which skill it boosts (name or id)" value="${(pm.skill||'').replace(/"/g,'&quot;')}" style="flex:0 0 130px">
     <input type="number" title="mod amount — passive: skill boost, active: resolution mod" value="${amt}" style="flex:0 0 64px">
     <input placeholder="effect (prose)" value="${(a.effect||'').replace(/"/g,'&quot;')}" style="flex:1">
+    <input placeholder="category" title="optional group — e.g. Spells, Cyber-Ware, Disciplines" value="${(a.group||'').replace(/"/g,'&quot;')}" style="flex:0 0 100px" list="aes_cats">
     <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
   host.appendChild(d);
 }
@@ -315,6 +345,7 @@ function readCustomAbils(){ return [...$("c_cabil").querySelectorAll(".item")].m
   const o={name:el[0].value.trim(), kind, effect:el[4].value.trim()};
   if(kind==="passive" && el[2].value.trim()) o.passive_mod={skill:el[2].value.trim(), amount:amt};
   if(kind==="active") o.resolution_mod=amt;
+  if(el[5] && el[5].value.trim()) o.group=el[5].value.trim();
   return o;
 }).filter(a=>a.name); }
 
@@ -409,13 +440,17 @@ function worldDoc(){ return {
   date:$("w_date").value.trim(), time:$("w_time").value, tone:$("w_tone").value.trim(),
   factions:readLines("w_factions"), locations:readLines("w_locations"), npcs:readNpcs(),
   aspects:readLines("w_aspects"), opening_scene:$("w_scene").value.trim(), opening_quest:$("w_quest").value.trim(),
-  notes:$("w_notes").value.trim() }; }
+  extras:readExtras("w_extras"), notes:$("w_notes").value.trim() }; }
 function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks[k]>0) skills[k]=skillRanks[k]; }
   // Pack entries aren't registry rows: everything USED from the genre pack ships as a custom
   // def so the server freezes it into the card (snapshot overlay) and the ranks stick.
   const custom={skills:readCustomSkills(), abilities:readCustomAbils()};
   const p=activePack();
-  if(p){ const haveS=new Set(custom.skills.map(s=>s.id||s.name)), haveA=new Set(custom.abilities.map(a=>a.id||a.name));
+  // dedup by SLUG, not display name (Bean 07-07): a custom row authored as "Cranial Deck"
+  // must match the pack id "cranial_deck", else the pack re-injects a no-group duplicate and
+  // clobbers the player's custom category. slugify mirrors the server's slug().
+  const _slug=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
+  if(p){ const haveS=new Set(custom.skills.map(s=>_slug(s.id||s.name))), haveA=new Set(custom.abilities.map(a=>_slug(a.id||a.name)));
     const picked=new Set(pickedAbilities()); const needBasis=new Set();
     for(const [sid,def] of Object.entries(p.skills||{})){
       if((skills[sid]||0)>0 && !haveS.has(sid)){ custom.skills.push(Object.assign({id:sid},def));
@@ -428,6 +463,7 @@ function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks
   custom,
   notes:$("c_notes").value.trim(),
   gear:$("c_gear").value.split(",").map(s=>s.trim()).filter(Boolean),
+  extras:readExtras("c_extras"),
   resources:{hp:{max:+$("c_hp").value||20}} }; }
 
 // ---- apply a doc back into the form
@@ -437,7 +473,8 @@ function applyWorld(w){ if(!w) return; const genreBefore=currentGenre(); WORLD_C
   $("w_date").value=w.date||""; if(w.time) $("w_time").value=w.time; $("w_tone").value=w.tone||"";
   fillList("w_factions", w.factions); fillList("w_locations", w.locations); fillList("w_aspects", w.aspects);
   $("w_npcs").innerHTML=""; (w.npcs||[]).forEach(addNpc);
-  $("w_scene").value=w.opening_scene||""; $("w_quest").value=w.opening_quest||""; }
+  $("w_scene").value=w.opening_scene||""; $("w_quest").value=w.opening_quest||"";
+  if(Array.isArray(w.extras)) fillExtras("w_extras", w.extras); }
 function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); }
 function applyPlayer(p){ if(!p) return;
   $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
@@ -451,6 +488,7 @@ function applyPlayer(p){ if(!p) return;
   $("c_cskills").innerHTML=""; $("c_cabil").innerHTML="";
   if(p.defs&&p.defs.skills) Object.values(p.defs.skills).forEach(addCustomSkill);
   if(p.defs&&p.defs.abilities) Object.values(p.defs.abilities).forEach(addCustomAbil);
+  if(Array.isArray(p.extras)) fillExtras("c_extras", p.extras);
   refreshSkillMods(); }
 
 // ---- AI authoring (2026-07-06: an AI failure shows the reason and leaves the form

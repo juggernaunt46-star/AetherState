@@ -133,6 +133,17 @@ rollable, without an in-world basis.**
   worn vs. carried, click to equip/unequip/use); Status always shows your conditions and diseases.
   The DM's raw ledger tags are hidden from the reader (the engine still reads them). Open it from
   the panel or with `/aether-hud`. The Console mirrors the same view.
+- **New in 1.4 — gear, timing, categories, a sharper DM.** Worn starting gear (a helmet, coat,
+  boots, a sword) now **auto-equips onto the paper-doll** at creation instead of sitting in a bag,
+  and **gear vs. inventory is split by kind** — weapons/armor/tools/bags are gear (equipped *or*
+  stowed), consumables/materials/devices are inventory, with a dedicated **🎒 Items** tab. State
+  now takes in the **newest reply immediately** (its tags commit and extraction runs the instant a
+  reply finishes, not a turn behind; swiping retracts and re-reads — toggle with
+  `extraction.live_recalc`). Custom skills and abilities can carry **any category you name**
+  ("Spells", "Cyber-Ware", "Disciplines") and the HUD groups by it. The DM now **calls for the
+  exact check inline** when you attempt something uncertain. And the Creator's AI autofill no
+  longer truncates, with room to add **free-form world & character detail categories** kept as
+  retrievable lore.
 
 ## How state develops (priority)
 

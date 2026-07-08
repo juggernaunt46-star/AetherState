@@ -573,6 +573,19 @@ def _parse_world_tags(text: str, state: dict) -> list[dict]:
     return ops
 
 
+def parse_reply_tags(text: str, state: dict) -> list[dict]:
+    """R9 + R10 combined: parse a settled assistant reply into effect + world ledger proposals.
+    Under live_recalc the COLD path calls this on the FRESH reply the instant its stream ends
+    (the newest output commits on its own turn — Bean 2026-07-07); under legacy lag-1 the hot
+    path calls the two parsers on the echoed-back previous reply. Mints nothing, decides
+    nothing — proposals apply with source='extraction' (clamped, quarantined visibly)."""
+    ops: list[dict] = []
+    if text:
+        ops.extend(_parse_effect_tags(text, state))
+        ops.extend(_parse_world_tags(text, state))
+    return ops
+
+
 def _commands(text: str, rng: random.Random, res: Tier0Result, rpg: bool = False) -> None:
     """R1 + R7: parse commands from the user's NEW message. `rpg` unlocks the RPG-3b
     set-paths (world./affinity./player.soulmate) — a `none` session's surface is unchanged."""
@@ -662,14 +675,15 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
     if is_new and res.checks and rpg:
         _resolve_checks(res, state, cfg, rng)
 
-    # R9 — effect tag protocol (RPG only, doc 05 §5.4): the DM's LAST settled reply is
-    # scanned once per new turn; proposals apply with source="extraction" (pipeline). A
-    # swiped reply never half-applies: tags parse only when its replacement settles.
-    # R10 — world tag protocol (RPG-5): scene / items / quests / affinity / HP ride the
-    # same spine — the ledger, not the prose, is what's true.
-    if is_new and last_assistant and rpg:
-        res.proposal_ops.extend(_parse_effect_tags(last_assistant, state))
-        res.proposal_ops.extend(_parse_world_tags(last_assistant, state))
+    # R9 — effect tag protocol (RPG only, doc 05 §5.4) + R10 — world tag protocol (RPG-5:
+    # scene / items / quests / affinity / HP). LEGACY lag-1 path only: the DM's LAST reply,
+    # echoed back in this request, is scanned here (one turn behind the narration). Under
+    # live_recalc (the default, Bean 2026-07-07) the COLD path parses the FRESH reply the
+    # instant its stream ends instead, so the newest output commits on its OWN turn — the
+    # hot path stays silent to avoid double-applying (pipeline.on_response owns it).
+    legacy_tags = not getattr(getattr(cfg, "extraction", None), "live_recalc", True)
+    if is_new and last_assistant and rpg and legacy_tags:
+        res.proposal_ops.extend(parse_reply_tags(last_assistant, state))
 
     # R0 — safeword scan (Q13/Q14 scopes)
     if is_new:

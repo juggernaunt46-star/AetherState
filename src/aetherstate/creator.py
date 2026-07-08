@@ -342,7 +342,25 @@ def deterministic_world(doc: dict) -> dict:
         "aspects": [_s(x) for x in aspects][:_MAX_LIST],
         "opening_scene": _s(doc.get("opening_scene")) or tpl["opening_scene"],
         "opening_quest": _s(doc.get("opening_quest")) or tpl["opening_quest"],
+        "extras": _norm_extras(doc.get("extras")),
     }
+
+
+def _norm_extras(extras) -> list:
+    """Free-form custom detail CATEGORIES (Bean 2026-07-07): [{label, text}] the player invents
+    for the world or character — a magic system, a history, a code of honor, a backstory beat.
+    Kept as retrievable lore (the memory system IS AetherState's lorebook: injected on relevance,
+    token-cheap), so the player can open up as many categories as they wish."""
+    out = []
+    for e in _lst(extras)[:_MAX_LIST]:
+        if isinstance(e, dict):
+            label = _s(e.get("label") or e.get("key") or e.get("name"), 60)
+            text = _s(e.get("text") or e.get("value") or e.get("desc"))
+            if label or text:
+                out.append({"label": label or "Note", "text": text})
+        elif isinstance(e, str) and e.strip():
+            out.append({"label": "Note", "text": _s(e)})
+    return out
 
 
 def _norm_npcs(npcs) -> list:
@@ -461,7 +479,7 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
         "concept": _s(doc.get("concept") or doc.get("class"), 200),
         "level": _clampi(doc.get("level", 1), 1, 999),
         "stats": stats, "skills": skills, "abilities": abilities,
-        "defs": defs, "gear": gear,
+        "defs": defs, "gear": gear, "extras": _norm_extras(doc.get("extras")),
         "resources": resources,
     }
 
@@ -497,6 +515,9 @@ def _coerce_defs(custom, reg) -> dict:
         req = slug(_s(sk.get("requires_ability"), 40))
         if req:                                  # eligibility gate rides the def (validated below)
             entry["requires_ability"] = req
+        grp = _s(sk.get("group") or sk.get("category"), 24)
+        if grp:                                  # free-form category (Bean 07-07): "Spells",
+            entry["group"] = grp                 # "Cyber-Ware", "Disciplines" — the HUD sections by it
         cost = sk.get("cost") if isinstance(sk.get("cost"), dict) else None
         if cost:                                 # RPG-5 (doc 10 §5.4): frozen resource cost —
             cc = {str(k).lower(): _clampi(v, 1, 10) for k, v in cost.items()   # clamped, never
@@ -528,9 +549,10 @@ def _coerce_defs(custom, reg) -> dict:
             entry["applies_to"] = "all" if at.strip().lower() in ("all", "any") else slug(at)
         elif isinstance(at, (list, tuple)) and at:
             entry["applies_to"] = [slug(_s(x, 40)) for x in at if _s(x, 40)][:6]
-        grp = _s(ab.get("group"), 12).lower()
-        if grp in ("talent", "technique", "spell"):
-            entry["group"] = grp
+        grp = _s(ab.get("group") or ab.get("category"), 24)
+        if grp:                                  # free-form category (Bean 07-07): was locked to
+            low = grp.lower()                    # talent|technique|spell — now any label the player
+            entry["group"] = low if low in ("talent", "technique", "spell") else grp   # wants
         mag = ab.get("magnitude")
         if mech in ("extra_die", "reroll", "surge"):
             kind = entry["kind"] = "active"
@@ -627,6 +649,10 @@ def world_to_ops(world: dict) -> list[dict]:
         qname = _split_name_desc(w["opening_quest"])[0][:80] or w["opening_quest"][:80]
         ops.append({"op": "quest_add", "name": qname,      # RPG-5 (G3): the opening quest is
                     "detail": w["opening_quest"][:300]})   # LEDGER truth, not just lore prose
+    for ex in w.get("extras", []):                         # Bean 07-07: free-form custom lore
+        if ex.get("text"):                                 # categories -> retrievable memory lore
+            ops.append({"op": "memory_event",
+                        "text": f"World — {ex['label']}: {ex['text']}"})
     return ops
 
 
@@ -654,6 +680,9 @@ def player_to_ops(player: dict, cfg=None) -> list[dict]:
                     "value": p["appearance"]})   # entirely (only NPCs had one); HUD/Console/card read it
     for g in p.get("gear") or []:               # RPG-5 (G2): starting gear becomes INSTANCES —
         ops.append({"op": "item_gain", "char": name, "name": g})   # template names ground
+    for ex in p.get("extras", []):              # Bean 07-07: free-form custom character detail
+        if ex.get("text"):                      # categories -> retrievable lore about the PC
+            ops.append({"op": "memory_event", "text": f"{name} — {ex['label']}: {ex['text']}"})
     return ops                                  # mechanics; the rest commit mechanics-free
 
 
@@ -737,12 +766,12 @@ _CHAR_SYSTEM_TMPL = (
     "\"stats\":{{STAT:int}},\"skills\":{{skill_id:rank}},\"abilities\":[ability_id],"
     "\"gear\":[str],"
     "\"defs\":{{\"skills\":[{{\"id\":str,\"name\":str,\"keyed_stat\":STAT,\"base_mod\":int,"
-    "\"max_rank\":int,\"governs\":[str],\"desc\":str,\"requires_ability\":str,"
+    "\"max_rank\":int,\"governs\":[str],\"desc\":str,\"requires_ability\":str,\"group\":str,"
     "\"cost\":{{\"stamina\":int,\"mana\":int}}}}],"
     "\"abilities\":[{{\"id\":str,\"name\":str,"
     "\"kind\":\"active|passive|basis\","
     "\"mechanic\":\"edge|ward|extra_die|reroll|surge|mod|basis\","
-    "\"applies_to\":str,\"magnitude\":int,\"group\":\"talent|technique|spell\","
+    "\"applies_to\":str,\"magnitude\":int,\"group\":str,"
     "\"cost\":{{\"stamina\":int,\"mana\":int}},\"cooldown_turns\":int,"
     "\"passive_mod\":{{\"skill\":str,\"amount\":int}},"
     "\"resolution_mod\":int,\"effect\":str,\"desc\":str}}]}}}}. "
@@ -762,8 +791,11 @@ _CHAR_SYSTEM_TMPL = (
     "ALSO lifts the outcome ceiling for one check (active); `basis`=grants a gated skill's basis. "
     "PREFER these dice-shapers over dull flat bonuses; use `mechanic`:`mod` + `passive_mod` only "
     "for a plain humble +1. `applies_to` is a skill id or \"all\"; `magnitude` is the extra dice or "
-    "bonus (1-3); actives set `cost` (stamina/mana 1-5) and `cooldown_turns`; `group` is talent "
-    "(passive) / technique (active) / spell (magic). Skills are things you TRY (ranked, rolled); "
+    "bonus (1-3); actives set `cost` (stamina/mana 1-5) and `cooldown_turns`; `group` is a "
+    "free-form CATEGORY that sections the sheet — use talent (passive) / technique (active) / "
+    "spell (magic) by default, OR invent a genre-true category and reuse it across related "
+    "skills AND abilities (e.g. \"Spells\", \"Cyber-Ware\", \"Disciplines\", \"Hexes\") so the "
+    "player's sheet groups them together. Skills are things you TRY (ranked, rolled); "
     "abilities are things you HAVE that RESHAPE the roll. Give the concept 1-2 signature abilities "
     "with real dice-shaping mechanics — be flavorful and specific, never generic. "
     "`appearance` is a vivid 1-3 sentence PHYSICAL description of the character (face, build, "
@@ -852,6 +884,9 @@ def _world_user(seed: dict, world_ctx: str = "") -> str:
     for k, label in (("opening_scene", "opening scene"), ("opening_quest", "opening quest")):
         if _s(seed.get(k)):
             lines.append(f"- {label}: {_s(seed.get(k))}")
+    for ex in _norm_extras(seed.get("extras")):       # free-form custom categories are canon
+        if ex["text"]:
+            lines.append(f"- {ex['label']} (canon, keep verbatim, build around it): {ex['text']}")
     if _s(seed.get("notes")):
         lines.append(f"- creative direction: {_s(seed.get('notes'), 4000)}")
     if len(lines) == 1:
@@ -893,6 +928,9 @@ def _char_user(seed: dict, world: Optional[dict]) -> str:
                  if isinstance(c, dict) and _s((c or {}).get("name"))]
         if names:
             lines.append(f"- custom {kind} the player already defined: " + ", ".join(names))
+    for ex in _norm_extras(seed.get("extras")):       # free-form custom character categories
+        if ex["text"]:
+            lines.append(f"- {ex['label']} (canon, keep verbatim, build around it): {ex['text']}")
     if _s(seed.get("notes")):
         lines.append(f"- creative direction: {_s(seed.get('notes'), 4000)}")
     if len([x for x in lines if x.startswith("- ")]) == 0:
@@ -904,9 +942,13 @@ def _char_user(seed: dict, world: Optional[dict]) -> str:
 # prose, and the shared 25 s mechanics timeout expired before a large model finished 2-4k
 # tokens of world JSON — every auto-fill silently fell back to templates. Authoring is
 # creation-time cold path, so a long wait is fine.
+# 2026-07-07 (Bean): the char sheet + world docs got CUT OFF mid-JSON — a full sheet (stats,
+# skills, abilities, nested defs, gear, appearance) can run well past 4k tokens, so the reply
+# truncated and _json_or_none salvaged only a partial character. Raised the ceiling with room
+# to spare; the timeout scales with it so a big model can actually finish.
 _AUTHOR_TEMP = 0.9
-_AUTHOR_TIMEOUT_S = 150.0
-_AUTHOR_MAX_TOKENS = 4000
+_AUTHOR_TIMEOUT_S = 240.0
+_AUTHOR_MAX_TOKENS = 9000
 
 
 async def author_world(get_client, cfg, ep, seed: dict) -> dict:

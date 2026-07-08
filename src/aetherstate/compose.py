@@ -15,7 +15,8 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
-from .state import GEAR_SLOT_ORDER, GEAR_SLOTS, affinity_tier, derived_exposure, is_empty
+from .state import (GEAR_SLOT_ORDER, GEAR_SLOTS, affinity_tier, derived_exposure, is_empty,
+                    item_is_gear)
 
 CHARS_PER_TOKEN = 3.3     # 03 SS4 estimate; backend tokenizer replaces this in P3
 
@@ -113,8 +114,9 @@ def _render_player(state: dict, cfg=None) -> str:
 
 
 def _render_gear(state: dict) -> str:
-    """[GEAR] — worn slots -> item(mods) for the Player Card(s) (doc 06 §2.3). Reads only the
-    baked per-instance mods_snapshot — pure state, no registry, µs."""
+    """[GEAR] — the equipped paper-doll (slot=Name(mods)[cap]) PLUS carried GEAR-class items
+    (weapons/armor/tools/bags not currently worn), so a sheathed sword reads as gear, not
+    inventory (Bean 2026-07-07). Reads only baked per-instance data — pure state, µs."""
     players = state.get("player") or {}
     items = state.get("items") or {}
     out: list[str] = []
@@ -140,14 +142,26 @@ def _render_gear(state: dict) -> str:
             if it.get("capacity"):
                 txt += f"[{it['capacity']}]"
             bits.append(f"{slot}={txt}")
-        if bits:
-            out.append(" · ".join(bits))
+        stowed = []                             # carried GEAR-class items (not in a body slot)
+        for lst in ((state.get("inventory") or {}).get(eid) or {}).values():
+            for iid in lst:
+                it = items.get(iid)
+                if not it or int(it.get("qty", 1)) < 1 or not item_is_gear(it):
+                    continue
+                q = int(it.get("qty", 1))
+                stowed.append((f"{q}× " if q > 1 else "") + str(it.get("name", iid)))
+        line = " · ".join(bits)
+        if stowed:
+            line += (" · " if line else "") + "stowed: " + ", ".join(stowed)
+        if line:
+            out.append(line)
     return "[GEAR] " + "\n".join(out) if out else ""
 
 
 def _render_inventory(state: dict) -> str:
-    """[INVENTORY] — carried instances grouped by container; `loose` renders last (doc 06
-    §2.3). Depleted (qty 0 / gone) instances never render."""
+    """[INVENTORY] — carried INVENTORY-class instances (consumables, materials, devices…)
+    grouped by container; `loose` renders last (doc 06 §2.3). GEAR-class carried items render
+    under [GEAR] instead (Bean 2026-07-07). Depleted (qty 0 / gone) instances never render."""
     players = state.get("player") or {}
     items = state.get("items") or {}
     out: list[str] = []
@@ -158,7 +172,7 @@ def _render_inventory(state: dict) -> str:
             entries = []
             for iid in conts[cid]:
                 it = items.get(iid)
-                if not it or int(it.get("qty", 1)) < 1:
+                if not it or int(it.get("qty", 1)) < 1 or item_is_gear(it):
                     continue
                 q = int(it.get("qty", 1))
                 entries.append((f"{q}× " if q > 1 else "") + str(it.get("name", iid)))

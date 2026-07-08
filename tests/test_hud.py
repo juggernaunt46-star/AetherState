@@ -44,9 +44,12 @@ def test_hud_view_resolves_the_player():
     assert all("mod" in s for s in p["stats"])
     labels = {s["label"].lower(): s["mod"] for s in p["skills"]}
     assert "stealth" in labels and isinstance(labels["stealth"], int)   # EFFECTIVE mod, resolved
-    # starting gear became carried inventory instances
-    carried = [i["name"] for c in p["inventory"] for i in c["items"]]
-    assert "worn oilskin coat" in carried
+    # starting gear became instances: the worn coat auto-equips onto the paper-doll, the
+    # lockpicks (a tool) stow as gear — neither is "inventory" (Bean 2026-07-07 gear split).
+    equipped = [g["name"] for g in p["gear"]]
+    stowed = [i["name"] for c in p.get("stowed_gear", []) for i in c["items"]]
+    assert "worn oilskin coat" in equipped
+    assert "set of lockpicks" in stowed
     assert any(q["name"] for q in v["quests"])             # opening quest visible
 
 
@@ -76,7 +79,7 @@ async def test_hud_route_end_to_end(client):
     assert body["spec"] == "rpg" and body["players"]
     p = body["players"][0]
     assert p["name"] == "Kestrel" and "scar" in p["appearance"]
-    assert p["skills"] and p["inventory"]
+    assert p["skills"] and (p["gear"] or p["stowed_gear"])   # gear split: coat equipped, picks stowed
 
 
 async def test_hud_route_none_session_has_no_player(client):
@@ -128,8 +131,9 @@ def test_stat_spend_is_replay_pure():
 def test_hud_exposes_op_ids_for_controls():
     cfg, store, bid = _rpg_session()
     p = hud.hud_view(current_state(store, bid), cfg)["players"][0]
-    ids = [i["iid"] for c in p["inventory"] for i in c["items"]]
-    assert ids and all(ids)                                # every carried item has an instance id
+    ids = [g["iid"] for g in p["gear"]] + \
+          [i["iid"] for c in (p.get("stowed_gear", []) + p["inventory"]) for i in c["items"]]
+    assert ids and all(ids)                                # every tracked item has an instance id
 
 
 # ---- comprehensive view: effect kind/disease + the whole cast (2026-07-07) ----

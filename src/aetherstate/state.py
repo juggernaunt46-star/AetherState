@@ -67,6 +67,101 @@ GEAR_SLOT_ORDER = ["head", "face", "neck", "shoulders", "body", "cape", "arms", 
                    "mainhand", "offhand", "waist", "legs", "feet", "back",
                    "accessory1", "accessory2"]
 GEAR_SLOTS = set(GEAR_SLOT_ORDER)
+# ---- Item CLASS: gear vs inventory (Bean 2026-07-07) --------------------------------------
+# "Gear = weapons, equipment, tools, accessories, bags; inventory = consumables, phones,
+# perfume, materials, everything else." The split is by CLASS, not merely by whether a piece
+# is in a body slot right now: a sheathed sword is still gear. Worn gear whose slot is free
+# AUTO-EQUIPS on acquisition, so starting kit shows on the paper-doll (the worn-at-start fix).
+# Deterministic + template-aware -> baked at _enrich so replay stays pure (the reducer never
+# re-derives it). A curated template snapshot is authoritative; a name heuristic is the floor.
+GEAR_TYPES = {"weapon", "armor", "armour", "clothing", "shield", "tool", "accessory",
+              "trinket", "container", "bag", "pack", "equipment", "gear", "focus", "wand",
+              "staff", "implement", "instrument", "kit", "cloak", "cape", "ring", "amulet",
+              "boots", "gloves", "helm", "helmet", "belt", "gadget", "cyberware", "augment",
+              "wearable", "apparel", "garment", "outfit"}
+INV_TYPES = {"consumable", "potion", "food", "drink", "material", "ingredient", "misc",
+             "key", "phone", "device", "perfume", "cosmetic", "currency", "money", "coin",
+             "valuable", "document", "note", "letter", "scroll", "drug", "component",
+             "junk", "treasure", "gem", "supply", "supplies", "ration", "medicine",
+             "quest_item", "keepsake", "photo", "datapad", "chip"}
+# ordered name-token -> gear slot: the paper-doll auto-equip heuristic for free-form kit.
+_SLOT_HINTS: list[tuple[tuple[str, ...], str]] = [
+    (("helm", "helmet", "hood", "circlet", "crown", "coif", "cap", "hat", "headband"), "head"),
+    (("goggles", "visor", "spectacles", "glasses", "monocle", "mask", "respirator"), "face"),
+    (("amulet", "necklace", "pendant", "torc", "collar", "choker", "locket"), "neck"),
+    (("cloak", "mantle", "cape", "robe", "shawl", "poncho"), "cape"),
+    (("pauldron", "spaulder", "epaulet", "mantlet"), "shoulders"),
+    (("gauntlet", "gauntlets", "glove", "gloves", "bracer", "vambrace", "mitt"), "hands"),
+    (("boot", "boots", "greave", "sabaton", "shoe", "shoes", "sandal", "sandals"), "feet"),
+    (("belt", "sash", "girdle", "bandolier", "holster"), "waist"),
+    (("greaves", "leggings", "trousers", "pants", "breeches", "kilt", "skirt"), "legs"),
+    (("ring", "signet"), "accessory1"),
+    (("satchel", "backpack", "rucksack", "knapsack", "haversack", "bag", "quiver"), "back"),
+    (("shield", "buckler", "aegis"), "offhand"),
+    (("sword", "blade", "knife", "dagger", "axe", "mace", "spear", "lance", "staff", "wand",
+      "gun", "pistol", "rifle", "bow", "crossbow", "hammer", "katana", "cleaver", "machete",
+      "baton", "club", "sabre", "saber", "revolver", "blaster", "launcher", "polearm",
+      "halberd", "scythe", "sickle", "whip", "flail", "rapier", "scimitar", "glaive"), "mainhand"),
+    (("armor", "armour", "cuirass", "breastplate", "vest", "jacket", "coat", "mail", "plate",
+      "hauberk", "tunic", "shirt", "gambeson", "harness", "suit", "chestplate", "carapace",
+      "duster", "parka", "overalls", "jerkin", "doublet", "brigandine", "kimono", "kaftan",
+      "blouse", "sweater", "hoodie", "raincoat", "chestpiece", "flak"), "body"),
+    (("bracelet", "charm", "talisman", "brooch", "badge", "insignia", "bracer"), "accessory2"),
+]
+# gear-class by NAME but with no natural body slot -> carried as "stowed gear" (tools/kits/bags)
+_GEAR_NAME_TOKENS = {"lockpick", "lockpicks", "picks", "toolkit", "toolset", "tools", "tool",
+                     "multitool", "kit", "medkit", "medpack", "rope", "grapple", "grappling",
+                     "crowbar", "lantern", "torch", "compass", "spyglass", "binoculars",
+                     "scanner", "toolbox", "pouch", "case", "holster", "sheath", "scabbard",
+                     "bandolier", "harness", "webbing", "rig"}
+_ITEM_WORD_RE = re.compile(r"[a-z0-9]+")
+# short suffixes whose compound-word matches misfire on common non-gear words -> exact only.
+# "ring": herring / spring / string / offspring. (An actual "gold ring" still matches exactly.)
+_SUFFIX_BLOCK = {"ring"}
+
+
+def classify_item(name: str, snap: Optional[dict] = None) -> dict:
+    """Decide an item's CLASS ('gear'|'inv'), whether it is WORN, and which gear SLOT it
+    occupies. A curated template snapshot wins; otherwise a deterministic name heuristic
+    grounds it (weak-model floor). Pure fn of (name, snapshot) -> baked at _enrich."""
+    snap = snap if isinstance(snap, dict) else {}
+    t = str(snap.get("type", "")).strip().lower()
+    if snap.get("worn") and snap.get("slot"):                 # explicit template signal wins
+        return {"class": "gear", "worn": True, "slot": str(snap["slot"]), "type": t or "gear"}
+    if snap.get("on_consume") or t in INV_TYPES:
+        return {"class": "inv", "worn": False, "slot": None, "type": t or "consumable"}
+    if snap.get("is_container"):
+        return {"class": "gear", "worn": bool(snap.get("worn")),
+                "slot": str(snap.get("slot") or "back"), "type": t or "container"}
+    toks = _ITEM_WORD_RE.findall(str(name or "").lower())
+
+    def _hit(hints) -> bool:                          # exact token, or a compound-word suffix:
+        return any(tk == h or (len(h) >= 3 and h not in _SUFFIX_BLOCK   # longcoat->coat,
+                               and len(tk) > len(h) and tk.endswith(h))  # shotgun->gun,
+                   for tk in toks for h in hints)      # breastplate->plate, chainmail->mail
+    if toks:
+        for hints, slot in _SLOT_HINTS:
+            if _hit(hints):
+                return {"class": "gear", "worn": True, "slot": slot, "type": t or "gear"}
+        if _hit(_GEAR_NAME_TOKENS):                   # a tool/kit/bag: gear, but no body slot
+            return {"class": "gear", "worn": False, "slot": None, "type": t or "tool"}
+    if t in GEAR_TYPES:
+        return {"class": "gear", "worn": False, "slot": None, "type": t}
+    return {"class": "inv", "worn": False, "slot": None, "type": t or "misc"}
+
+
+def item_is_gear(it: dict) -> bool:
+    """True if an item belongs to the GEAR surface (weapons/armor/tools/accessories/bags),
+    False if it is INVENTORY (consumables/materials/devices/…). Reads the baked class,
+    re-deriving for instances minted before classification existed (fail-open)."""
+    if not isinstance(it, dict):
+        return False
+    c = it.get("class")
+    if c in ("gear", "inv"):
+        return c == "gear"
+    return classify_item(str(it.get("name", "")), it)["class"] == "gear"
+
+
 # ---- RPG-3 effects vocab (doc 05 §5.4): ledger-owned Statuses & Conditions. Truth lives in
 # the ledger, not the prose — the LLM PROPOSES (tag protocol / extraction), code COMMITS.
 EFFECT_KINDS = {"status", "condition"}
@@ -676,6 +771,18 @@ def _default_container(state: dict, eid) -> str:
     return "loose"                             # the always-available unbounded pseudo-container
 
 
+def _auto_loc(state: dict, owner, snap: Optional[dict]) -> str:
+    """The default landing spot for a freshly acquired item (mint/gain). Worn gear whose
+    slot is FREE auto-equips onto the paper-doll (the worn-at-start fix); everything else is
+    carried. Pure fn of (state, owner, baked snapshot) — replay-deterministic."""
+    cls = classify_item(str((snap or {}).get("name", "")), snap)
+    if owner and cls["worn"] and cls["slot"]:
+        slot = cls["slot"]
+        if not ((state.get("gear") or {}).get(owner) or {}).get(slot):
+            return f"gear:{slot}"
+    return f"inv:{_default_container(state, owner)}"
+
+
 def _container_capacity(state: dict, cid: str):
     it = state.get("items", {}).get(cid)
     cap = (it or {}).get("capacity")
@@ -1138,12 +1245,12 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                            f"(add it to registry items.toml — nothing freestyle)")
         owner = op["owner"]
         items = state.setdefault("items", {})
-        loc = str(op.get("to") or f"inv:{_default_container(state, owner)}")
+        loc = str(op.get("to") or _auto_loc(state, owner, snap))   # worn gear auto-equips
         rec = {"template_id": op["template"], "name": snap.get("name", op["template"]),
                "qty": max(1, int(op.get("qty", 1))), "loc": loc, "owner": owner,
                "mods_snapshot": dict(snap.get("mods") or {}), "minted_turn": turn}
         for k in ("slot", "covers", "on_consume", "stackable", "max_stack", "capacity",
-                  "is_container", "worn", "type"):
+                  "is_container", "worn", "type", "class"):
             if k in snap:
                 rec[k] = snap[k]
         if op.get("bound"):
@@ -1398,13 +1505,13 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             while iid in items:                 # pure fn of (state, op): replay-deterministic
                 n += 1
                 iid = f"{base}#{n}"
-            snap = op.get("_snapshot") or {}    # template bake (_enrich) — {} = mechanics-free
-            loc = f"inv:{_default_container(state, owner)}"
+            snap = op.get("_snapshot") or {}    # template + classification bake (_enrich)
+            loc = _auto_loc(state, owner, snap)  # worn gear auto-equips; else carried
             rec = {"template_id": snap.get("_template"), "name": snap.get("name", name),
                    "qty": max(1, int(op.get("qty", 1))), "loc": loc, "owner": owner,
                    "mods_snapshot": dict(snap.get("mods") or {}), "minted_turn": turn}
             for k in ("slot", "covers", "on_consume", "stackable", "max_stack",
-                      "capacity", "is_container", "worn", "type"):
+                      "capacity", "is_container", "worn", "type", "class"):
                 if k in snap:
                     rec[k] = snap[k]
             items[iid] = rec
@@ -1776,9 +1883,18 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
         except Exception:
             tpl = None
         if isinstance(tpl, dict):
-            out["_snapshot"] = {k: tpl[k] for k in (
+            snap = {k: tpl[k] for k in (
                 "name", "worn", "slot", "mods", "covers", "on_consume", "stackable",
                 "max_stack", "capacity", "is_container", "type") if k in tpl}
+            snap.setdefault("name", str(op.get("template", "")))
+            cls = classify_item(snap.get("name", ""), snap)   # gear vs inv + auto-equip slot
+            snap["class"] = cls["class"]
+            if cls["worn"]:
+                snap["worn"] = True
+            if cls["slot"]:
+                snap.setdefault("slot", cls["slot"])
+            snap["type"] = snap.get("type") or cls["type"]
+            out["_snapshot"] = snap
             existing = (state or {}).get("items", {})
             n = sum(1 for i in existing if str(i).startswith(str(op["template"]) + "#")) + 1
             iid = f'{op["template"]}#{n}'
@@ -1822,20 +1938,31 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
                                                # stable even if the constant is tuned later
     if op["op"] == "item_gain":                # RPG-5 (G2): template-snapshot floor — a name
         from . import registry as _registry    # matching a curated template grounds its
-        try:                                    # mechanics; anything else commits MECHANICS-FREE
-            reg = _registry.load(cfg)           # (no power minted from prose)
+        tid = None                             # mechanics; anything else commits MECHANICS-FREE
+        try:                                   # (no power minted from prose) but STILL classified
+            reg = _registry.load(cfg)          # gear vs inventory + an auto-equip slot (floor)
             want = str(op.get("name", "")).strip().lower()
             tid = next((t for t, tp in reg.items.items()
                         if t == slug(want) or str((tp or {}).get("name", "")).lower() == want),
                        None)
         except Exception:
             tid = None
+        snap: dict = {}
         if tid:
             tpl = reg.items.get(tid) or {}
-            out["_snapshot"] = {**{k: tpl[k] for k in (
+            snap = {k: tpl[k] for k in (
                 "name", "worn", "slot", "mods", "covers", "on_consume", "stackable",
-                "max_stack", "capacity", "is_container", "type") if k in tpl},
-                "_template": tid}
+                "max_stack", "capacity", "is_container", "type") if k in tpl}
+            snap["_template"] = tid
+        snap.setdefault("name", str(op.get("name", "")))
+        cls = classify_item(snap.get("name", ""), snap)
+        snap["class"] = cls["class"]
+        if cls["worn"]:
+            snap["worn"] = True
+        if cls["slot"]:
+            snap.setdefault("slot", cls["slot"])
+        snap["type"] = snap.get("type") or cls["type"]
+        out["_snapshot"] = snap
     if op["op"] == "hp_adj":                   # RPG-5 (G7): per-op swing clamp baked — the
         try:                                    # narrator proposes, the clamp owns the number
             mx = int((((state or {}).get("player", {}).get(op.get("char")) or {})
