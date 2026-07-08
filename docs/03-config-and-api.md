@@ -23,7 +23,7 @@ then defaults. `Config.source` records which loaded.
 ### `[upstream]` — `UpstreamConfig` (the MAIN model that writes the story)
 | key | default | meaning |
 |---|---|---|
-| base_url | `""` | full OpenAI base **including version segment** (e.g. `https://api.venice.ai/api/v1`) |
+| base_url | `""` | full OpenAI base **including version segment** (e.g. `https://api.openai.com/v1`) |
 | api_key | `""` | **fallback only** — the frontend's Authorization header is forwarded as-is and always wins; this key is used only when the frontend sends none (+ Console Connect test) |
 | force_rung | `0` | 1–4 forces an extraction rung, skips probing; 0 = auto |
 | probe_ttl_days | `7` | capability re-probe interval |
@@ -101,9 +101,10 @@ then defaults. `Config.source` records which loaded.
 ### `[linter]` — `LinterConfig`
 | key | default | meaning |
 |---|---|---|
-| enabled | true | run the L1–L9 consistency pass at all |
-| rules_off | `[]` | silence specific rules, e.g. `["L6"]` for timeline |
+| enabled | true | run the L1–L9 consistency pass (and L10, the NLI check) at all |
+| rules_off | `[]` | silence specific rules by name, e.g. `["L6"]` for timeline, `["L10"]` for the NLI ledger-contradiction check |
 | corrective_notes | true | false = detect + log to the inspector only, **never** steer the next turn (the director's corrective slot stays empty) |
+| nli_threshold | 0.85 | L10: minimum contradiction confidence (0.0–1.0) before a corrective note is staged. Local NLI models over-fire on RP prose — keep ~0.85–0.9; a chat-judge (`main`) can go lower. Consulted only when `[assist.groups].linter_nli` = `assist`/`main` |
 
 ### `[extraction]` — `ExtractionConfig`
 | key | default | meaning |
@@ -147,10 +148,24 @@ then defaults. `Config.source` records which loaded.
 |---|---|---|
 | extraction | `""` | unset → `[extraction].mode` is authoritative |
 | director_selection | `rules` | |
-| linter_nli | `rules` | |
+| linter_nli | `rules` | **L10 prose-vs-ledger contradiction check.** `rules`/`off` = L1–L9 only, no model, byte-identical to 1.0 (default). `assist` = a **local** MiniCheck / 3-way NLI model behind an OpenAI-compatible shim (recommended). `main` = a big judge — point it at a **different** endpoint than the narrator (self-judging inflates scores). Both fire ONLY on contradiction of a committed fact, never on new detail you author |
 | memory_reflection | `rules` | |
 | embeddings | `off` | |
 | lore_gen | `off` | |
+
+### `[assist.group_endpoints]` — `AssistGroupEndpointsConfig` (optional per-group endpoint override, 2026-07-08)
+Each key is a group name; its value is the **name of an `[[assist.endpoints]]`** that group should use when
+its mode is `assist`. Empty / omitted → the first endpoint (`endpoints[0]`) — today's behaviour, so an
+all-empty table is **byte-identical to 1.0**; an unknown name fails open to `endpoints[0]`. Lets e.g.
+`linter_nli` hit a LOCAL NLI box while `memory_reflection` hits a cloud chat model — different assist
+endpoints at once (also honoured by extraction's own routing). Editable live in the Console
+(Connection → **Assist routing**) and the SillyTavern panel; persisted on change.
+
+Routes: `POST /aether/groups` now also accepts `"group_endpoints": {<group>: <endpoint name>}` alongside the
+`{<group>: <mode>}` pairs (persisted; a blank/unknown name clears the override). `POST /aether/assist/endpoints`
+`{ "endpoints": [ {name, base_url, model?, tier?, api_key?, max_concurrent?} ] }` replaces the endpoint list
+(a blank `api_key` keeps a stored key; never echoed back). `GET /aether/status` `.extraction` exposes
+`groups`, `group_endpoints`, and `assist_endpoints` (name/model/tier/base_url) for the UIs.
 
 ### `[privacy]` — `PrivacyConfig`
 | key | default | meaning |
@@ -443,3 +458,56 @@ Soulmate, Nemesis — empty selections send `null` to clear).
 Devoted-eligibility (`med`, corrective note), referential integrity (`med`), and a conservative
 off-book-promotion prose arm. `one_nemesis` is the same machinery, registered only when
 `[specialization].nemesis_enabled` (D6).
+
+---
+
+## L10 — NLI ledger-contradiction check (2026-07-08)
+
+The one systematic **prose-vs-ledger** guard — wiring the previously advisory-only `linter_nli`
+dial to real teeth. L1–L9 verify structured state and a few hand-written prose patterns; **L10**
+asks a grounding model whether the narrator's prose FLATLY CONTRADICTS a committed ledger fact and
+turns each hit into a next-turn corrective note through the existing `director.best_corrective`
+slot (it never rewrites the current reply). Runs in **both** chat and RPG sessions.
+
+**The one semantic that matters:** it fires ONLY on **contradiction** (prose asserts a committed
+fact is false). Prose that merely adds detail the ledger doesn't cover is NEW FICTION, not error —
+left untouched (*freedom of fiction, constraint on fact*). The contradiction-only prompt plus the
+`nli_threshold` score are the two filters.
+
+**Premises** = the turn's scoped ledger slice serialized to short declarative sentences: base
+`facts` and the RPG `effects`/`hp`/`items`/`quests` when present (presence and clothing/poses/
+contacts stay out — the deterministic L1–L5 rules already own them). **Hypotheses** = the reply
+split on sentence boundaries (no LLM decomposition). Bounded (≤24 premises × ≤40 hypotheses) so the
+cold path stays cheap.
+
+**Model/endpoint.** `assist` = a **local** MiniCheck / 3-way NLI model behind an OpenAI-compatible
+shim (runs on a 4070 or CPU; never touches the narrator backend). `main` = a big model as judge —
+**point it at a different endpoint than the narrator**; self-judging inflates scores. Both speak the
+same `assist._chat` path: `assist.nli_pass(get_client, cfg, ep, premises, hypotheses) -> hits`.
+
+**Invariants.** Cold-path only (post-`[DONE]`), fully **fail-open** (any error → no note, stream
+untouched), **note-only** (freedom is routed, never blocked), and **journals no state** (replay-pure).
+Default `linter_nli="rules"` runs no model and is **byte-identical** to 1.0. Off-switch:
+`[linter].rules_off = ["L10"]`; knob `[linter].nli_threshold` (default 0.85). Single-turn detection +
+the existing 3-turn lint cooldown (a persisting contradiction nags once, not every turn). Tests:
+`tests/test_p8_nli_l10.py` (+ `nli_pass` units in `tests/test_p4_assist.py`).
+
+### L10 precision notes
+
+A raw 3-way NLI classifier over the premise×hypothesis matrix over-fires on loosely-related RP
+prose, so this check is tuned for precision over recall (a false corrective note damages the RP; a
+missed one costs nothing). Three guards:
+
+- **Only durable keys are premises.** `_ledger_premises` emits base facts + the RPG
+  effects/hp/items/quests. Presence and clothing/poses/contacts stay out — they change turn to turn
+  and the deterministic L1–L5 rules already own them.
+- **Threshold.** `[linter].nli_threshold` defaults to `0.85`. Real contradictions score ~0.99, so
+  0.85–0.9 keeps them while dropping noise. Tune per model; a `main` chat-judge can sit lower.
+- **Shared-subject gate.** A good NLI endpoint scores only a (fact, claim) pair that shares a
+  subject word — a contradiction is ABOUT the same thing. The bundled shim (`nli-shim/`) does this.
+
+**Known limit (surface NLI).** An accumulating fact ledger can hold stale/transient facts; a surface
+NLI model may flag later prose as "contradicting" a fact that was true earlier but no longer applies.
+The floor/ceiling answer: the local NLI is a fast, private FLOOR; for higher precision point
+`linter_nli="main"` at a big judge on a **separate** endpoint (it reads context and currency far
+better than surface NLI). A ready-to-run local shim ships in `nli-shim/` — see its README.

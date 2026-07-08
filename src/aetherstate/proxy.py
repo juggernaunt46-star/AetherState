@@ -30,7 +30,7 @@ def upstream_url(base_url: str, path: str, query: str = "") -> str:
     """Map the proxy's OpenAI surface onto the configured upstream base.
 
     Convention (same as SillyTavern's custom-endpoint rule): `upstream.base_url` is the FULL
-    OpenAI-compatible base INCLUDING the version segment — e.g. https://api.venice.ai/api/v1
+    OpenAI-compatible base INCLUDING the version segment â€” e.g. https://api.openai.com/v1
     or https://api.openai.com/v1. Frontends call the proxy at /v1/<rest>; we strip the /v1
     marker and graft <rest> onto the base. Regression: naive joining produced /api/v1/v1/... (404).
     """
@@ -61,7 +61,7 @@ def make_relay_router(get_client: Callable[[], httpx.AsyncClient], cfg, engine=N
                                               header_name=cfg.stamp.header_name)
             except Exception as exc:
                 log.warning("stamp path failed open: %s", type(exc).__name__)
-                if MARKER in body:  # last-resort scrub — a sentinel never goes upstream (09 I3)
+                if MARKER in body:  # last-resort scrub â€” a sentinel never goes upstream (09 I3)
                     from .stamps import SENTINEL_ANY
                     body = SENTINEL_ANY.sub("", body.decode(errors="replace")).encode()
         if request.method == "POST" \
@@ -92,7 +92,7 @@ def make_relay_router(get_client: Callable[[], httpx.AsyncClient], cfg, engine=N
         if not cfg.upstream.base_url:
             return Response(
                 content=(b'{"error":{"message":"AetherState: upstream.base_url is not configured "'
-                         b'"(set it in config.toml, e.g. https://api.venice.ai/api/v1)",'
+                         b'"(set it in config.toml, e.g. https://api.openai.com/v1)",'
                          b'"type":"not_configured","code":502}}'),
                 status_code=502, media_type="application/json")
 
@@ -116,7 +116,7 @@ def make_relay_router(get_client: Callable[[], httpx.AsyncClient], cfg, engine=N
             buf = bytearray()
             try:
                 async for chunk in upstream.aiter_raw():
-                    yield chunk  # verbatim — invariant 2 (09 U7: even malformed SSE relays)
+                    yield chunk  # verbatim â€” invariant 2 (09 U7: even malformed SSE relays)
                     if post_ctx is not None and len(buf) <= tee_cap:
                         buf.extend(chunk)   # copy AFTER yield: the tee never delays the stream
             except httpx.HTTPError as exc:  # 09 U4: upstream died mid-stream -> end as received

@@ -1,0 +1,9 @@
+# Dependencies for the AetherState local NLI contradiction shim (server.py).
+# A CPU build of torch is plenty — the model scores short sentence pairs.
+#   Windows:      pip install torch            (already the CPU build)
+#   Linux/macOS:  pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch
+transformers>=4.40
+# Optional: only needed if HuggingFace model downloads fail SSL verification behind a
+# TLS-intercepting corporate proxy / antivirus. Harmless to install; server.py uses it if present.
+# truststore

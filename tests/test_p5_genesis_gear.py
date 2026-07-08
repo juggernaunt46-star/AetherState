@@ -236,7 +236,7 @@ async def test_hint_mode_writeback_groups_endpoints(client, cfg):
     assert meta["session"] == sid and meta["mode"] == "passthrough"
     g = await client.post("/aether/groups", json={"embeddings": "assist", "bogus": "x",
                                                   "linter_nli": "nope"})
-    assert g.json() == {"applied": {"embeddings": "assist"}}
+    assert g.json()["applied"] == {"embeddings": "assist"}   # +endpoints/persisted fields now
     assert cfg.assist.groups.embeddings == "assist"
 
 

@@ -64,6 +64,25 @@ def test_endpoint_for_group_routing():
     assert assist.endpoint_for_group(cfg, "embeddings") is None          # warn once, None
 
 
+def test_endpoint_for_group_per_group_override():
+    cfg = Config()
+    cfg.upstream.base_url = "http://up/v1"
+    cfg.assist.endpoints = [
+        AssistEndpointConfig(name="a", base_url="http://a/v1", model="ma", tier="small"),
+        AssistEndpointConfig(name="b", base_url="http://b/v1", model="mb", tier="small")]
+    cfg.assist.groups.linter_nli = "assist"
+    cfg.assist.groups.memory_reflection = "assist"
+    # unset -> endpoints[0] (byte-identical to 1.0)
+    assert assist.endpoint_for_group(cfg, "linter_nli").base_url == "http://a/v1"
+    # per-group override -> the named endpoint; the two groups now hit DIFFERENT endpoints at once
+    cfg.assist.group_endpoints.linter_nli = "b"
+    assert assist.endpoint_for_group(cfg, "linter_nli").base_url == "http://b/v1"
+    assert assist.endpoint_for_group(cfg, "memory_reflection").base_url == "http://a/v1"
+    # unknown name falls open to endpoints[0]
+    cfg.assist.group_endpoints.linter_nli = "ghost"
+    assert assist.endpoint_for_group(cfg, "linter_nli").base_url == "http://a/v1"
+
+
 # ------------------------------ embeddings (03 SS7) ------------------------------
 async def test_embed_missing_and_cosine_retrieval_beats_keyword():
     cfg, mock, get_client, store, sid, bid = mk({"embeddings": "assist"})
@@ -141,30 +160,32 @@ async def test_synthesize_malformed_reply_leaves_digest():
     assert after == before                               # honest rules product stands
 
 
-# ------------------------------ NLI advisory pass (03 SS9) ------------------------------
-async def test_nli_flags_contradiction_as_advisory_only():
-    cfg, mock, get_client, store, sid, bid = mk({"linter_nli": "assist"})
-    apply_delta(store, sid, bid, 1, [{"op": "reveal_fact", "learner": "kira",
-                                      "statement": "The vault code is 4412",
-                                      "source": "told"}], "user", cfg)
-    state = current_state(store, bid)
-    ep = assist.endpoint_for_group(cfg, "linter_nli")
-    mock.enqueue(chat_reply(json.dumps(
-        {"contradictions": [{"fact": 0, "quote": "the vault has no code"}]})))
-    n = await assist.nli_pass(store, cfg, get_client, ep, bid, 3, state,
-                              "She laughed: the vault has no code at all.")
-    assert n == 1
-    assert store.lint_counts().get("NLI") == 1
-    assert store.read_note(sid) == ""                    # advisory: never a corrective note
-
-
-async def test_nli_garbage_reply_and_no_facts_are_noops():
+# ---------------------- NLI pass (03 SS9, L10) — pure (premises, hypotheses) -> hits ----------
+async def test_nli_pass_returns_contradiction_hits():
     cfg, mock, get_client, store, sid, bid = mk({"linter_nli": "assist"})
     ep = assist.endpoint_for_group(cfg, "linter_nli")
-    assert await assist.nli_pass(store, cfg, get_client, ep, bid, 3,
-                                 {"facts": {}}, "prose") == 0        # no facts
-    apply_delta(store, sid, bid, 1, [{"op": "reveal_fact", "learner": "kira",
-                                      "statement": "x", "source": "told"}], "user", cfg)
-    mock.enqueue(chat_reply("{broken"))
-    assert await assist.nli_pass(store, cfg, get_client, ep, bid, 3,
-                                 current_state(store, bid), "prose") == 0
+    mock.enqueue(chat_reply(json.dumps({"contradictions": [
+        {"premise": 1, "quote": "the vault has no code", "score": 0.95}]})))
+    hits = await assist.nli_pass(get_client, cfg, ep,
+                                 ["Kira is present in the scene.", "The vault code is 4412."],
+                                 ["She laughed", "the vault has no code at all"])
+    assert hits == [{"premise": 1, "quote": "the vault has no code", "score": 0.95}]
+
+
+async def test_nli_pass_ignores_new_detail_and_low_score():
+    cfg, mock, get_client, store, sid, bid = mk({"linter_nli": "assist"})
+    ep = assist.endpoint_for_group(cfg, "linter_nli")
+    mock.enqueue(chat_reply(json.dumps({"contradictions": []})))    # new detail is NOT a contradiction
+    assert await assist.nli_pass(get_client, cfg, ep, ["A fact."], ["A new claim."]) == []
+    mock.enqueue(chat_reply(json.dumps({"contradictions": [
+        {"premise": 0, "quote": "x", "score": 0.2}]})))             # below threshold -> dropped
+    assert await assist.nli_pass(get_client, cfg, ep, ["A fact."], ["x"], threshold=0.6) == []
+
+
+async def test_nli_pass_fails_open():
+    cfg, mock, get_client, store, sid, bid = mk({"linter_nli": "assist"})
+    ep = assist.endpoint_for_group(cfg, "linter_nli")
+    assert await assist.nli_pass(get_client, cfg, ep, [], ["claim"]) == []       # no premises
+    assert await assist.nli_pass(get_client, cfg, ep, ["fact"], []) == []        # no hypotheses
+    mock.enqueue(chat_reply("{broken json"))
+    assert await assist.nli_pass(get_client, cfg, ep, ["fact"], ["claim"]) == []   # garbage reply

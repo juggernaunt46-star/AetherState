@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.5.0 — 2026-07-08
+
+Two opt-in additions for keeping the story consistent, plus more flexible helper routing. A default
+(chat) session is byte-identical to before — everything here is off unless you turn it on.
+
+### Contradiction checking (L10)
+- A new **optional** background check flags when the narration **flatly contradicts a committed
+  fact** and nudges the next turn to stay consistent. It never rewrites the current reply, and fires
+  only on a real contradiction — new detail the ledger doesn't cover is left alone.
+- Off by default. To enable, point `[assist.groups] linter_nli` at a small NLI model. A ready-to-run
+  local one now ships in **`nli-shim/`** — run `setup-nli.bat` (Windows) or `bash setup-nli.sh`
+  (Linux/macOS) and it serves an OpenAI-compatible endpoint you can route the check to.
+- Tunable via `[linter] nli_threshold` (default `0.85`); silence it with `[linter] rules_off = ["L10"]`.
+
+### Per-group helper endpoints
+- Each background helper job (contradiction checking, memory reflection, embeddings) can now use its
+  **own** endpoint via `[assist.group_endpoints]` — so, e.g., contradiction checking runs on a local
+  model while memory reflection uses a cloud one, at the same time.
+- Set it from the Console (**Connection → Assist routing**, which also gained a multi-endpoint
+  editor) or the SillyTavern panel. Leave it unset and every job uses the first assist endpoint, as
+  before.
+
 ## 1.4.0 — 2026-07-07
 
 Six fixes to RPG mode that make the sheet, the gear, and the timing behave the way you'd expect.

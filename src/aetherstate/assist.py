@@ -33,9 +33,13 @@ _SYNTH_SYSTEM = (
     "0-3 facts, each a thing that stays true going forward (a debt, a secret learned, "
     "an injury, a promise). No commentary.")
 _NLI_SYSTEM = (
-    "You check a roleplay passage against established facts. Reply with ONLY a JSON "
-    'object: {"contradictions": [{"fact": <index>, "quote": "<short quote from the '
-    'passage>"}]} — empty list if none. Only clear, direct contradictions count.')
+    "You verify a roleplay passage against a numbered list of ESTABLISHED FACTS. Reply with "
+    'ONLY a JSON object: {"contradictions": [{"premise": <index>, "quote": "<short span '
+    'from the passage>", "score": <0.0-1.0>}]} — an empty list if none.\n'
+    "Flag a fact ONLY when the passage asserts something that makes it FALSE (a real "
+    "contradiction). Do NOT flag a fact just because the passage adds NEW detail the facts "
+    "do not mention — unstated, new information is allowed and is NOT a contradiction. "
+    "score is your confidence that it is a genuine contradiction.")
 
 
 def endpoint_for_group(cfg, group: str, model_hint: str = ""):
@@ -51,7 +55,12 @@ def endpoint_for_group(cfg, group: str, model_hint: str = ""):
                 log.warning("group %s='assist' but no [assist] endpoints configured — "
                             "staying in rules mode (fail-open)", group)
             return None
-        e = eps[0]
+        # per-group endpoint override (Q8): a group may name a specific [[assist.endpoints]];
+        # unset OR an unknown name falls open to endpoints[0] — byte-identical to 1.0 when empty.
+        name = (getattr(getattr(cfg.assist, "group_endpoints", None), group, "") or "").strip()
+        e = next((x for x in eps if x.name == name), None) if name else None
+        if e is None:
+            e = eps[0]
         return Endpoint(base_url=e.base_url, model=e.model or model_hint,
                         api_key=e.api_key, assist_tier=e.tier in ("nano", "small"))
     if mode == "main":
@@ -299,31 +308,44 @@ async def synthesize(store, cfg, get_client, ep: Endpoint, session_id: str,
     return done
 
 
-# ------------------------------------------------------------------ NLI linter (03 SS9)
-async def nli_pass(store, cfg, get_client, ep: Endpoint, branch_id: str, turn: int,
-                   state: dict, text: str) -> int:
-    """Advisory-only contradiction check of new prose vs established facts (03 SS9:
-    'NLI is advisory-only — rules stay the authority'). Inspector rows, never notes."""
-    from .linter import Violation                       # local import: no cycle at load
-    facts = [f.get("statement", "") for f in (state.get("facts") or {}).values()][-12:]
-    if not facts or not (text and text.strip()):
-        return 0
-    listing = "\n".join(f"{i}: {f}" for i, f in enumerate(facts))
+# ------------------------------------------------------------------ NLI linter (03 SS9, L10)
+async def nli_pass(get_client, cfg, ep: Endpoint, premises: list, hypotheses: list,
+                   *, threshold: float = 0.6, max_hits: int = 4) -> list:
+    """Cold-path, fail-open contradiction detector behind the L10 ledger check (03 SS9).
+
+    Takes PREMISES (the committed ledger slice as short declarative sentences — the truth) and
+    HYPOTHESES (the narrator's prose split into claims) and returns the CONTRADICTION hits only
+    — [{"premise": <idx>, "quote": "<span>", "score": <float>}] — or [] on ANY error
+    (invariant 1: a missing or broken judge degrades silently to the rules floor, never raises).
+
+    Fires ONLY on contradiction (the prose asserts a premise is false). Prose that merely adds
+    detail the ledger does not cover is NEUTRAL/new fiction, not a hallucination, and is left
+    alone — 'freedom of fiction, constraint on fact'. The contradiction-only instruction and the
+    score threshold are the two filters that keep new authoring from tripping it.
+
+    Model-agnostic + OpenAI-compatible: the assist tier (a LOCAL MiniCheck / 3-way NLI server
+    behind a chat shim) and the main tier (a big judge on a DIFFERENT endpoint than the narrator
+    — self-judging inflates scores) travel the same _chat path; the caller selects the endpoint
+    via endpoint_for_group('linter_nli')."""
+    if not premises or not hypotheses:
+        return []
+    facts = "\n".join(f"{i}: {p}" for i, p in enumerate(premises))
+    passage = "\n".join(f"- {h}" for h in hypotheses)
     raw = await _chat(get_client, cfg, ep, _NLI_SYSTEM,
-                      f"Established facts:\n{listing}\n\nPassage:\n{text[:1500]}")
+                      f"Established facts:\n{facts}\n\nPassage claims:\n{passage[:1800]}")
     doc = _json_or_none(raw)
     if not isinstance(doc, dict):
-        return 0
-    vios = []
-    for c in list(doc.get("contradictions") or [])[:3]:
-        try:
-            fact = facts[int(c["fact"])]
-        except (KeyError, ValueError, TypeError, IndexError):
+        return []
+    hits: list = []
+    for c in list(doc.get("contradictions") or [])[:max_hits]:
+        if not isinstance(c, dict):
             continue
-        quote = str(c.get("quote", ""))[:160]
-        vios.append(Violation("NLI", "low", ("nli", fact[:40]),
-                              f"passage may contradict: {fact[:120]}",
-                              evidence=quote, advisory=True))
-    if vios:
-        store.lint_add(branch_id, turn, vios)
-    return len(vios)
+        try:
+            idx = int(c.get("premise", c.get("fact")))
+            score = float(c.get("score", 1.0))
+        except (TypeError, ValueError):
+            continue
+        if score < threshold or not 0 <= idx < len(premises):
+            continue
+        hits.append({"premise": idx, "quote": str(c.get("quote", ""))[:160], "score": score})
+    return hits

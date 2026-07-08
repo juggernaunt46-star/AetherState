@@ -382,7 +382,33 @@ async function sessionsTab(){const s=await sessions();
     <button class="mini" onclick='renameSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||"")})'>rename</button>
     <button class="mini" onclick='deleteSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||x.external_id||x.session_id)})'>delete</button></td></tr>`).join("")+
   `</table><p class="hint">Rename a chat to give it a friendly name. Delete permanently removes a session and its tracked state. Freeze pauses a scene like a safeword.</p></div>`}
+/* ---- assist endpoints + per-group routing (Q8, 2026-07-08) ---- */
+function epRowHtml(e){e=e||{};return `<tr class="eprow">
+ <td><input class="ep-name" value="${esc(e.name||"")}" placeholder="name" style="width:88px"></td>
+ <td><input class="ep-url" value="${esc(e.base_url||"")}" placeholder="http://127.0.0.1:8199/v1" style="width:210px"></td>
+ <td><input class="ep-model" value="${esc(e.model||"")}" placeholder="model id" style="width:130px"></td>
+ <td><select class="ep-tier"><option ${e.tier==="nano"?"selected":""}>nano</option><option ${(!e.tier||e.tier==="small")?"selected":""}>small</option><option ${e.tier==="medium"?"selected":""}>medium</option></select></td>
+ <td><input class="ep-key" type="password" placeholder="${e.has_key?"••• keeps":"key (opt)"}" style="width:84px"></td>
+ <td><button class="mini" title="remove" onclick="this.closest('tr').remove()">✕</button></td></tr>`}
+function addEpRow(){document.querySelector("#eptbl tbody").insertAdjacentHTML("beforeend",epRowHtml({}))}
+async function saveEndpoints(){
+ const rows=[...document.querySelectorAll("#eptbl .eprow")].map(r=>({
+  name:r.querySelector(".ep-name").value.trim(),base_url:r.querySelector(".ep-url").value.trim(),
+  model:r.querySelector(".ep-model").value.trim(),tier:r.querySelector(".ep-tier").value,
+  api_key:r.querySelector(".ep-key").value})).filter(x=>x.name&&x.base_url);
+ try{const dd=await j("/aether/assist/endpoints",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({endpoints:rows})});
+  toast("saved "+dd.endpoints.length+" endpoint(s)"+(dd.persisted?" — persists":""));render()}
+ catch(e){toast("save failed: "+e,1)}}
+function routeRowHtml(g,mode,ep,names){
+ const modes=["off","rules","main","assist"].map(m=>`<option ${m===mode?"selected":""}>${m}</option>`).join("");
+ const epo=`<option value="">(default: first)</option>`+(names||[]).map(n=>`<option ${n===ep?"selected":""}>${esc(n)}</option>`).join("");
+ return `<tr><td>${g}</td>
+  <td><select onchange="routeMode('${g}',this.value)">${modes}</select></td>
+  <td><select onchange="routeEp('${g}',this.value)" ${mode==="assist"?"":"disabled"}>${epo}</select></td></tr>`}
+async function routeMode(g,v){try{await j("/aether/groups",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[g]:v})});toast(g+" → "+v);render()}catch(e){toast("failed: "+e,1)}}
+async function routeEp(g,v){try{const dd=await j("/aether/groups",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({group_endpoints:{[g]:v}})});toast(g+" endpoint → "+(v||"(default)")+(dd.persisted?" — saved":""))}catch(e){toast("failed: "+e,1)}}
 async function connectionTab(){const d=await j("/aether/connection");const a=(d.assist&&d.assist[0])||{};
+ const stx=(await j("/aether/status")).extraction||{};const epNames=(stx.assist_endpoints||[]).map(e=>e.name);
  setTimeout(()=>{listConn("upstream","up_url","up_key","up_models",d.upstream.model||"");
                  listConn("assist","as_url","as_key","as_models",a.model||"")},0);
  return `<div class="card"><h3>Main writer — the model that writes the story</h3>
@@ -404,7 +430,17 @@ async function connectionTab(){const d=await j("/aether/connection");const a=(d.
    <select id="as_models" style="min-width:220px"><option value="${esc(a.model||"")}">${esc(a.model||"(loading models…)")}</option></select>
    <button class="act" onclick="saveConn('assist','as_url','as_key','as_models')">Save</button>
    <span class="hint" id="as_saved">${a.model?"saved model: "+esc(a.model):""}</span></div>
-  <p class="hint">Can be your local Llama OR any hosted OpenAI-compatible API. Connect, pick the model, Save. Changes apply immediately and are saved to config.</p></div>`}
+  <p class="hint">Can be your local Llama OR any hosted OpenAI-compatible API. Connect, pick the model, Save. Changes apply immediately and are saved to config.</p></div>
+  <div class="card"><h3>Assist endpoints (helpers)</h3>
+   <p class="hint">Define one or more OpenAI-compatible helper endpoints, then route jobs to them below. A blank key keeps a saved one.</p>
+   <table id="eptbl"><thead><tr><th>name</th><th>endpoint URL</th><th>model</th><th>tier</th><th>key</th><th></th></tr></thead>
+   <tbody>${(d.assist||[]).map(epRowHtml).join("")}</tbody></table>
+   <div class="row"><button class="mini" onclick="addEpRow()">+ add endpoint</button>
+    <button class="act" onclick="saveEndpoints()">Save endpoints</button></div></div>
+  <div class="card"><h3>Assist routing — which helper does which job</h3>
+   <p class="hint">Each background job can use its OWN endpoint. Pick a mode; for <b>assist</b>, pick which endpoint. "(default: first)" uses the first endpoint — the classic behaviour. Lets e.g. the contradiction check (linter_nli) run on a LOCAL model while memory_reflection uses a cloud one, both at once.</p>
+   <table><tr><th>job</th><th>mode</th><th>endpoint (assist only)</th></tr>
+   ${["linter_nli","memory_reflection","embeddings"].filter(g=>g in (stx.groups||{})).map(g=>routeRowHtml(g,(stx.groups||{})[g],(stx.group_endpoints||{})[g]||"",epNames)).join("")}</table></div>`}
 async function listConn(target,urlId,keyId,selId,savedModel){
  /* auto-populate the model menu with the SAVED key (server-side) so the saved pick is
     visible + changeable without re-pasting anything (2026-07-06). */

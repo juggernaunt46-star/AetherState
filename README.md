@@ -39,7 +39,7 @@ Disclosure: I'm mostly a vibe-coder, and mainly a hobbyist that did this for mys
 3. Double-click **`Start-AetherState.bat`**. The first run installs everything (a minute or two),
    then the **Console** opens in your browser. If the page doesn't load, wait a moment and refresh.
 4. In the Console, open the **Connection** tab:
-   - **Main model** (writes the story): endpoint + API key, e.g. `https://api.venice.ai/api/v1`.
+   - **Main model** (writes the story): endpoint + API key, e.g. `https://api.openai.com/v1`.
    - **Helper model** (tracks state): the same service, or a small local model. The *Connect test*
      verifies the key with a real call.
 5. Point your frontend at the proxy (SillyTavern shown):
@@ -165,12 +165,13 @@ too). `config.example.toml` documents the common settings. Highlights:
 | `[extraction] cadence_turns` | 1 | Update state every N turns |
 | `[extraction] intake_chars` | 12000 | How much recent chat each update reads |
 | `[assist.groups] extraction` | assist | Who tracks: `off` / `rules` (no LLM) / `main` / `assist` |
+| `[assist.groups] linter_nli` | rules | Optional contradiction check (L10): `rules` (off) / `assist` / `main` |
 | `[manual_override] enabled` | false | Allow editing organic values |
 | `[user_guard] name` | "" | Your persona's name — keeps the model out of your voice |
 | `[consent] safewords` | [] | Any of these in YOUR message freezes the scene instantly |
 
 `base_url` always includes the version segment, exactly like SillyTavern custom endpoints:
-`https://api.venice.ai/api/v1` · `https://api.openai.com/v1` · `http://127.0.0.1:11434/v1`
+`https://api.your-provider.com/v1` · `https://api.openai.com/v1` · `http://127.0.0.1:11434/v1`
 (Ollama) · `http://127.0.0.1:5001/v1` (KoboldCpp).
 
 ## The helper ("assist") model
@@ -179,6 +180,27 @@ State tracking is a background job — it never blocks your story. Small local m
 (Llama 3.1 8B on KoboldCpp is plenty; set `tier = "small"`), or point it at your main API.
 Thinking/reasoning models are handled automatically: reasoning is disabled for tracking calls,
 or budgeted if you set `[extraction] thinking = "on"`.
+
+**Per-group helper endpoints.** Each background helper job — contradiction checking (`linter_nli`),
+memory reflection, embeddings — can point at its **own** endpoint via `[assist.group_endpoints]`
+(or the Console's **Connection → Assist routing** card, and the SillyTavern panel). So contradiction
+checking can run on a small local model while memory reflection uses a cloud one, at the same time.
+Leave it unset and every job uses the first assist endpoint — the classic behaviour.
+
+## Contradiction checking (L10, optional)
+
+L10 is an optional cold-path check that flags when the narrator's prose **flatly contradicts a
+committed ledger fact**, and stages a next-turn corrective note (it never rewrites the current
+reply). It fires **only** on contradiction — new detail the ledger doesn't cover is left alone
+(*freedom of fiction, constraint on fact*). It's **off by default**
+(`[assist.groups] linter_nli = "rules"`), so a default session is byte-identical.
+
+To turn it on, point `linter_nli` at a small NLI model. A ready-to-run local one ships in
+[`nli-shim/`](nli-shim/README.md): on Windows run `nli-shim\setup-nli.bat`, on Linux/macOS
+`bash nli-shim/setup-nli.sh` — it installs a CPU build of torch + transformers and serves an
+OpenAI-compatible endpoint on `127.0.0.1:8199`. Add it as an assist endpoint, set
+`linter_nli = "assist"`, and (optionally) route it via `[assist.group_endpoints]`. Raise
+`[linter] nli_threshold` (default `0.85`) if you see false hits.
 
 ## Troubleshooting
 

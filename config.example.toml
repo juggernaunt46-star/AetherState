@@ -11,7 +11,7 @@
 # MAIN model — the one that WRITES your story.
 # base_url includes the version segment, same rule as SillyTavern custom endpoints.
 [upstream]
-base_url = ""     # e.g. "https://api.venice.ai/api/v1", "https://api.openai.com/v1",
+base_url = ""     # e.g. "https://api.openai.com/v1", "https://api.your-provider.com/v1",
                   #      "http://127.0.0.1:11434/v1" (Ollama), "http://127.0.0.1:5001/v1" (KoboldCpp)
 model = ""        # DEFAULT model for engine-initiated calls only (Creator auto-fill, chat-open
                   # genesis) before any chat request has flowed. The relay NEVER uses it — your
@@ -44,9 +44,24 @@ max_concurrent = 1
 extraction = "assist"          # who tracks state: off | rules (no LLM) | main | assist
 memory_reflection = "assist"
 embeddings = "off"
-linter_nli = "rules"
+linter_nli = "rules"           # prose-vs-ledger contradiction check (L10): off | rules (the
+#                                deterministic L1-L9 rules only, no model — the default, and
+#                                byte-identical to 1.0) | assist (a LOCAL MiniCheck / 3-way NLI
+#                                model behind an OpenAI-compatible shim — the recommended path) |
+#                                main (a big judge; point it at a DIFFERENT endpoint than your
+#                                narrator — self-judging inflates scores). assist/main flag ONLY
+#                                contradictions of committed facts, never new detail you author.
 director_selection = "rules"
 lore_gen = "off"
+
+# OPTIONAL per-group endpoint override (Q8). Give a group the NAME of one of the [[assist.endpoints]]
+# above to send THAT job to THAT endpoint when its mode is "assist". Omit a line (or leave it blank)
+# to use the FIRST endpoint — the classic behaviour, byte-identical to 1.0. Lets e.g. the L10
+# contradiction check run on a LOCAL NLI box while memory_reflection uses a cloud model, at once.
+# Editable live in the Console (Connection tab → "Assist routing") and the SillyTavern panel.
+# [assist.group_endpoints]
+# linter_nli = "nli-local"
+# memory_reflection = "cloud-chat"
 
 [extraction]
 cadence_turns = 1     # update state every N turns (1 = every turn)
@@ -64,6 +79,15 @@ name = ""             # your persona's name — keeps the model from speaking in
 
 [consent]
 safewords = []        # e.g. ["red"] — any of these in YOUR message freezes the scene instantly
+
+[linter]
+# The consistency linter: L1-L9 deterministic continuity rules + L10, the optional NLI
+# ledger-contradiction check (see [assist.groups].linter_nli above). rules_off silences rules by
+# name — e.g. ["L10"] to turn the NLI check off, ["L6"] to drop the timeline check.
+rules_off = []
+nli_threshold = 0.85  # L10: minimum contradiction confidence (0.0-1.0) before a corrective note is
+#                       staged. Local NLI models (roberta/DeBERTa-MNLI) over-fire on RP prose — keep
+#                       ~0.85-0.9; a chat-judge (main) can go lower. linter_nli = assist|main only.
 
 # ------------------------------------------------------------------
 # NARRATIVE MODE (Q27 / RPG specialization). Leave as "none" for normal chat-RP — that is

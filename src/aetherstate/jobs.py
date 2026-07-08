@@ -69,7 +69,11 @@ class JobRunner:
         if self.cfg.extraction.mode == "assist":
             eps = self.cfg.assist.endpoints
             if eps:
-                e = eps[0]                       # v1: extraction routes to the first endpoint
+                name = (getattr(getattr(self.cfg.assist, "group_endpoints", None),   # per-group
+                                "extraction", "") or "").strip()                      # override (Q8)
+                e = next((x for x in eps if x.name == name), None) if name else None
+                if e is None:
+                    e = eps[0]                   # unset OR unknown name -> first endpoint (fail-open)
                 return (Endpoint(base_url=e.base_url,
                                  model=e.model or self.models.get(session_id, ""),
                                  api_key=e.api_key,
@@ -276,6 +280,18 @@ class JobRunner:
         except Exception as exc:
             vios = []
             log.warning("lint pass skipped: %s", type(exc).__name__)
+        try:                                   # L10 (03 SS9): cold-path ledger-contradiction pass
+            ep_n = assist.endpoint_for_group(self.cfg, "linter_nli",   # assist/main gated, note-
+                                             self.models.get(b.session_id, ""))   # only, fail-open
+            if ep_n is not None and self.cfg.linter.enabled:           # runs BEFORE director.stage
+                ep_n = await assist.resolve_endpoint(self.ladder.get_client, self.cfg, ep_n)
+                rows = self.store.get_turn_texts(b.branch_id, b.hi, b.hi)
+                text = rows[-1]["assistant_text"] if rows else ""
+                vios = list(vios) + await linter.ledger_contradiction_pass(
+                    self.store, self.cfg, self.ladder.get_client, ep_n,
+                    b.session_id, b.branch_id, b.hi, res.state, text or "")
+        except Exception as exc:               # invariant 1: fail-open so its notes can be staged
+            log.warning("L10 ledger-contradiction pass skipped: %s", type(exc).__name__)
         try:                                   # P4: director beats + note staging (03 SS8)
             guard = self.cfg.user_guard.name or self.user_names.get(b.session_id, "")
             director.stage(self.store, self.cfg, b.session_id, b.branch_id, b.hi,
@@ -283,16 +299,6 @@ class JobRunner:
                            user_aliases=tuple(self.cfg.user_guard.aliases))
         except Exception as exc:
             log.warning("director pass skipped: %s", type(exc).__name__)
-        try:                                   # 03 SS9: advisory NLI pass (assist-gated)
-            ep_n = assist.endpoint_for_group(self.cfg, "linter_nli",
-                                             self.models.get(b.session_id, ""))
-            if ep_n is not None and self.cfg.linter.enabled:
-                rows = self.store.get_turn_texts(b.branch_id, b.hi, b.hi)
-                text = rows[-1]["assistant_text"] if rows else ""
-                await assist.nli_pass(self.store, self.cfg, self.ladder.get_client,
-                                      ep_n, b.branch_id, b.hi, res.state, text or "")
-        except Exception as exc:
-            log.warning("nli pass skipped: %s", type(exc).__name__)
 
     def _lint_batch(self, b: Batch, res) -> list:
         """03 SS9: deterministic checks per turn against the batch's post-apply snapshot.

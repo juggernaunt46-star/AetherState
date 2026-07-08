@@ -16,13 +16,15 @@ _STARTED = time.monotonic()
 
 
 def _extraction_view(cfg, store, jobs) -> dict:
+    ge = getattr(cfg.assist, "group_endpoints", None)
     out: dict = {"mode": cfg.extraction.mode,
                  "thinking": cfg.extraction.thinking,
                  "groups": cfg.assist.groups.model_dump(),
+                 "group_endpoints": ge.model_dump() if ge is not None else {},
                  "force_rung": cfg.upstream.force_rung or None,
                  "assist_endpoints": [
                      {"name": e.name, "model": e.model, "tier": e.tier,
-                      "max_concurrent": e.max_concurrent}
+                      "base_url": e.base_url, "max_concurrent": e.max_concurrent}
                      for e in cfg.assist.endpoints],
                  "caps": [], "breakers": []}
     if store is not None:

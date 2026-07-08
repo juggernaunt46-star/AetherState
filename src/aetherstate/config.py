@@ -68,8 +68,12 @@ class InjectionConfig(BaseModel):
 class LinterConfig(BaseModel):
     """12 [linter] (03 SS9)."""
     enabled: bool = True
-    rules_off: list[str] = []        # e.g. ["L6"] to silence timeline checks
+    rules_off: list[str] = []        # e.g. ["L6"] to silence timeline checks; ["L10"] the NLI check
     corrective_notes: bool = True    # false = detect + inspector only, never steer
+    nli_threshold: float = 0.85      # L10 (03 SS9): min contradiction confidence to stage a note.
+    #                                  Tune per model: local NLI classifiers (roberta/DeBERTa-MNLI)
+    #                                  over-fire on RP prose — keep ~0.85-0.9; a chat-judge (main)
+    #                                  can sit lower. Only consulted when linter_nli = assist|main.
 
 
 class ConsentConfig(BaseModel):
@@ -183,9 +187,25 @@ class AssistGroupsConfig(BaseModel):
     lore_gen: str = "off"
 
 
+class AssistGroupEndpointsConfig(BaseModel):
+    """Optional per-group endpoint OVERRIDE (Q8) — the `name` of an [[assist.endpoints]] a group
+    should use when its mode is 'assist'. Empty = the first endpoint (endpoints[0]), i.e. today's
+    behaviour, so an all-empty table is byte-identical to 1.0. Lets e.g. linter_nli hit a LOCAL NLI
+    box while memory_reflection hits a cloud chat model — different assist endpoints at once. An
+    unknown name fails open to endpoints[0]."""
+    extraction: str = ""
+    director_selection: str = ""
+    linter_nli: str = ""
+    memory_reflection: str = ""
+    embeddings: str = ""
+    lore_gen: str = ""
+
+
 class AssistConfig(BaseModel):
     endpoints: list[AssistEndpointConfig] = []
     groups: AssistGroupsConfig = Field(default_factory=AssistGroupsConfig)
+    group_endpoints: AssistGroupEndpointsConfig = Field(
+        default_factory=AssistGroupEndpointsConfig)
 
 
 class SpecializationConfig(BaseModel):

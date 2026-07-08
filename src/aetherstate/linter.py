@@ -564,6 +564,165 @@ def _one_soulmate(state, text, cfg, v, *, ptr="soulmate"):
                           f"never assumed in prose."))
 
 
+# ============ L10: ledger-contradiction pass (03 SS9, assist-gated, cold path) ==============
+# The one systematic prose-vs-LEDGER check. L1-L9 verify structured state and a few hand-written
+# prose patterns; L10 asks a grounding model whether the narrator's prose FLATLY CONTRADICTS a
+# committed ledger fact. It fires ONLY on contradiction — prose that merely adds detail the ledger
+# doesn't cover is new fiction, not error (freedom of fiction, constraint on fact). Cold-path,
+# fail-open, note-only: like every rule it never rewrites the current reply, only stages a
+# next-turn corrective (director.best_corrective). OFF unless [assist.groups].linter_nli is
+# 'assist'/'main' (default 'rules' = this pass never runs and the wire is byte-identical). It
+# journals no state, so replay stays pure. Disable by name with [linter].rules_off = ["L10"].
+_SENT_SPLIT = re.compile(r"[.!?]+[\s\"”\)]+|\n+")
+_LEDGER_PREMISE_CAP = 24
+_HYPOTHESIS_CAP = 40
+
+
+def _split_sentences(text: str) -> list:
+    """Prose -> hypothesis claims on sentence boundaries. Deterministic, NO LLM decomposition
+    (the MiniCheck design takes claims directly). Drops fragments under 12 chars (greetings and
+    interjections carry no assertable fact) and caps the count so the matrix stays bounded."""
+    out: list = []
+    for s in _SENT_SPLIT.split(text or ""):
+        s = s.strip().strip("\"“”*").strip()
+        if len(s) >= 12:
+            out.append(s[:200])
+        if len(out) >= _HYPOTHESIS_CAP:
+            break
+    return out
+
+
+def _ledger_premises(state: dict) -> list:
+    """The turn's committed ledger slice as (subject_key, short declarative sentence) pairs — the
+    'truth' half of the NLI matrix. Reads the SAME typed state the compose renderers brief every
+    turn, but emits declarative sentences a grounding model reads cleanly, and scopes it
+    _prefilter-style (the present cast + the player scope the effects/items/quests in play) so the
+    matrix stays bounded. Fact-dense, high-authority, DURABLE keys only: base facts and the RPG
+    effects/hp/items/quests when present. Presence and clothing/poses/contacts stay out — they flip
+    turn to turn and the deterministic L1–L5 rules already own them (live calibration 2026-07-08)."""
+    if not isinstance(state, dict):
+        return []
+    present = _present(state)
+    players = list((state.get("player") or {}).keys())
+    prem: list = []
+
+    def add(key: str, sentence: str) -> None:
+        if sentence and len(prem) < _LEDGER_PREMISE_CAP:
+            prem.append((key, sentence))
+
+    for fid, f in list((state.get("facts") or {}).items())[-8:]:   # base facts: durable, top authority
+        st = str((f or {}).get("statement", "")).strip()
+        if st:
+            add(f"fact:{fid}", st.rstrip(".") + ".")
+    # presence is deliberately NOT a premise: a character legitimately enters/leaves as new fiction,
+    # so it flips every sentence, and the deterministic L1/L5 rules already own absent-voice with
+    # high precision. Live calibration 2026-07-08 proved presence premises were the FP engine.
+    scope = set(present) | set(players)
+    for eid in scope:                                              # effects: statuses & conditions (RPG)
+        for rec in ((state.get("effects") or {}).get(eid) or {}).values():
+            if not isinstance(rec, dict):
+                continue
+            nm = str(rec.get("name", rec.get("id", ""))).strip()
+            if nm:
+                add(f"effect:{eid}:{rec.get('id', nm)}",
+                    f"{_name(state, eid)} currently has the status {nm}.")
+    items = state.get("items") or {}
+    for eid in players:                                            # vitals + owned items (RPG)
+        p = (state.get("player") or {}).get(eid) or {}
+        hp = p.get("hp") or {}
+        if isinstance(hp, dict) and hp.get("max"):
+            add(f"hp:{eid}", f"{_name(state, eid)} has {hp.get('cur', hp['max'])} of "
+                             f"{hp['max']} hit points.")
+        d = p.get("defeated")
+        if isinstance(d, dict) and d.get("outcome"):
+            add(f"defeat:{eid}", f"{_name(state, eid)} has been defeated.")
+        for slot, iid in ((state.get("gear") or {}).get(eid) or {}).items():
+            it = items.get(iid)
+            if isinstance(it, dict) and it.get("name"):
+                add(f"gear:{eid}:{slot}", f"{_name(state, eid)} has {it['name']} equipped.")
+        for lst in ((state.get("inventory") or {}).get(eid) or {}).values():
+            for iid in lst:
+                it = items.get(iid)
+                if isinstance(it, dict) and it.get("name") and int(it.get("qty", 1)) >= 1:
+                    add(f"item:{eid}:{iid}", f"{_name(state, eid)} is carrying {it['name']}.")
+    for qid, q in (state.get("quests") or {}).items():             # quests: active vs settled (RPG)
+        if not isinstance(q, dict):
+            continue
+        nm = str(q.get("name", qid)).strip()
+        stq = str(q.get("status", "active"))
+        if stq == "active":
+            add(f"quest:{qid}", f"The quest '{nm}' is currently active and unresolved.")
+        elif stq in ("complete", "failed", "abandoned"):
+            add(f"quest:{qid}", f"The quest '{nm}' is already {stq}.")
+    return prem
+
+
+def _l10_ledger_contradiction(state, text, premises, hits, v, *, threshold: float = 0.6) -> None:
+    """Turn model contradiction HITS into L10 Violations (pure; the model call already ran in
+    ledger_contradiction_pass). Non-advisory and carries a note, so it competes for the single
+    corrective-note slot like any continuity rule; subjects = the premise's stable key, so a
+    persisting contradiction dedups on the cooldown and nags once, not every turn."""
+    seen: set = set()
+    for h in hits or []:
+        if not isinstance(h, dict):
+            continue
+        try:
+            idx = int(h.get("premise"))
+            score = float(h.get("score", 1.0))
+        except (TypeError, ValueError):
+            continue
+        if score < threshold or not 0 <= idx < len(premises):
+            continue
+        key, sentence = premises[idx]
+        if key in seen:
+            continue
+        seen.add(key)
+        quote = str(h.get("quote", ""))[:120]
+        v.append(Violation("L10", "med", (key,),
+                 f"prose contradicts the ledger: {sentence[:110]}",
+                 evidence=quote,
+                 note=f"Continuity: the record establishes that {sentence[:110]} Keep the "
+                      f"narration consistent with it — do not contradict what has already been "
+                      f"committed to the ledger."))
+
+
+async def ledger_contradiction_pass(store, cfg, get_client, ep, session_id: str, branch_id: str,
+                                    turn: int, state: dict, text: str) -> list:
+    """Cold-path L10 orchestrator (03 SS9): serialize the scoped ledger slice into premises, split
+    the prose into hypotheses, ask the grounding model for CONTRADICTIONS only, and stage them as
+    L10 corrective notes through the normal linter path (cooldown-dedup + persist for the
+    inspector). Single-turn + cooldown (Bean 2026-07-08). Fail-open at every seam (invariant 1):
+    any error yields no note and leaves the stream untouched. Journals no state -> replay stays
+    pure. The caller supplies `ep` from endpoint_for_group('linter_nli') (None -> nothing runs)."""
+    try:
+        if not cfg.linter.enabled or ep is None:
+            return []
+        if "L10" in set(getattr(cfg.linter, "rules_off", []) or []):
+            return []
+        scene = state.get("scene")
+        if isinstance(scene, dict) and scene.get("mode") in ("flashback", "dream"):
+            return []                          # prose describes the past/dream; the ledger is now
+        premises = _ledger_premises(state)
+        hypotheses = _split_sentences(text)
+        if not premises or not hypotheses:
+            return []
+        from . import assist                    # local import: no linter<->assist cycle at load
+        threshold = float(getattr(cfg.linter, "nli_threshold", 0.6) or 0.6)
+        hits = await assist.nli_pass(get_client, cfg, ep, [s for _, s in premises],
+                                     hypotheses, threshold=threshold)
+        vios: list = []
+        _l10_ledger_contradiction(state, text, premises, hits, vios, threshold=threshold)
+        if not vios:
+            return []
+        recent = store.lint_recent(branch_id, turn - COOLDOWN_TURNS)
+        fresh = [x for x in vios if x.key not in recent]
+        if fresh:
+            store.lint_add(branch_id, turn, fresh)
+        return fresh
+    except Exception:                          # invariant 1/3: the pass never touches the stream
+        return []
+
+
 # ================================ entry points ======================================
 def run(state: dict, text: str, cfg, *, applied_kinds: frozenset = frozenset(),
         klass: str = "new_turn", user_name: str = "", user_aliases: tuple = (),

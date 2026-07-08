@@ -340,20 +340,32 @@
       }).catch(() => {});
       $("aes_cadence").onchange = (e) => postExtraction({ cadence_turns: parseInt(e.target.value, 10) || 1 });
       $("aes_intake").onchange = (e) => postExtraction({ intake_chars: parseInt(e.target.value, 10) || 0 });
-      try {                                    // assist group mirrors (05 §7, Q8)
+      try {                                    // assist group mirrors + per-group endpoint (05 §7, Q8)
         const st = await api("/aether/status");
         const groups = st.extraction?.groups || {};
+        const gep = st.extraction?.group_endpoints || {};
+        const eps = (st.extraction?.assist_endpoints || []).map((e) => e.name);
+        const epOpts = (cur) => `<option value="">(default: first)</option>` +
+          eps.map((n) => `<option ${n === cur ? "selected" : ""}>${n}</option>`).join("");
         const sel = (g, v) => `<label style="font-size:12px">${g}
-          <select data-g="${g}">${["off", "rules", "main", "assist"].map(
-            (m) => `<option ${m === v ? "selected" : ""}>${m}</option>`).join("")}
-          </select></label>`;
+          <select data-g="${g}" data-kind="mode">${["off", "rules", "main", "assist"].map(
+            (m) => `<option ${m === v ? "selected" : ""}>${m}</option>`).join("")}</select>
+          <select data-g="${g}" data-kind="ep" title="which assist endpoint"
+            style="${v === "assist" && eps.length ? "" : "display:none"}">${epOpts(gep[g] || "")}</select></label>`;
         $("aes_groups").innerHTML = ["memory_reflection", "embeddings", "linter_nli"]
           .filter((g) => g in groups).map((g) => sel(g, groups[g])).join(" ");
-        $("aes_groups").querySelectorAll("select").forEach((el) => {
-          el.onchange = () => api("/aether/groups", {
-            method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ [el.dataset.g]: el.value }),
-          }).catch(() => {});
+        const postGroup = (body) => api("/aether/groups", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify(body) }).catch(() => {});
+        $("aes_groups").querySelectorAll('select[data-kind="mode"]').forEach((el) => {
+          el.onchange = () => {
+            postGroup({ [el.dataset.g]: el.value });
+            const ep = $("aes_groups").querySelector(`select[data-kind="ep"][data-g="${el.dataset.g}"]`);
+            if (ep) ep.style.display = (el.value === "assist" && eps.length) ? "" : "none";
+          };
+        });
+        $("aes_groups").querySelectorAll('select[data-kind="ep"]').forEach((el) => {
+          el.onchange = () => postGroup({ group_endpoints: { [el.dataset.g]: el.value } });
         });
       } catch (e) {}
       $("aes_freeze").onclick = () => api(`/aether/session/${sid()}/freeze`, { method: "POST" }).catch(() => {});

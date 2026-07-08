@@ -185,6 +185,13 @@ def _persist_config(cfg) -> bool:
             "director_selection": g.director_selection, "linter_nli": g.linter_nli,
             "memory_reflection": g.memory_reflection, "embeddings": g.embeddings,
             "lore_gen": g.lore_gen}
+        ge = getattr(cfg.assist, "group_endpoints", None)   # per-group endpoint overrides (Q8):
+        gedict = {k: getattr(ge, k) for k in assist["groups"]                # write only when set,
+                  if ge is not None and getattr(ge, k, "")} if ge else {}    # so an empty table
+        if gedict:                                                           # stays out of the file
+            assist["group_endpoints"] = gedict
+        else:
+            assist.pop("group_endpoints", None)
 
         # [extraction] (user-tunable subset)
         x = cfg.extraction
@@ -428,18 +435,78 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
 
     @router.post("/groups")
     async def set_group(request: Request):
-        """05 SS7: assist feature-group mirrors (Q8, live-toggleable). Runtime-only."""
+        """05 SS7: assist feature-group mirrors (Q8, live-toggleable) + optional per-group endpoint
+        overrides. Payload: {<group>: <mode>, ..., "group_endpoints": {<group>: <endpoint name>}}.
+        A blank/unknown endpoint name clears the override (falls open to endpoints[0]). Persisted so
+        the routing survives a restart; mode-only callers keep working unchanged."""
         try:
             payload = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
         valid_modes = {"off", "rules", "main", "assist"}
-        out = {}
+        names = {e.name for e in cfg.assist.endpoints}
+        out, eps_out = {}, {}
         for group, mode in payload.items():
+            if group == "group_endpoints":
+                continue
             if hasattr(cfg.assist.groups, group) and mode in valid_modes:
                 setattr(cfg.assist.groups, group, mode)
                 out[group] = mode
-        return {"applied": out}
+        ge = getattr(cfg.assist, "group_endpoints", None)
+        for group, name in (payload.get("group_endpoints") or {}).items():
+            if ge is not None and hasattr(ge, group):
+                name = str(name or "").strip()
+                setattr(ge, group, name if name in names else "")   # blank/unknown -> clear
+                eps_out[group] = getattr(ge, group)
+        persisted = _persist_config(cfg)
+        return {"applied": out, "endpoints": eps_out, "persisted": persisted}
+
+    @router.post("/assist/endpoints")
+    async def set_assist_endpoints(request: Request):
+        """Replace the [[assist.endpoints]] list (the Console's multi-endpoint editor). Each item:
+        {name, base_url, model?, tier?, api_key?, max_concurrent?}. A blank api_key on an endpoint
+        whose name already exists KEEPS the stored key (never echoed back). Persisted."""
+        from .config import AssistEndpointConfig
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        incoming = payload.get("endpoints")
+        if not isinstance(incoming, list):
+            return JSONResponse({"error": "endpoints list required"}, status_code=400)
+        old = {e.name: e for e in cfg.assist.endpoints}
+        new_eps, seen = [], set()
+        for item in incoming:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "")).strip()
+            base = str(item.get("base_url", "")).strip()
+            if not name or name in seen or not base:
+                continue                       # a usable endpoint needs a unique name + a url
+            seen.add(name)
+            key = str(item.get("api_key", "") or "")
+            if not key and name in old:
+                key = old[name].api_key         # blank keeps the stored key (never wiped by edits)
+            try:
+                maxc = max(1, int(item.get("max_concurrent", 1)))
+            except (TypeError, ValueError):
+                maxc = 1
+            new_eps.append(AssistEndpointConfig(
+                name=name, base_url=base, api_key=key,
+                model=str(item.get("model", "")).strip(),
+                tier=str(item.get("tier", "small")).strip() or "small", max_concurrent=maxc))
+        cfg.assist.endpoints = new_eps
+        # drop any group override that now points at a deleted endpoint (fail-open to default)
+        ge = getattr(cfg.assist, "group_endpoints", None)
+        if ge is not None:
+            for grp in cfg.assist.groups.model_dump():
+                if getattr(ge, grp, "") and getattr(ge, grp) not in seen:
+                    setattr(ge, grp, "")
+        persisted = _persist_config(cfg)
+        return {"endpoints": [{"name": e.name, "base_url": e.base_url, "model": e.model,
+                               "tier": e.tier, "has_key": bool(e.api_key),
+                               "max_concurrent": e.max_concurrent} for e in new_eps],
+                "persisted": persisted}
 
     def _spec_view() -> dict:
         s = cfg.specialization
