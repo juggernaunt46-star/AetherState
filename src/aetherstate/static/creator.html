@@ -90,9 +90,11 @@ summary:hover{color:var(--fg)}
     <button id="tab_review" onclick="showTab('review')">📋 Session</button>
   </nav>
   <div class="spacer"></div>
+  <span id="draftChip" class="chip" title="Your work is auto-saved in this browser — a refresh or reopen won't lose it" style="display:none">draft saved ✓</span>
   <select id="modelSel" class="chip" title="AI model used for auto-fill"><option value="">model: auto</option></select>
   <span id="specChip" class="chip">spec: …</span>
-  <select id="sessSel" class="chip" title="Which session the world/character is applied to"><option value="">session: …</option></select>
+  <select id="sessSel" class="chip" title="Optional apply-to-session target. You do NOT need this to make a Narrator card — the card carries its own world+character seed."><option value="">session: …</option></select>
+  <button id="sessRefresh" class="chip" title="Refresh the session list (keeps everything you've typed)" style="cursor:pointer;font-weight:700">↻</button>
 </header>
 <main>
   <div id="specBanner" class="banner" style="display:none">
@@ -155,8 +157,8 @@ summary:hover{color:var(--fg)}
     <div class="actions">
       <button class="act ai" id="w_ai" onclick="authorWorld()">✨ Auto-fill blanks with AI</button>
       <button class="act ghost" onclick="fillOffline('world')" title="No AI — fill blanks from the built-in genre template">Fill blanks with templates</button>
-      <button class="act" id="w_save" onclick="saveWorld()">Save World to session</button>
-      <button class="act ghost" onclick="showTab('char')">Next: Character →</button>
+      <button class="act" onclick="showTab('char')">Next: Character →</button>
+      <button class="act ghost" id="w_save" onclick="saveWorld()" title="Optional: apply this world straight to the selected live session (usually not needed — the Narrator card carries the world itself)">Save to live session</button>
     </div>
     <div class="actions" style="margin-top:10px">
       <select id="w_presets" class="chip" style="max-width:260px"><option value="">world presets…</option></select>
@@ -235,11 +237,12 @@ summary:hover{color:var(--fg)}
     <div class="actions">
       <button class="act ai" id="c_ai" onclick="authorPlayer()">✨ Auto-fill blanks with AI</button>
       <button class="act ghost" onclick="fillOffline('player')" title="No AI — fill blanks from registry defaults">Fill blanks with defaults</button>
-      <button class="act" id="c_save" onclick="savePlayer()">Save Character to session</button>
-      <button class="act ghost" onclick="genNarratorCard()" title="After saving your world & character, build the SillyTavern card for this world">🎭 Generate Narrator card</button>
+      <button class="act" onclick="genNarratorCard()" title="Build the SillyTavern Narrator card from your world + character. It carries them as a seed — a new chat auto-loads everything, no re-applying.">🎭 Generate Narrator card</button>
     </div>
+    <div id="c_cardmsg" class="hint" style="margin-top:8px"></div>
     <div class="actions" style="margin-top:10px">
-      <select id="c_presets" class="chip" style="max-width:260px"><option value="">character presets…</option></select>
+      <button class="act ghost" id="c_save" onclick="savePlayer()" title="Optional: apply this character straight to the selected live session (usually you don't need this — the card seeds itself)">Save to live session</button>
+      <select id="c_presets" class="chip" style="max-width:240px"><option value="">character presets…</option></select>
       <button class="mini" onclick="loadPreset('player')">Load preset</button>
       <button class="mini" onclick="savePreset('player')">💾 Save as preset</button>
       <button class="mini x" onclick="deletePreset('player')">✕ delete</button>
@@ -256,10 +259,10 @@ summary:hover{color:var(--fg)}
         <button class="act ghost" onclick="loadCommitted('player')">Load character into form</button>
         <button class="mini" onclick="renderReview()">↻ refresh</button>
       </div>
-      <div class="actions" style="margin-top:10px;border-top:1px solid var(--line);padding-top:12px">
-        <button class="act" onclick="genNarratorCard()" title="Build a SillyTavern character card for THIS world so you can see where you're playing">🎭 Generate Narrator card for this world</button>
+      <div class="actions" style="margin-top:10px;border-top:1px solid var(--edge);padding-top:12px">
+        <button class="act" onclick="genNarratorCard(true)" title="Build a SillyTavern Narrator card from THIS session's committed world + character. It carries them as a seed, so a fresh chat with it auto-loads everything.">🎭 Generate Narrator card for this session</button>
       </div>
-      <div id="rv_card" class="hint" style="margin-top:8px">Makes a SillyTavern card named after your world, opening on its first scene — so you can see the world you're in.</div>
+      <div id="rv_card" class="hint" style="margin-top:8px">Makes a SillyTavern card named after this world, opening on its first scene — and it carries the world + character as a seed, so a brand-new chat with the card is already set up. No re-applying.</div>
     </div>
   </section>
 </main>
@@ -277,6 +280,30 @@ async function api(path, opts){ const r = await fetch(path, Object.assign({heade
   if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); }
 function statMod(v){ if(!REG) return 0; return REG.mod_policy==="direct" ? v : Math.floor((v-10)/2); }
 function fmt(n){ return (n>=0?"+":"")+n; }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function relTime(sec){ if(!sec) return ""; const d=Date.now()/1000-sec;
+  if(d<60) return "just now"; if(d<3600) return Math.floor(d/60)+"m ago";
+  if(d<86400) return Math.floor(d/3600)+"h ago"; return Math.floor(d/86400)+"d ago"; }
+// legible session label (2026-07-08): the committed WORLD + PLAYER names, freshness, and turn —
+// so "which session is the newest / the one I want" is obvious instead of a cryptic st-id.
+function sessOptLabel(x, newest){
+  const bits=[]; if(x.world_name) bits.push("🌍 "+x.world_name); if(x.player_name) bits.push("🧑 "+x.player_name);
+  let head=bits.join(" · ")||(x.label||x.external_id||x.session_id||"session").slice(0,20);
+  const meta=[]; const rt=relTime(x.last_seen); if(rt) meta.push(rt); meta.push("t"+(x.head_turn??"?"));
+  if(newest) meta.unshift("● newest");
+  return (head+" · "+meta.join(" · ")).slice(0,66); }
+// ---- draft autosave (2026-07-08): your work is kept in this browser so a page refresh, a
+// session-list refresh, or reopening the Creator never wipes what you typed.
+const DRAFT_KEY="aether_creator_draft_v1"; let _draftT=null;
+function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({world:worldDoc(), player:playerDoc(), ts:Date.now()}));
+  const c=$("draftChip"); if(c) c.style.display=""; }catch(e){} }
+function scheduleDraft(){ clearTimeout(_draftT); _draftT=setTimeout(saveDraft, 600); }
+function restoreDraft(){ try{ const raw=localStorage.getItem(DRAFT_KEY); if(!raw) return false; const d=JSON.parse(raw); if(!d) return false;
+  if(d.world) applyWorld(d.world); if(d.player) applyPlayer(normalizePresetPlayer(d.player));
+  const c=$("draftChip"); if(c) c.style.display="";
+  return !!((d.world&&(d.world.name||d.world.setting))||(d.player&&d.player.name)); }catch(e){ return false; } }
+function wireDraftAutosave(){ document.addEventListener("input", scheduleDraft, true);
+  document.addEventListener("change", scheduleDraft, true); }
 
 function showTab(name){
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.id===name));
@@ -582,24 +609,41 @@ async function loadCommitted(kind){
       const p=Object.assign({}, pre.player, {name:pre.player_name||""}); applyPlayer(p); showTab("char"); toast("Committed character loaded into the form","ok"); }
   }catch(e){ toast("Load failed: "+e.message, "bad"); } }
 
-// ---- world Narrator card (2026-07-07): make the built world VISIBLE in SillyTavern.
-// POSTs to build/install the card, then downloads the PNG so it can be imported anywhere.
-async function genNarratorCard(){
-  if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
-  const status=$("rv_card");
+// ---- world Narrator card (2026-07-08 rework): the card is the DELIVERABLE and the CARRIER.
+// It is built straight from what you typed — NO session, NO "save to a blank session first" —
+// and it embeds the whole world + Player Card as a seed. Import it, open a NEW chat, and the
+// extension auto-commits that seed to the fresh session's ledger: your world & character are
+// already there, no re-applying. Falls back to a session's committed world when the form is
+// empty (so the Session-review tab's button still makes a card for what's committed).
+function setCardMsg(m){ for(const id of ["c_cardmsg","rv_card"]){ const el=$(id); if(el) el.textContent=m; } }
+async function genNarratorCard(fromSession){
+  const w=worldDoc(), p=playerDoc();
+  const haveForm = !fromSession && !!(w.name || w.setting || (w.factions&&w.factions.length) || (w.npcs&&w.npcs.length));
   try{
-    if(status) status.textContent="Building the card for this world…";
-    const r=await api(`/aether/session/${SID}/narrator-card`, {method:"POST"});
-    const a=document.createElement("a");        // download the PNG (works with or without install)
-    a.href=`/aether/session/${SID}/narrator-card.png`; a.download=r.filename||"Narrator.png";
-    document.body.appendChild(a); a.click(); a.remove();
-    let msg=`Card “${r.name}”`+(r.world?` for ${r.world}`:"")+" is ready.";
-    if(r.installed) msg+=` Installed into SillyTavern — refresh its character list and open a chat with “${r.name}”.`;
-    else msg+=" Downloaded — in SillyTavern go Characters → Import and pick it (or set [specialization].narrator_card_dir to auto-install next time).";
+    setCardMsg("Building the Narrator card…");
+    let r, dl;
+    if(haveForm){                                   // session-free: straight from the form
+      r=await api(`/aether/narrator-card`, {method:"POST", body:JSON.stringify({world:w, player:p})});
+      dl=r.png_b64 ? "data:image/png;base64,"+r.png_b64 : null;
+    }else if(SID){                                  // fall back to this session's committed world
+      r=await api(`/aether/session/${SID}/narrator-card`, {method:"POST"});
+      dl=r.png_b64 ? "data:image/png;base64,"+r.png_b64 : `/aether/session/${SID}/narrator-card.png`;
+    }else{ toast("Fill in a world first (name/setting), then generate the card","bad");
+      setCardMsg("Nothing to build yet — give your world a name or setting, then generate."); return; }
+    if(dl){ const a=document.createElement("a"); a.href=dl; a.download=r.filename||"Narrator.png";
+      document.body.appendChild(a); a.click(); a.remove(); }
+    const nm=r.name||"Narrator", carries=(r.seeded_world||haveForm);
+    let msg=`✅ Card “${nm}”`+(r.world?` for ${r.world}`:"")+" is ready — downloaded"+
+      (r.installed?" and installed into SillyTavern":"")+".";
+    if(carries) msg+=" It carries your world"+((r.seeded_player||p.name)?" + character":"")+
+      " as a seed, so a NEW chat with this card seeds the ledger automatically — no re-applying.";
+    msg+=r.installed
+      ? ` Next: in SillyTavern refresh the character list, open a NEW chat with “${nm}”, and play.`
+      : " Next: in SillyTavern go Characters → Import, pick the downloaded file, open a new chat, and play.";
     if(r.error) msg+=` (install note: ${r.error})`;
-    toast("Narrator card ready — check your downloads", "ok");
-    if(status) status.textContent=msg;
-  }catch(e){ toast("Card generation failed: "+e.message, "bad"); if(status) status.textContent=""; }
+    toast("Narrator card ready ✓ — check your downloads","ok");
+    setCardMsg(msg);
+  }catch(e){ toast("Card generation failed: "+e.message,"bad"); setCardMsg(""); }
 }
 
 // ---- session switcher (2026-07-06: apply the same world/char to ANY session)
@@ -609,14 +653,15 @@ async function loadSessions(){
     // 2026-07-06 creator-first: a brand-new chat isn't in the proxy's session list yet —
     // show it honestly as the selected target instead of silently displaying another session.
     const known = SID && list.some(x=>x.session_id===SID||x.external_id===SID);
-    sel.innerHTML=(SID&&!known?`<option value="${SID.replace(/"/g,'&quot;')}" selected>this chat (new) · ${SID.slice(0,18).replace(/</g,"&lt;")}</option>`:"")+
+    const newest = list[0] ? list[0].session_id : null;
+    sel.innerHTML=(SID&&!known?`<option value="${esc(SID)}" selected>● this chat (new)</option>`:"")+
       (list.length||SID?"":`<option value="">no sessions yet</option>`)+
-      list.map(x=>`<option value="${x.session_id}" ${x.session_id===SID||x.external_id===SID?"selected":""}>${((x.label||x.external_id||x.session_id).slice(0,24)).replace(/</g,"&lt;")} · t${x.head_turn??"?"}</option>`).join("");
+      list.map(x=>`<option value="${esc(x.session_id)}" ${x.session_id===SID||x.external_id===SID?"selected":""}>${esc(sessOptLabel(x, x.session_id===newest))}</option>`).join("");
     if(!SID&&list.length){ SID=list[0].session_id; }
     sel.onchange=async()=>{ SID=sel.value; history.replaceState(null,"",`?session=${encodeURIComponent(SID)}`);
       try{ const pre=await api(`/aether/session/${SID}/creator`);
         SPEC=pre.specialization||"none"; renderSpec();
-        toast("Creator now targets this session — Save buttons apply here","ok");
+        toast("Now targeting this session for “Save to live session”","ok");
       }catch(e){}
       if($("review").classList.contains("on")) renderReview(); };
   }catch(e){} }
@@ -656,19 +701,27 @@ async function boot(){
   catch(e){ toast("Could not load registry — is the proxy running?", "bad"); return; }
   // genre + time selects
   $("w_genre").innerHTML = REG.genres.map(g=>`<option value="${g}">${g.replace(/_/g,' ')}</option>`).join("");
-  $("w_genre").addEventListener("change", genreChanged);   // preset floor follows the genre
+  $("w_genre").addEventListener("change", ()=>{ genreChanged(); scheduleDraft(); });   // preset floor follows the genre
   $("w_time").innerHTML = REG.times.map(t=>`<option value="${t}">${t.replace(/_/g,' ')}</option>`).join("");
   ["w_factions","w_locations","w_aspects"].forEach(id=>addLine(id));
   loadModels(); loadPresets(); await loadSessions();
   buildStats(); buildSkills(); buildAbilities();
+  // 2026-07-08: the form opens on a CLEAN SLATE (build a new world) or restores your in-progress
+  // draft — it no longer silently loads whatever the targeted session already committed (that was
+  // the "the session has to be blank" confusion). Load a committed world/character on demand from
+  // the Session tab. Your draft wins, so a refresh/reopen never costs you what you typed.
+  const restored = restoreDraft();
   if(SID){ try{ const pre = await api(`/aether/session/${SID}/creator`);
-    SPEC = pre.specialization || "none"; if(pre.persona && !$("c_name").value) $("c_name").value=pre.persona;
-    if(pre.world){ WORLD_CACHE = pre.world;  // char authoring sees the committed world —
-      genreChanged(); }                      // and the sheet's preset floor follows its genre
-    if(pre.player) applyPlayer(Object.assign({}, pre.player, {name: pre.player_name||""}));
+    SPEC = pre.specialization || "none";
+    if(!restored && pre.persona && !$("c_name").value) $("c_name").value=pre.persona;
   }catch(e){ /* no session yet — fine */ } }
   genreChanged();                            // set the genre-true concept hint on first paint
   renderSpec();
+  wireDraftAutosave();
+  $("sessRefresh").onclick=()=>{ loadSessions().then(()=>toast("Session list refreshed — your work is intact","ok")); };
+  $("draftChip").onclick=()=>{ if(confirm("Clear your saved draft and start with a blank form?")){
+    try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
+    location.href=location.pathname+(SID?`?session=${encodeURIComponent(SID)}`:""); } };
 }
 boot();
 </script>

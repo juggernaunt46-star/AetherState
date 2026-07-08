@@ -160,3 +160,70 @@ async def test_install_writes_png_when_dir_configured(tmp_path):
     finally:
         await app.state.jobs.stop()
         await upstream.aclose()
+
+
+# ------------------------------ card carries a seed (2026-07-08) -------------------
+# The card is the CARRIER: it embeds the whole world + Player Card so a fresh chat rebuilds the
+# ledger with no LLM (the ST extension replays the seed through /aether/session/{sid}/seed). This
+# is the fix for "you have to re-apply the world to every new chat".
+def test_build_card_embeds_world_and_player_seed():
+    c = narrator.build_card(_WORLD, {"name": "Rook", "concept": "gravedigger",
+                                     "stats": {"STR": 12}})["data"]
+    aes = c["extensions"]["aetherstate"]
+    assert aes["min_proxy"] == "1.6.0" and aes["seed_version"]
+    seed = aes["seed"]
+    assert seed["world"]["name"] == "Gallowmere" and seed["world"]["factions"]  # whole world doc
+    assert seed["player"]["name"] == "Rook"                                     # + Player Card
+
+
+def test_seed_survives_the_png_roundtrip():
+    c = narrator.build_card(_WORLD, {"name": "Rook"})
+    back = _extract_chara(narrator.card_png(c, _WORLD))
+    assert back["data"]["extensions"]["aetherstate"]["seed"]["world"]["name"] == "Gallowmere"
+
+
+def test_seed_payload_trims_pathological_sizes_but_keeps_fidelity():
+    big = dict(_WORLD, setting="x" * 99999, aspects=["a" * 9000] * 200)
+    seed = narrator.seed_payload(big, None)
+    assert len(seed["world"]["setting"]) <= 4000            # capped, not reshaped
+    assert len(seed["world"]["aspects"]) <= 48
+    assert seed["world"]["name"] == "Gallowmere"            # small fields untouched
+
+
+async def test_session_free_card_build_from_form(client):
+    """POST /aether/narrator-card builds from POSTed docs with NO committed session (the Creator's
+    session-free 'Generate card' path) and returns the PNG as base64 with the seed embedded."""
+    r = await client.post("/aether/narrator-card",
+                          json={"world": _WORLD, "player": {"name": "Rook", "concept": "digger"}})
+    b = r.json()
+    assert r.status_code == 200 and b["name"] == "Gallowmere"
+    assert b["seeded_world"] and b["seeded_player"] and b["png_b64"]
+    png = base64.b64decode(b["png_b64"])
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert _extract_chara(png)["data"]["extensions"]["aetherstate"]["seed"]["world"]["name"] \
+        == "Gallowmere"
+
+
+async def test_seed_route_is_idempotent_and_non_clobbering(client):
+    """The extension replays the card seed on chat-open; the route commits a world/player only
+    when none is present, so re-opening an established chat never clobbers progress."""
+    await client.post("/aether/specialization", json={"name": "rpg"})
+    seed = {"world": _WORLD, "player": {"name": "Rook", "concept": "gravedigger",
+                                        "stats": {"STR": 12, "DEX": 10}}}
+    r1 = (await client.post("/aether/session/seed-t/seed", json={"seed": seed})).json()
+    assert r1["world_seeded"] and r1["player_seeded"] and r1["applied"] > 0
+    r2 = (await client.post("/aether/session/seed-t/seed", json={"seed": seed})).json()
+    assert not r2["world_seeded"] and not r2["player_seeded"] and r2["applied"] == 0
+    pre = (await client.get("/aether/session/seed-t/creator")).json()
+    assert pre["world"]["name"] == "Gallowmere" and pre["player_name"] == "Rook"
+
+
+async def test_sessions_list_carries_legible_world_and_player_names(client):
+    """The Creator's session picker was a wall of cryptic st-ids; /aether/sessions now carries
+    each session's committed world + player name so 'which session' is legible."""
+    await client.post("/aether/specialization", json={"name": "rpg"})
+    await client.post("/aether/session/named-t/seed",
+                      json={"seed": {"world": _WORLD, "player": {"name": "Rook"}}})
+    rows = (await client.get("/aether/sessions")).json()["sessions"]
+    hit = [s for s in rows if s.get("world_name") == "Gallowmere"]
+    assert hit and hit[0]["player_name"] == "Rook"

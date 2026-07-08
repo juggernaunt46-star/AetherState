@@ -202,7 +202,7 @@ headers are consumed, never forwarded. Errors are OpenAI-shaped JSON (502 `not_c
 | `GET /aether/connection` | current endpoint config |
 | `POST /aether/connection/models` | list models + real auth test for a base_url/key |
 | `POST /aether/connection` | save an endpoint (target: upstream \| assist) |
-| `GET /aether/sessions` | list sessions |
+| `GET /aether/sessions` | list sessions, newest first; each row also carries `world_name` + `player_name` from committed state so the Creator's session picker is legible (2026-07-08 — cryptic st-ids gave no clue which world a session was) |
 | `POST /aether/session/{sid}/label` | rename a session |
 | `DELETE /aether/session/{sid}` | delete a session |
 | `GET /aether/session/{sid}/state` | inspector "Now" view (`state_summary`) |
@@ -221,7 +221,9 @@ headers are consumed, never forwarded. Errors are OpenAI-shaped JSON (502 `not_c
 | `POST /aether/session/{sid}/player` | persist a Player Card (`entity_add`+`player_seed`+attrs); same creator-first session-minting as the world route |
 | `GET /aether/session/{sid}/narrator-card.png` | download a **world-specific Narrator card** (PNG with the V2 chara card embedded — ST import format), built by `narrator.build_card` from the committed world (`creator.world_from_state`) + Player Card. Read-only ledger projection; a `none` session is unaffected (control route, off the relay) |
 | `GET /aether/session/{sid}/narrator-card.json` | the same card as JSON (inspect / manual import) |
-| `POST /aether/session/{sid}/narrator-card` | build the card and, when `[specialization].narrator_card_dir` is a real directory, install the PNG there (so it shows in SillyTavern's character list); always returns `{name, world, bytes, installed, filename, tags, download}`. Best-effort, fail-open |
+| `POST /aether/session/{sid}/narrator-card` | build the card from the committed world and, when `[specialization].narrator_card_dir` is a real directory, install the PNG there (so it shows in SillyTavern's character list); returns `{name, world, bytes, installed, filename, tags, png_b64, download}`. Best-effort, fail-open |
+| `POST /aether/narrator-card` | **session-free** card build (2026-07-08): body `{world, player}` (the Creator form) — builds straight from posted docs, no committed session needed, installs to `narrator_card_dir` when set, returns `{name, world, bytes, installed, filename, tags, seeded_world, seeded_player, png_b64}`. The card embeds a structured `seed` in `extensions.aetherstate.seed` (the whole world + Player Card) |
+| `POST /aether/session/{sid}/seed` | **idempotent auto-seed** (2026-07-08): body `{seed:{world, player}}` — commits the world only when none is seeded and the Player Card only when none exists (re-opening an established chat never clobbers progress). The ST extension replays a Narrator card's embedded seed here on chat-open, so a fresh chat with a Creator-built card already has the world + character in its ledger — no re-applying. Mints the session on an unknown `sid`; deterministic (no LLM — weak-model floor); privileged `source='user'` via `world_to_ops`/`player_to_ops` |
 
 | `GET /aether/session/{sid}/hud` | the **resolved player-facing HUD payload** (`hud.hud_view`): scene, player card(s) with EFFECTIVE skill mods + resolved abilities + appearance, statuses/conditions, drives, gear (worn) + inventory (carried), quests, dice rolls/checks, relations/factions. Registry math done server-side; the ONE source both the SillyTavern HUD and the Console "Player" tab render. Read-only, fail-open |
 

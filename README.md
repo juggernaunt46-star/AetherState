@@ -144,6 +144,16 @@ rollable, without an in-world basis.**
   exact check inline** when you attempt something uncertain. And the Creator's AI autofill no
   longer truncates, with room to add **free-form world & character detail categories** kept as
   retrievable lore.
+- **New in 1.6 — the Narrator card carries your world.** Build a world + character in the Creator,
+  click **Generate Narrator card**, and the card embeds the whole thing as a seed. Import it into
+  SillyTavern, open a **new chat**, and your world, its opening scene, and your Player sheet are
+  already committed to that chat's ledger — no going back to re-apply anything. Generating the card
+  no longer needs a session (it's built straight from the form); the seed commits deterministically
+  with **no AI call** and never overwrites a chat that already has a world or character, so
+  re-opening an existing game is safe. The Creator's session picker now shows each session's
+  **world & character names** and marks the newest, a **refresh** button updates it without wiping
+  what you've typed, and your in-progress work is **auto-saved in the browser** so a reload never
+  loses it.
 
 ## How state develops (priority)
 

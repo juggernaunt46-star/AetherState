@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.6.0 — 2026-07-08
+
+Building a world in the Creator and actually playing it is now one smooth path: the Narrator card
+you generate carries your world **and** your character, so a brand-new chat is already set up. A
+non-RPG (chat) session is byte-identical to before.
+
+### The Narrator card carries your world now
+- Build a world + character in the Creator, click **Generate Narrator card**, and the card embeds
+  the whole thing as a seed. Import it into SillyTavern, open a **new chat**, and your world, its
+  opening scene, and your Player sheet are already there — no going back to re-apply anything.
+  (Before, you had to save to a session, keep that session blank, make the card, then re-apply the
+  same world + character to every new chat by hand.)
+- Generating the card no longer needs a session at all — it's built straight from the form.
+- Deterministic and safe: the seed commits with no AI call, and it never overwrites a chat that
+  already has a world or character, so re-opening an existing game leaves your progress untouched.
+
+### Creator quality-of-life
+- The session picker now shows each session's **world and character names** and marks the newest,
+  and a **refresh button** updates the list without wiping what you've typed.
+- Your in-progress work is **auto-saved in the browser**, so a refresh or reopening the Creator
+  never loses it — and the form now opens on a clean slate for a new world instead of silently
+  loading an existing session's contents.
+
 ## 1.5.0 — 2026-07-08
 
 Two opt-in additions for keeping the story consistent, plus more flexible helper routing. A default

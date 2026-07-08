@@ -5,6 +5,7 @@ source='user' — the same authority matrix as OOC commands and the extension pa
 Localhost trust in P2 (12 [ui]: auth_token empty = single-user default)."""
 from __future__ import annotations
 
+import base64
 import logging
 from pathlib import Path
 
@@ -633,7 +634,23 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
             " s.active_branch, b.head_turn FROM sessions s"
             " LEFT JOIN branches b ON b.branch_id=s.active_branch"
             " ORDER BY s.last_seen DESC").fetchall()
-        return {"sessions": [dict(r) for r in rows]}
+        out = []
+        for r in rows:                              # enrich with the committed world + player
+            d = dict(r)                             # names so the Creator's session picker is
+            d["world_name"], d["player_name"] = "", ""   # LEGIBLE (2026-07-08: cryptic st-ids
+            try:                                    # gave no clue which world a session was)
+                st = current_state(store, r["active_branch"])
+                players = st.get("player") or {}
+                pkey = next(iter(players), None)
+                if pkey:
+                    d["player_name"] = ((st.get("entities", {}).get(pkey, {}) or {})
+                                        .get("name") or pkey or "")
+                if _world_seeded(st):
+                    d["world_name"] = _creator.world_from_state(st).get("name") or ""
+            except Exception:
+                pass                                # fail-open: a legible-name miss is cosmetic
+            out.append(d)
+        return {"sessions": out}
 
     @router.post("/session/{sid}/label")
     async def set_label(sid: str, request: Request):
@@ -846,6 +863,44 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
             res["ops"] = len(ops)
         return res
 
+    @router.post("/session/{sid}/seed")
+    async def creator_seed(sid: str, request: Request):
+        """Auto-seed a session from a Narrator card's embedded seed (the ST extension calls this
+        on chat-open when the card carries extensions.aetherstate.seed). IDEMPOTENT by design:
+        commits the world only when none is seeded yet, and the Player Card only when none
+        exists — so re-opening an established chat never clobbers progress (player XP, gained
+        items, moved scenes). Deterministic, no LLM (weak-model floor); privileged source='user'
+        through the same validated world_to_ops/player_to_ops apply path. Fail-open."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        seed = payload.get("seed") if isinstance(payload.get("seed"), dict) else payload
+        world = seed.get("world") if isinstance(seed.get("world"), dict) else None
+        player = seed.get("player") if isinstance(seed.get("player"), dict) else None
+        row = _session(store, sid)
+        if not row:
+            try:                                    # creator-first: mint the row the chat's first
+                row = store.get_or_create_session(sid)   # stamped message will adopt (converges)
+            except Exception:
+                return JSONResponse({"error": "unknown session"}, status_code=404)
+        state = current_state(store, row["active_branch"])
+        did_world = bool(world and world.get("name")) and not _world_seeded(state)
+        did_player = bool(player) and not (state.get("player") or {})
+        ops: list = []
+        if did_world:
+            ops += _creator.world_to_ops(world)
+        if did_player:
+            ops += _creator.player_to_ops(player, cfg)
+        applied = 0
+        if ops:
+            branch = row["active_branch"]
+            turn = _next_turn(store, branch)
+            res = apply_delta(store, row["session_id"], branch, turn, ops, "user", cfg)
+            applied = len(res.applied)
+        return {"session_id": row["session_id"], "world_seeded": did_world,
+                "player_seeded": did_player, "applied": applied}
+
     @router.patch("/session/{sid}/state")
     async def patch_state(sid: str, request: Request):
         try:
@@ -971,6 +1026,48 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         keep = "".join(c if (c.isalnum() or c in " -_") else "_" for c in (name or "Narrator"))
         return (keep.strip() or "Narrator")[:48] + ".png"
 
+    def _install_card(png: bytes, fname: str):
+        """Best-effort install into [specialization].narrator_card_dir (fail-open). Returns
+        (installed_path, error) — empty dir config = download-only, never writes out."""
+        target = str(getattr(getattr(cfg, "specialization", None),
+                             "narrator_card_dir", "") or "").strip()
+        if not target:
+            return "", ""
+        try:
+            d = Path(target).expanduser()
+            if not d.is_dir():
+                return "", "narrator_card_dir is not a directory"
+            (d / fname).write_bytes(png)
+            return str(d / fname), ""
+        except Exception as exc:
+            return "", f"install failed: {type(exc).__name__}"
+
+    @router.post("/narrator-card")
+    async def narrator_card_build(request: Request):
+        """Session-free Narrator card: build straight from POSTed world+player docs (the Creator
+        form) — NO committed session required (2026-07-08: card creation was coupled to first
+        applying the world to a blank session). The card carries a structured seed so a fresh
+        chat auto-commits the ledger (extension -> /session/{sid}/seed). Installs into
+        [specialization].narrator_card_dir when set; always returns the PNG (base64) to download."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        world = payload.get("world") if isinstance(payload.get("world"), dict) else {}
+        player = payload.get("player") if isinstance(payload.get("player"), dict) else None
+        card = _narrator.build_card(world, player)
+        png = _narrator.card_png(card, world)
+        name = card["data"]["name"]
+        fname = _card_filename(name)
+        installed, err = _install_card(png, fname)
+        seed = card["data"]["extensions"]["aetherstate"].get("seed", {})
+        return {"name": name, "world": str((world or {}).get("name") or ""),
+                "bytes": len(png), "installed": installed, "error": err,
+                "filename": fname, "tags": card["data"]["tags"],
+                "seeded_world": bool(seed.get("world", {}).get("name")),
+                "seeded_player": bool(seed.get("player")),
+                "png_b64": base64.b64encode(png).decode("ascii")}
+
     @router.get("/session/{sid}/narrator-card.png")
     async def narrator_card_png(sid: str):
         """Downloadable world Narrator card (PNG with the V2 chara card embedded in a tEXt
@@ -998,23 +1095,11 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
         png = _narrator.card_png(card, world)
         name = card["data"]["name"]
         fname = _card_filename(name)
-        installed, err = "", ""
-        target = str(getattr(getattr(cfg, "specialization", None),
-                             "narrator_card_dir", "") or "").strip()
-        if target:
-            try:
-                d = Path(target).expanduser()
-                if d.is_dir():
-                    out = d / fname
-                    out.write_bytes(png)
-                    installed = str(out)
-                else:
-                    err = "narrator_card_dir is not a directory"
-            except Exception as exc:
-                err = f"install failed: {type(exc).__name__}"
+        installed, err = _install_card(png, fname)
         return {"name": name, "world": str((world or {}).get("name") or ""),
                 "bytes": len(png), "installed": installed, "error": err,
                 "filename": fname, "tags": card["data"]["tags"],
+                "png_b64": base64.b64encode(png).decode("ascii"),
                 "download": f"/aether/session/{sid}/narrator-card.png"}
 
     def _creator_apply(sid: str, ops: list):

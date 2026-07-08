@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — fresh-creator-link build (2026-07-07a)");
+  console.log("[AetherState] Companion loaded — card-seed build (2026-07-08)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -121,6 +121,48 @@
     } catch (e) {}
   }
 
+  // ---- card-seed auto-apply (2026-07-08, REQUIRED for a smooth Creator flow): a Narrator card
+  // built by the Creator carries the whole world + Player Card in extensions.aetherstate.seed.
+  // On chat-open we hand that seed to the proxy, which commits it to THIS session's ledger —
+  // deterministically, no LLM. This is what removes "you have to re-apply the world to every
+  // new chat": import the card, open a chat, and the world + your character are already there.
+  // The /seed route is idempotent (skips a world/player already present), so an established
+  // chat is never disturbed. Fire-and-forget, fail-open; runs BEFORE genesis so presence/mood
+  // seeding sees the committed world.
+  function cardSeed() {
+    try {
+      const cx = C();
+      const ch = cx.characters?.[cx.characterId];
+      const ext = ch?.data?.extensions?.aetherstate || ch?.extensions?.aetherstate;
+      const seed = ext && ext.seed;
+      if (!seed || !(seed.world || seed.player)) return null;
+      return seed;
+    } catch (e) { return null; }
+  }
+  async function seedFromCard() {
+    if (!settings.enabled) return;
+    let seed = null, cx = C();
+    for (let i = 0; i < 8 && !seed; i++) {                   // CHAT_CHANGED can fire before the
+      cx = C(); if (cx.characters?.[cx.characterId]) { seed = cardSeed(); break; }
+      await new Promise((r) => setTimeout(r, 250));          // character loads a beat later
+    }
+    if (!seed) seed = cardSeed();
+    if (!seed) return;
+    const S = sid();
+    try {
+      const ac = new AbortController();
+      const t = setTimeout(() => ac.abort(), 6000);
+      const r = await fetch(settings.proxy_url.replace(/\/$/, "") + `/aether/session/${S}/seed`, {
+        method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
+        body: JSON.stringify({ seed }),
+      });
+      clearTimeout(t);
+      const d = await r.json().catch(() => ({}));
+      console.log(`[AetherState] card-seed sid=${S} ->`, d);
+      try { refreshChip(); } catch (e) {}
+    } catch (e) { /* fail-open: genesis + the card prose still seed the session */ }
+  }
+
   // ---- fire-and-forget hints (05 §5): 2 s timeout, silent — proxy never depends on them
   function hint(event, messageIndex = -1) {
     try {
@@ -152,7 +194,8 @@
     });
     on("CHAT_CHANGED", () => {                              // 05 §5
       turnCounter = 0; stampHeader(); hint("chat_changed"); refreshChip();
-      genesisAtChatOpen();                                  // turn-0 seed (proxy idempotent)
+      seedFromCard().catch(() => {}).finally(() => genesisAtChatOpen());   // card seed FIRST,
+      //                                             then turn-0 genesis (both proxy-idempotent)
       try { setTimeout(scrubTags, 400); setTimeout(scrubTags, 1400); } catch (e) {}   // hide ledger tags
       try {                                                 // 2026-07-07 live repro: the panel's
         const a = document.getElementById("aes_creator");   // Creator link kept the PREVIOUS

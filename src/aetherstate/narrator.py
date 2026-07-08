@@ -26,7 +26,12 @@ import zlib
 from typing import Optional
 
 CARD_DATA_VERSION = "2.0"          # chara_card_v2 spec version
-GEN_VERSION = "aether-world-1.0"   # this generator's version (stamped into extensions)
+GEN_VERSION = "aether-world-1.1"   # this generator's version (stamped into extensions)
+SEED_VERSION = "aether-seed-1"     # structured world+player seed carried INSIDE the card so a
+#                                    fresh chat can auto-commit the ledger (the ST extension
+#                                    reads it and POSTs /aether/session/{sid}/seed). This is the
+#                                    fix for "you have to re-apply the world to every new chat":
+#                                    the card is the carrier; no LLM needed (weak-model floor).
 _W, _H = 512, 768                  # avatar dimensions (V2 card portrait)
 
 # ---- the DM contract (the ledger-over-prose spine, shared with the generic Narrator card).
@@ -221,6 +226,43 @@ def _scenario(world: dict) -> str:
                    "blocks each turn; play begins where the world's opening scene places you.")
 
 
+def _trim(v, s_cap: int = 4000, l_cap: int = 48):
+    """Cap string lengths and list sizes so a pathologically long doc can't bloat the embedded
+    PNG — structure and values are otherwise preserved verbatim (fidelity kept, Bean 10 §10)."""
+    if isinstance(v, str):
+        return v[:s_cap]
+    if isinstance(v, list):
+        return [_trim(x, s_cap, l_cap) for x in v[:l_cap]]
+    if isinstance(v, dict):
+        return {k: _trim(x, s_cap, l_cap) for k, x in v.items()}
+    return v
+
+
+def _player_meaningful(p) -> bool:
+    """True when the card should carry a Player Card seed — a character the user actually built
+    (named, or with picked skills/abilities/custom mechanics). A world-only card carries NO
+    player, so a fresh chat gets genesis's default Player Card floor instead of a baked blank."""
+    if not isinstance(p, dict):
+        return False
+    if str(p.get("name") or "").strip():
+        return True
+    if p.get("skills") or p.get("abilities"):
+        return True
+    c = p.get("custom") or {}
+    return bool(c.get("skills") or c.get("abilities") or p.get("defs"))
+
+
+def seed_payload(world: Optional[dict], player: Optional[dict]) -> dict:
+    """The world + Player Card docs the card carries so a fresh chat rebuilds the ledger with no
+    LLM. Same doc shapes the Creator posts to /world and /player — the ST extension reads this
+    seed on chat-open and replays it through /aether/session/{sid}/seed. Read-only projection;
+    never a resolution channel (the world_to_ops/player_to_ops apply path validates it)."""
+    seed: dict = {"world": _trim(world) if isinstance(world, dict) else {}}
+    if _player_meaningful(player):
+        seed["player"] = _trim(player)
+    return seed
+
+
 def build_card(world: Optional[dict], player: Optional[dict] = None) -> dict:
     """A V2 chara card (dict) built from a committed world doc + optional Player Card.
     Fail-open: a None/empty world still yields a valid, if generic, Narrator card."""
@@ -257,7 +299,9 @@ def build_card(world: Optional[dict], player: Optional[dict] = None) -> dict:
             "character_version": GEN_VERSION,
             "extensions": {"aetherstate": {"role": "narrator", "generated": True,
                                            "world": _s(world.get("name"), 60),
-                                           "genre": genre, "min_proxy": "1.1.0"}},
+                                           "genre": genre, "min_proxy": "1.6.0",
+                                           "seed_version": SEED_VERSION,
+                                           "seed": seed_payload(world, player)}},
         },
     }
 
