@@ -235,7 +235,7 @@ def _persist_config(cfg) -> bool:
         return False
 
 
-def make_control_router(cfg, store, jobs=None) -> APIRouter:
+def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
     router = APIRouter(prefix="/aether")
 
     @router.get("/console")
@@ -355,6 +355,7 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
     async def hint(request: Request):
         """05 SS5: fire-and-forget frontend hints (swipe/edit/delete/chat_changed).
         Recorded for the classifier; the proxy NEVER depends on them."""
+        payload = {}
         try:
             payload = await request.json()
             store.db.execute(
@@ -365,6 +366,25 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
             store.db.commit()
         except Exception:
             pass                              # hints are advisory by contract (05 SS5)
+        try:  # Phase 0a stretch: chat-open prewarm (opt-in, cooldown-limited, fail-open) —
+            # the extension already fires this hint at every chat open, so a returning
+            # player's first real message hits a warm provider cache with zero UI change.
+            if (str(payload.get("event", "")) == "chat_changed" and pipeline is not None
+                    and jobs is not None and cfg.upstream.base_url
+                    and getattr(cfg.upstream, "prewarm", False)
+                    and getattr(cfg.upstream, "cache_key", True)):
+                row = _session(store, str(payload.get("session", ""))[:80])
+                doc = pipeline.prewarm_doc(row["session_id"]) if row else None
+                if doc is not None:
+                    import asyncio
+
+                    from . import promptcache as _pc
+                    t = asyncio.get_running_loop().create_task(
+                        _pc.prewarm(jobs.ladder.get_client, cfg, doc, pipeline.cache))
+                    jobs._tasks.add(t)
+                    t.add_done_callback(jobs._tasks.discard)
+        except Exception:
+            pass                              # prewarm is pure bonus — never an error
         return {"ok": True}
 
     @router.post("/session/{sid}/mode")
@@ -926,6 +946,43 @@ def make_control_router(cfg, store, jobs=None) -> APIRouter:
                 rejected.append({"op": op, "reason": "malformed op (02 SS11)"})
         result = _user_ops(sid, ops, extra_rejected=rejected)
         return result
+
+    @router.get("/session/{sid}/briefing")
+    async def session_briefing(sid: str):
+        """EXACTLY what the engine would inject into the next request (2026-07-09, Bean:
+        'the console shouldn't hide anything raw'): the composed state header, the DM
+        rules-contract when rpg, and per-component token counts after the budget governor.
+        Read-only; the per-request extras (guard line, memories, director note) are noted
+        but not fabricated here."""
+        row = _session(store, sid)
+        if not row:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        from . import compose as _compose
+        from . import prompts as _prompts
+        try:
+            state = current_state(store, row["active_branch"])
+            header = _compose.render_header(state, cfg)
+            comps = [_compose.Component("state_header", header,
+                                        cfg.injection.priorities.get("state_header", 100))
+                     ] if header else []
+            rpg = getattr(cfg, "specialization", None) is not None \
+                and cfg.specialization.name == "rpg"
+            if rpg:
+                comps.append(_compose.Component(
+                    "rules_contract", _prompts.rules_contract(cfg),
+                    cfg.injection.priorities.get("rules_contract", 30)))
+            kept = _compose.govern(list(comps), cfg)
+            return {"session_id": row["session_id"], "turn": _head(store, row["active_branch"]),
+                    "spec": cfg.specialization.name if rpg else "none",
+                    "components": [{"cls": c.cls, "tokens": c.tokens, "text": c.text}
+                                   for c in comps],
+                    "kept_after_budget": [{"cls": c.cls, "tokens": c.tokens} for c in kept],
+                    "budget_tokens": cfg.injection.max_tokens,
+                    "note": "per-request extras (guard line, recalled memories, director "
+                            "notes) ride on top of this at send time"}
+        except Exception as exc:
+            return JSONResponse({"error": f"briefing render failed: {type(exc).__name__}"},
+                                status_code=500)
 
     @router.get("/session/{sid}/journal")
     async def session_journal(sid: str, limit: int = 40):

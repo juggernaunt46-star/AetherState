@@ -356,23 +356,40 @@ function readCustomSkills(){ return [...$("c_cskills").querySelectorAll(".item")
   const el=it.querySelectorAll("input,select"); const o={name:el[0].value.trim(), keyed_stat:el[1].value, base_mod:+el[2].value||0};
   if(el[3] && el[3].value.trim()) o.group=el[3].value.trim(); return o;
 }).filter(s=>s.name); }
+const MECHS=[["","mech: auto"],["edge","edge — extra die, keep best"],["ward","ward — no crit-fumble"],
+  ["extra_die","extra_die — 2nd chance on a miss"],["reroll","reroll a miss"],["surge","surge — big bonus + lifts ceiling"],
+  ["mod","mod — flat +N"],["basis","basis — unlocks a gated skill"]];
+function _costStr(c){ if(!c||typeof c!=="object") return ""; const k=Object.keys(c)[0]; return k?`${c[k]} ${k}`:""; }
 function addCustomAbil(a){ a=a||{}; const host=$("c_cabil"); const d=document.createElement("div"); d.className="item";
-  const pm=a.passive_mod||{}; const amt = pm.amount!=null?pm.amount:(a.resolution_mod!=null?a.resolution_mod:1);
-  d.innerHTML=`<input placeholder="ability name" value="${(a.name||'').replace(/"/g,'&quot;')}" style="flex:1">
-    <select style="flex:0 0 96px"><option value="passive" ${a.kind!=='active'?'selected':''}>passive</option><option value="active" ${a.kind==='active'?'selected':''}>active</option></select>
-    <input placeholder="boosted skill" title="passive: which skill it boosts (name or id)" value="${(pm.skill||'').replace(/"/g,'&quot;')}" style="flex:0 0 130px">
-    <input type="number" title="mod amount — passive: skill boost, active: resolution mod" value="${amt}" style="flex:0 0 64px">
-    <input placeholder="effect (prose)" value="${(a.effect||'').replace(/"/g,'&quot;')}" style="flex:1">
-    <input placeholder="category" title="optional group — e.g. Spells, Cyber-Ware, Disciplines" value="${(a.group||'').replace(/"/g,'&quot;')}" style="flex:0 0 100px" list="aes_cats">
+  const pm=a.passive_mod||{}; const amt = a.magnitude!=null?a.magnitude:(pm.amount!=null?pm.amount:(a.resolution_mod!=null?a.resolution_mod:1));
+  const applies = Array.isArray(a.applies_to)?a.applies_to[0]:(a.applies_to&&a.applies_to!=="all"?a.applies_to:(pm.skill||""));
+  const mech=(a.mechanic||"").toLowerCase();
+  const kindOpt=k=>`<option value="${k}" ${ (a.kind||'passive')===k?'selected':''}>${k}</option>`;
+  d.innerHTML=`<input placeholder="ability name" value="${(a.name||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:120px">
+    <select title="passive: always on · active: invoked on a roll, pays cost · basis: the key that unlocks a gated skill" style="flex:0 0 78px">${["passive","active","basis"].map(kindOpt).join("")}</select>
+    <select title="HOW it bends the dice — auto infers from the effect text" style="flex:0 0 92px">${MECHS.map(([v,l])=>`<option value="${v}" ${mech===v?'selected':''}>${l.split(" — ")[0]||"auto"}</option>`).join("")}</select>
+    <input placeholder="applies to skill" title="the skill this ability bends (name or id) — needed for one-tap rolls and 'I use X' detection" value="${(applies||'').replace(/"/g,'&quot;')}" style="flex:0 0 118px">
+    <input type="number" title="magnitude — extra dice / bonus size" value="${amt}" style="flex:0 0 52px">
+    <input placeholder="cost" title="active cost, e.g. '2 stamina' or '3 mana' — leave blank for none" value="${_costStr(a.cost).replace(/"/g,'&quot;')}" style="flex:0 0 76px">
+    <input type="number" placeholder="cd" title="cooldown in turns (actives)" value="${a.cooldown_turns!=null?a.cooldown_turns:''}" style="flex:0 0 46px">
+    <input placeholder="effect (prose)" value="${(a.effect||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:140px">
+    <input placeholder="category" title="optional group — e.g. Spells, Cyber-Ware, Disciplines" value="${(a.group||'').replace(/"/g,'&quot;')}" style="flex:0 0 90px" list="aes_cats">
     <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
   host.appendChild(d);
 }
 function readCustomAbils(){ return [...$("c_cabil").querySelectorAll(".item")].map(it=>{
-  const el=it.querySelectorAll("input,select"); const kind=el[1].value, amt=+el[3].value||0;
-  const o={name:el[0].value.trim(), kind, effect:el[4].value.trim()};
-  if(kind==="passive" && el[2].value.trim()) o.passive_mod={skill:el[2].value.trim(), amount:amt};
-  if(kind==="active") o.resolution_mod=amt;
-  if(el[5] && el[5].value.trim()) o.group=el[5].value.trim();
+  const el=it.querySelectorAll("input,select");
+  // 0 name · 1 kind · 2 mechanic · 3 applies-to · 4 magnitude · 5 cost · 6 cooldown · 7 effect · 8 group
+  const kind=el[1].value, mech=el[2].value, applies=el[3].value.trim(), amt=+el[4].value||0;
+  const o={name:el[0].value.trim(), kind, effect:el[7].value.trim()};
+  if(mech) o.mechanic=mech;
+  if(applies) o.applies_to=applies;
+  if(amt) o.magnitude=amt;
+  const cm=el[5].value.trim().match(/^(\d+)\s*(stamina|mana|hp)$/i); if(cm) o.cost={[cm[2].toLowerCase()]:+cm[1]};
+  const cd=+el[6].value||0; if(cd) o.cooldown_turns=cd;
+  if(kind==="passive" && applies && (!mech || mech==="mod")) o.passive_mod={skill:applies, amount:amt||1};
+  if(kind==="active" && !mech) o.resolution_mod=amt||1;
+  if(el[8] && el[8].value.trim()) o.group=el[8].value.trim();
   return o;
 }).filter(a=>a.name); }
 
@@ -501,7 +518,8 @@ function applyWorld(w){ if(!w) return; const genreBefore=currentGenre(); WORLD_C
   fillList("w_factions", w.factions); fillList("w_locations", w.locations); fillList("w_aspects", w.aspects);
   $("w_npcs").innerHTML=""; (w.npcs||[]).forEach(addNpc);
   $("w_scene").value=w.opening_scene||""; $("w_quest").value=w.opening_quest||"";
-  if(Array.isArray(w.extras)) fillExtras("w_extras", w.extras); }
+  if(Array.isArray(w.extras)) fillExtras("w_extras", w.extras);
+  scheduleDraft(); }
 function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); }
 function applyPlayer(p){ if(!p) return;
   $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
@@ -516,24 +534,24 @@ function applyPlayer(p){ if(!p) return;
   if(p.defs&&p.defs.skills) Object.values(p.defs.skills).forEach(addCustomSkill);
   if(p.defs&&p.defs.abilities) Object.values(p.defs.abilities).forEach(addCustomAbil);
   if(Array.isArray(p.extras)) fillExtras("c_extras", p.extras);
-  refreshSkillMods(); }
+  refreshSkillMods(); scheduleDraft(); }
 
 // ---- AI authoring (2026-07-06: an AI failure shows the reason and leaves the form
 // alone — templates are an explicit button now, never a silent substitute)
 async function authorWorld(){ const b=$("w_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take a minute)";
-  try{ const r=await api(`/aether/session/${SID}/author`, {method:"POST", body:JSON.stringify({mode:"world", doc:worldDoc(), model:$("modelSel").value||undefined})});
+  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode:"world", doc:worldDoc(), model:$("modelSel").value||undefined})});
     if(r.source==="llm"){ applyWorld(r.doc); toast(`World authored by AI ✨ (${r.model||"auto"})`, "ok"); }
     else toast("AI fill failed: "+(r.detail||"unknown")+" — your form is untouched", "bad");
   }catch(e){ toast("Authoring failed: "+e.message, "bad"); }
   b.disabled=false; b.textContent="✨ Auto-fill blanks with AI"; }
 async function authorPlayer(){ const b=$("c_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take a minute)";
-  try{ const r=await api(`/aether/session/${SID}/author`, {method:"POST", body:JSON.stringify({mode:"player", doc:playerDoc(), world:WORLD_CACHE||worldDoc(), model:$("modelSel").value||undefined})});
+  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode:"player", doc:playerDoc(), world:WORLD_CACHE||worldDoc(), model:$("modelSel").value||undefined})});
     if(r.source==="llm"){ applyPlayer(r.doc); toast(`Character authored by AI ✨ (${r.model||"auto"})`, "ok"); }
     else toast("AI fill failed: "+(r.detail||"unknown")+" — your form is untouched", "bad");
   }catch(e){ toast("Authoring failed: "+e.message, "bad"); }
   b.disabled=false; b.textContent="✨ Auto-fill blanks with AI"; }
 async function fillOffline(mode){
-  try{ const r=await api(`/aether/session/${SID}/author`, {method:"POST", body:JSON.stringify({mode, offline:1, doc:mode==="world"?worldDoc():playerDoc(), world:WORLD_CACHE||worldDoc()})});
+  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode, offline:1, doc:mode==="world"?worldDoc():playerDoc(), world:WORLD_CACHE||worldDoc()})});
     if(mode==="world") applyWorld(r.doc); else applyPlayer(r.doc);
     toast(mode==="world"?"Blanks filled from the genre template":"Blanks filled from registry defaults", "ok");
   }catch(e){ toast("Fill failed: "+e.message, "bad"); } }
@@ -657,7 +675,8 @@ async function loadSessions(){
     sel.innerHTML=(SID&&!known?`<option value="${esc(SID)}" selected>● this chat (new)</option>`:"")+
       (list.length||SID?"":`<option value="">no sessions yet</option>`)+
       list.map(x=>`<option value="${esc(x.session_id)}" ${x.session_id===SID||x.external_id===SID?"selected":""}>${esc(sessOptLabel(x, x.session_id===newest))}</option>`).join("");
-    if(!SID&&list.length){ SID=list[0].session_id; }
+    if(!SID){ sel.insertAdjacentHTML("afterbegin",
+      `<option value="" selected>— card only (no session) —</option>`); }
     sel.onchange=async()=>{ SID=sel.value; history.replaceState(null,"",`?session=${encodeURIComponent(SID)}`);
       try{ const pre=await api(`/aether/session/${SID}/creator`);
         SPEC=pre.specialization||"none"; renderSpec();

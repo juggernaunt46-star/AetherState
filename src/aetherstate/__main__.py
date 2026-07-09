@@ -44,6 +44,26 @@ def main() -> None:
     if args.port:
         cfg.server.port = args.port
     Path(cfg.server.data_dir).mkdir(parents=True, exist_ok=True)
+
+    # 2026-07-09: the ST extension polls hud/status/writeback every few seconds — thousands
+    # of identical access-log lines drowned every REAL event (a played session was ~95%
+    # polling noise). Drop just those GET-200 lines; anything unusual (errors, POSTs, real
+    # routes) still logs. [server].log_polling = true restores the raw firehose.
+    if not getattr(cfg.server, "log_polling", False):
+        _POLL = ("/hud", "/writeback", "/aether/status", "/aether/specialization")
+
+        class _QuietPolls(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                try:
+                    msg = record.getMessage()
+                except Exception:
+                    return True
+                if '"GET ' not in msg or " 200" not in msg:
+                    return True
+                return not any(p in msg for p in _POLL)
+
+        logging.getLogger("uvicorn.access").addFilter(_QuietPolls())
+
     uvicorn.run(create_app(cfg), host=cfg.server.host, port=cfg.server.port, log_level="info")
 
 

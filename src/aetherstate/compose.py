@@ -12,6 +12,7 @@ The governor NEVER touches history in P2: shrink() needs detected ctx (P3 probe)
 from __future__ import annotations
 
 import json
+import random as _random
 from dataclasses import dataclass
 from typing import Optional
 
@@ -235,15 +236,30 @@ _DEFEAT_PHRASE = {
 }
 
 
-def _render_directive(state: dict) -> str:
+def _opposition_roll(state: dict) -> tuple[int, int]:
+    """R8c (Bean 2026-07-09: 'enemies rarely even attempt to attack'): ONE pre-rolled
+    enemy-action die per turn, derived DETERMINISTICALLY from (turn, scene, player) — the
+    same turn always re-renders the same roll, replay needs no journal row, and the DM
+    narrates a die code already cast instead of deciding hits itself. Returns
+    (2d6 total, damage die)."""
+    import hashlib
+    meta = state.get("meta", {})
+    loc = str(state.get("scene", {}).get("location_id", ""))
+    peid = next(iter(state.get("player") or {}), "")
+    seed = int(hashlib.md5(f"opp:{meta.get('turn', -1)}:{loc}:{peid}".encode()).hexdigest()[:8], 16)
+    rng = _random.Random(seed)
+    return rng.randint(1, 6) + rng.randint(1, 6), rng.randint(1, 6)
+
+
+def _render_directive(state: dict, cfg=None) -> str:
     """[DIRECTIVE] — the pre-decided outcome(s) of THIS turn's check(s) (doc 05 §4/§5.2). Reads
     every `check` record for the current turn (checks reuse the rolls buffer, doc 07 §7.1), so a
     multi-check turn directs each result — no silently unnarrated resolution. Rides the
     never-dropped header so the resolve-then-narrate contract can't be budget-cut."""
+    turn = state.get("meta", {}).get("turn", -1)
     if "_fresh_checks" in state:                 # 2026-07-09: exactly THIS request's checks —
         checks = [c for c in state["_fresh_checks"] if c.get("tier")]   # reliable, never stale
     else:                                        # replay / no-pipeline fallback: turn-scoped
-        turn = state.get("meta", {}).get("turn", -1)
         checks = [r for r in state.get("rolls", []) if r.get("turn") == turn and r.get("tier")]
     clauses = []
     for c in checks:
@@ -251,6 +267,8 @@ def _render_directive(state: dict) -> str:
         skill = str(c.get("skill") or "the")
         phrase = _DIRECTIVE_PHRASE.get(tier, tier)
         clause = f"{phrase} — the {skill} check resolved as {tier.upper()}"
+        if c.get("dm_called") or c.get("_dm_called"):   # R8b: the DM asked for this roll and
+            clause += " (the roll YOU called for last reply — narrate it as its answer)"
         sh = c.get("shape") or c.get("_shape")
         sh = sh if isinstance(sh, dict) else None
         if sh and sh.get("fired"):            # 2026-07-07: an active ability fired on the miss —
@@ -266,11 +284,46 @@ def _render_directive(state: dict) -> str:
         if isinstance(d, dict) and d.get("turn") == turn:        # outcome CLASS to narrate
             phrase = _DEFEAT_PHRASE.get(str(d.get("outcome")), "defeated")
             clauses.append(f"{_name(state, eid)} is DEFEATED — {phrase}")
-    if not clauses:
-        return ""
-    what = "these outcomes" if len(clauses) > 1 else "this outcome"
-    return ("[DIRECTIVE] NARRATE: " + "; ".join(clauses) + f". Narrate exactly {what}; "
-            "do not soften, upgrade, or override the result of a roll.")
+    out = ""
+    if clauses:
+        what = "these outcomes" if len(clauses) > 1 else "this outcome"
+        out = ("[DIRECTIVE] NARRATE: " + "; ".join(clauses) + f". Narrate exactly {what}; "
+               "do not soften, upgrade, or override the result of a roll.")
+    # R8c — the enemy acts on real dice too (rendered whenever a non-player is on scene;
+    # the DM is told to ignore it in peaceful beats). Code rolls, the model narrates.
+    if cfg is not None and getattr(getattr(cfg, "specialization", None),
+                                   "enemy_rolls", True) and (state.get("player") or {}):
+        peid = next(iter(state["player"]), "")
+        pname = _name(state, peid)
+        present = [eid for eid, e in (state.get("entities") or {}).items()
+                   if e.get("present") and eid != peid
+                   and e.get("kind") not in ("location", "faction", "world")]
+        aff = state.get("affinity") or {}
+        hostile_present = any(
+            isinstance(aff.get(f"{peid}->{eid}"), dict)
+            and aff[f"{peid}->{eid}"].get("value", 0) <= -10 for eid in present)
+        phase = str(state.get("scene", {}).get("phase", "")).lower()
+        combat_phase = phase in ("climax", "combat", "battle", "fight", "ambush")
+        flags = state.get("world") or {}
+        combat_flag = any(str(k).lower() in ("combat", "battle", "fight", "under_attack")
+                          and v and str(v).lower() not in ("no", "false", "0", "none")
+                          for k, v in flags.items())
+        if present and (hostile_present or combat_phase or combat_flag):
+            total, dmg = _opposition_roll(state)
+            graze = (dmg + 1) // 2
+            tier = ("CRITS" if total >= 12 else "HITS" if total >= 10
+                    else "GRAZES" if total >= 7 else "MISSES")
+            eff = {"CRITS": f"narrate it landing hard and emit [hp | {pname} | -{dmg + 2} | <why>]",
+                   "HITS": f"narrate it landing and emit [hp | {pname} | -{dmg} | <why>]",
+                   "GRAZES": f"a glancing cost — emit [hp | {pname} | -{graze} | <why>] or a "
+                             "fitting condition tag",
+                   "MISSES": "it fails — narrate the miss honestly"}[tier]
+            opp = (f"[OPPOSITION] Pre-rolled enemy action for THIS turn: if any hostile moves "
+                   f"against {pname}, its attempt came up 2d6={total} — it {tier}. {eff}. "
+                   "This die is final (do not soften or invert it); if no one hostile acts "
+                   "this turn, ignore this line entirely.")
+            out = (out + "\n" + opp) if out else opp
+    return out
 
 
 def _render_quest(state: dict) -> str:
@@ -485,7 +538,7 @@ def render_header(state: dict, cfg) -> str:
     if getattr(cfg, "specialization", None) is not None and cfg.specialization.name == "rpg":
         blocks = cfg.specialization.blocks
         if "DIRECTIVE" in blocks:
-            dblock = _render_directive(state)
+            dblock = _render_directive(state, cfg)
             if dblock:
                 lines.append(dblock)
         if "PLAYER" in blocks:

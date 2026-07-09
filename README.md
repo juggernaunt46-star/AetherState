@@ -173,6 +173,15 @@ rollable, without an in-world basis.**
   the engine still rolls and writes the outcome. Also fixes a bug where a check could silently stop
   resolving after reloading the page: the proxy's turn head is now authoritative, so a new message
   is always the next turn and a client turn is never allowed to regress.
+- **New in 1.10 — prompt caching, enabled and measured.** Long RP prompts are exactly what
+  provider prompt-caches reward (a huge stable history + a small volatile tail), so enriched
+  requests now carry a per-conversation `prompt_cache_key` that keeps every turn on the same warm
+  cache server — cheaper input tokens and a faster first token on providers that support prefix
+  caching (nothing changes on ones that don't). The Console's Status tab shows the measured
+  hit-rate; `[upstream] include_usage = true` makes streaming responses report it, and
+  `[upstream] prewarm = true` warms the cache when you open a chat so even your *first* message
+  lands hot. All injected state already rides the prompt tail, so the cached prefix survives
+  turn over turn.
 
 ## How state develops (priority)
 

@@ -12,10 +12,12 @@ import asyncio
 import json
 import logging
 import random
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Optional
 
-from . import compose, director, discovery, genesis, linter, tier0
+from . import compose, director, discovery, genesis, linter, promptcache, tier0
 from .config import Config
 from .session_engine import SessionEngine
 from . import memory
@@ -43,6 +45,8 @@ class PostContext:
     opening: str = ""
     evolutions: Optional[list] = None   # RPG-5: (char, table, id, bracket) crossings this
     #                                     turn — the cold path schedules Q27 re-authoring
+    enriched: bool = False              # Phase 0a: this request was actually changed (the
+    #                                     prompt_cache_key-carrying set — stats denominator)
 
 
 class Pipeline:
@@ -50,6 +54,15 @@ class Pipeline:
                  jobs=None, rng: Optional[random.Random] = None) -> None:
         self.store, self.engine, self.cfg, self.jobs = store, engine, cfg, jobs
         self.rng = rng or random.Random()
+        # ---- Phase 0a: prompt-cache plumbing (all in-memory, all fail-open) ----
+        self.cache = promptcache.CacheStats()
+        self._last_docs: OrderedDict[str, dict] = OrderedDict()   # sid -> last enriched doc
+        self._prewarm_at: dict[str, float] = {}                   # sid -> monotonic cooldown
+        if getattr(cfg.upstream, "cache_key", True) \
+                and cfg.injection.placement == "system_merge":
+            log.info("prompt-cache: placement=system_merge splices volatile state into the "
+                     "FIRST system message — every turn invalidates the provider's prefix "
+                     "cache; placement=depth (default) keeps volatile bytes at the tail")
 
     # ------------------------------------------------------------------ hot path
     def process(self, stamp: Optional[Stamp], body: bytes) -> tuple[bytes, Optional[PostContext]]:
@@ -126,11 +139,35 @@ class Pipeline:
             self.store.write_slice(res.session_id, res.turn_index, kept)
         except Exception:                     # slice row is observability, never load-bearing
             pass
+        if changed and getattr(self.cfg.upstream, "cache_key", True):
+            # Phase 0a: every turn of a conversation routes to the same warm provider
+            # cache. ONLY on requests the engine already changed — an untouched request
+            # stays byte-identical (transparency), so `none`-untouched wires carry nothing.
+            promptcache.add_cache_key(doc, res.session_id)
+            if getattr(self.cfg.upstream, "include_usage", False):
+                promptcache.add_usage_probe(doc)
+            self._last_docs[res.session_id] = doc          # prewarm source (bounded LRU)
+            self._last_docs.move_to_end(res.session_id)
+            while len(self._last_docs) > promptcache.LAST_DOCS_MAX:
+                self._last_docs.popitem(last=False)
         ctx = PostContext(res.session_id, res.branch_id, res.turn_index, res.klass.value,
                           speaker=(res.stamp.speaker if res.stamp else None),
                           card=card, opening=opening,
-                          evolutions=evolutions or None)
+                          evolutions=evolutions or None, enriched=changed)
         return (compose.to_bytes(doc) if changed else body), ctx
+
+    def prewarm_doc(self, session_id: str) -> Optional[dict]:
+        """Phase 0a stretch: the session's last enriched doc IF the per-session
+        prewarm cooldown allows — claims the cooldown slot when it returns one.
+        None = nothing remembered (fresh proxy / never enriched) or on cooldown."""
+        doc = self._last_docs.get(session_id)
+        if doc is None:
+            return None
+        now = time.monotonic()
+        if now - self._prewarm_at.get(session_id, 0.0) < promptcache.PREWARM_COOLDOWN_S:
+            return None
+        self._prewarm_at[session_id] = now
+        return doc
 
     def _progress(self, res, state: dict, applied: list) -> tuple[dict, list]:
         """RPG-5 hot-path progression pass (µs, pure arithmetic + one apply): XP awards,
@@ -206,6 +243,9 @@ class Pipeline:
         if ctx is None:
             return
         try:
+            if ctx.enriched:                 # Phase 0a: cache observability (pillar 17)
+                self.cache.observe(ctx.session_id,
+                                   promptcache.parse_usage(raw, content_type))
             text = _response_text(raw, content_type)
             if text and text.strip():
                 speaker = ctx.speaker or "Narrator"

@@ -473,7 +473,10 @@ async function saveConn(target,urlId,keyId,selId){const base=$("#"+urlId).value.
   if(key)$("#"+keyId).value="";
   toast("saved"+(d.persisted?" — persists across restarts":" (this run only)"))}
  else toast("save failed",1)}
-async function statusTab(){const d=await j("/aether/status");
+async function statusTab(){const d=await j("/aether/status");const cc=d.cache||{};
+ const ccPills=cc.with_usage
+  ?`<span class="pill ${cc.cached_tokens>0?"vio":"dim"}" title="cached / prompt tokens (whole run)">${cc.cached_tokens||0}/${cc.prompt_tokens||0} tok cached${cc.hit_rate_tokens!=null?" ("+Math.round(cc.hit_rate_tokens*100)+"%)":""}</span><span class="pill dim">${cc.hits||0}/${cc.with_usage} replies hit</span>`
+  :`<span class="pill dim">no usage data yet${cc.enabled&&!cc.include_usage?" — set [upstream].include_usage=true to measure":""}</span>`;
  return `<div class="card"><h3>Proxy</h3><div class="row">
   <span class="pill ok">${d.name} ${d.version}</span><span class="pill dim">${d.mode}</span>
   <span class="pill dim">up ${Math.round(d.uptime_s/60)}m</span>
@@ -485,6 +488,10 @@ async function statusTab(){const d=await j("/aether/status");
   ${Object.entries(d.linter.violations).length?Object.entries(d.linter.violations).map(([k,v])=>`<span class="pill warn">${k}×${v}</span>`).join(""):'<span class="pill ok">no violations logged</span>'}</div>
   <div class="row"><span class="hint">director</span>
   ${Object.entries(d.director.firings).length?Object.entries(d.director.firings).map(([k,v])=>`<span class="pill vio" title="${k}">${k.split(".").pop()}×${v}</span>`).join(""):'<span class="pill dim">no beats fired yet</span>'}</div>
+  <div class="row"><span class="hint">prompt cache</span>
+  ${cc.enabled?'<span class="pill ok">key on</span>':'<span class="pill dim">key off</span>'}
+  ${ccPills}
+  ${cc.prewarm?`<span class="pill vio" title="chat-open prewarm sent/failed">prewarm ×${cc.prewarms_sent||0}${cc.prewarm_fails?" ("+cc.prewarm_fails+" failed)":""}</span>`:""}</div>
   <div class="hint" style="margin-top:6px">telemetry: ${d.telemetry}</div></div>`}
 async function modelsTab(){const d=await j("/aether/status");
  return `<div class="card"><h3>Backends the engine has probed</h3><table>

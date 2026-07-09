@@ -1,5 +1,102 @@
 # Changelog
 
+## 1.10.0 — 2026-07-09
+
+Prompt caching (KV-cache) enablement: long roleplay prompts are exactly the shape provider
+prompt-caches reward — a huge stable history plus a small volatile tail — so AetherState now
+routes, measures, and (optionally) pre-warms that cache. Cheaper input tokens and faster
+time-to-first-token on providers that support prefix caching (e.g. Venice); on providers that
+don't, nothing changes.
+
+### New: cache-aware requests
+- Enriched requests carry `prompt_cache_key=aether-<session id>` so every turn of a
+  conversation lands on the same warm cache server. Requests AetherState doesn't touch stay
+  byte-identical, and a key your frontend sets itself always wins. `[upstream] cache_key =
+  false` turns it off.
+- Injection-position audit: the default `depth` placement already keeps all volatile state
+  (briefing, rolls, [DIRECTIVE]/[OPPOSITION]) at the prompt tail, and the sentinel never
+  reaches upstream — the long history prefix stays byte-stable turn over turn. Using
+  `placement="system_merge"` breaks that (volatile bytes in the FIRST message); the proxy now
+  logs a notice when caching is on with that placement.
+
+### New: cache hit-rate visibility
+- `GET /aether/status` gains a `.cache` block (requests observed, responses with usage, hits,
+  cached/prompt token totals, whole-run hit rate, prewarms) and the Console Status tab renders
+  it as a "prompt cache" row — the proof the caching actually works, in plain sight.
+- `[upstream] include_usage = true` (opt-in) asks a streaming upstream to report token usage
+  (one spec-standard SSE chunk) so hit rates are measurable with streaming frontends.
+
+### New: chat-open prewarm (opt-in)
+- `[upstream] prewarm = true`: when you open a chat, the proxy quietly re-sends that session's
+  last prompt with `max_tokens=1` so your first real message hits a warm cache. Costs one
+  full-price prefill per warm; at most one per session per 4 minutes; fully fail-open.
+
+## 1.9.0 — 2026-07-09
+
+The Greywater playtest release: a full fresh-campaign live test produced a fix pack across the
+Creator, the card, the ledger, and the HUD — plus three new mechanics: DM-called checks that
+fire themselves, enemies that attack on real dice, and a "what the AI sees" inspector.
+
+### New: the DM's own check-calls auto-fire (R8b)
+- When the narrator says "that's an ((aether.check persuasion))" and you answer in plain prose,
+  the engine now rolls it for you — no syntax to retype. Your own explicit or written-out checks
+  always win; a `none` session is untouched. `[specialization] auto_dm_checks = false` disables.
+
+### New: enemies attack on real dice (R8c)
+- Combat turns inject a pre-rolled `[OPPOSITION]` die: if any hostile moves against the player,
+  the DM narrates the tier the dice already decided (miss/graze/hit/crit) and tags the
+  pre-decided damage — it can no longer wave enemy attacks through or decide them itself.
+  Arms when a Cold-or-worse NPC is present, the scene phase is combat-like, or a combat world
+  flag is set; the contract teaches the DM to raise the phase when violence starts.
+  `[specialization] enemy_rolls = false` disables.
+
+### New: briefing inspector
+- `GET /aether/session/{sid}/briefing` returns exactly what the engine would inject into the
+  next request (state header, DM contract, token counts after the budget governor).
+
+### Creator: custom abilities survive with their real mechanics
+- The custom-ability row now carries mechanic / applies-to / magnitude / cost / cooldown, so an
+  AI-authored dice-shaper no longer degrades into an inert "all checks" trinket on save.
+- A mechanics-bare echo of a preset ability (the author liked to restate Silver Tongue) is
+  dropped — the curated definition wins; a REAL override (with mechanics) is kept.
+- A missing mechanic is inferred from the effect text ("roll an extra die…" → edge/extra_die).
+- Custom skills with no `governs` verbs get them derived from the name, so "I dive" still rolls
+  a rank-0 Free Dive; NL detection now sees rank-0 custom skills at all.
+- What you TYPED is canon: the AI autofill can no longer rewrite or truncate your own faction /
+  location / NPC / custom rows — it only fills blanks and appends new ones.
+- The authored character is draft-saved like the world; the session picker defaults to
+  "card only (no session)" so an accidental Save can't land in your newest live game.
+
+### Cards and seeding
+- Card greetings/descriptions no longer truncate mid-word ("find out wh…"); prose clamps cut at
+  sentence boundaries with room to spare.
+- The opening scene seeds ITS OWN location (matched from the scene text) instead of blindly the
+  first location row.
+- A Narrator/world card is no longer staged as a present "character" in the cast.
+- Starting gear that is worn by nature ("dive-rig") auto-equips; an explicit `(worn)` /
+  `(carried)` tag in any item name is honored as the author's word.
+
+### Ledger correctness
+- Same-turn duplicate affinity reports (the DM tag + the extraction ladder both reporting the
+  same fact) count once — +4 no longer becomes +8.
+- Number-word counts split into quantities: "two spent King's Coins on a cord" is now a
+  King's Coin x2, so spending one actually decrements.
+- `[DIRECTIVE]` no longer crashes on a defeat that lands in the same request as fresh checks.
+
+### HUD / extension
+- The Items tab shows EVERYTHING carried (stowed gear included); every stowed piece has an
+  equip button aimed at a sensible free slot; the paper-doll's twelve "— empty —" rows collapse
+  to one line; the minimized HUD shows the last-roll chip; the Rolls feed carries the dice spec
+  and marks DM-called rolls.
+
+### Ops & hygiene
+- `/aether/status` reports the REAL version (pyproject is the single source of truth) instead
+  of a hardcoded 1.0.0 — the "is my proxy stale?" trap is closed.
+- The proxy log no longer drowns in HUD/status polling lines (`[server] log_polling = true`
+  restores the firehose).
+- The scene-tag protocol pins `phase` to setup|rising|climax|lull and bans invented bookkeeping
+  tags; contract bumped to dm-rules/5, tags to world-tags/3.
+
 ## 1.8.2 — 2026-07-09
 
 Inventory fixes: items stop duplicating, counts live in the quantity (not the name), and using a

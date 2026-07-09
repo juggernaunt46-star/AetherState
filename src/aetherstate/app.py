@@ -59,8 +59,8 @@ def create_app(cfg: Config, client_factory: Optional[Callable[[], httpx.AsyncCli
     app.state.store, app.state.engine = store, engine
     app.state.pipeline, app.state.jobs = pipeline, jobs
 
-    app.include_router(make_status_router(cfg, store, jobs))   # control plane FIRST (more specific prefix)
-    app.include_router(make_control_router(cfg, store, jobs=jobs))
+    app.include_router(make_status_router(cfg, store, jobs, pipeline))   # control plane FIRST (more specific prefix)
+    app.include_router(make_control_router(cfg, store, jobs=jobs, pipeline=pipeline))
     app.include_router(make_relay_router(get_client, cfg, engine, pipeline))  # catch-all relay LAST
 
   

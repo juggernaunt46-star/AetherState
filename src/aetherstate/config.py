@@ -23,6 +23,9 @@ class ServerConfig(BaseModel):
     port: int = 9130
     cors_origins: list[str] = ["http://localhost:8000", "http://127.0.0.1:8000"]
     data_dir: str = "./aetherstate-data"
+    log_polling: bool = False        # 2026-07-09: access-log the extension's hud/status
+    #                                  polling GETs too (default off — they drowned real
+    #                                  events at ~1 line/second)
 
 
 class UpstreamConfig(BaseModel):
@@ -36,6 +39,18 @@ class UpstreamConfig(BaseModel):
     probe_ttl_days: int = 7
     idle_timeout_s: int = 0          # 0 = no proxy-imposed stream timeout (09 U6)
     max_parse_mb: int = 20
+    # ---- Phase 0a: KV-cache / prompt-caching enablement (plan doc 13, 2026-07-09) ----
+    cache_key: bool = True           # add prompt_cache_key=<session id> to requests the
+    #                                  engine ENRICHES (untouched requests stay byte-identical;
+    #                                  a client-sent key always wins) — routes every turn of a
+    #                                  conversation to the same warm provider cache server
+    include_usage: bool = False      # opt-in: set stream_options.include_usage on enriched
+    #                                  streaming requests so the upstream reports cache hits
+    #                                  (adds one spec-standard usage chunk the frontend sees)
+    prewarm: bool = False            # opt-in: at chat-open, re-send the session's last
+    #                                  enriched prompt once (max_tokens=1) so the first real
+    #                                  message hits a warm prefix — pays one full-price
+    #                                  prefill to buy first-turn latency; cooldown-limited
 
 
 class StampConfig(BaseModel):
@@ -227,6 +242,12 @@ class SpecializationConfig(BaseModel):
     #                                  (negatives halved; 0 disables the cascade entirely)
     contract: str = "full"           # RPG-4 (05 §5.9/D7): DM rules-contract size — "full"
     #                                  for strong models, "compact" for weak/local budgets
+    enemy_rolls: bool = True         # R8c (2026-07-09, Bean): pre-roll ONE enemy-action die
+    #                                  per turn and hand it to the DM via [OPPOSITION] — foes
+    #                                  attack on real dice, resolved BEFORE the reply streams
+    auto_dm_checks: bool = True      # R8b (2026-07-09): a ((aether.check ...)) the DM calls
+    #                                  in its reply ARMS — a plain-prose player answer rolls
+    #                                  it automatically (explicit/NL checks still win)
     hardcore: bool = False           # RPG-5 (doc 10 §7): defeat_resolve routes to DEATH —
     #                                  permadeath; off = contextual non-lethal outcomes
     narrator_card_dir: str = ""      # optional: a SillyTavern characters dir where the

@@ -44,11 +44,16 @@ def _extraction_view(cfg, store, jobs) -> dict:
     return out
 
 
-def make_status_router(cfg, store=None, jobs=None) -> APIRouter:
+def make_status_router(cfg, store=None, jobs=None, pipeline=None) -> APIRouter:
     router = APIRouter(prefix="/aether")
 
     @router.get("/status")
     async def status():
+        try:      # Phase 0a: prompt-cache hit rates (status must never 500 — 09 F3)
+            cache = (pipeline.cache.snapshot(cfg) if pipeline is not None
+                     else {"enabled": bool(getattr(cfg.upstream, "cache_key", True))})
+        except Exception:
+            cache = {}
         return {
             "name": "aetherstate",
             "version": __version__,
@@ -61,6 +66,7 @@ def make_status_router(cfg, store=None, jobs=None) -> APIRouter:
             "uptime_s": round(time.monotonic() - _STARTED, 1),
             "sessions": (store.db.execute("SELECT COUNT(*) c FROM sessions").fetchone()["c"]
                          if store else 0),
+            "cache": cache,                  # Phase 0a: prompt-cache key + hit rates
             "extraction": _extraction_view(cfg, store, jobs),
             "linter": {"enabled": cfg.linter.enabled,        # violations by rule (10 SS4)
                        "violations": (store.lint_counts() if store else {})},

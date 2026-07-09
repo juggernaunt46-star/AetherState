@@ -19,6 +19,7 @@ then defaults. `Config.source` records which loaded.
 | port | `9130` | bind port |
 | cors_origins | `["http://localhost:8000","http://127.0.0.1:8000"]` | allowed CORS origins |
 | data_dir | `./aetherstate-data` | DB + config + traces live here |
+| log_polling | `false` | 1.9.0: also access-log the extension's hud/status/writeback polling GETs — off by default, they drowned real events at ~1 line/second |
 
 ### `[upstream]` — `UpstreamConfig` (the MAIN model that writes the story)
 | key | default | meaning |
@@ -29,6 +30,9 @@ then defaults. `Config.source` records which loaded.
 | probe_ttl_days | `7` | capability re-probe interval |
 | idle_timeout_s | `0` | 0 = no proxy stream timeout |
 | max_parse_mb | `20` | bodies larger than this bypass enrichment (pure passthrough) |
+| cache_key | `true` | Phase 0a: add `prompt_cache_key=aether-<session id>` to ENRICHED requests so a conversation's turns route to the same warm provider prompt-cache. Untouched requests stay byte-identical; a client-sent key wins |
+| include_usage | `false` | opt-in: set `stream_options.include_usage` on enriched streaming requests so the upstream reports `usage` (cache hits become measurable). Adds one spec-standard SSE chunk the frontend sees |
+| prewarm | `false` | opt-in: on the extension's `chat_changed` hint, re-send the session's last enriched prompt once (`max_tokens=1`, non-streaming) so the first real message hits a warm prefix. One full-price prefill per warm; ≥240 s per-session cooldown; in-memory only (a fresh proxy has nothing to prewarm until one request flows). Cache-friendliness note: `[injection].placement="depth"` (default) keeps volatile state at the prompt tail; `"system_merge"` invalidates the provider prefix cache every turn (the proxy logs a notice) |
 
 ### `[stamp]` — `StampConfig`
 | key | default | meaning |
@@ -190,11 +194,11 @@ headers are consumed, never forwarded. Errors are OpenAI-shaped JSON (502 `not_c
 ### Control surface (`/aether/*` — `control.py` + `status.py`)
 | Method + path | Purpose |
 |---|---|
-| `GET /aether/status` | version, mode, extraction view, counts (the panel chip + `/aether-status` read this) |
+| `GET /aether/status` | version, mode, extraction view, counts (the panel chip + `/aether-status` read this); `.cache` (Phase 0a) carries the prompt-cache knobs + whole-run hit rates (`requests`, `with_usage`, `hits`, `prompt_tokens`, `cached_tokens`, `hit_rate_tokens`, `prewarms_sent`, per-session last numbers) — the Console Status tab renders it as the "prompt cache" row |
 | `GET /aether/console` | serves the built-in dashboard HTML |
 | `GET /aether/override` · `POST /aether/override` | read / set `manual_override.enabled` |
 | `POST /aether/session/{sid}/genesis?force=0&ifearly=0` | seed from card/greeting (body: card, greeting, speaker, user, opening); `ifearly=1` acts only while the session has no real exchange (greeting swipes) |
-| `POST /aether/hint` | fire-and-forget UI hint (event, session, messageIndex) |
+| `POST /aether/hint` | fire-and-forget UI hint (event, session, messageIndex); a `chat_changed` hint also triggers the opt-in prompt-cache prewarm (`[upstream].prewarm`) |
 | `POST /aether/session/{sid}/mode` | set `enriched \| passthrough` for the chat |
 | `GET /aether/session/{sid}/writeback?cursor=N` | poll native-writeback patches (chatMetadata) |
 | `GET /aether/extraction` · `POST /aether/extraction` | read / set cadence_turns, intake_chars (persisted) |
@@ -215,6 +219,7 @@ headers are consumed, never forwarded. Errors are OpenAI-shaped JSON (502 `not_c
 | `POST /aether/session/{sid}/author` | assist-LLM fill-the-blanks (body: mode `world\|player`, doc, world, optional `model`, optional `offline:1` for an explicit template fill); works session-less from config; auto-detects a model via `GET /models` when none is known; an LLM failure returns `source:"error"` + `detail` (the window keeps the form untouched — templates only on request) |
 | `GET /aether/presets` · `POST /aether/presets` | list / upsert named creator presets (kind `world\|player`, name, doc) |
 | `GET /aether/presets/{id}` · `DELETE /aether/presets/{id}` | fetch / delete one preset |
+| `GET /aether/session/{sid}/briefing` | 1.9.0 transparency inspector: EXACTLY what the engine would inject into the next request — the composed state header, the DM rules-contract under rpg, per-component token counts after the budget governor, and the injection budget. Read-only ("the console shouldn't hide anything raw") |
 | `GET /aether/session/{sid}/journal?limit=N` | RPG-4 inspector feed: applied-op tail (turn · source · op · brief fields) + last rolls — the Console's "Recent activity (RPG)" card |
 | `GET /aether/session/{sid}/search?q=&limit=N` | RPG-5: search the session's memory/summary ledger with the composite recall scorer (lexical + importance + recency; embeddings when staged). Read-only, fail-open to `[]` |
 | `POST /aether/session/{sid}/world` | persist a world doc as shipped ops (entities/lore/scene); creator-first: an unknown `sid` mints the session by external id (2026-07-06 — the row the relay adopts on the chat's first stamped message); response carries `session_id` |
@@ -287,6 +292,8 @@ the character card into a Dungeon Master and tracks the user's persona as a Play
 | `faction_cascade` | `0.1` | RPG-3b: NPC→faction affinity ripple factor (negatives halved; `0` disables) |
 | `contract` | `"full"` | RPG-4 (D7): DM rules-contract size — `"compact"` (~40 tokens, same non-negotiables) for weak/local model budgets |
 | `hardcore` | `false` | RPG-5 (doc 10 §7): `defeat_resolve` routes to DEATH (permadeath) instead of the contextual non-lethal outcomes (captured / wake safe / robbed / rescued) |
+| `auto_dm_checks` | `true` | R8b (1.9.0): a `((aether.check …))` the DM calls in its OWN reply ARMS — a plain-prose player answer rolls it automatically next request (the player's explicit/NL checks always win; the [DIRECTIVE] marks it DM-called) |
+| `enemy_rolls` | `true` | R8c (1.9.0, Bean): hostile beats pre-roll ONE enemy-action die and inject it as `[OPPOSITION]` alongside the [DIRECTIVE] — foes attack on real dice the DM must narrate, never wave through. Arms when a Cold-or-worse NPC is present, scene phase is climax/combat/battle/fight/ambush, or a combat-ish world flag is truthy. Deterministic per (turn·scene·player) — replay re-renders the same die |
 
 **Overlay resolver (`config._apply_specialization`).** When `name == "rpg"` the built-in
 `RPG_PROFILE` is deep-merged UNDER the user's config, so precedence is **user-override >

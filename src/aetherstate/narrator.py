@@ -107,6 +107,21 @@ def _lst(v) -> list:
     return v if isinstance(v, list) else []
 
 
+def _s_sent(v, n: int) -> str:
+    """Clamp prose to <= n chars WITHOUT a mid-word cut: prefer the last sentence end,
+    then the last word break, and mark a real cut with an ellipsis (2026-07-09 — the
+    baked card greeting used to end 'find out wh')."""
+    t = _s(v, n + 400)
+    if len(t) <= n:
+        return t
+    cut = t[:n]
+    dot = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind(".\n"))
+    if dot >= int(n * 0.5):
+        return cut[:dot + 1]
+    sp = cut.rfind(" ")
+    return (cut[:sp] if sp >= int(n * 0.6) else cut).rstrip(" ,;:—-") + "…"
+
+
 def _name_only(line: str) -> str:
     """'Name — description' -> 'Name' (creator stores factions/locations this way)."""
     for sep in (" — ", " – ", " - ", ": "):
@@ -128,7 +143,7 @@ def _world_section(world: dict) -> str:
     genre = _s(world.get("genre"), 40).replace("_", " ")
     head = f"THE WORLD — {name}" + (f" ({genre})" if genre else "")
     lines = [head]
-    setting = _s(world.get("setting"), 1400)
+    setting = _s_sent(world.get("setting"), 2400)
     if setting:
         lines.append(setting)
     date, tod = _s(world.get("date"), 80), _s(world.get("time"), 40).replace("_", " ")
@@ -138,7 +153,7 @@ def _world_section(world: dict) -> str:
     tone = _s(world.get("tone"), 120)
     if tone:
         lines.append(f"Tone: {tone}.")
-    aspects = [_s(a, 200) for a in _lst(world.get("aspects")) if _s(a)]
+    aspects = [_s_sent(a, 400) for a in _lst(world.get("aspects")) if _s(a)]
     if aspects:
         lines.append("Laws of this world: " + "; ".join(aspects[:8]) + ".")
     factions = [_name_only(_s(f, 80)) for f in _lst(world.get("factions")) if _s(f)]
@@ -159,7 +174,7 @@ def _world_section(world: dict) -> str:
         npcs.append(f"{nm}" + (f" ({tail})" if tail else ""))
     if npcs:
         lines.append("Known figures: " + "; ".join(npcs[:8]) + ".")
-    quest = _s(world.get("opening_quest"), 300)
+    quest = _s_sent(world.get("opening_quest"), 700)
     if quest:
         lines.append(f"The opening thread: {quest}")
     return "\n".join(lines)
@@ -170,7 +185,7 @@ def _player_section(player: Optional[dict]) -> str:
         return ""
     name = _s(player.get("name"), 48)
     concept = _s(player.get("concept") or player.get("class"), 80)
-    appearance = _s(player.get("appearance") or player.get("description"), 500)
+    appearance = _s_sent(player.get("appearance") or player.get("description"), 900)
     if not name and not concept and not appearance:
         return ""
     who = name or "The Player"
@@ -195,8 +210,8 @@ def _first_mes(world: dict, player: Optional[dict]) -> str:
     there is one; a 'the world wakes' framing otherwise. Always ends in-fiction (dm-rules)."""
     name = _s(world.get("name"), 60)
     genre = _s(world.get("genre"), 40).replace("_", " ")
-    opening = _s(world.get("opening_scene"), 900)
-    quest = _s(world.get("opening_quest"), 240)
+    opening = _s_sent(world.get("opening_scene"), 1800)
+    quest = _s_sent(world.get("opening_quest"), 700)
     banner = f"*{name}*" if name else "*A world, newly spoken.*"
     if genre and name:
         banner = f"*{name} — {genre}*"
@@ -207,7 +222,7 @@ def _first_mes(world: dict, player: Optional[dict]) -> str:
             parts.append(f"\nAt the edge of it all: {quest}")
         parts.append("\nThe world holds its breath, waiting on you.")
     else:
-        setting = _s(world.get("setting"), 500)
+        setting = _s_sent(world.get("setting"), 900)
         if setting:
             parts.append(setting)
         parts.append("\nI am the Narrator, and I keep this world's truth without mercy or "

@@ -6,6 +6,8 @@
 [server]
 # host = "127.0.0.1"
 # port = 9130
+# log_polling = false  # 1.9.0: also access-log the extension's hud/status polling GETs
+#                      # (off by default — they drown real events at ~1 line/second)
 
 # ------------------------------------------------------------------
 # MAIN model — the one that WRITES your story.
@@ -28,6 +30,21 @@ api_key = ""      # FALLBACK ONLY. AetherState is a transparent proxy: the key y
                   # locks config.toml down on save — 0600 perms on POSIX, an owner-only NTFS
                   # ACL (icacls) on Windows — and still: keep it out of synced folders
                   # (OneDrive/Dropbox). The key is never echoed by any route or written to logs.
+
+# ---- Prompt caching (KV-cache) — most providers cache prompts by token prefix ----
+cache_key = true       # tag enriched requests with prompt_cache_key=<session id> so every
+                       # turn of a conversation lands on the same warm cache server (big
+                       # input-cost + prefill-latency cut on providers that support it).
+                       # Requests AetherState doesn't touch are never tagged.
+include_usage = false  # true = ask a STREAMING upstream to report token usage (adds one
+                       # standard usage chunk to the stream) so cache hit-rates show in
+                       # the Console. Off by default: it changes what your frontend sees.
+prewarm = false        # true = at chat-open, quietly re-send the chat's last prompt with
+                       # max_tokens=1 so your first message hits a warm cache. Trades one
+                       # full-price prefill for first-turn latency; at most 1 per 4 min.
+                       # NOTE: keep volatile text out of the prompt HEAD for caching to
+                       # pay off — [injection].placement="depth" (the default) is right;
+                       # "system_merge" breaks the cache prefix every turn.
 
 # ------------------------------------------------------------------
 # HELPER model — the one that TRACKS state in the background.
@@ -107,6 +124,10 @@ name = "none"         # none | rpg
 # faction_cascade = 0.1     # RPG-3b: NPC->faction affinity ripple (negatives halved; 0 = off)
 # contract = "full"         # RPG-4: DM rules-contract size — "compact" for weak/local models
 #                           # (same non-negotiables in ~40 tokens; part of the degradation ladder)
+# auto_dm_checks = true     # R8b (1.9.0): a check the DM itself calls for ARMS — answering in
+#                           # plain prose rolls it automatically (your own checks always win)
+# enemy_rolls = true        # R8c (1.9.0): combat turns pre-roll ONE enemy-action die and hand
+#                           # it to the DM as [OPPOSITION] — foes attack on real dice
 # hardcore = false          # RPG-5: defeat becomes DEATH (permadeath). Off = contextual
 #                           # non-lethal outcomes (captured / wake safe / robbed / rescued)
 # narrator_card_dir = ""    # optional: a SillyTavern characters dir (e.g.

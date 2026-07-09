@@ -513,11 +513,12 @@ def _rolls(state: dict) -> list[dict]:
                 note = "advantage"
             elif sh.get("ward"):
                 note = "guard"
-        out.append({"turn": r.get("turn"), "spec": str(r.get("spec", "")),
+        out.append({"turn": r.get("turn"), "spec": str(r.get("spec") or r.get("dice") or ""),
                     "result": r.get("result"), "skill": str(r.get("skill", "")),
                     "mod": r.get("mod"),
                     "tier": str(tier) if tier else "",
                     "tier_label": _TIER_LABEL.get(str(tier), "") if tier else "",
+                    "dm_called": bool(r.get("dm_called")),   # R8b provenance for the feed
                     "note": note})
     return out
 

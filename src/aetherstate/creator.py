@@ -510,7 +510,9 @@ def _coerce_defs(custom, reg) -> dict:
             "name": _s(sk.get("name") or sid, 60), "keyed_stat": keyed,
             "base_mod": _clampi(sk.get("base_mod", 0), -5, 10),
             "max_rank": _clampi(sk.get("max_rank", 5), 1, 10),
-            "governs": [_s(g, 40) for g in _lst(sk.get("governs"))][:12],
+            "governs": ([_s(g, 40) for g in _lst(sk.get("governs"))][:12]
+                        or [w for w in _s(sk.get("name") or sid, 60).lower()
+                            .replace("-", " ").split() if len(w) >= 4][:4]),
             "desc": _s(sk.get("desc"), 400)}
         req = slug(_s(sk.get("requires_ability"), 40))
         if req:                                  # eligibility gate rides the def (validated below)
@@ -532,6 +534,12 @@ def _coerce_defs(custom, reg) -> dict:
         aid = slug(_s(ab.get("id") or ab.get("name"), 40))
         if not aid:
             continue
+        if aid in reg.abilities and not any(
+                ab.get(k) for k in ("mechanic", "passive_mod", "cost",
+                                    "cooldown_turns", "resolution_mod", "magnitude")):
+            continue                             # a bare echo of a curated ability (author
+        #                                          round-trips do this) — the registry def IS
+        #                                          the truth; an inert copy must not shadow it
         kind = _s(ab.get("kind"), 10)
         if kind not in ("passive", "active", "basis"):   # "basis" (2026-07-06): grants the
             kind = "active"                              # in-world basis for a gated skill
@@ -544,6 +552,16 @@ def _coerce_defs(custom, reg) -> dict:
         mech = _s(ab.get("mechanic"), 16).lower()
         if mech not in _registry.ABILITY_MECHANICS:
             mech = "basis" if kind == "basis" else ""
+        if not mech:                             # 2026-07-09: infer a missing mechanic from the
+            txt = (_s(ab.get("effect"), 400) + " " + _s(ab.get("desc"), 400)).lower()
+            if "extra die" in txt or "another die" in txt or "keep the best" in txt:
+                mech = "extra_die" if kind == "active" else "edge"   # effect text (weak floor —
+            elif "reroll" in txt or "re-roll" in txt:                # a typed row without a
+                mech = "reroll"                                      # mechanic column still
+            elif "fumble" in txt or "no critical" in txt:            # freezes as a real shaper)
+                mech = "ward"
+            elif "surge" in txt or "lifts the" in txt:
+                mech = "surge"
         at = ab.get("applies_to")
         if isinstance(at, str) and at.strip():
             entry["applies_to"] = "all" if at.strip().lower() in ("all", "any") else slug(at)
@@ -640,7 +658,20 @@ def world_to_ops(world: dict) -> list[dict]:
     if w["opening_scene"]:
         ops.append({"op": "memory_event", "text": f"Opening scene: {w['opening_scene']}"})
         if w["locations"]:
-            ops.append({"op": "scene_set", "location": slug(_split_name_desc(w["locations"][0])[0]),
+            scene_low = " " + " ".join(w["opening_scene"].lower()
+                                       .replace("-", " ").split()) + " "
+            pick, best = None, 0                 # the location the opening scene actually
+            for loc in w["locations"]:           # NAMES wins; the first row is only the
+                head = _split_name_desc(loc)[0]  # fallback (2026-07-09: the HUD opened on
+                toks = " ".join(head.lower().replace("-", " ").split())   # 'the aerie' while
+                if toks and f" {toks} " in scene_low and len(toks) > best:   # play began at
+                    pick, best = head, len(toks)                             # the Atrium Stair)
+                else:
+                    t2 = " ".join(t for t in toks.split() if t not in ("the", "a", "an"))
+                    if t2 and f" {t2} " in scene_low and len(t2) > best:
+                        pick, best = head, len(t2)
+            ops.append({"op": "scene_set",
+                        "location": slug(pick or _split_name_desc(w["locations"][0])[0]),
                         "phase": "opening"})
     if w["time"] in TIMES:
         ops.append({"op": "time_advance", "to_time_of_day": w["time"]})
@@ -652,7 +683,7 @@ def world_to_ops(world: dict) -> list[dict]:
     for ex in w.get("extras", []):                         # Bean 07-07: free-form custom lore
         if ex.get("text"):                                 # categories -> retrievable memory lore
             ops.append({"op": "memory_event",
-                        "text": f"World — {ex['label']}: {ex['text']}"})
+                        "text": f"World lore — {ex['label']}: {ex['text']}"})
     return ops
 
 
@@ -710,15 +741,19 @@ def world_from_state(state: dict) -> dict:
                                 "desc": str(a.get("description") or "")})
     for m in state.get("memories") or []:
         text = str((m or {}).get("text") or "")
-        if text.startswith("World — "):
+        if text.startswith("World lore — "):
+            head, _, body = text[len("World lore — "):].partition(": ")
+            if head and body:                     # custom detail categories round-trip
+                doc.setdefault("extras", []).append({"label": head.strip(), "text": body})
+        elif text.startswith("World — "):
             head, _, setting = text.partition(": ")
-            doc["setting"] = setting or doc["setting"]
             name_part = head[len("World — "):]
-            if "(" in name_part:
-                doc["name"] = name_part[:name_part.rfind("(")].strip()
+            if "(" in name_part:                  # only the "Name (genre)" head IS the world
+                doc["setting"] = setting or doc["setting"]   # line — a custom-lore label
+                doc["name"] = name_part[:name_part.rfind("(")].strip()   # ("The Drowning")
                 doc["genre"] = name_part[name_part.rfind("(") + 1:].rstrip(")").strip()
-            else:
-                doc["name"] = name_part.strip()
+            elif not doc.get("name"):             # legacy row without a genre: name only,
+                doc["name"] = name_part.strip()   # first match wins, never clobbers
         elif text.startswith("In-world date: "):
             body = text[len("In-world date: "):].rstrip(".")
             if "(" in body:
@@ -797,7 +832,12 @@ _CHAR_SYSTEM_TMPL = (
     "skills AND abilities (e.g. \"Spells\", \"Cyber-Ware\", \"Disciplines\", \"Hexes\") so the "
     "player's sheet groups them together. Skills are things you TRY (ranked, rolled); "
     "abilities are things you HAVE that RESHAPE the roll. Give the concept 1-2 signature abilities "
-    "with real dice-shaping mechanics — be flavorful and specific, never generic. "
+    "with real dice-shaping mechanics — be flavorful and specific, never generic. Every defs "
+    "skill MUST include 3-6 `governs` verbs (the plain words a player would write to attempt "
+    "it — e.g. dive, swim, descend for a diving skill); an active ability MUST name its "
+    "`applies_to` skill id, its `cost`, and `cooldown_turns`. NEVER restate an ability that "
+    "already exists in the preset list — pick it in `abilities` instead; defs are ONLY for "
+    "new inventions. "
     "`appearance` is a vivid 1-3 sentence PHYSICAL description of the character (face, build, "
     "dress, notable marks) that fits the world — what someone would see on meeting them. "
     "`gear` is 2-5 STARTING ITEMS that fit the concept — plain names ('worn leather satchel', "
@@ -856,8 +896,18 @@ def _inject_pack_defs(doc: dict, pack: Optional[dict]) -> dict:
             if sdef.get("requires_ability"):
                 needed_ab.add(sdef["requires_ability"])
     for aid, adef in pack.get("abilities", {}).items():
-        if (aid in picked or aid in needed_ab) and aid not in have_ab:
+        if aid not in picked and aid not in needed_ab:
+            continue
+        if aid not in have_ab:
             cust["abilities"].append({**adef, "id": aid})
+            continue
+        for i, row in enumerate(cust["abilities"]):    # an id-matching custom row exists: if it
+            rid = slug(_s((row or {}).get("id") or (row or {}).get("name"), 40))
+            if rid == aid and isinstance(row, dict) and not any(
+                    row.get(k) for k in ("mechanic", "passive_mod", "cost",
+                                         "cooldown_turns", "resolution_mod", "magnitude")):
+                cust["abilities"][i] = {**adef, "id": aid}   # carries no mechanics it is an echo
+                break                                        # — the curated pack def wins
     doc["custom"] = cust
     return doc
 
@@ -951,6 +1001,31 @@ _AUTHOR_TIMEOUT_S = 240.0
 _AUTHOR_MAX_TOKENS = 9000
 
 
+def _row_head(row) -> str:
+    """Normalized NAME head of a 'Name — description' row (or an npc/extra dict) for
+    seed-vs-authored duplicate detection."""
+    if isinstance(row, dict):
+        row = row.get("name") or row.get("label") or ""
+    head = _split_name_desc(str(row or ""))[0]
+    return " ".join(w for w in str(head).lower().replace("-", " ").split() if w)[:60]
+
+
+def _keep_seed_rows(seed_rows, model_rows, cap: int = 12) -> list:
+    """The player's typed rows pass through VERBATIM (they are canon — the model's echo may
+    be rewritten or truncated); the model contributes only rows whose name-head is new."""
+    out = [r for r in seed_rows if (isinstance(r, dict) and (r.get("name") or r.get("label")
+                                                             or r.get("text"))) or _s(r)]
+    have = {_row_head(r) for r in out if _row_head(r)}
+    for r in model_rows:
+        h = _row_head(r)
+        if h and h not in have:
+            out.append(r)
+            have.add(h)
+        if len(out) >= cap:
+            break
+    return out
+
+
 async def author_world(get_client, cfg, ep, seed: dict) -> dict:
     """LLM-author the blanks of a world seed, then deterministic-fill + clamp.
 
@@ -970,9 +1045,14 @@ async def author_world(get_client, cfg, ep, seed: dict) -> dict:
         if isinstance(parsed, dict):
             merged = {**seed, **{k: v for k, v in parsed.items() if v not in (None, "", [])}}
             # player-given scalars always win over the model
-            for k in ("name", "genre", "setting", "date", "time", "tone"):
+            for k in ("name", "genre", "setting", "date", "time", "tone",
+                      "opening_scene", "opening_quest", "notes"):
                 if _s(seed.get(k)):
                     merged[k] = seed[k]
+            for k in ("factions", "locations", "aspects", "npcs", "extras"):
+                seed_rows = _lst(seed.get(k))       # typed rows are canon: verbatim, never the
+                if seed_rows:                       # model's (possibly mangled) echo of them
+                    merged[k] = _keep_seed_rows(seed_rows, _lst(parsed.get(k)))
             return {"source": "llm", "doc": deterministic_world(merged)}
         log.warning("world authoring: unparseable reply (%d chars): head=%r tail=%r",
                     len(raw), raw[:200], raw[-240:])
@@ -1000,11 +1080,24 @@ async def author_player(get_client, cfg, ep, seed: dict, world: Optional[dict] =
         parsed = _json_or_none(raw)
         if isinstance(parsed, dict):
             merged = dict(parsed)
-            for k in ("name", "sex", "pronouns", "species", "concept"):
+            for k in ("name", "sex", "pronouns", "species", "concept", "appearance", "notes"):
                 if _s(seed.get(k)):
                     merged[k] = seed[k]
             if isinstance(seed.get("stats"), dict):
                 merged.setdefault("stats", {}).update(seed["stats"])
+            sc = seed.get("custom") if isinstance(seed.get("custom"), dict) else {}
+            mc = merged.get("custom") if isinstance(merged.get("custom"), dict) else {}
+            if sc.get("skills") or sc.get("abilities"):   # typed custom mechanics are canon —
+                merged["custom"] = {                      # the model may only APPEND new ones
+                    "skills": _keep_seed_rows(_lst(sc.get("skills")), _lst(mc.get("skills"))),
+                    "abilities": _keep_seed_rows(_lst(sc.get("abilities")),
+                                                 _lst(mc.get("abilities")))}
+            if _lst(seed.get("gear")):
+                merged["gear"] = _keep_seed_rows(_lst(seed.get("gear")),
+                                                 _lst(merged.get("gear")), cap=10)
+            if _lst(seed.get("extras")):
+                merged["extras"] = _keep_seed_rows(_lst(seed.get("extras")),
+                                                   _lst(merged.get("extras")))
             merged = _inject_pack_defs(merged, pack)   # ranks on pack ids must freeze into defs
             return {"source": "llm", "doc": deterministic_player(merged, cfg)}
         log.warning("player authoring: unparseable reply (%d chars): head=%r tail=%r",

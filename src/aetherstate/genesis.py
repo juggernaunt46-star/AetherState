@@ -167,14 +167,21 @@ def rules_ops(card: str, prompt: str, speaker: str = "") -> list[dict]:
     name = (speaker or "").strip() or _char_name(card)
     if not name:
         return []
-    ops: list[dict] = [{"op": "entity_add", "name": name},
-                       {"op": "presence", "entity": name, "present": True}]
+    low = card.lower()                       # 2026-07-09: a NARRATOR/world card's "character"
+    dm_card = ("you are the narrator" in low  # is the WORLD — never stage it as a present
+               or "never the player" in low   # person (it corrupted [SCENE]'s cast: the tower
+               or "the world —" in low)       # itself showed up as 'here')
+    ops: list[dict] = [] if dm_card else [
+        {"op": "entity_add", "name": name},
+        {"op": "presence", "entity": name, "present": True}]
     m = _CAST_RE.search(card)
     if m:                                    # cast tracked; presence left to play
         for extra in re.split(r"[,;]", m.group(1))[:12]:
             extra = extra.strip().strip(".")
             if extra and extra.lower() != name.lower() and 1 < len(extra) <= 40:
                 ops.append({"op": "entity_add", "name": extra})
+    if dm_card:                              # the world has no obsessions/cravings of its own
+        return ops
     seen: set = set()
     for m in _OBSESSION_RE.finditer(card):
         target = _clean_target(m.group(1))

@@ -564,6 +564,11 @@
     for (const k in (p.resources || {})) { const r = p.resources[k]; bars.push(bar(k, r.cur, r.max)); }
     if (bars.length) h += `<div class="aes-bars">${bars.join("")}</div>`;
     if ((p.effects || []).length) h += `<div class="aes-rows" style="margin-top:4px">${p.effects.map((e) => { const cls = e.valence === "positive" ? "pos good" : e.valence === "negative" ? "neg bad" : "neu"; return `<span class="aes-pill ${cls}"><span class="g">${esc(e.glyph)}</span> ${esc(e.name)}</span>`; }).join("")}</div>`;
+    const lr = (v.rolls || []).slice(-1)[0];
+    if (lr && lr.tier_label) {
+      const tc = (lr.tier === "success" || lr.tier === "crit_success") ? "success" : (lr.tier === "partial" ? "partial" : "fail");
+      h += `<div class="aes-lastroll ${tc}">\uD83C\uDFB2 ${esc(lr.skill || "roll")} \u2192 <b>${esc(lr.tier_label)}</b> <span class="m">(${esc(lr.result)})</span></div>`;
+    }
     return h;
   }
   function bar(kind, cur, max) { const pct = max ? Math.max(0, Math.min(100, Math.round(100 * cur / max))) : 0;
@@ -763,12 +768,30 @@
     if (a.cooldown) bits.push(a.on_cd ? `recharging ${esc(a.on_cd)}t` : `cooldown ${esc(a.cooldown)}t`);
     return `<div class="aes-abil ${a.active ? "act" : ""} ${a.on_cd ? "cd" : ""}"><div class="aes-abil-h"><b>${esc(a.name)}</b> ${badge}</div>${a.mechanic_label ? `<div class="aes-abil-mech">${esc(a.mechanic_label)}</div>` : ""}${bits.length ? `<div class="aes-abil-meta">${bits.join(" · ")}</div>` : ""}${a.desc ? `<div class="aes-abil-desc">${esc(a.desc)}</div>` : ""}</div>`;
   }
+  // a sensible free slot for stowed gear (2026-07-09): its native slot when free, else the
+  // first empty of a type-appropriate preference list — so every stowed piece has an equip
+  // button instead of only slot-tagged ones (the patch kit / dive light were dead rows).
+  function freeSlotFor(p, i) {
+    const slots = p.gear_slots || [];
+    const empty = new Set(slots.filter((s) => !s.item).map((s) => s.slot));
+    if (i.slot && empty.has(i.slot)) return i.slot;
+    const pref = i.type === "weapon" ? ["mainhand", "offhand", "waist"]
+      : i.type === "container" ? ["back", "waist"]
+      : ["waist", "back", "neck", "offhand", "hands"];
+    for (const s of pref) if (empty.has(s)) return s;
+    return i.slot || "waist";
+  }
+  function stowedRows(p, hdr) {
+    const stow = p.stowed_gear || [];
+    if (!stow.length) return "";
+    return sechdr(hdr) + stow.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => { const sl = freeSlotFor(p, i); return `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "\u00d7 " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: sl }], "wear/wield \u2192 " + sl, "mini")}</span>`; }).join(" ")}</div>`).join("");
+  }
   function tabGear(v, p) {
     // Gear = weapons, armor, tools, accessories, bags. Equipped on the paper-doll; the rest
     // stowed but still gear (a sheathed sword is not "inventory"). Consumables live in 🎒 Items.
     let h = renderPaperdoll(p);
     const stow = p.stowed_gear || [];
-    if (stow.length) h += sechdr("Stowed gear — carried, ready to equip") + stow.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}</span>`).join(" ")}</div>`).join("");
+    h += stowedRows(p, "Stowed gear — carried, ready to equip");
     if (!(p.gear_slots || []).some((s) => s.item) && !stow.length)
       h += `<div class="aes-kv" style="opacity:.5;margin-top:6px">no gear yet — weapons, armor & tools show here</div>`;
     return h;
@@ -776,8 +799,10 @@
   function tabInventory(v, p) {
     // Inventory = everything that isn't gear: consumables, materials, devices, keepsakes.
     const inv = p.inventory || [];
-    if (!inv.length) return `<div class="aes-hud-empty">Nothing carried. Consumables, materials & odds-and-ends show here — gear lives under ⚔ Gear.</div>`;
-    return sechdr("🎒 Inventory — carried items") + inv.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${i.consumable ? actBtn("use", [{ op: "item_consume", instance: i.iid }], "consume one", "mini") : ""}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}</span>`).join(" ")}</div>`).join("");
+    const stowed = stowedRows(p, "⚔ Stowed gear — also carried (equips on the Gear tab too)");
+    if (!inv.length && !stowed) return `<div class="aes-hud-empty">Nothing carried. Consumables, materials & odds-and-ends show here — worn gear lives under ⚔ Gear.</div>`;
+    if (!inv.length) return stowed;
+    return stowed + sechdr("🎒 Inventory — carried items") + inv.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${i.consumable ? actBtn("use", [{ op: "item_consume", instance: i.iid }], "consume one", "mini") : ""}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}</span>`).join(" ")}</div>`).join("");
   }
   function renderPaperdoll(p) {
     const slots = p.gear_slots || [];
@@ -789,11 +814,12 @@
     for (const g of ["weapon", "armor", "trinket"]) {
       if (!groups[g].length) continue;
       h += `<div class="aes-doll-gh">${GH[g]}</div>`;
-      h += groups[g].map((s) => {
+      h += groups[g].filter((s) => s.item).map((s) => {
         const it = s.item;
-        if (it) return `<div class="aes-slot filled ${g}"><span class="aes-slot-l">${esc(s.label)}</span><span class="aes-slot-i">${esc(it.name)}${it.mods ? ` <span class="m">${esc(it.mods)}</span>` : ""}</span>${actBtn("✕", [{ op: "item_unequip", instance: it.iid }], "take off", "x")}</div>`;
-        return `<div class="aes-slot empty ${g}"><span class="aes-slot-l">${esc(s.label)}</span><span class="aes-slot-i">— empty —</span></div>`;
+        return `<div class="aes-slot filled ${g}"><span class="aes-slot-l">${esc(s.label)}</span><span class="aes-slot-i">${esc(it.name)}${it.mods ? ` <span class="m">${esc(it.mods)}</span>` : ""}</span>${actBtn("✕", [{ op: "item_unequip", instance: it.iid }], "take off", "x")}</div>`;
       }).join("");
+      const empties = groups[g].filter((s) => !s.item);   // 2026-07-09: 12 "— empty —" rows
+      if (empties.length) h += `<div class="aes-slot-empties">open: ${empties.map((s) => esc(s.label)).join(" · ")}</div>`;   // said nothing — one line says it all
     }
     return h + `</div>`;
   }

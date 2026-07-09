@@ -105,7 +105,8 @@ _SLOT_HINTS: list[tuple[tuple[str, ...], str]] = [
     (("armor", "armour", "cuirass", "breastplate", "vest", "jacket", "coat", "mail", "plate",
       "hauberk", "tunic", "shirt", "gambeson", "harness", "suit", "chestplate", "carapace",
       "duster", "parka", "overalls", "jerkin", "doublet", "brigandine", "kimono", "kaftan",
-      "blouse", "sweater", "hoodie", "raincoat", "chestpiece", "flak"), "body"),
+      "blouse", "sweater", "hoodie", "raincoat", "chestpiece", "flak",
+      "rig", "exosuit", "exoframe"), "body"),
     (("bracelet", "charm", "talisman", "brooch", "badge", "insignia", "bracer"), "accessory2"),
 ]
 # gear-class by NAME but with no natural body slot -> carried as "stowed gear" (tools/kits/bags)
@@ -113,7 +114,7 @@ _GEAR_NAME_TOKENS = {"lockpick", "lockpicks", "picks", "toolkit", "toolset", "to
                      "multitool", "kit", "medkit", "medpack", "rope", "grapple", "grappling",
                      "crowbar", "lantern", "torch", "compass", "spyglass", "binoculars",
                      "scanner", "toolbox", "pouch", "case", "holster", "sheath", "scabbard",
-                     "bandolier", "harness", "webbing", "rig"}
+                     "bandolier", "webbing"}
 _ITEM_WORD_RE = re.compile(r"[a-z0-9]+")
 # short suffixes whose compound-word matches misfire on common non-gear words -> exact only.
 # "ring": herring / spring / string / offspring. (An actual "gold ring" still matches exactly.)
@@ -1267,7 +1268,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                                "tier": op["tier"], "mod": op.get("_mod"),
                                "dice": op.get("_dice"), "dc": op.get("dc"),
                                "char": op.get("char"), "turn": turn,
-                               "shape": op.get("_shape")})   # 2026-07-07: dice-shaping audit
+                               "shape": op.get("_shape"),    # 2026-07-07: dice-shaping audit
+                               "dm_called": bool(op.get("_dm_called"))})   # R8b provenance
         del state["rolls"][:-10]
         cost = op.get("_cost")                  # RPG-5 (doc 10 §5.4): resource cost charged
         pl = state.get("player", {}).get(op.get("char")) if op.get("char") else None
@@ -1490,8 +1492,16 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         entry = state.setdefault("affinity", {}).setdefault(
             f"{peid}->{tgt}", {"value": 0, "kind": kindv, "ledger": [], "labels": []})
         d = _clamp(op.get("_delta", op["delta"]), *AFFINITY_DELTA_CLAMP)
-        entry["ledger"].append({"turn": turn, "delta": d,
-                                "reason": str(op.get("reason") or "")[:120]})
+        led = entry["ledger"]
+        last = led[-1] if led else None
+        reason = str(op.get("reason") or "")[:120]
+        if (reason and last and last.get("turn") == turn and last.get("delta") == d
+                and str(last.get("reason") or "") == reason):
+            return                          # same-turn identical REASONED proposal (the DM tag
+        #                                     and the extraction ladder both reported the same
+        #                                     fact) -> count once; blank-reason repeats stay
+        led.append({"turn": turn, "delta": d,
+                    "reason": str(op.get("reason") or "")[:120]})
         del entry["ledger"][:-50]               # bounded tail (memory keeps the long story)
         entry["value"] = _clamp(entry["value"] + d, *AFFINITY_CLAMP)   # tier DERIVED at render
         if kindv == "faction":                  # factions carry structured world state too
@@ -1757,18 +1767,65 @@ _ITEM_QTY_TAIL = re.compile(
     r"\s*[)\]]?\s*$", re.IGNORECASE)
 
 
-def _split_item_qty(name):
-    """Pull a trailing DIGIT count out of an item name into a quantity, so the ledger uses xN
-    instead of baking multiplicity into the name ('Verdan Sap Vial (30 doses)' -> 'Verdan Sap
-    Vial', 30; 'Health Potion x3' -> 'Health Potion', 3). A non-count paren ('(parchment)') is
-    left alone. Returns (clean_name, qty|None). Deterministic -> replay-pure."""
-    raw = str(name or "").strip()
-    m = _ITEM_QTY_TAIL.search(raw)
+_ITEM_WORD_COUNTS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                     "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+                     "dozen": 12, "pair": 2, "couple": 2, "brace": 2}
+_ITEM_FLAG_RE = re.compile(r"\s*[(\[]\s*(worn|equipped|carried|stowed)\s*[)\]]", re.IGNORECASE)
+
+
+def _worn_flag(name):
+    """An explicit '(worn)'/'(equipped)' or '(carried)'/'(stowed)' tag in a free-form item
+    name is an author signal -- it wins over the name heuristic (creator gear field, DM item
+    tags). Returns True / False / None. Pure fn of the name -> replay-safe."""
+    m = _ITEM_FLAG_RE.search(str(name or ""))
     if not m:
-        return raw, None
-    q = next((int(g) for g in m.groups() if g), None)
-    clean = raw[:m.start()].strip(" ,;:.\u2013-([")
-    return (clean or raw), q
+        return None
+    return m.group(1).lower() in ("worn", "equipped")
+
+
+def _singular(word: str) -> str:
+    """Best-effort de-plural for a counted head noun ('Coins'->'Coin', 'boxes'->'box').
+    Possessives, 'ss' words and short words are left alone -- a floor, never clever."""
+    w = str(word or "")
+    if len(w) >= 4 and w.lower().endswith("es") and w[-3].lower() in "sxz":
+        return w[:-2]
+    if len(w) >= 4 and w.endswith("s") and not w.endswith("ss") and not w.endswith("'s"):
+        return w[:-1]
+    return w
+
+
+def _split_item_qty(name):
+    """Pull a count out of an item name into a quantity, so the ledger uses xN instead of
+    baking multiplicity into the name: a trailing DIGIT count ('Verdan Sap Vial (30 doses)'
+    -> x30, 'Health Potion x3' -> x3) AND a leading NUMBER-WORD ("two spent King's Coins on
+    a cord" -> "spent King's Coin on a cord" x2 -- the counted noun is singularized so later
+    gains/loses match by name). '(worn)'/'(carried)' author tags are stripped here (they ride
+    classification, not the name). A non-count paren ('(parchment)') is left alone.
+    Returns (clean_name, qty|None). Deterministic -> replay-pure."""
+    raw = re.sub(r"\s{2,}", " ", _ITEM_FLAG_RE.sub(" ", str(name or ""))).strip()
+    m = _ITEM_QTY_TAIL.search(raw)
+    if m:
+        q = next((int(g) for g in m.groups() if g), None)
+        clean = raw[:m.start()].strip(" ,;:.\u2013-([")
+        return (clean or raw), q
+    toks = raw.split()
+    lead = toks[0].lower() if toks else ""
+    if lead in _ITEM_WORD_COUNTS and len(toks) >= 2:
+        q = _ITEM_WORD_COUNTS[lead]
+        rest = toks[1:]
+        if rest and rest[0].lower() == "of" and len(rest) >= 2:   # "pair of boots"
+            rest = rest[1:]
+        cut = len(rest)                    # singularize the counted head noun: the last word
+        for i, w in enumerate(rest):       # before a prepositional tail ("Coins" in
+            if i > 0 and w.lower() in ("on", "of", "in", "with", "from", "for"):
+                cut = i                    # "spent King's Coins on a cord")
+                break
+        if cut > 0:
+            rest = rest[:cut - 1] + [_singular(rest[cut - 1])] + rest[cut:]
+        clean = " ".join(rest).strip(" ,;:.\u2013-([")
+        if clean:
+            return clean, q
+    return raw, None
 
 
 def reduce_state(state: dict, ops: list[dict]) -> dict:
@@ -2037,6 +2094,15 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
         if cls["slot"]:
             snap.setdefault("slot", cls["slot"])
         snap["type"] = snap.get("type") or cls["type"]
+        wf = _worn_flag(op.get("name"))     # explicit author tag ('(worn)'/'(carried)') wins
+        if wf is True:
+            snap["class"] = "gear"
+            snap["worn"] = True
+            if not snap.get("slot"):
+                snap["slot"] = "body"
+        elif wf is False:
+            snap["worn"] = False
+            snap.pop("slot", None)
         out["_snapshot"] = snap
     if op["op"] == "hp_adj":                   # RPG-5 (G7): per-op swing clamp baked — the
         try:                                    # narrator proposes, the clamp owns the number

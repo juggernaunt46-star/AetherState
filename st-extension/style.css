@@ -272,3 +272,6 @@
 .aes-lastroll.partial { color:var(--warn); border-color:var(--warn); }
 .aes-lastroll.fail { color:var(--bad); border-color:var(--bad); }
 .aes-lastroll .m { color:var(--dim); font-weight:600; }
+
+/* 2026-07-09: paper-doll empty slots collapse to one muted line */
+.aes-slot-empties { font-size:11px; opacity:.5; padding:2px 4px 6px; }

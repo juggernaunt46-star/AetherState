@@ -179,7 +179,9 @@ def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
     msg = " " + _norm_phrase(text) + " "
     already = {str(c.get("skill", "")).lower() for c in res.checks}
     cands = []                                   # (normalized_name, kind, id, entry)
-    for sid in (player.get("skills") or {}):
+    owned = set(player.get("skills") or {})
+    owned |= set(((player.get("defs") or {}).get("skills") or {}))   # a frozen custom skill is
+    for sid in owned:                            # OWNED even at rank 0 (it is on the sheet)
         entry = reg.skill_entry(sid, player)
         names = {str(sid), str(entry.get("name", sid))}
         names |= {str(g) for g in (entry.get("governs") or [])}   # curated verbs -> sensitivity
@@ -225,6 +227,57 @@ def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
             continue
         res.checks.append({"skill": sid, "mod": 0, "dc": None, "scope": None,
                            "use": d["use"], "raw": sid, "nl": True})
+
+
+def _parse_dm_called_checks(reply: str, state: dict, cfg, res: Tier0Result) -> None:
+    """R8b — the DM CALLED for a roll (dm-rules/4) and the player answered with plain prose:
+    arm the DM's own ((aether.check ...)) from its LAST reply so the roll happens WITHOUT the
+    player retyping syntax. Only fires when the player's message produced no explicit and no
+    NL-detected check (theirs always wins); the parsed call rides the normal R8 resolve path,
+    so code still decides and the [DIRECTIVE] marks it as DM-called. Multi-word skill phrases
+    are slugged whole ("dive-rig operation" -> dive_rig_operation) and resolved against the
+    player's own sheet — an unknown or unowned call stays a visible non-move, never a mint."""
+    _, player = _player_card(state)
+    if not player:
+        return
+    calls = []
+    for m in OOC_RE.finditer(reply or ""):
+        cmd = m.group(1).strip()
+        if cmd.lower().startswith("aether.check"):
+            calls.append(cmd[len("aether.check"):].strip())
+    for rest in calls[-2:]:                          # at most the two most recent calls
+        toks = rest.split()
+        phrase, mod, dc, scope, use, i = [], 0, None, None, [], 0
+        while i < len(toks):
+            tk = toks[i].lower()
+            if tk in ("vs", "dc", "target") and i + 1 < len(toks):
+                try:
+                    dc = int(toks[i + 1])
+                    i += 2
+                    continue
+                except ValueError:
+                    pass
+            if tk == "scope" and i + 1 < len(toks):
+                scope = toks[i + 1].lower()
+                i += 2
+                continue
+            if tk in ("use", "using", "with") and i + 1 < len(toks):
+                use.append(toks[i + 1].strip("\"'"))
+                i += 2
+                continue
+            if _CHECK_MOD_RE.match(toks[i]):
+                mod += int(toks[i])
+                i += 1
+                continue
+            phrase.append(toks[i])
+            i += 1
+        sid = "_".join(w for w in _norm_phrase(" ".join(phrase)).split())
+        if not sid:
+            continue
+        if any(str(c.get("skill", "")).lower() == sid for c in res.checks):
+            continue                                 # already rolled this skill this turn
+        res.checks.append({"skill": sid, "mod": mod, "dc": dc, "scope": scope,
+                           "use": use, "raw": rest, "dm_called": True})
 
 
 def _player_card(state: dict) -> tuple[Optional[str], dict]:
@@ -434,6 +487,9 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
 
         op = {"op": "check", "skill": sid, "result": total, "tier": tier,
               "_mod": eff, "_dice": dice, "_seed": kept}
+        if c.get("dm_called"):
+            op["_dm_called"] = True          # the DM asked for this roll (R8b) - shown on the
+        #                                      [DIRECTIVE] so the narrator can own its own call
         if player_eid:
             op["char"] = player_eid          # a real entity (kind=player) -> resolves cleanly
         if c["dc"] is not None:
@@ -758,6 +814,9 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
             _parse_checks_only(last_user, res)
         if not res.checks:            # explicit ((aether.check ...)) present -> do NOT also auto-detect
             _detect_nl_checks(last_user, state, cfg, res)
+        if not res.checks and last_assistant \
+                and getattr(cfg.specialization, "auto_dm_checks", True):
+            _parse_dm_called_checks(last_assistant, state, cfg, res)   # R8b: the DM's call arms
         if res.checks:
             _resolve_checks(res, state, cfg, rng)
 
