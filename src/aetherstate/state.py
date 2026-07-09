@@ -559,11 +559,22 @@ _ENTITY_FIELDS = {"entity", "char", "from_char", "to_char", "learner", "teller",
 _ENTITY_FIELDS_BY_OP = {"affinity_adj": {"target"}, "set_soulmate": {"target"},
                         "set_nemesis": {"target"}, "world_flag": {"faction"}}
 
+# resolve_aliases sentinel: skip this op silently — NO quarantine and NO discovery-counter feed
+# (distinct from a None-return quarantine). Used when presence/move_entity name a non-entity.
+_DROP_OP = "\x00aes-drop-scene-ref"
+
 
 def resolve_aliases(op: dict, state: dict, source: str) -> tuple[Optional[dict], str]:
     """Names -> entity ids. Unknown + source=extraction/rule -> quarantine, and the name
     feeds the 08 B2 discovery counter. Unknown + source=user -> auto-create (inspector/OOC
-    authoring is normal — 02 SS12b)."""
+    authoring is normal — 02 SS12b).
+
+    EXCEPT presence & move_entity: these only REFER to a cast member — they never MINT one and
+    are never a basis for discovery. A scene/present tag (or OOC/PATCH) naming a place, a skill,
+    or a typo resolves to a KNOWN entity or the op is DROPPED — not auto-created under
+    source=user, not quarantined-and-fed-to-the-discovery-counter under extraction/rule. Without
+    this, places/skills the DM named in a `present:` list were minted as present 'characters'
+    that polluted the cast and the LLM briefing (Bean, 2026-07-08)."""
     amap = {}
     for eid, e in state.get("entities", {}).items():
         amap[e.get("name", "").lower()] = eid
@@ -571,6 +582,12 @@ def resolve_aliases(op: dict, state: dict, source: str) -> tuple[Optional[dict],
         for a in e.get("aliases", []):
             amap[str(a).lower()] = eid
     out = dict(op)
+    if op.get("op") in ("presence", "move_entity"):
+        eid = amap.get(str(op.get("entity", "")).lower())
+        if eid is None:
+            return None, _DROP_OP          # refer-only: a non-entity reference vanishes silently
+        out["entity"] = eid
+        return out, ""
     extra = _ENTITY_FIELDS_BY_OP.get(op.get("op"), set())
     for f in (_ENTITY_FIELDS | extra) & set(op.keys()):
         if f in extra and op[f] is None:
@@ -748,6 +765,34 @@ def _char(state: dict, eid: str) -> dict:
         "affect": {"valence": 0, "energy": 0, "dominance": 0},
         "arousal": {"arousal": 0, "inhibition": 50, "orgasms_this_scene": 0, "edging": False},
         "goals": [], "secrets": [], "status_effects": [], "obsessions": {}, "cravings": {}})
+
+
+def resolve_entity_ref(state: dict, token) -> Optional[str]:
+    """Resolve a token to an ALREADY-EXISTING entity id, or None. Matches by exact id, then
+    slug, then case-insensitive name/alias. Presence & movement REFER to a known entity with
+    this and never MINT one: creating a person is the privileged, evidence-gated discovery
+    path (03 §5.1), so a scene/present tag naming a PLACE, a SKILL, or a typo must resolve to
+    a real cast member or be dropped — never conjured into a present 'character'. It also
+    collapses the display-name/slug twin ('Marla' vs 'marla'). Pure over `state` (no config,
+    registry, or RNG) -> replay-deterministic."""
+    t = str(token or "").strip()
+    if not t:
+        return None
+    ents = state.get("entities") or {}
+    if t in ents:
+        return t
+    s = slug(t)
+    if s in ents:
+        return s
+    low = t.lower()
+    for eid, e in ents.items():
+        if not isinstance(e, dict):
+            continue
+        if str(e.get("name", "")).lower() == low:
+            return eid
+        if any(str(a).lower() == low for a in (e.get("aliases") or [])):
+            return eid
+    return None
 
 
 def _ensure_entities(state: dict, op: dict) -> None:
@@ -1005,12 +1050,14 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
     elif kind == "set_attribute":
         state["attributes"].setdefault(op["entity"], {})[op["key"]] = op["value"]
     elif kind == "move_entity":
-        state["entities"].setdefault(op["entity"], {"kind": "character", "name": op["entity"],
-                                                    "aliases": [], "present": True}
-                                     )["location_id"] = op["to_location"]
+        eid = resolve_entity_ref(state, op["entity"])   # refer to a known entity, never mint one
+        if eid is not None:
+            state["entities"][eid]["location_id"] = op["to_location"]
     elif kind == "presence":
-        state["entities"].setdefault(op["entity"], {"kind": "character", "name": op["entity"],
-                                                    "aliases": []})["present"] = bool(op["present"])
+        eid = resolve_entity_ref(state, op["entity"])   # a place/skill/typo resolves to nothing
+        ent = state["entities"].get(eid) if eid is not None else None
+        if ent is not None and ent.get("kind") not in ("location", "faction"):
+            ent["present"] = bool(op["present"])         # never mint; never stage a place/faction
     elif kind == "clothing":
         item = state["clothing"].setdefault(op["char"], {}).setdefault(
             op["item"], {"state": "worn", "covers": [], "slot": None, "layer": 0})
@@ -1355,7 +1402,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             raise OpReject(f"cannot transfer to {dest}: container full or slot busy")   # guard)
         it["loc"], it["owner"] = dest, new_owner
     elif kind == "effect_add":                  # RPG-3 (doc 05 §5.4): commit to the ledger
-        eid = op["char"]
+        eid = resolve_entity_ref(state, op["char"]) or op["char"]   # canonical cast row (or open-vocab)
         snap = op.get("_snapshot") or {}        # preset bake (_enrich) — {} = open vocabulary
         req = str(snap.get("requires") or "").lower()
         if req == "female" and _entity_sex(state, eid) != "female":
@@ -1391,7 +1438,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             if op.get("note"):
                 rec["note"] = str(op["note"])
     elif kind == "effect_remove":               # RPG-3: lift it from the ledger
-        eid = op["char"]
+        eid = resolve_entity_ref(state, op["char"]) or op["char"]
         effs = state.get("effects", {}).get(eid) or {}
         fid = _resolve_effect_key(effs, op["effect"])
         if fid is None:
@@ -1399,7 +1446,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                            f"(the ledger, not the prose, is what's true)")
         del effs[fid]
     elif kind == "effect_update":               # RPG-3: the dynamic-valence channel
-        eid = op["char"]
+        eid = resolve_entity_ref(state, op["char"]) or op["char"]
         effs = state.get("effects", {}).get(eid) or {}
         fid = _resolve_effect_key(effs, op["effect"])
         if fid is None:
@@ -2032,7 +2079,8 @@ def apply_delta(store, session_id: str, branch_id: str, turn: int, ops: list,
     for op in pending:
         op2, why = resolve_aliases(op, res.state, source)
         if op2 is None:
-            res.quarantined.append({"op": op, "reason": why})
+            if why != _DROP_OP:            # _DROP_OP = benign refer-only skip (presence/move to a
+                res.quarantined.append({"op": op, "reason": why})   # non-entity): no discovery feed
             continue
         why = authority_violation(op2, source, res.state, cfg)
         if why is not None:

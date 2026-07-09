@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.6.1 — 2026-07-08
+
+A focused fix for the cast/scene tracker, plus a cleaner startup for the optional local NLI helper.
+A non-RPG (chat) session is byte-identical to before.
+
+### Places and skills no longer get tracked as people
+- When the story named a place, a skill, or a stray word in a scene's "who's here" list, AetherState
+  could mint it as a present *character* — cluttering the Cast panel with things that aren't people
+  (often flagged "here") and muddying the model's briefing. Scene presence and movement now only
+  ever refer to a cast member that already exists: an unknown name resolves to a real character or is
+  quietly ignored, never invented. This also clears a duplicate-character glitch where one NPC could
+  show up twice (e.g. "Marla" and "marla"), and a real location named as "present" is no longer
+  staged as a person.
+
+### Local NLI shim: quieter, honest startup
+- The optional local contradiction-checker (`nli-shim`) no longer prints an alarming
+  "UNEXPECTED roberta.pooler" load report on every start. Those pooler weights are simply unused by
+  the sequence-classification head — expected, not an error — so the shim states that plainly and
+  drops the noisy report and the unauthenticated-Hub advisory.
+
 ## 1.6.0 — 2026-07-08
 
 Building a world in the Creator and actually playing it is now one smooth path: the Narrator card

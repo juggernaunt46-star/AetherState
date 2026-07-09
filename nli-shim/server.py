@@ -19,6 +19,7 @@ Env:  NLI_MODEL, NLI_PORT, NLI_FLOOR (min contradiction prob to return; default 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import sys
@@ -33,6 +34,17 @@ except Exception:                       # fails SSL verification; otherwise this
 
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers.utils import logging as _hf_logging
+
+# roberta-large-mnli is a SEQUENCE-CLASSIFICATION checkpoint: RobertaForSequenceClassification
+# reads the <s> token straight into its own head and never builds a pooler, so the checkpoint's
+# `roberta.pooler.*` weights are unused BY DESIGN. transformers 5 prints an alarming
+# "LOAD REPORT ... UNEXPECTED" table about them on every start — 100% benign here. Quiet the
+# load-time report (and the HF-hub 'unauthenticated' notice) so the console isn't scary; genuine
+# load failures still raise. We restate the pooler fact calmly right after the load instead.
+_hf_logging.set_verbosity_error()
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)   # drop the 'unauthenticated HF Hub'
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")          # rate-limit advisory (benign here)
 
 MODEL = os.environ.get("NLI_MODEL", "roberta-large-mnli")
 PORT = int(os.environ.get("NLI_PORT", "8199"))
@@ -44,6 +56,8 @@ print(f"[nli-shim] loading {MODEL} ...", file=sys.stderr, flush=True)
 _TOK = AutoTokenizer.from_pretrained(MODEL)
 _MODEL = AutoModelForSequenceClassification.from_pretrained(MODEL)
 _MODEL.eval()
+print(f"[nli-shim] loaded {MODEL} (roberta.pooler.* is unused by the sequence-classification "
+      f"head - expected, not an error)", file=sys.stderr, flush=True)
 _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 _MODEL.to(_DEVICE)
 # read the CONTRADICTION class index from the model's OWN config (label order varies by model)
