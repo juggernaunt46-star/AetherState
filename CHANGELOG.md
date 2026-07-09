@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.8.0 — 2026-07-09
+
+Roll by *writing* it — natural-language roll detection — plus a clearer Skills-vs-Abilities model in
+the HUD and the last roll's outcome always in view. A non-RPG (chat) session is byte-identical.
+
+### New: name a skill or ability and it rolls
+- You no longer have to type `((aether.check ...))`. When your message names a skill or ability you
+  own — "I use Fire-Slash on the monsters" — AetherState detects it (case/hyphen/space-insensitive),
+  rolls the governing skill (an ability maps to the skill it applies to and is invoked if active),
+  and hands the narrator the decided outcome. Unowned or unknown names never fire (the eligibility
+  gate holds). Explicit `((aether.check ...))` and the Rolls-tab buttons still work.
+
+### Clearer Skills vs Abilities, and visible outcomes
+- The 🎲 Rolls tab separates **Skills** (what you roll) from **Abilities** (what bends a roll), with
+  active abilities as one-tap "roll its skill + invoke it" buttons and passives shown as always-on
+  tags. The HUD's vitals strip shows the **last roll's SUCCESS / PARTIAL / FAIL** at a glance.
+
+### Swipes re-roll
+- Regenerating (swiping) a reply now re-rolls the check with fresh dice.
+
 ## 1.7.0 — 2026-07-09
 
 A one-tap Rolls tab in the SillyTavern HUD, a fix for skill checks that could silently stop

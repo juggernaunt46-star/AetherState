@@ -603,6 +603,11 @@
       for (const k in (p.resources || {})) { const r = p.resources[k]; bars.push(bar(k, r.cur, r.max)); }
       if (bars.length) h += `<div class="aes-bars">${bars.join("")}</div>`;
       h += `<div class="aes-act-row">${actBtn("HP −5", [{ op: "hp_adj", char: p.eid, delta: -5 }], "lose 5 HP")}${actBtn("−1", [{ op: "hp_adj", char: p.eid, delta: -1 }], "lose 1 HP")}${actBtn("+1", [{ op: "hp_adj", char: p.eid, delta: 1 }], "heal 1 HP")}${actBtn("+5", [{ op: "hp_adj", char: p.eid, delta: 5 }], "heal 5 HP")}</div>`;
+      const lr = (v.rolls || []).slice(-1)[0];
+      if (lr && lr.tier_label) {
+        const tc = (lr.tier === "success" || lr.tier === "crit_success") ? "success" : (lr.tier === "partial" ? "partial" : "fail");
+        h += `<div class="aes-lastroll ${tc}">\uD83C\uDFB2 ${esc(lr.skill || "roll")} \u2192 <b>${esc(lr.tier_label)}</b> <span class="m">(${esc(lr.result)})</span></div>`;
+      }
     }
     return h + `</div>`;
   }
@@ -658,31 +663,41 @@
     rollDraft = ""; if (inp) inp.value = "";
   };
   function tabRolls(v, p) {
-    const sk = p.skills || [];
-    let h = `<div class="aes-roll-help">Tap a skill to drop its check into your message — stack as many as you like, add your narration, then send. The engine rolls it and writes the outcome.</div>`;
+    const sk = p.skills || [], abils = p.abilities || [];
+    let h = `<div class="aes-roll-help"><b>Skills</b> are what you roll; <b>abilities</b> bend or unlock a skill roll — they never roll on their own. Tap to drop a check into your message, <b>or just write it</b>: name a skill or ability in your prose (e.g. \u201cI use Fire-Slash\u201d) and the engine rolls it for you.</div>`;
     if (!sk.length) h += `<div class="aes-hud-empty">No skills yet. Build a character in the Creator, or earn skills in-world.</div>`;
     else {
       const { groups, order } = groupByCategory(sk, "Skills");
       const solo = order.length === 1 && order[0] === "Skills";
       for (const g of order) {
-        h += sechdr(solo ? "Roll a check" : g);
+        h += sechdr(solo ? "Skills \u2014 tap to roll" : g);
         h += `<div class="aes-rollbtns">${groups[g].map((s) => {
           const gated = s.gated && !s.basis_met;
-          const t = gated ? "needs " + esc(s.basis_name || "a basis") + " — this would be a non-move"
-                          : "insert ((aether.check " + esc(s.id) + "))";
+          const t = gated ? "needs " + esc(s.basis_name || "a basis") + " \u2014 this would be a non-move"
+                          : "roll ((aether.check " + esc(s.id) + "))";
           return `<button class="aes-rollbtn${gated ? " gated" : ""}" title="${t}" onclick="window.aetherInsertRoll('${esc(s.id)}')">${esc(s.label)} <span class="m">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></button>`;
         }).join("")}</div>`;
       }
     }
-    const acts = (p.abilities || []).filter((a) => a.active);
+    const acts = abils.filter((a) => a.active);
     if (acts.length) {
-      h += sechdr("Active abilities");
-      const egSkill = ((sk[0] || {}).id) || "swordplay";
-      h += `<div class="aes-roll-note">Invoke one ON a check by typing the skill + <code>use &lt;ability&gt;</code> in the custom box — e.g. <code>${esc(egSkill)} use ${esc(acts[0].id)}</code>. Yours: ${acts.map((a) => `<code>${esc(a.id)}</code>`).join(" · ")}.</div>`;
+      h += sechdr("Active abilities \u2014 invoke on a check");
+      h += `<div class="aes-rollbtns">${acts.map((a) => {
+        if (a.applies_id) {
+          const t = "roll " + esc(a.applies_id) + " and spend " + esc(a.name) + (a.on_cd ? " (recharging " + esc(a.on_cd) + "t)" : "");
+          return `<button class="aes-rollbtn act${a.on_cd ? " gated" : ""}" title="${t}" onclick="window.aetherInsertRoll('${esc(a.applies_id)}','${esc(a.id)}')">\u2726 ${esc(a.name)} <span class="m">on ${esc(a.applies_to)}</span></button>`;
+        }
+        return `<span class="aes-pill">\u2726 ${esc(a.name)} <span class="aes-tag">any check \u2014 type \u2018use ${esc(a.id)}\u2019</span></span>`;
+      }).join("")}</div>`;
+    }
+    const pass = abils.filter((a) => !a.active);
+    if (pass.length) {
+      h += sechdr("Passive abilities \u2014 always on");
+      h += `<div class="aes-rows">${pass.map((a) => `<span class="aes-pill">${esc(a.name)} <span class="aes-tag">${a.applies_to === "all checks" ? "all checks" : "on " + esc(a.applies_to)}</span></span>`).join("")}</div>`;
     }
     h += sechdr("Custom roll");
-    h += `<div class="aes-roll-custom"><input id="aes_roll_custom" type="text" spellcheck="false" placeholder="skill slug, e.g. gundam_swordplay" value="${esc(rollDraft)}" oninput="window.aetherRollDraft(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();window.aetherInsertCustom();}"><button class="aes-rollbtn" onclick="window.aetherInsertCustom()">Insert</button></div>`;
-    h += `<div class="aes-roll-note">A custom name must be a skill you actually have (from the registry or one you built in the Creator). An unknown name comes back as a visible “no basis” non-move — that's by design.</div>`;
+    h += `<div class="aes-roll-custom"><input id="aes_roll_custom" type="text" spellcheck="false" placeholder="skill name or slug" value="${esc(rollDraft)}" oninput="window.aetherRollDraft(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();window.aetherInsertCustom();}"><button class="aes-rollbtn" onclick="window.aetherInsertCustom()">Insert</button></div>`;
+    h += `<div class="aes-roll-note">Must be a skill you actually have (or one you built in the Creator). An unknown name comes back as a visible \u201cno basis\u201d non-move \u2014 that's by design. Type <code>skill use ability</code> to invoke an active on a check.</div>`;
     return h;
   }
   function tabChar(v, p) {

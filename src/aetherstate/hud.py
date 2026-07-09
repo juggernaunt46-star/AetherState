@@ -154,10 +154,16 @@ def _ability_rows(reg, _registry, p: dict, turn: int) -> list[dict]:
         active = mech in ("extra_die", "reroll", "surge")
         kind = str(d.get("kind", "")) or ("active" if active else "passive")
         at = d.get("applies_to", "all")
-        if isinstance(at, (list, tuple)):
+        applies_id = ""                                  # first SPECIFIC governing skill slug (for
+        if isinstance(at, (list, tuple)):                # the Rolls-tab one-tap invoke button)
             applies = ", ".join((reg.skill_label(str(x), p) if reg else str(x)) for x in at)
+            for x in at:
+                if str(x).strip().lower() not in ("", "all", "any"):
+                    applies_id = str(x)
+                    break
         elif isinstance(at, str) and at.strip().lower() not in ("", "all", "any"):
             applies = reg.skill_label(at, p) if reg else at
+            applies_id = at
         else:
             applies = "all checks"
         cool = int(d.get("cooldown_turns", 0) or 0)
@@ -166,7 +172,7 @@ def _ability_rows(reg, _registry, p: dict, turn: int) -> list[dict]:
             "id": str(a), "name": str(d.get("name", a)),
             "kind": kind, "active": active, "mechanic": mech, "mechanic_label": label,
             "group": str(d.get("group", "")) or ("spell" if mech == "basis" else "talent"),
-            "applies_to": applies, "magnitude": mag,
+            "applies_to": applies, "applies_id": applies_id, "magnitude": mag,
             "cost": " ".join(f"{k} {v}" for k, v in cost.items()),
             "cooldown": cool, "on_cd": max(0, ready - (int(turn) + 1)) if cool else 0,
             "desc": str(d.get("desc", "")), "effect": str(d.get("effect", "")),

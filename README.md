@@ -95,6 +95,19 @@ rollable, without an in-world basis.**
   sheet (stats, ranks, gear, active effects); the model is handed the decided outcome to
   narrate — it never decides success itself. Ambition is welcome:
   `((aether.check <skill> scope minor..mythic))` scales the odds instead of saying no.
+- **Skills vs abilities (know the difference).** A **skill** is the thing you roll — Swordplay,
+  Fire Manipulation, Persuasion — and its number is the modifier added to the dice. An **ability**
+  is never rolled on its own; it *attaches* to a skill roll and changes it: **passive** ones
+  auto-apply (advantage, a guard against fumbles) or **unlock** a gated skill (a *basis* like the
+  Arcane Gift), while **active** ones you *spend* on a check for a burst of power (a big bonus, an
+  extra die on a miss, a reroll — at a stamina/mana + cooldown cost). You always roll a *skill*; an
+  ability rides along.
+- **Just write it (new in 1.8).** You don't have to type `((aether.check ...))`. Name a skill or
+  ability you own in your prose — "I use Fire-Slash on the monsters" — and AetherState detects it
+  (case/hyphen-loose), rolls the governing skill (Fire Manipulation), invokes the ability, and hands
+  the narrator the outcome. The 🎲 Rolls tab lists your skills (tap to roll) and active abilities
+  (one tap rolls their skill and invokes them); the HUD shows the last roll's SUCCESS / PARTIAL /
+  FAIL. Swipes re-roll fresh.
 - **The eligibility gate.** A skill can require an in-world basis (Spellcraft needs the Arcane
   Gift; Systems Intrusion needs a Neural Lace). Declaring power you don't have is a non-move —
   acquire it in play, then the same declaration rolls.

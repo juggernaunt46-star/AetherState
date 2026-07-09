@@ -149,6 +149,82 @@ def _parse_check(rest: str, res: Tier0Result) -> None:
                        "use": use, "raw": rest})
 
 
+def _norm_phrase(text) -> str:
+    """Lowercase, keep word chars, collapse to single spaces — so 'Fire-Slash'/'fire slash'/
+    'FIRE_SLASH' all normalize to 'fire slash' for loose name matching."""
+    return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
+
+
+def _parse_checks_only(text: str, res: Tier0Result) -> None:
+    """Re-parse ONLY ((aether.check ...)) spans (used for swipe re-rolls) — never the other
+    commands (freeze/scene/set), which must not re-fire when a reply is merely re-generated."""
+    for m in OOC_RE.finditer(text):
+        cmd = m.group(1).strip()
+        if cmd.lower().startswith("aether.check"):
+            _parse_check(cmd[len("aether.check"):].strip(), res)
+
+
+def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
+    """Natural-language roll detection (RPG). When the player NAMES one of their own skills or
+    abilities in prose ("I use fire-slash on the monsters"), roll the governing SKILL: an ability
+    maps to the skill it `applies_to` and is INVOKED if active; a skill name rolls itself. Matching
+    is case/hyphen/space-insensitive, whole-phrase, and restricted to what the player OWNS — an
+    unknown or unowned name never fires (the eligibility gate holds: nothing rollable without an
+    in-world basis). Explicit ((aether.check ...)) still wins; a duplicate skill just merges the
+    invoked ability. Code detects + resolves; the narrator only narrates (vision pillar 3)."""
+    reg = registry.load(cfg)
+    _, player = _player_card(state)
+    if not player:
+        return
+    msg = " " + _norm_phrase(text) + " "
+    already = {str(c.get("skill", "")).lower() for c in res.checks}
+    cands = []                                   # (normalized_name, kind, id, entry)
+    for sid in (player.get("skills") or {}):
+        entry = reg.skill_entry(sid, player)
+        for nm in {str(sid), str(entry.get("name", sid))}:
+            n = _norm_phrase(nm)
+            if len(n) >= 4:
+                cands.append((n, "skill", str(sid), entry))
+    for aid, a in (reg.known_abilities(player) or {}).items():
+        for nm in {str(aid), str((a or {}).get("name", aid))}:
+            n = _norm_phrase(nm)
+            if len(n) >= 4:
+                cands.append((n, "ability", str(aid), a or {}))
+    cands.sort(key=lambda c: -len(c[0]))         # prefer the most specific phrase
+    detected: dict = {}                          # skill_id -> {"use": [ability_id, ...]}
+    for n, kind, rid, entry in cands:
+        if f" {n} " not in msg:
+            continue
+        if kind == "skill":
+            sid = reg.resolve_skill(rid, player) or rid
+            detected.setdefault(sid, {"use": []})
+        else:                                     # ability -> its governing skill
+            applies = entry.get("applies_to", "all")
+            targets = applies if isinstance(applies, list) else [applies]
+            gov = None
+            for t in targets:
+                if isinstance(t, str) and t not in ("all", "any", ""):
+                    gov = reg.resolve_skill(t, player)
+                    if gov:
+                        break
+            if gov is None:                       # an all-purpose ability names no skill by itself
+                continue
+            d = detected.setdefault(gov, {"use": []})
+            if registry.ability_mechanic(entry) in registry.ACTIVE_MECHANICS and rid not in d["use"]:
+                d["use"].append(rid)
+    for sid, d in detected.items():
+        if sid.lower() in already:                # explicit check already covers it -> merge use
+            for c in res.checks:
+                if str(c.get("skill", "")).lower() == sid.lower():
+                    for u in d["use"]:
+                        c.setdefault("use", [])
+                        if u not in c["use"]:
+                            c["use"].append(u)
+            continue
+        res.checks.append({"skill": sid, "mod": 0, "dc": None, "scope": None,
+                           "use": d["use"], "raw": sid, "nl": True})
+
+
 def _player_card(state: dict) -> tuple[Optional[str], dict]:
     """The one Player Card per branch (RPG); (eid, record) or (None, {})."""
     for eid, rec in (state.get("player") or {}).items():
@@ -670,10 +746,17 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
     if is_new and last_user:
         _commands(last_user, rng, res, rpg=rpg)
 
-    # R8 — explicit skill-checks resolve NOW (RPG only): registered skill -> dice -> PbtA tier
-    # -> `check` rule op + this-turn [DIRECTIVE]. Inert unless specialization=rpg (invariant 3).
-    if is_new and res.checks and rpg:
-        _resolve_checks(res, state, cfg, rng)
+    # R8 — skill-checks resolve NOW (RPG only): registered skill -> dice -> PbtA tier -> `check`
+    # rule op + this-turn [DIRECTIVE]. Two triggers: explicit ((aether.check ...)) parsed above,
+    # PLUS natural-language detection (naming a skill/ability you OWN in prose rolls its governing
+    # skill). Swipes RE-ROLL fresh (Bean 2026-07-09): re-parse the same message on a swipe so a
+    # regenerate rolls new dice. Inert unless specialization=rpg (invariant 3).
+    if rpg and last_user and (is_new or klass == "swipe"):
+        if klass == "swipe":
+            _parse_checks_only(last_user, res)
+        _detect_nl_checks(last_user, state, cfg, res)
+        if res.checks:
+            _resolve_checks(res, state, cfg, rng)
 
     # R9 — effect tag protocol (RPG only, doc 05 §5.4) + R10 — world tag protocol (RPG-5:
     # scene / items / quests / affinity / HP). LEGACY lag-1 path only: the DM's LAST reply,

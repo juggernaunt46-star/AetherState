@@ -327,3 +327,51 @@ async def test_none_session_no_check_leak_e2e(client, mock_upstream, cfg):
                       json=_payload("chat-none1", 1, "((aether.check lockpicking))"))
     fwd = mock_upstream.requests[0].body
     assert b"[DIRECTIVE]" not in fwd and b"[RULES]" not in fwd
+
+
+def test_nl_detects_owned_skill_and_ability_names():
+    """2026-07-09 natural-language roll detection: naming an OWNED skill or ability in prose rolls
+    the governing skill (an active ability is invoked); an unowned/unknown name never fires."""
+    cfg = Config()
+    cfg.specialization.name = "rpg"
+    st = empty_state()
+    st["entities"]["mage"] = {"kind": "player", "name": "Mage", "present": True, "aliases": []}
+    st["player"] = {"mage": {"eid": "mage", "stats": {"INT": 14, "STR": 12},
+        "skills": {"fire_manipulation": 2, "swordplay": 1},
+        "abilities": ["fire_slash"],
+        "defs": {"skills": {"fire_manipulation": {"name": "Fire Manipulation",
+                    "keyed_stat": "INT", "base_mod": 0, "max_rank": 5}},
+                 "abilities": {"fire_slash": {"name": "Fire-Slash", "mechanic": "surge",
+                    "applies_to": "fire_manipulation", "magnitude": 2, "kind": "active",
+                    "cooldown_turns": 0}}}}}
+    # an ABILITY named in prose (hyphen/case loose) rolls its governing skill and invokes it
+    doc = {"messages": [{"role": "user", "content": "I use Fire-Slash on the monsters."}]}
+    r = tier0.run(doc, "new_turn", False, st, cfg, random.Random(5))
+    checks = [o for o in r.rule_ops if o["op"] == "check"]
+    assert len(checks) == 1 and checks[0]["skill"] == "fire_manipulation"
+    assert checks[0]["char"] == "mage" and checks[0]["tier"] in registry.CHECK_TIERS
+    # a plain OWNED skill name also fires
+    st2 = json.loads(json.dumps(st))
+    doc2 = {"messages": [{"role": "user", "content": "I focus on my swordplay and strike."}]}
+    r2 = tier0.run(doc2, "new_turn", False, st2, cfg, random.Random(5))
+    assert any(o["op"] == "check" and o["skill"] == "swordplay" for o in r2.rule_ops)
+    # an UNOWNED name never fires (eligibility gate holds — nothing rollable without a basis)
+    st3 = json.loads(json.dumps(st))
+    doc3 = {"messages": [{"role": "user", "content": "I attempt necromancy on the corpse."}]}
+    r3 = tier0.run(doc3, "new_turn", False, st3, cfg, random.Random(5))
+    assert not any(o["op"] == "check" for o in r3.rule_ops)
+
+
+def test_nl_swipe_rerolls_but_none_session_inert():
+    """A swipe RE-ROLLS a natural-language check (fresh dice); a `none` session never detects."""
+    cfg = Config()
+    cfg.specialization.name = "rpg"
+    st = empty_state()
+    st["entities"]["k"] = {"kind": "player", "name": "K", "present": True, "aliases": []}
+    st["player"] = {"k": {"eid": "k", "stats": {"DEX": 14}, "skills": {"swordplay": 3}, "abilities": []}}
+    doc = {"messages": [{"role": "user", "content": "I test my swordplay."}]}
+    r = tier0.run(doc, "swipe", False, st, cfg, random.Random(1))
+    assert any(o["op"] == "check" and o["skill"] == "swordplay" for o in r.rule_ops)   # swipe rolls
+    none_cfg = Config()                                          # specialization = none
+    r2 = tier0.run(doc, "new_turn", False, st, none_cfg, random.Random(1))
+    assert not any(o["op"] == "check" for o in r2.rule_ops)      # inert under none
