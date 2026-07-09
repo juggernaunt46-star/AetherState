@@ -112,7 +112,14 @@ class SessionEngine:
 
         klass = TurnClass.impersonate if gt == "impersonate" else (
             TurnClass.new_session if self._head(branch) < 0 else TurnClass.new_turn)
-        turn = stamp.turn if stamp.turn is not None else self._head(branch) + 1
+        # 2026-07-09 turn-regression guard: the ST extension resets its turn counter to 0 on
+        # chat reload / CHAT_CHANGED, so a stamped turn can fall BELOW the real head after a
+        # page refresh. Trusting it verbatim landed the roll/ops on an early turn while the
+        # [DIRECTIVE] rendered at the true head (meta.turn) -> the resolution silently vanished.
+        # The server head is authoritative: a new turn is head+1; a client turn is honored ONLY
+        # when it ADVANCES past the head, never when it regresses.
+        _head = self._head(branch)
+        turn = stamp.turn if (stamp.turn is not None and stamp.turn > _head) else _head + 1
         self.store.record_turn(branch, turn, klass.value, gt)
         if canon:
             self._append_tail(branch, self._unseen_tail(branch, canon), record_turns=False)

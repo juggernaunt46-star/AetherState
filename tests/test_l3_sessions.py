@@ -268,3 +268,29 @@ def test_restart_rebuilds_index_and_continues():
     e2 = SessionEngine(store, SessionConfig(dedup_window_s=0))   # fresh process, same DB
     r = e2.observe(None, req("g", "u1", "a1", "u2", "a2", "u3"))
     assert r.klass is TurnClass.new_turn and r.session_id == r1.session_id
+
+
+def test_stamped_turn_never_regresses_below_head():
+    """2026-07-09 regression: the ST extension resets its turn counter to 0 on chat reload /
+    CHAT_CHANGED, so a stamped turn can arrive BELOW the real head after a page refresh. The
+    server head is authoritative — a regressed stamp.turn must resolve to head+1, never landing
+    the turn (and its rolls / [DIRECTIVE]) on an early turn where the resolution silently vanishes."""
+    e = eng()
+    sess = "st-regress"
+    hist = [{"role": "assistant", "content": "greeting"}]
+    r = None
+    for t in range(6):                       # honest turns 0..5 -> head advances to 5
+        hist.append({"role": "user", "content": f"u{t}"})
+        r = e.resolve_stamped(Stamp(session=sess, gen_type="normal", turn=t), list(hist))
+        hist.append({"role": "assistant", "content": f"a{t}"})
+    head = e._head(r.branch_id)
+    assert head == 5, head
+    # reloaded client: counter reset -> stamp.turn=1 (below head). MUST clamp to head+1.
+    hist.append({"role": "user", "content": "after reload"})
+    r2 = e.resolve_stamped(Stamp(session=sess, gen_type="normal", turn=1), list(hist))
+    assert r2.turn_index == head + 1 == 6, r2.turn_index
+    # a genuinely advancing stamp is still honored verbatim
+    hist.append({"role": "assistant", "content": "a6"})
+    hist.append({"role": "user", "content": "ahead"})
+    r3 = e.resolve_stamped(Stamp(session=sess, gen_type="normal", turn=50), list(hist))
+    assert r3.turn_index == 50, r3.turn_index

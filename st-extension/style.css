@@ -244,3 +244,21 @@
 /* hide the DM's raw ledger-protocol tags from the reader (display-only; the proxy still
    parses them from the raw message, so the ledger keeps updating). Toggle: settings.hud.hideTags */
 .aes-hidden-tag { display: none !important; }
+
+/* ---- Rolls tab (2026-07-08): one-tap check inserters -> ((aether.check ...)) into the box ---- */
+.aes-roll-help { color:var(--dim); font-size:11px; line-height:1.4; margin:2px 0 8px; }
+.aes-rollbtns { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 9px; }
+.aes-rollbtn { display:inline-flex; align-items:center; gap:5px; background:var(--panel);
+  color:var(--ink); border:1px solid var(--line); border-radius:8px; font-size:11.5px;
+  font-weight:700; padding:5px 9px; cursor:pointer; line-height:1.3; }
+.aes-rollbtn:hover { border-color:var(--acc); box-shadow:inset 0 0 0 1px var(--acc); }
+.aes-rollbtn .m { color:var(--acc); font-weight:800; }
+.aes-rollbtn.gated { opacity:.55; border-style:dotted; }
+.aes-rollbtn.gated:hover { border-color:var(--warn); box-shadow:none; }
+.aes-roll-custom { display:flex; gap:6px; margin:4px 0 6px; }
+.aes-roll-custom input { flex:1 1 auto; background:var(--bg); color:var(--ink);
+  border:1px solid var(--line); border-radius:8px; font-size:11.5px; padding:5px 8px; }
+.aes-roll-custom input:focus { outline:none; border-color:var(--acc); }
+.aes-roll-note { color:var(--dim); font-size:10.5px; font-style:italic; line-height:1.45; margin:2px 0 6px; }
+.aes-roll-note code { background:var(--bg); border:1px solid var(--line); border-radius:4px;
+  padding:0 4px; font-style:normal; color:var(--acc); }

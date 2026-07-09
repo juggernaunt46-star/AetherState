@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.7.0 — 2026-07-09
+
+A one-tap Rolls tab in the SillyTavern HUD, a fix for skill checks that could silently stop
+resolving after a page reload, and a hardening pass on the optional local NLI helper. A non-RPG
+(chat) session is byte-identical to before.
+
+### Fixed: a skill check could silently stop resolving after reloading the chat
+- The companion extension keeps a per-turn counter that resets whenever SillyTavern reloads the page
+  or you switch chats. The proxy had been trusting that counter as the authoritative turn number, so
+  after a refresh a new message could be filed under an *earlier* turn than the one actually in play.
+  The dice were still rolled — but the `[DIRECTIVE]` was written for the current turn and never saw
+  the result, so the narrator was handed no outcome to narrate. The server's own turn head is now
+  authoritative: a new message is always the next turn, and a client-supplied turn is honoured only
+  when it moves the story forward, never backward. Covered by a regression test.
+
+### New: Rolls tab — one-tap skill checks
+- The HUD gains a **🎲 Rolls** tab listing your character's skills as buttons. Tapping one drops the
+  matching `((aether.check <skill>))` into your message box without overwriting anything, so you can
+  stack several, add your own narration, and send. A custom box takes any skill slug (or a full
+  `((...))`), and active abilities show how to invoke them on a check. The engine still rolls the
+  dice and writes the outcome — the button only writes the call.
+
+### Hardened: the optional NLI helper can't stall turn processing
+- When the local ledger-contradiction helper (`linter_nli`) is slow or offline, its cold-path pass
+  is now time-bounded and fails open, so it can never hold up a turn's background processing.
+
 ## 1.6.1 — 2026-07-08
 
 A focused fix for the cast/scene tracker, plus a cleaner startup for the optional local NLI helper.

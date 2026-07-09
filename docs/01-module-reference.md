@@ -216,6 +216,10 @@ branch_id, turn_index, klass, stamp, duplicate, path)`.
 
 **Key internals.**
 - **L1/L2 (stamped):** trust the stamp's session id; classify from `gen_type` + the unseen tail.
+  The stamp's `turn` is a hint only — the server head is authoritative. A new turn is `head+1`, and
+  a client `turn` is honoured **only when it advances past the head** (the extension resets its
+  counter to 0 on chat reload / CHAT_CHANGED, so a stamped turn can otherwise regress below the head
+  and file a roll — and its `[DIRECTIVE]` — on an early turn where it silently vanishes).
 - **L3 (heuristic):** canonicalize → chain hashes → `PrefixIndex.longest_prefix` → 4-way classify:
   superset ending on a new user msg = `new_turn`; same terminal user prefix = `swipe`; divergence
   at a non-terminal index = `edit_fork` (forks the branch at the divergence); no meaningful match =

@@ -430,7 +430,7 @@
   // two never diverge. Fail-open: proxy down -> a quiet "offline" line, ST untouched.
   const HUD_THEMES = { neutral: "Neutral", fantasy: "Fantasy", scifi: "Sci-Fi", modern: "Modern" };
   const HUD_TABS = [
-    ["char", "◈ Char"], ["skills", "✦ Skills"], ["abilities", "❋ Abilities"],
+    ["char", "◈ Char"], ["skills", "✦ Skills"], ["abilities", "❋ Abilities"], ["rolls", "🎲 Rolls"],
     ["gear", "⚔ Gear"], ["inventory", "🎒 Items"], ["status", "☤ Status"], ["world", "🌍 World"],
   ];
   let hudTimer = null;
@@ -539,6 +539,8 @@
     if (!v) { body.innerHTML = `<div class="aes-hud-empty aes-hud-off">AetherState proxy offline.</div>`; return; }
     if (spec) { spec.textContent = v.spec || "none"; spec.className = "aes-hud-spec" + (v.spec === "rpg" ? "" : " none"); }
     lastHudView = v;
+    const _ae = document.activeElement;
+    if (_ae && _ae.id === "aes_roll_custom") return;   // don't clobber a custom roll being typed
     body.innerHTML = (hud && hud.classList.contains("compact")) ? renderCompact(v) : renderHud(v);
   }
   // tab switch: re-render the cached payload in place (no network round-trip)
@@ -583,6 +585,7 @@
       ? " Narrative mode is “" + esc(v.spec) + "” — switch to RPG to track a player." : " Build one in the Creator."}</div>`;
     else if (tab === "skills") body = tabSkills(v, p);
     else if (tab === "abilities") body = tabAbilities(v, p);
+    else if (tab === "rolls") body = tabRolls(v, p);
     else if (tab === "gear") body = tabGear(v, p);
     else if (tab === "inventory") body = tabInventory(v, p);
     else if (tab === "status") body = tabStatus(v, p);
@@ -626,6 +629,61 @@
       return r + `</div>`;
     }).join("");
     return sec("Cast", "👥", rows);
+  }
+  // ---- Rolls tab (2026-07-08, Bean): one-tap check inserters. A button per rollable skill
+  // drops ((aether.check <slug>)) into ST's message box — NON-destructive, stackable; you add
+  // your prose and send yourself. The ENGINE still rolls the dice and injects the [DIRECTIVE];
+  // this only writes the CALL, never the outcome (code resolves, the model narrates — pillar 3).
+  let rollDraft = "";                                  // survives the 5s HUD re-render
+  function aetherInsertText(text) {
+    const ta = document.querySelector("#send_textarea");
+    if (!ta) { console.warn("[AetherState] no #send_textarea to insert into"); return; }
+    const cur = ta.value || "";
+    ta.value = cur + (cur && !/\s$/.test(cur) ? " " : "") + text;
+    ta.dispatchEvent(new Event("input", { bubbles: true }));   // ST reads value on send + auto-resizes
+    ta.focus();
+  }
+  window.aetherInsertText = aetherInsertText;
+  window.aetherInsertRoll = (slug, use) => {
+    const s = String(slug || "").trim(); if (!s) return;
+    const u = String(use || "").trim();
+    aetherInsertText(`((aether.check ${s}${u ? " use " + u : ""}))`);
+  };
+  window.aetherRollDraft = (el) => { rollDraft = el.value; };
+  window.aetherInsertCustom = () => {
+    const inp = document.getElementById("aes_roll_custom");
+    const val = ((inp ? inp.value : rollDraft) || "").trim();
+    if (!val) return;
+    aetherInsertText(/^\(\(/.test(val) ? val : `((aether.check ${val}))`);
+    rollDraft = ""; if (inp) inp.value = "";
+  };
+  function tabRolls(v, p) {
+    const sk = p.skills || [];
+    let h = `<div class="aes-roll-help">Tap a skill to drop its check into your message — stack as many as you like, add your narration, then send. The engine rolls it and writes the outcome.</div>`;
+    if (!sk.length) h += `<div class="aes-hud-empty">No skills yet. Build a character in the Creator, or earn skills in-world.</div>`;
+    else {
+      const { groups, order } = groupByCategory(sk, "Skills");
+      const solo = order.length === 1 && order[0] === "Skills";
+      for (const g of order) {
+        h += sechdr(solo ? "Roll a check" : g);
+        h += `<div class="aes-rollbtns">${groups[g].map((s) => {
+          const gated = s.gated && !s.basis_met;
+          const t = gated ? "needs " + esc(s.basis_name || "a basis") + " — this would be a non-move"
+                          : "insert ((aether.check " + esc(s.id) + "))";
+          return `<button class="aes-rollbtn${gated ? " gated" : ""}" title="${t}" onclick="window.aetherInsertRoll('${esc(s.id)}')">${esc(s.label)} <span class="m">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></button>`;
+        }).join("")}</div>`;
+      }
+    }
+    const acts = (p.abilities || []).filter((a) => a.active);
+    if (acts.length) {
+      h += sechdr("Active abilities");
+      const egSkill = ((sk[0] || {}).id) || "swordplay";
+      h += `<div class="aes-roll-note">Invoke one ON a check by typing the skill + <code>use &lt;ability&gt;</code> in the custom box — e.g. <code>${esc(egSkill)} use ${esc(acts[0].id)}</code>. Yours: ${acts.map((a) => `<code>${esc(a.id)}</code>`).join(" · ")}.</div>`;
+    }
+    h += sechdr("Custom roll");
+    h += `<div class="aes-roll-custom"><input id="aes_roll_custom" type="text" spellcheck="false" placeholder="skill slug, e.g. gundam_swordplay" value="${esc(rollDraft)}" oninput="window.aetherRollDraft(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();window.aetherInsertCustom();}"><button class="aes-rollbtn" onclick="window.aetherInsertCustom()">Insert</button></div>`;
+    h += `<div class="aes-roll-note">A custom name must be a skill you actually have (from the registry or one you built in the Creator). An unknown name comes back as a visible “no basis” non-move — that's by design.</div>`;
+    return h;
   }
   function tabChar(v, p) {
     let h = "";

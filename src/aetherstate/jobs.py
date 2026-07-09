@@ -284,12 +284,17 @@ class JobRunner:
             ep_n = assist.endpoint_for_group(self.cfg, "linter_nli",   # assist/main gated, note-
                                              self.models.get(b.session_id, ""))   # only, fail-open
             if ep_n is not None and self.cfg.linter.enabled:           # runs BEFORE director.stage
-                ep_n = await assist.resolve_endpoint(self.ladder.get_client, self.cfg, ep_n)
+                # NLI hardening (2026-07-08): a slow/absent linter_nli shim must NEVER stall the
+                # cold-path worker. Bound the whole probe+judge; TimeoutError falls through to the
+                # fail-open except below (invariant 1 — the pass is note-only, so it just skips).
+                ep_n = await asyncio.wait_for(
+                    assist.resolve_endpoint(self.ladder.get_client, self.cfg, ep_n), timeout=8)
                 rows = self.store.get_turn_texts(b.branch_id, b.hi, b.hi)
                 text = rows[-1]["assistant_text"] if rows else ""
-                vios = list(vios) + await linter.ledger_contradiction_pass(
-                    self.store, self.cfg, self.ladder.get_client, ep_n,
-                    b.session_id, b.branch_id, b.hi, res.state, text or "")
+                vios = list(vios) + await asyncio.wait_for(
+                    linter.ledger_contradiction_pass(
+                        self.store, self.cfg, self.ladder.get_client, ep_n,
+                        b.session_id, b.branch_id, b.hi, res.state, text or ""), timeout=12)
         except Exception as exc:               # invariant 1: fail-open so its notes can be staged
             log.warning("L10 ledger-contradiction pass skipped: %s", type(exc).__name__)
         try:                                   # P4: director beats + note staging (03 SS8)

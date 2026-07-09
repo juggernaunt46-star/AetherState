@@ -154,6 +154,12 @@ rollable, without an in-world basis.**
   **world & character names** and marks the newest, a **refresh** button updates it without wiping
   what you've typed, and your in-progress work is **auto-saved in the browser** so a reload never
   loses it.
+- **New in 1.7 — a one-tap Rolls tab, and reliable rolls after a reload.** The HUD gains a **🎲
+  Rolls** tab: tap a skill to drop its `((aether.check <skill>))` into your message (stackable,
+  non-destructive), with a custom box for any skill and a reference for invoking active abilities —
+  the engine still rolls and writes the outcome. Also fixes a bug where a check could silently stop
+  resolving after reloading the page: the proxy's turn head is now authoritative, so a new message
+  is always the next turn and a client turn is never allowed to regress.
 
 ## How state develops (priority)
 
