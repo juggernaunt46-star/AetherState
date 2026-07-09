@@ -240,15 +240,19 @@ def _render_directive(state: dict) -> str:
     every `check` record for the current turn (checks reuse the rolls buffer, doc 07 §7.1), so a
     multi-check turn directs each result — no silently unnarrated resolution. Rides the
     never-dropped header so the resolve-then-narrate contract can't be budget-cut."""
-    turn = state.get("meta", {}).get("turn", -1)
-    checks = [r for r in state.get("rolls", []) if r.get("turn") == turn and r.get("tier")]
+    if "_fresh_checks" in state:                 # 2026-07-09: exactly THIS request's checks —
+        checks = [c for c in state["_fresh_checks"] if c.get("tier")]   # reliable, never stale
+    else:                                        # replay / no-pipeline fallback: turn-scoped
+        turn = state.get("meta", {}).get("turn", -1)
+        checks = [r for r in state.get("rolls", []) if r.get("turn") == turn and r.get("tier")]
     clauses = []
     for c in checks:
         tier = str(c.get("tier"))
         skill = str(c.get("skill") or "the")
         phrase = _DIRECTIVE_PHRASE.get(tier, tier)
         clause = f"{phrase} — the {skill} check resolved as {tier.upper()}"
-        sh = c.get("shape") if isinstance(c.get("shape"), dict) else None
+        sh = c.get("shape") or c.get("_shape")
+        sh = sh if isinstance(sh, dict) else None
         if sh and sh.get("fired"):            # 2026-07-07: an active ability fired on the miss —
             if sh.get("improved"):            # narrate it HONESTLY: did it actually turn the roll?
                 clause += (f" (the player spent {sh['fired']} and it turned the roll — "

@@ -181,9 +181,11 @@ def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
     cands = []                                   # (normalized_name, kind, id, entry)
     for sid in (player.get("skills") or {}):
         entry = reg.skill_entry(sid, player)
-        for nm in {str(sid), str(entry.get("name", sid))}:
+        names = {str(sid), str(entry.get("name", sid))}
+        names |= {str(g) for g in (entry.get("governs") or [])}   # curated verbs -> sensitivity
+        for nm in names:
             n = _norm_phrase(nm)
-            if len(n) >= 4:
+            if len(n) >= 3:
                 cands.append((n, "skill", str(sid), entry))
     for aid, a in (reg.known_abilities(player) or {}).items():
         for nm in {str(aid), str((a or {}).get("name", aid))}:
@@ -754,7 +756,8 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
     if rpg and last_user and (is_new or klass == "swipe"):
         if klass == "swipe":
             _parse_checks_only(last_user, res)
-        _detect_nl_checks(last_user, state, cfg, res)
+        if not res.checks:            # explicit ((aether.check ...)) present -> do NOT also auto-detect
+            _detect_nl_checks(last_user, state, cfg, res)
         if res.checks:
             _resolve_checks(res, state, cfg, rng)
 

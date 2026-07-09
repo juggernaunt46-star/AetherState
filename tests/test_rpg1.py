@@ -375,3 +375,50 @@ def test_nl_swipe_rerolls_but_none_session_inert():
     none_cfg = Config()                                          # specialization = none
     r2 = tier0.run(doc, "new_turn", False, st, none_cfg, random.Random(1))
     assert not any(o["op"] == "check" for o in r2.rule_ops)      # inert under none
+
+
+def test_directive_renders_fresh_checks_not_stale_rolls():
+    """[DIRECTIVE] shows THIS request's resolved checks (state['_fresh_checks']), never an old roll
+    lingering in the buffer — so the model is not confused by previous turns' dice (2026-07-09)."""
+    from aetherstate.compose import _render_directive
+    st = empty_state()
+    st["rolls"] = [{"skill": "stealth", "result": 11, "tier": "success", "turn": 1}]   # OLD roll
+    st["meta"]["turn"] = 1
+    st["_fresh_checks"] = [{"op": "check", "skill": "swordplay", "result": 4, "tier": "fail"}]
+    d = _render_directive(st)
+    assert "swordplay" in d and "FAIL" in d and "stealth" not in d
+    st["_fresh_checks"] = []                                    # a no-roll turn -> no directive
+    assert _render_directive(st) == ""
+
+
+def _mage_state():
+    st = empty_state()
+    st["entities"]["mage"] = {"kind": "player", "name": "Mage", "present": True, "aliases": []}
+    st["player"] = {"mage": {"eid": "mage", "stats": {"INT": 14, "STR": 12},
+        "skills": {"fire_manipulation": 2, "swordplay": 1, "stealth": 2}, "abilities": ["fire_slash"],
+        "defs": {"skills": {"fire_manipulation": {"name": "Fire Manipulation", "keyed_stat": "INT",
+                    "base_mod": 0, "max_rank": 5}},
+                 "abilities": {"fire_slash": {"name": "Fire-Slash", "mechanic": "surge",
+                    "applies_to": "fire_manipulation", "magnitude": 2, "kind": "active",
+                    "cooldown_turns": 0}}}}}
+    return st
+
+
+def test_explicit_check_skips_nl_detection_no_double_roll():
+    """If the player set an explicit ((aether.check ...)) themselves, NL detection does NOT also fire —
+    no accidental two-rolls-at-once (Bean 2026-07-09)."""
+    cfg = Config()
+    cfg.specialization.name = "rpg"
+    doc = {"messages": [{"role": "user", "content": "I use fire-slash. ((aether.check swordplay))"}]}
+    r = tier0.run(doc, "new_turn", False, _mage_state(), cfg, random.Random(5))
+    checks = [o for o in r.rule_ops if o["op"] == "check"]
+    assert len(checks) == 1 and checks[0]["skill"] == "swordplay"    # explicit only; NL skipped
+
+
+def test_nl_detects_via_governs_verb():
+    """Sensitivity: a curated governs-verb ('sneak' -> stealth) also triggers the roll."""
+    cfg = Config()
+    cfg.specialization.name = "rpg"
+    doc = {"messages": [{"role": "user", "content": "I sneak past the sleeping guard."}]}
+    r = tier0.run(doc, "new_turn", False, _mage_state(), cfg, random.Random(5))
+    assert any(o["op"] == "check" and o["skill"] == "stealth" for o in r.rule_ops)

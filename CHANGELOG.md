@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.8.1 — 2026-07-09
+
+Reliability fixes for the new rolling: the outcome always reaches the model, stale rolls stop
+confusing it, detection is more sensitive, and manual + auto rolls can't double up.
+
+### Fixed: the [DIRECTIVE] now delivers reliably and never goes stale
+- The resolved outcome is briefed to the model as EXACTLY the check(s) rolled on this send (not
+  matched by a drifting turn counter), so a roll that lands in AetherState always reaches the
+  narrator — and a previous turn's roll can never linger in the prompt and confuse it.
+
+### More sensitive detection, no accidental double-rolls
+- Natural-language detection also recognises a skill's curated action verbs ("I sneak" → Stealth),
+  not just its exact name. And if you already wrote an explicit `((aether.check ...))` yourself,
+  auto-detection stands down for that message — you never get two different rolls at once.
+
 ## 1.8.0 — 2026-07-09
 
 Roll by *writing* it — natural-language roll detection — plus a clearer Skills-vs-Abilities model in

@@ -95,6 +95,10 @@ class Pipeline:
                 applied_now += r.applied
                 self._index_memories(res, r)
             state, evolutions = self._progress(res, state, applied_now)   # RPG-5 (doc 10)
+            # [DIRECTIVE] shows EXACTLY the checks resolved THIS request (not turn-matched):
+            # reliable delivery + no stale rolls from earlier turns confusing the model.
+            state["_fresh_checks"] = [o for o in applied_now
+                                      if isinstance(o, dict) and o.get("op") == "check"]
             for n in t0.notices:
                 log.info("tier0 notice: %s", n)
             self._capture_user_text(doc, res)
