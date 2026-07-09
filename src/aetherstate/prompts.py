@@ -72,8 +72,11 @@ One op per change. An op carries ONLY its listed fields — everything else null
 RPG_ITEM_CARD = """RPG ITEM OPS (propose only when [GEAR]/[INVENTORY] blocks appear in CURRENT STATE):
 item_move{instance,to} · item_equip{instance,slot,swap?} · item_unequip{instance,to?}
 item_consume{instance,amount?} · item_transfer{instance,to_owner,to?}
-item_gain{char,name,qty?} — char ACQUIRED an item in the story (bought, looted, was handed,
-found). item_lose{char,name} — an item they carry was lost, destroyed, or given away for good.
+item_gain{char,name,qty?} — char ACQUIRED an item (bought, looted, handed, found). Put any COUNT
+in qty; NEVER bake a number/dose/vial count into the name — write name "Verdan Sap Vial" qty 30,
+NOT "Verdan Sap Vial (30 doses)" or "satchel of six vials". item_lose{char,name,qty?} — an item
+was lost/destroyed/given away, OR a consumable was USED (or used up): emit it EVERY time one is
+spent so the ledger removes it (qty = how many consumed; omit to remove one).
 instance = the item's exact name (or id) from [GEAR]/[INVENTORY]. to: inv:loose | inv:<container> |
 world (dropped) | gone (destroyed). slots: head face neck shoulders body cape arms hands mainhand
 offhand waist legs feet back accessory1 accessory2
@@ -194,8 +197,10 @@ _EFFECTS_PROTOCOL = (
     "[valence shift | <char> | <Name> | <valence>] · "
     "[scene | <location> | <phase?> | present: <names?>] EVERY time the scene moves or the "
     "on-stage cast changes · "
-    "[item gained | <char> | <Item> | <qty?>] / [item lost | <char> | <Item>] for every "
-    "acquisition or loss · "
+    "[item gained | <char> | <Item> | <qty?>] / [item lost | <char> | <Item> | <qty?>] for every "
+    "acquisition, loss, or consumable USED — COUNTS go in the qty field, never in the name "
+    "(\"Verdan Sap Vial\" x30, not \"Verdan Sap Vial (30 doses)\"); emit [item lost] whenever a "
+    "dose/charge is spent so it leaves the ledger · "
     "[quest | <Name> | new|update|complete|failed|abandoned | <note?>] for every objective "
     "beat · [affinity | <NPC or faction> | +N/-N | <why>] when standing with the Player "
     "shifts — an NPC who warms, cools, owes, or trusts differently after a scene and gets no "

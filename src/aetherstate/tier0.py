@@ -593,7 +593,7 @@ def _parse_world_tags(text: str, state: dict) -> list[dict]:
             continue
         op = {"op": "item_gain" if verb == "gained" else "item_lose",
               "char": who, "name": name}
-        if verb == "gained" and m.group(4):
+        if m.group(4):                          # qty on BOTH gained and lost (consume N)
             op["qty"] = int(m.group(4))
         ops.append(op)
     qs = state.get("quests") or {}

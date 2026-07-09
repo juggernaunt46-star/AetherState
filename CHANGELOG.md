@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.8.2 — 2026-07-09
+
+Inventory fixes: items stop duplicating, counts live in the quantity (not the name), and using a
+consumable removes it.
+
+### Fixed: items no longer show up twice
+- When the narrator's `[item gained]` tag and the background extraction both caught the same
+  acquisition in one turn, it stacked to x2. A same-turn re-gain is now one event; a genuine
+  re-acquisition on a LATER turn still stacks.
+
+### Counts ride the quantity, not the item name
+- A count baked into a name ("Verdan Sap Vial (30 doses)", "Health Potion x3") is split into the
+  quantity, and the narrator is told to record counts in qty and NEVER in the name. Descriptive
+  parentheses like "(parchment)" are left alone.
+
+### Using a consumable removes it
+- `[item lost | char | Item | qty?]` now honours a quantity and removes the item from the ledger
+  when the last one is used up; the narrator is instructed to emit it whenever a dose/charge is
+  spent — so consumables actually leave your inventory.
+
 ## 1.8.1 — 2026-07-09
 
 Reliability fixes for the new rolling: the outcome always reaches the model, stale rolls stop

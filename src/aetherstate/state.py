@@ -1538,14 +1538,18 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 while len(w) > 32:
                     w.pop(next(iter(w)))
     elif kind == "item_gain":                   # RPG-5 (G2): the organic acquisition channel.
-        owner, name = op["char"], str(op["name"]).strip()   # Re-tagged acquisitions STACK on
-        items = state.setdefault("items", {})               # the existing row — never a dupe
-        low = name.lower()                                  # (the AI-Roguelite failure mode).
+        owner = op["char"]                                  # Re-tagged acquisitions STACK on the
+        name, _embed = _split_item_qty(op["name"])          # existing row — never a dupe (the
+        items = state.setdefault("items", {})               # AI-Roguelite failure mode). Counts
+        low = name.lower()                                  # ride qty, never the name.
+        gain_qty = max(1, int(op["qty"]) if op.get("qty") is not None else (_embed or 1))
         hit = next((i for i, it0 in items.items()
                     if (it0 or {}).get("owner") == owner and (it0 or {}).get("loc") != "gone"
                     and str((it0 or {}).get("name", "")).lower() == low), None)
         if hit:
-            items[hit]["qty"] = int(items[hit].get("qty", 1)) + max(1, int(op.get("qty", 1)))
+            if items[hit].get("_gain_turn") != turn:        # same-turn dupe (tag + extraction both
+                items[hit]["qty"] = int(items[hit].get("qty", 1)) + gain_qty   # fired) -> ignore;
+                items[hit]["_gain_turn"] = turn             # a LATER turn's re-gain genuinely stacks
         else:
             base = slug(name)[:48]
             iid, n = base, 1
@@ -1554,8 +1558,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 iid = f"{base}#{n}"
             snap = op.get("_snapshot") or {}    # template + classification bake (_enrich)
             loc = _auto_loc(state, owner, snap)  # worn gear auto-equips; else carried
-            rec = {"template_id": snap.get("_template"), "name": snap.get("name", name),
-                   "qty": max(1, int(op.get("qty", 1))), "loc": loc, "owner": owner,
+            rec = {"template_id": snap.get("_template"), "name": name,
+                   "qty": gain_qty, "loc": loc, "owner": owner, "_gain_turn": turn,
                    "mods_snapshot": dict(snap.get("mods") or {}), "minted_turn": turn}
             for k in ("slot", "covers", "on_consume", "stackable", "max_stack",
                       "capacity", "is_container", "worn", "type", "class"):
@@ -1565,8 +1569,10 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             if not _index_add(state, owner, iid, loc):
                 del items[iid]                  # transactional rollback (doc 07 §7)
                 raise OpReject(f"cannot add '{name}': inventory full")
-    elif kind == "item_lose":                   # RPG-5 (G2): narrated loss, ledger-checked
-        owner, name = op["char"], str(op["name"]).strip()
+    elif kind == "item_lose":                   # RPG-5 (G2): narrated loss/consume, ledger-checked
+        owner = op["char"]
+        name, _le = _split_item_qty(op["name"])
+        lose_qty = max(1, int(op["qty"]) if op.get("qty") is not None else (_le or 1))
         items = state.get("items", {})
         low = name.lower()
         hits = [i for i, it0 in items.items()
@@ -1581,9 +1587,9 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                            f"(the ledger, not the prose, is what's true)")
         it = items[hits[0]]
         q = int(it.get("qty", 1))
-        if q > 1:
-            it["qty"] = q - 1
-        else:
+        if q > lose_qty:
+            it["qty"] = q - lose_qty
+        else:                                   # last one(s) used up -> remove from the ledger
             _index_remove(state, hits[0])
             it["loc"], it["owner"] = "gone", None
     elif kind == "quest_add":                   # RPG-5 (G3): the quest ledger family
@@ -1741,6 +1747,28 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
 def _custom_zones(state: dict, eid: str) -> set:
     z = state.get("attributes", {}).get(eid, {}).get("zones.custom", [])
     return set(z) if isinstance(z, list) else set()
+
+
+_ITEM_QTY_TAIL = re.compile(
+    r"[\s,;:.\u2013-]*[(\[]?\s*"
+    r"(?:x\s*(\d+)|(\d+)\s*x|(\d+)\s*"
+    r"(?:doses?|vials?|charges?|units?|rounds?|shots?|uses?|pieces?|pcs|servings?|"
+    r"portions?|packs?|bundles?|sticks?|count|ct)\b)"
+    r"\s*[)\]]?\s*$", re.IGNORECASE)
+
+
+def _split_item_qty(name):
+    """Pull a trailing DIGIT count out of an item name into a quantity, so the ledger uses xN
+    instead of baking multiplicity into the name ('Verdan Sap Vial (30 doses)' -> 'Verdan Sap
+    Vial', 30; 'Health Potion x3' -> 'Health Potion', 3). A non-count paren ('(parchment)') is
+    left alone. Returns (clean_name, qty|None). Deterministic -> replay-pure."""
+    raw = str(name or "").strip()
+    m = _ITEM_QTY_TAIL.search(raw)
+    if not m:
+        return raw, None
+    q = next((int(g) for g in m.groups() if g), None)
+    clean = raw[:m.start()].strip(" ,;:.\u2013-([")
+    return (clean or raw), q
 
 
 def reduce_state(state: dict, ops: list[dict]) -> dict:

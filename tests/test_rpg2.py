@@ -380,3 +380,30 @@ async def test_rpg_gear_renders_e2e(client, mock_upstream, cfg):
     assert b"[GEAR]" in fwd and b"Iron Helm" in fwd
     now = (await client.get(f"/aether/session/{sid}/state")).json()
     assert now["state"]["items"]["iron_helm#1"]["loc"] == "gear:head"
+
+
+def test_item_no_double_no_embedded_count_and_consume_removes():
+    """RPG-2 fixes (2026-07-09): a same-turn double item_gain (tag + extraction) does NOT 2x;
+    a count baked in the name rides qty instead; item_lose honors qty and removes when used up."""
+    from aetherstate.state import empty_state, reduce_state, _split_item_qty
+    assert _split_item_qty("Verdan Sap Vial (30 doses)") == ("Verdan Sap Vial", 30)
+    assert _split_item_qty("Health Potion x3") == ("Health Potion", 3)
+    assert _split_item_qty("Vael Morath Map (parchment)") == ("Vael Morath Map (parchment)", None)  # descriptor, not a count
+    st = empty_state()
+    # same turn, emitted twice -> ONE row, qty 30 (from the name), never 60
+    reduce_state(st, [{"op": "item_gain", "char": "p", "name": "Verdan Sap Vial (30 doses)", "_turn": 5}])
+    reduce_state(st, [{"op": "item_gain", "char": "p", "name": "Verdan Sap Vial (30 doses)", "_turn": 5}])
+    rows = [it for it in st["items"].values() if it["name"] == "Verdan Sap Vial"]
+    assert len(rows) == 1 and rows[0]["qty"] == 30
+    # a LATER turn genuinely stacks (+5 -> 35)
+    reduce_state(st, [{"op": "item_gain", "char": "p", "name": "Verdan Sap Vial", "qty": 5, "_turn": 6}])
+    v = [it for it in st["items"].values() if it["name"] == "Verdan Sap Vial"][0]
+    assert v["qty"] == 35
+    # consume 5 -> 30, still present
+    reduce_state(st, [{"op": "item_lose", "char": "p", "name": "Verdan Sap Vial", "qty": 5, "_turn": 7}])
+    v = [it for it in st["items"].values() if it["name"] == "Verdan Sap Vial"][0]
+    assert v["qty"] == 30 and v["loc"] != "gone"
+    # use up the rest -> removed from the ledger
+    reduce_state(st, [{"op": "item_lose", "char": "p", "name": "Verdan Sap Vial", "qty": 999, "_turn": 8}])
+    v = [it for it in st["items"].values() if it["name"] == "Verdan Sap Vial"][0]
+    assert v["loc"] == "gone"
