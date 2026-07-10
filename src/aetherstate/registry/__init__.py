@@ -164,6 +164,9 @@ class Registry:
     abilities: dict = field(default_factory=dict)
     items: dict = field(default_factory=dict)      # RPG-2: item TEMPLATES (doc 06 §3.5)
     effects: dict = field(default_factory=dict)    # RPG-3: Status/Condition PRESETS (effects.toml)
+    loot: dict = field(default_factory=dict)       # Phase 1: tier -> loot rows (loot.toml) —
+    #                                                the defeat-roll FLOOR; a Creator-frozen
+    #                                                state["loot"] table wins at spawn-bake
     extra_slots: list = field(default_factory=list)
 
     @property
@@ -342,6 +345,7 @@ def _load(override_dir: str) -> Registry:
     abilities = _read_toml(_PKG_DIR / "abilities.toml")
     items = _read_toml(_PKG_DIR / "items.toml")
     effects = _read_toml(_PKG_DIR / "effects.toml")
+    loot = _read_toml(_PKG_DIR / "loot.toml")     # Phase 1: tier -> {entries = [rows]}
     if override_dir:
         od = Path(override_dir)
         if (od / "meta.toml").is_file():
@@ -349,15 +353,18 @@ def _load(override_dir: str) -> Registry:
                                or _read_toml(od / "meta.toml"))}
         for name, tbl in (("stats.toml", stats), ("skills.toml", skills),
                           ("abilities.toml", abilities), ("items.toml", items),
-                          ("effects.toml", effects)):
+                          ("effects.toml", effects), ("loot.toml", loot)):
             if (od / name).is_file():
                 _merge_table(tbl, _read_toml(od / name))
+    loot_rows = {t: list(v.get("entries") or []) for t, v in loot.items()
+                 if isinstance(v, dict)}
     return Registry(
         version=str(meta.get("version", "rpg-registry/1")),
         mod_policy=str(meta.get("mod_policy", "dnd5e")),
         dice=str(meta.get("dice", "2d6")),
         tiers=str(meta.get("tiers", "pbta3")),
         stats=stats, skills=skills, abilities=abilities, items=items, effects=effects,
+        loot=loot_rows,
         extra_slots=list(meta.get("extra_slots", []) or []))
 
 

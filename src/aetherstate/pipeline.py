@@ -21,7 +21,7 @@ from . import compose, director, discovery, genesis, linter, promptcache, tier0
 from .config import Config
 from .session_engine import SessionEngine
 from . import memory
-from .state import apply_delta, current_state, progression_ops
+from .state import apply_delta, combat_ops, current_state, progression_ops
 from .stamps import Stamp
 from .store import Store
 
@@ -183,6 +183,14 @@ class Pipeline:
                 if op.get("op") == "master_tick" and op.get("_bracket_up"):
                     evolutions.append((op.get("char"), "skills", op.get("skill"),
                                        op.get("_bracket_up")))
+            if getattr(spec, "war_room", True):   # Phase 1: the combat referee runs FIRST —
+                wr = combat_ops(state, applied)   # defeats + curated XP feed the level pass
+                if wr:
+                    r0 = apply_delta(self.store, res.session_id, res.branch_id,
+                                     res.turn_index, wr, "rule", self.cfg)
+                    state = r0.state
+                    applied = list(applied) + r0.applied
+                    self._index_memories(res, r0)
             pro = progression_ops(state, applied,
                                   hardcore=getattr(spec, "hardcore", False))
             if pro:
@@ -190,6 +198,7 @@ class Pipeline:
                                 pro, "rule", self.cfg)
                 self._index_memories(res, r)
                 return r.state, evolutions
+            return state, evolutions
         except Exception as exc:
             log.warning("progression pass failed open: %s", type(exc).__name__)
         return state, evolutions
@@ -284,13 +293,28 @@ class Pipeline:
                 return
             state = current_state(self.store, ctx.branch_id)
             ops = tier0.parse_reply_tags(text, state)
-            if not ops:
-                return
-            r = apply_delta(self.store, ctx.session_id, ctx.branch_id, ctx.turn_index,
-                            ops, "extraction", self.cfg)
-            self._index_memories(ctx, r)
-            for q in r.quarantined:
-                log.info("live tag quarantined: %s", q.get("reason", ""))
+            applied: list = []
+            if ops:
+                r = apply_delta(self.store, ctx.session_id, ctx.branch_id, ctx.turn_index,
+                                ops, "extraction", self.cfg)
+                state = r.state
+                applied = r.applied
+                self._index_memories(ctx, r)
+                for q in r.quarantined:
+                    log.info("live tag quarantined: %s", q.get("reason", ""))
+            if getattr(spec, "war_room", True):
+                foes = tier0.parse_foe_tags(text, state)   # Phase 1: the DM's [foe] tag is
+                if foes:                                   # validated, then RE-SOURCED as a
+                    r = apply_delta(self.store, ctx.session_id, ctx.branch_id,   # rule op —
+                                    ctx.turn_index, foes, "rule", self.cfg)      # the R8b
+                    state = r.state                                              # pattern
+                    applied += r.applied
+                    self._index_memories(ctx, r)
+                wr = combat_ops(state, applied)   # the referee: enlistment, HP-0 defeats +
+                if wr:                            # loot, combat_end — on the fresh reply's
+                    r = apply_delta(self.store, ctx.session_id, ctx.branch_id,   # own turn
+                                    ctx.turn_index, wr, "rule", self.cfg)
+                    self._index_memories(ctx, r)
         except Exception as exc:
             log.warning("live tag ingest failed open: %s", type(exc).__name__)
 
@@ -372,9 +396,17 @@ class Pipeline:
                 cfg = copy.deepcopy(self.cfg)
                 cfg.linter.rules_off = sorted(set(cfg.linter.rules_off)
                                               | {f"L{i}" for i in range(1, 9)})
+            utext = ""
+            try:                              # L9 door + L11 read the player's message (0b)
+                rows = self.store.get_turn_texts(ctx.branch_id, ctx.turn_index,
+                                                 ctx.turn_index)
+                utext = next((r["user_text"] or "" for r in rows), "")
+            except Exception:
+                utext = ""
             fresh = linter.lint_turn(self.store, cfg, ctx.session_id, ctx.branch_id,
                                      ctx.turn_index, state, text, klass=ctx.klass,
-                                     user_name=name, user_aliases=aliases)
+                                     user_name=name, user_aliases=aliases,
+                                     user_text=utext)
             if full:                      # Tier-0 apply IS the post-apply snapshot (03 SS8)
                 director.stage(self.store, self.cfg, ctx.session_id, ctx.branch_id,
                                ctx.turn_index, state, fresh, user_name=name,

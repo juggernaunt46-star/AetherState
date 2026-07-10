@@ -571,6 +571,47 @@ def _social(state: dict) -> tuple[list, list, dict]:
     return relations, factions, dict(state.get("world") or {})
 
 
+def _war_room(state: dict, cfg=None) -> dict:
+    """Phase 1 (plan doc 13): the combat lane payload — EXACT HP (Bean: decided, pillar-17
+    rawness), each combatant's side/tier/armament, the pre-rolled dice (enemy opposition +
+    per-ally dice, VISIBLE — ratified), fresh loot drops, and the last settled fight.
+    Rendered from committed rows + the same deterministic dice code the directive uses."""
+    from .compose import _ally_die, _die_tier, _opposition_roll
+    cb = state.get("combat") or {}
+    turn = (state.get("meta") or {}).get("turn", -1)
+    active = bool(cb.get("active"))
+    out: dict = {"active": active, "round": 0, "combatants": [], "last": None,
+                 "clashes": [c for c in (state.get("clashes") or [])[-5:]]}
+    hist = cb.get("history") or []
+    if hist:
+        out["last"] = hist[-1]
+    if not active:
+        return out
+    out["round"] = max(1, turn - int(cb.get("started_turn") or turn) + 1)
+    opp_total, opp_dmg = _opposition_roll(state)
+    for cid, r in (cb.get("combatants") or {}).items():
+        if not isinstance(r, dict):
+            continue
+        hp = r.get("hp") or {}
+        row = {"cid": str(cid), "name": str(r.get("name", cid)),
+               "side": str(r.get("side", "enemy")), "kind": str(r.get("kind", "extra")),
+               "tier": str(r.get("tier", "standard")),
+               "hp": {"cur": int(hp.get("cur", 0)), "max": int(hp.get("max", 1))},
+               "armament": str(r.get("armament", "")),
+               "defeated": bool(r.get("defeated")),
+               "dropped": list(r.get("dropped") or [])}
+        if not row["defeated"]:
+            if row["side"] == "enemy":
+                row["die"] = {"total": opp_total, "tier": _die_tier(opp_total),
+                              "dmg": opp_dmg}
+            else:
+                t, d = _ally_die(state, str(cid))
+                row["die"] = {"total": t, "tier": _die_tier(t), "dmg": d}
+        out["combatants"].append(row)
+    out["combatants"].sort(key=lambda r: (r["side"] != "enemy", r["defeated"], r["name"]))
+    return out
+
+
 def hud_view(state: dict, cfg=None) -> dict:
     """The single resolved player-facing payload (registry math done here). Comprehensive:
     the player's full sheet, the whole cast's statuses/conditions/diseases/mood/drives/physical,
@@ -586,9 +627,11 @@ def hud_view(state: dict, cfg=None) -> dict:
         "scene": {}, "players": [], "cast": [], "quests": [], "rolls": [],
         "relationships": [], "relations": [], "factions": [], "world_flags": {},
         "memories": [], "consent": [], "rules": {},
+        "war_room": {"active": False, "combatants": []},
     }
     for key, fn in (
         ("scene", lambda: _scene(state)),
+        ("war_room", lambda: _war_room(state, cfg)),
         ("rules", lambda: _rules_view(reg, _registry, cfg)),
         ("players", lambda: _player_rows(state, cfg, reg, _registry, turn)),
         ("cast", lambda: _cast_rows(state, _registry, turn, player_eids)),

@@ -102,8 +102,15 @@ RPG_SOCIAL_OPS = ("affinity_adj", "world_flag")
 # award_exp / level_up / master_tick / evolve_def / defeat_resolve are privileged and
 # NEVER appear on the wire — progression is code-awarded (doc 10).
 RPG_GAP_OPS = ("hp_adj", "item_gain", "item_lose", "quest_add", "quest_update")
+# Phase 1 (plan doc 13): the NPC-vs-NPC clash RECORD — the extraction-ladder floor under
+# the [clash] tag ceiling. Proposable; unknown participants quarantine (real rows only).
+# combatant_spawn/defeat/combat_end/loot_table are privileged and NEVER on the wire;
+# combatant_hp is deliberately absent too — live harm rides the [hp] tag channel (batch
+# extraction lags the fight and would land on rows that already left the field).
+RPG_COMBAT_OPS = ("clash_record",)
 EXTRACTION_OPS_RPG = sorted(EXTRACTION_OPS + list(RPG_ITEM_OPS) + list(RPG_EFFECT_OPS)
-                            + list(RPG_SOCIAL_OPS) + list(RPG_GAP_OPS))
+                            + list(RPG_SOCIAL_OPS) + list(RPG_GAP_OPS)
+                            + list(RPG_COMBAT_OPS))
 _RPG_OP_FIELDS: dict[str, list[str]] = {
     "instance": ["string", "null"], "to": ["string", "null"], "slot": ["string", "null"],
     "to_owner": ["string", "null"], "amount": ["integer", "null"], "swap": ["boolean", "null"],
@@ -122,6 +129,9 @@ _RPG_OP_FIELDS: dict[str, list[str]] = {
     "name": ["string", "null"], "qty": ["integer", "null"], "detail": ["string", "null"],
     "giver": ["string", "null"], "stakes": ["string", "null"], "quest": ["string", "null"],
     "status": ["string", "null"],
+    # Phase 1 clash fields (clash_record): the two participants + how/what changed.
+    "a": ["string", "null"], "b": ["string", "null"], "method": ["string", "null"],
+    "outcome": ["string", "null"],
 }
 # RPG-3 branch-level vocabularies/types (anyOf rung only; the flat schema can't carry them
 # without disturbing mood — the OP CARD + apply-side validation stay load-bearing there).
@@ -351,6 +361,8 @@ _OP_ALLOWED: dict[str, set[str]] = {
     "quest_add": {"name", "detail", "giver", "stakes"},
     "quest_update": {"quest", "status", "note"},
     "hp_adj": {"char", "delta", "reason"},
+    # Phase 1 clash record — scrub row; on the wire only under rpg (plan doc 13).
+    "clash_record": {"a", "b", "method", "outcome"},
 }
 
 

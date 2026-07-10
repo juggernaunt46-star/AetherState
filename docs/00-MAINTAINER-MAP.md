@@ -120,7 +120,7 @@ Grouped by plane and role. Full detail per module in `01-module-reference.md`.
 | `prompts.py` | 148 | The extraction system prompt, OP CARD, few-shots, repair prompt. Verbatim from planning/04. |
 | `genesis.py` | 344 | Two-stage seeding from character card + greeting: rules pass (inline) + LLM pass (cold). |
 | `discovery.py` | 115 | Entity discovery — count evidence for unknown names before creating entities. |
-| `linter.py` | 392 | Consistency checks L1–L9 (colocation, exposure, contact geometry, inventory, user-voice, timeline, belief leak, consent). |
+| `linter.py` | 392 | Consistency checks L1–L11 (colocation, exposure, contact geometry, inventory, user-voice, timeline, belief leak, consent; L11 rpg-only: player agency + verbatim bracketed quotes). |
 | `director.py` | 414 | Deterministic beat engine: JSON beat libraries, precondition DSL, binding, cooldowns, note rendering. |
 | `memory.py` | 241 | Tiered memory: index, BM25-ish + embedding retrieval, recall rendering, reflection/consolidation. |
 | `assist.py` | 242 | Local-model sidecar helpers: chat call, embeddings, memory synthesis, NLI pass. |

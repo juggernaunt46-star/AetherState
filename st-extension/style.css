@@ -273,5 +273,33 @@
 .aes-lastroll.fail { color:var(--bad); border-color:var(--bad); }
 .aes-lastroll .m { color:var(--dim); font-weight:600; }
 
+/* 2026-07-09: the compact strip labels itself — a minimized HUD must never read as broken */
+.aes-expand { display:block; width:100%; margin-top:6px; padding:3px 8px; cursor:pointer;
+  background:var(--panel); color:var(--acc); border:1px dashed var(--line); border-radius:7px;
+  font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.8px; }
+.aes-expand:hover { border-color:var(--acc); color:var(--ink); }
+
 /* 2026-07-09: paper-doll empty slots collapse to one muted line */
 .aes-slot-empties { font-size:11px; opacity:.5; padding:2px 4px 6px; }
+
+/* Phase 1 (plan doc 13): the War Room lane — combat-phase-only, exact HP, dice visible */
+.aes-war { margin:6px 0 4px; padding:6px 7px; border:1px solid var(--bad);
+  border-radius:10px; background:linear-gradient(180deg, rgba(255,93,115,.08), transparent); }
+.aes-war-h { font-size:11px; font-weight:800; letter-spacing:1px; color:var(--bad);
+  margin-bottom:4px; }
+.aes-war-h .m { color:var(--dim); font-weight:600; letter-spacing:0; }
+.aes-war-side { display:flex; flex-direction:column; gap:4px; margin-bottom:4px; }
+.aes-com { border:1px solid var(--line); border-radius:8px; padding:4px 6px;
+  background:var(--panel); }
+.aes-com.enemy { border-left:3px solid var(--bad); }
+.aes-com.ally { border-left:3px solid var(--good); }
+.aes-com.down { opacity:.55; }
+.aes-com-h { display:flex; align-items:center; gap:5px; font-size:12px; flex-wrap:wrap; }
+.aes-bar.com { height:13px; margin-top:3px; }
+.aes-bar.com > i { background:linear-gradient(90deg,#ff5d73,#ff9d6c); }
+.aes-die { font-size:10.5px; font-weight:800; padding:1px 6px; border-radius:6px;
+  border:1px solid var(--line); background:#0d0e14; margin-left:auto; }
+.aes-die.hit { color:var(--bad); border-color:var(--bad); }
+.aes-die.graze { color:var(--warn); border-color:var(--warn); }
+.aes-die.miss { color:var(--dim); }
+.aes-com.ally .aes-die.hit { color:var(--good); border-color:var(--good); }

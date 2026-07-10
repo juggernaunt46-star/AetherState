@@ -343,7 +343,38 @@ def deterministic_world(doc: dict) -> dict:
         "opening_scene": _s(doc.get("opening_scene")) or tpl["opening_scene"],
         "opening_quest": _s(doc.get("opening_quest")) or tpl["opening_quest"],
         "extras": _norm_extras(doc.get("extras")),
+        "loot": _norm_loot(doc.get("loot")),
     }
+
+
+def _norm_loot(loot) -> dict:
+    """Phase 1 (plan doc 13): world-flavored loot tables — {tier: [rows]} authored by the
+    assist model or typed by hand, clamped here and FROZEN into state via loot_table ops at
+    save (pillar 18). Absent tiers fall back to the registry floor at spawn-bake time."""
+    from .state import THREAT_TIERS
+    out: dict = {}
+    src = loot if isinstance(loot, dict) else {}
+    for tier, rows in src.items():
+        t = str(tier).strip().lower()
+        if t not in THREAT_TIERS or not isinstance(rows, list):
+            continue
+        entries = []
+        for e in rows[:12]:
+            if isinstance(e, str) and e.strip():
+                e = {"name": e}
+            if not isinstance(e, dict) or not _s(e.get("name"), 80):
+                continue
+            try:
+                chance = min(1.0, max(0.0, float(e.get("chance", 1.0))))
+            except (TypeError, ValueError):
+                chance = 1.0
+            entries.append({"name": _s(e.get("name"), 80),
+                            "qty_min": _clampi(e.get("qty_min", e.get("qty", 1)), 1, 99),
+                            "qty_max": _clampi(e.get("qty_max", e.get("qty", 1)), 1, 99),
+                            "chance": chance})
+        if entries:
+            out[t] = entries
+    return out
 
 
 def _norm_extras(extras) -> list:
@@ -370,9 +401,10 @@ def _norm_npcs(npcs) -> list:
             name = _s(n.get("name"), 80)
             if name:
                 out.append({"name": name, "role": _s(n.get("role"), 160),
-                            "desc": _s(n.get("desc"), 600)})
+                            "desc": _s(n.get("desc"), 600),
+                            "home": _s(n.get("home"), 80)})   # 0b: authored home anchor
         elif isinstance(n, str) and n.strip():
-            out.append({"name": _s(n, 80), "role": "", "desc": ""})
+            out.append({"name": _s(n, 80), "role": "", "desc": "", "home": ""})
     return out
 
 
@@ -655,6 +687,10 @@ def world_to_ops(world: dict) -> list[dict]:
             ops.append({"op": "set_attribute", "entity": eid, "key": "role", "value": npc["role"]})
         if npc.get("desc"):
             ops.append({"op": "set_attribute", "entity": eid, "key": "description", "value": npc["desc"]})
+        if npc.get("home"):                      # 0b: the authored home anchor, FROZEN at
+            ops.append({"op": "set_attribute",   # creation (pillar 18) — the presence-basis
+                        "entity": eid, "key": "home",   # gate + [NEARBY] read it at render
+                        "value": npc["home"]})
     if w["opening_scene"]:
         ops.append({"op": "memory_event", "text": f"Opening scene: {w['opening_scene']}"})
         if w["locations"]:
@@ -684,6 +720,9 @@ def world_to_ops(world: dict) -> list[dict]:
         if ex.get("text"):                                 # categories -> retrievable memory lore
             ops.append({"op": "memory_event",
                         "text": f"World lore — {ex['label']}: {ex['text']}"})
+    for tier, entries in (w.get("loot") or {}).items():    # Phase 1: world-flavored loot rows
+        ops.append({"op": "loot_table", "tier": tier,      # FROZEN at save (pillar 18);
+                    "entries": entries})                   # registry stays the absent-tier floor
     return ops
 
 
@@ -780,7 +819,13 @@ _WORLD_SYSTEM = (
     "them, never replace them. Output ONLY minified JSON, no prose, matching "
     "exactly this schema: {\"name\":str,\"genre\":str,\"setting\":str,\"date\":str,\"time\":str,"
     "\"tone\":str,\"factions\":[str],\"locations\":[str],\"npcs\":[{\"name\":str,\"role\":str,"
-    "\"desc\":str}],\"aspects\":[str],\"opening_scene\":str,\"opening_quest\":str}. "
+    "\"desc\":str,\"home\":str}],\"aspects\":[str],\"opening_scene\":str,\"opening_quest\":str,"
+    "\"loot\":{\"minion\":[{\"name\":str,\"chance\":float}],\"standard\":[...],\"elite\":[...],"
+    "\"boss\":[...]}}. "
+    "Each npc's `home` names the ONE location they are usually found at — reuse a name from "
+    "`locations` verbatim whenever one fits. `loot` gives 2-3 world-flavored drop rows per "
+    "threat tier (what a defeated foe of that rank plausibly carries HERE — currency, kit, "
+    "consumables; chance 0..1); keep names concrete and reusable. "
     "`time` must be one of: " + ", ".join(TIMES) + ". `setting` should be a substantial, "
     "vivid paragraph (or more) that captures what makes this world ITSELF. Give 4-6 factions "
     "with names that imply agendas, 5-8 locations, 4-8 npcs with sharp one-line hooks, 5-8 "
@@ -930,7 +975,8 @@ def _world_user(seed: dict, world_ctx: str = "") -> str:
     if npcs:
         lines.append("- npcs: " + "; ".join(
             f"{n['name']}" + (f" ({n['role']})" if n['role'] else "")
-            + (f" — {n['desc']}" if n['desc'] else "") for n in npcs))
+            + (f" — {n['desc']}" if n['desc'] else "")
+            + (f" [home: {n['home']}]" if n.get("home") else "") for n in npcs))
     for k, label in (("opening_scene", "opening scene"), ("opening_quest", "opening quest")):
         if _s(seed.get(k)):
             lines.append(f"- {label}: {_s(seed.get(k))}")

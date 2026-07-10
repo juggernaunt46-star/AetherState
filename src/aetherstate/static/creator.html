@@ -332,14 +332,15 @@ function readExtras(hostId){ return [...$(hostId).querySelectorAll(".item")].map
 }).filter(e=>e.label||e.text); }
 function fillExtras(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(e=>addExtra(hostId,e)); }
 function addNpc(n){ n=n||{}; const host=$("w_npcs"); const d=document.createElement("div"); d.className="item";
-  d.innerHTML=`<input placeholder="name" value="${(n.name||'').replace(/"/g,'&quot;')}" style="flex:0 0 22%">
-    <input placeholder="role" value="${(n.role||'').replace(/"/g,'&quot;')}" style="flex:0 0 24%">
+  d.innerHTML=`<input placeholder="name" value="${(n.name||'').replace(/"/g,'&quot;')}" style="flex:0 0 18%">
+    <input placeholder="role" value="${(n.role||'').replace(/"/g,'&quot;')}" style="flex:0 0 20%">
     <input placeholder="short description" value="${(n.desc||'').replace(/"/g,'&quot;')}">
+    <input placeholder="home (a location)" title="Where this NPC is usually found — anchors them: they only surface in play at or near this place, until the story moves them." value="${(n.home||'').replace(/"/g,'&quot;')}" style="flex:0 0 18%">
     <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
   host.appendChild(d);
 }
 function readNpcs(){ return [...$("w_npcs").querySelectorAll(".item")].map(it=>{
-  const i=it.querySelectorAll("input"); return {name:i[0].value.trim(), role:i[1].value.trim(), desc:i[2].value.trim()};
+  const i=it.querySelectorAll("input"); return {name:i[0].value.trim(), role:i[1].value.trim(), desc:i[2].value.trim(), home:i[3].value.trim()};
 }).filter(n=>n.name); }
 
 // ---- custom skills / abilities

@@ -124,7 +124,7 @@ def _parse_check(rest: str, res: Tier0Result) -> None:
         res.notices.append("check needs a skill: ((aether.check <skill> [+N] [vs DC] "
                            "[scope ...] [use <ability>]))")
         return
-    skill, mod, dc, scope, use, i = toks[0], 0, None, None, [], 1
+    skill, mod, dc, scope, use, tgt, i = toks[0], 0, None, None, [], [], 1
     while i < len(toks):
         tk = toks[i].lower()
         if tk in ("vs", "dc", "target") and i + 1 < len(toks):
@@ -142,11 +142,24 @@ def _parse_check(rest: str, res: Tier0Result) -> None:
             use.append(toks[i + 1].strip("\"'"))                    # ACTIVE ability for this roll
             i += 2
             continue
+        if tk in ("at", "on") and i + 1 < len(toks):   # Phase 1: name a combat TARGET —
+            j = i + 1                                   # words until the next keyword bind
+            words = []                                  # the strike to a combatant row
+            while j < len(toks) and toks[j].lower() not in ("vs", "dc", "target", "scope",
+                                                            "use", "using", "with", "at",
+                                                            "on") \
+                    and not _CHECK_MOD_RE.match(toks[j]):
+                words.append(toks[j].strip("\"'"))
+                j += 1
+            if words:
+                tgt.append(" ".join(words))
+                i = j
+                continue
         if _CHECK_MOD_RE.match(toks[i]):
             mod += int(toks[i])
         i += 1
     res.checks.append({"skill": skill, "mod": mod, "dc": dc, "scope": scope,
-                       "use": use, "raw": rest})
+                       "use": use, "target": (tgt[0] if tgt else None), "raw": rest})
 
 
 def _norm_phrase(text) -> str:
@@ -326,6 +339,58 @@ def _find_active_ability(reg, player: dict, ref: str):
         if r in (str(aid).lower(), nm.lower()) or slug(r) in (slug(nm), str(aid).lower()):
             return aid, adef
     return None, None
+
+
+# ---- Phase 1 (plan doc 13): the player's strike — code-derived damage ------------------
+_STRIKE_FACTOR = {"crit_success": 3, "success": 2, "partial": 1}   # x weapon magnitude
+_ATTACK_VERBS = re.compile(
+    r"\b(attack|strike|hit|shoot|stab|slash|swing|fire|punch|kick|blast|charge|shove|"
+    r"cut|cleave|smash|bash|lunge|throw|cast|loose|impale|tackle|grapple)\w*\b", re.IGNORECASE)
+
+
+def _war_room(state: dict, cfg) -> bool:
+    """Combat instances live only under rpg + the war_room knob (default on)."""
+    return bool(getattr(getattr(cfg, "specialization", None), "war_room", True)) \
+        and bool((state.get("combat") or {}).get("active"))
+
+
+def _weapon_magnitude(state: dict, eid: str) -> int:
+    """The equipped weapon's `damage` mod (mainhand > offhand > any equipped piece), the
+    curated damage scale for a player strike. Unarmed/unmodded floor: 1. Pure state, µs."""
+    best = 0
+    for it in (state.get("items") or {}).values():
+        if not isinstance(it, dict) or it.get("owner") != eid \
+                or not str(it.get("loc", "")).startswith("gear:"):
+            continue
+        dv = (it.get("mods_snapshot") or {}).get("damage")
+        if isinstance(dv, int):
+            slot = str(it.get("loc", ""))[5:]
+            rank = 3 if slot == "mainhand" else 2 if slot == "offhand" else 1
+            best = max(best, dv * 10 + rank)
+    return max(1, best // 10) if best else 1
+
+
+def _bind_targets(res: Tier0Result, state: dict, text: str) -> None:
+    """Bind each declared check to a LIVE enemy combatant so its damage can land:
+    an explicit `at <name>` wins; else the player's prose naming a foe binds it (longest
+    name first); else a lone surviving enemy + an attack verb is unambiguous. A check
+    that binds to nothing stays a plain skill check — nothing is guessed."""
+    from .state import live_combatants, resolve_combatant
+    foes = live_combatants(state, "enemy")
+    if not foes or not res.checks:
+        return
+    low = " " + _norm_phrase(text or "") + " "
+    named = sorted(foes, key=lambda r: -len(str(r.get("name", ""))))
+    for c in res.checks:
+        if c.get("target"):
+            cid = resolve_combatant(state, c["target"])
+            c["target"] = cid                    # unresolved -> None (stays a plain check)
+            continue
+        hit = next((r["id"] for r in named
+                    if f" {_norm_phrase(r.get('name', ''))} " in low), None)
+        if hit is None and len(foes) == 1 and _ATTACK_VERBS.search(text or ""):
+            hit = foes[0]["id"]                  # one foe + an attack verb: unambiguous
+        c["target"] = hit
 
 
 def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> None:
@@ -512,7 +577,26 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
             op["_cost"] = pay
         if cd_set:
             op["_ability_cd"] = cd_set              # cooldowns set for fired/used actives
+        strike = None                               # Phase 1: a check BOUND to a live enemy
+        if c.get("target") and _war_room(state, cfg):   # deals code-derived damage — outcome
+            from .state import resolve_combatant       # tier x weapon magnitude (ratified)
+            cid = resolve_combatant(state, c["target"])
+            row = ((state.get("combat") or {}).get("combatants") or {}).get(cid)
+            if isinstance(row, dict) and not row.get("defeated") \
+                    and row.get("side") == "enemy":
+                factor = _STRIKE_FACTOR.get(tier, 0)
+                if factor:
+                    dmg = _weapon_magnitude(state, player_eid) * factor \
+                        + (1 if surge_mod else 0)
+                    op["_target"], op["_dmg"] = str(row.get("name", cid)), dmg
+                    strike = {"op": "combatant_hp", "target": cid, "delta": -dmg,
+                              "reason": f"{reg.skill_label(sid, player)} {tier}",
+                              "_strike": True}   # exact — code decided it, no proposal clamp
+                else:
+                    op["_target"], op["_dmg"] = str(row.get("name", cid)), 0
         res.rule_ops.append(op)
+        if strike is not None:
+            res.rule_ops.append(strike)
         if player_eid:                              # RPG-5 (doc 10 §4): use grows mastery —
             amt = MASTERY_TICKS.get(tier, 0)        # code-side, scene-capped in the reducer
             if amt:
@@ -600,6 +684,16 @@ _AFFINITY_TAG_RE = re.compile(
 _HP_TAG_RE = re.compile(
     r"\[\s*hp\s*\|\s*([^|\[\]]+?)\s*\|\s*([+-]?\d+)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]",
     re.IGNORECASE)
+# Phase 1 (plan doc 13): the DM's combat channels. [foe] introduces an unnamed EXTRA (or
+# stages a known NPC) as a combatant — parsed separately (parse_foe_tags) because spawning
+# is PRIVILEGED: the pipeline validates and re-sources it as rule, the R8b arming pattern.
+# [clash] records an NPC-vs-NPC fight: prose resolves it, the LEDGER remembers it (no dice).
+_FOE_TAG_RE = re.compile(
+    r"\[\s*foe\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]",
+    re.IGNORECASE)
+_CLASH_TAG_RE = re.compile(
+    r"\[\s*clash\s*\|\s*([^|\[\]]+?)\s+vs\.?\s+([^|\[\]]+?)\s*"
+    r"(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
 _QUEST_NEW = {"new", "add", "added", "start", "started", "begin", "begins", "accepted",
               "offered"}
 _QUEST_STATUS_WORDS = {"complete": "complete", "completed": "complete", "done": "complete",
@@ -692,6 +786,7 @@ def _parse_world_tags(text: str, state: dict) -> list[dict]:
         if m.group(3):
             op["reason"] = m.group(3).strip()
         ops.append(op)
+    peid, _ = _player_card(state)
     for m in _HP_TAG_RE.finditer(text):
         who = _tag_char(m.group(1), state)
         try:
@@ -701,9 +796,58 @@ def _parse_world_tags(text: str, state: dict) -> list[dict]:
         if not who or d == 0:
             continue
         op = {"op": "hp_adj", "char": who, "delta": d}
+        if who != peid:                          # Phase 1: [hp] on a NON-player who is a live
+            from .state import resolve_combatant   # combatant reroutes to the clamped
+            cid = resolve_combatant(state, m.group(1))   # combatant channel (DM chip damage /
+            if cid:                                      # ally blows land on real HP rows)
+                op = {"op": "combatant_hp", "target": cid, "delta": d}
         if m.group(3):
             op["reason"] = m.group(3).strip()
         ops.append(op)
+    for m in _CLASH_TAG_RE.finditer(text):       # Phase 1: NPC-vs-NPC — record, never resolve
+        a, b = _tag_char(m.group(1), state), _tag_char(m.group(2), state)
+        if not a or not b or a == b or peid in (a, b):
+            continue                             # the player's own fights use dice, not clashes
+        op = {"op": "clash_record", "a": a, "b": b}
+        if m.group(3):
+            op["method"] = m.group(3).strip()
+        if m.group(4):
+            op["outcome"] = m.group(4).strip()
+        ops.append(op)
+    return ops
+
+
+def parse_foe_tags(text: str, state: dict) -> list[dict]:
+    """Phase 1: `[foe | <name> | <tier?> | <armament?>]` in the DM's settled reply ->
+    combatant_spawn ops. Spawning is PRIVILEGED, so these are NOT extraction proposals —
+    the caller (pipeline) applies them source='rule' after this validation, exactly like
+    R8b arms the DM's own check call: the DM narrated the foe into the fiction (the
+    in-world basis); the ENGINE mints the instance with curated HP. A name that matches
+    a known entity spawns TRACKED (wounds persist); order/caps enforced by the reducer."""
+    ops: list[dict] = []
+    peid, _ = _player_card(state)
+    from .state import THREAT_TIERS, resolve_entity_ref
+    for m in _FOE_TAG_RE.finditer(text or ""):
+        name = m.group(1).strip()
+        if not name or _tag_char(name, state) == peid:
+            continue
+        op: dict = {"op": "combatant_spawn", "name": name, "side": "enemy"}
+        for seg in (m.group(2), m.group(3)):
+            if not seg:
+                continue
+            seg = seg.strip()
+            if seg.lower() in THREAT_TIERS:
+                op["tier"] = seg.lower()
+            elif len(seg) <= 60:
+                op["armament"] = re.sub(r"^(?:uses|wields|carries|armed with)\s+", "", seg,
+                                        flags=re.IGNORECASE)
+        eid = resolve_entity_ref(state, name)
+        if eid and (state.get("entities", {}).get(eid) or {}).get("kind") \
+                in ("character", "npc"):
+            op["char"] = eid                     # a KNOWN cast member fights as themselves
+        ops.append(op)
+        if len(ops) >= 3:                        # the 3v3 cap starts at the parser
+            break
     return ops
 
 
@@ -753,6 +897,34 @@ def _commands(text: str, rng: random.Random, res: Tier0Result, rpg: bool = False
                 res.notices.append(f"unknown/unsupported path: {path}")   # visible, never silent (02 SS12b)
         elif low.startswith("aether.check"):
             _parse_check(cmd[len("aether.check"):].strip(), res)
+        elif rpg and low.startswith(("aether.foe ", "aether.ally ")):   # Phase 1: the user's
+            side = "enemy" if low.startswith("aether.foe") else "ally"  # own spawn surface
+            toks = cmd.split(None, 1)[1].split() if " " in cmd else []
+            from .state import THREAT_TIERS
+            tier, arm, name_w = None, [], []
+            for tk in toks:
+                if tk.lower() in THREAT_TIERS and tier is None:
+                    tier = tk.lower()
+                elif tier is not None:
+                    arm.append(tk)
+                else:
+                    name_w.append(tk)
+            if name_w:
+                op = {"op": "combatant_spawn", "name": " ".join(name_w), "side": side}
+                if tier:
+                    op["tier"] = tier
+                if arm:
+                    op["armament"] = " ".join(arm)
+                res.user_ops.append(op)
+            else:
+                res.notices.append("usage: ((aether.foe <name> [minion|standard|elite|boss]"
+                                   " [armament]))")
+        elif rpg and low.startswith("aether.combat"):   # ((aether.combat end)) settles it
+            rest2 = cmd.split(None, 1)[1].strip().lower() if " " in cmd else ""
+            if rest2 in ("end", "over", "stop"):
+                res.user_ops.append({"op": "combat_end", "outcome": "called"})
+            else:
+                res.notices.append("usage: ((aether.combat end))")
         elif low.startswith("aether.status"):
             res.notices.append("status")
         else:
@@ -803,6 +975,13 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
     # R1 + R7 — commands act once, from the new user message only
     if is_new and last_user:
         _commands(last_user, rng, res, rpg=rpg)
+        for op in res.user_ops:                  # Phase 1: a user-spawned combatant naming a
+            if op.get("op") == "combatant_spawn" and "char" not in op:   # KNOWN cast member
+                from .state import resolve_entity_ref                    # fights as themselves
+                eid = resolve_entity_ref(state, op.get("name"))
+                if eid and (state.get("entities", {}).get(eid) or {}).get("kind") \
+                        in ("character", "npc"):
+                    op["char"] = eid
 
     # R8 — skill-checks resolve NOW (RPG only): registered skill -> dice -> PbtA tier -> `check`
     # rule op + this-turn [DIRECTIVE]. Two triggers: explicit ((aether.check ...)) parsed above,
@@ -818,6 +997,8 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
                 and getattr(cfg.specialization, "auto_dm_checks", True):
             _parse_dm_called_checks(last_assistant, state, cfg, res)   # R8b: the DM's call arms
         if res.checks:
+            if _war_room(state, cfg):        # Phase 1: bind strikes to live enemy rows
+                _bind_targets(res, state, last_user)
             _resolve_checks(res, state, cfg, rng)
 
     # R9 — effect tag protocol (RPG only, doc 05 §5.4) + R10 — world tag protocol (RPG-5:
@@ -853,12 +1034,19 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
                 res.rule_ops.append({"op": "time_advance", **effect})
                 break
 
-    # R5 — presence heuristic (LOW confidence, advisory until extraction confirms — 03 R5)
+    # R5 — presence heuristic (LOW confidence, advisory until extraction confirms — 03 R5).
+    # 0b (2026-07-09, Bean's notables bug), RPG-GATED: under rpg, ARRIVALS read the
+    # ASSISTANT text only — the DM placing someone in the scene is an in-world basis; a
+    # player merely wondering ("I hope Marla arrives") is speculation and stages no one
+    # (pillar 14: the player speaks only for their PC there). Base sessions keep the old
+    # both-sides scan byte-identical — co-narrated arrivals are normal chat RP. Departures
+    # always scan both (either side can end a presence cheaply; wrongly-absent self-heals).
     if is_new:
         amap = _aliases(state)
         scan = f"{last_user}\n{last_assistant}".lower()
+        arrive_scan = (last_assistant or "").lower() if rpg else scan
         for alias, eid in amap.items():
-            if re.search(rf"\b{re.escape(alias)}\b[^.!?\n]{{0,40}}\b{_ARRIVE}\b", scan):
+            if re.search(rf"\b{re.escape(alias)}\b[^.!?\n]{{0,40}}\b{_ARRIVE}\b", arrive_scan):
                 res.rule_ops.append({"op": "presence", "entity": eid, "present": True,
                                      "_conf": "low"})
             elif re.search(rf"\b{re.escape(alias)}\b[^.!?\n]{{0,40}}\b{_DEPART}\b", scan):

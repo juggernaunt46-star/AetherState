@@ -28,7 +28,7 @@ from typing import Optional
 
 from . import assist, compose, director, discovery, linter, memory
 from .extraction import Endpoint, Ladder
-from .state import (apply_delta, current_state, faction_cascade_ops, is_empty,
+from .state import (apply_delta, combat_ops, current_state, faction_cascade_ops, is_empty,
                     progression_ops, reduce_state)
 
 log = logging.getLogger("aetherstate.jobs")
@@ -240,6 +240,19 @@ class JobRunner:
                     log.info("faction cascade: %d op(s) applied", len(r2.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("faction cascade skipped: %s", type(exc).__name__)
+        try:                                   # Phase 1 (plan doc 13): the combat referee —
+            spec = getattr(self.cfg, "specialization", None)   # batch-applied clashes/harm
+            if spec is not None and spec.name == "rpg" and res.state.get("player") \
+                    and getattr(spec, "war_room", True):       # can settle defeats too
+                wr = combat_ops(res.state, res.applied)
+                if wr:
+                    rw = apply_delta(self.store, b.session_id, b.branch_id, b.hi, wr,
+                                     "rule", self.cfg)
+                    res.state = rw.state
+                    res.applied = list(res.applied) + rw.applied
+                    log.info("combat pass: %d op(s) applied", len(rw.applied))
+        except Exception as exc:               # never fails the batch (invariant 3)
+            log.warning("combat pass skipped: %s", type(exc).__name__)
         try:                                   # RPG-5 (doc 10): code-awarded progression —
             spec = getattr(self.cfg, "specialization", None)   # XP / level-ups / defeat from
             if spec is not None and spec.name == "rpg" and res.state.get("player"):
@@ -326,7 +339,8 @@ class JobRunner:
                 self.store, self.cfg, b.session_id, b.branch_id,
                 row["turn_index"], res.state, text, applied_kinds=applied_kinds,
                 klass=klasses.get(row["turn_index"], "new_turn"),
-                user_name=guard, user_aliases=aliases))
+                user_name=guard, user_aliases=aliases,
+                user_text=row["user_text"] or ""))
         return out
 
     # ------------------------------------------------------------------ discovery (08 B2)

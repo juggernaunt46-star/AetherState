@@ -78,7 +78,8 @@ is in `state._apply_op`.
 | `mood` | char, (valence \| energy \| dominance) | each −100..100 |
 | `consent_signal` | from_char, to_char, category, signal | signal ∈ grant/enthusiastic/hesitant/refuse/withdraw/safeword |
 | `relationship_adj` | from_char, to_char, dimension, delta | delta clamped −30..30 |
-| `reveal_fact` | learner, statement, source | source ∈ witnessed/told/overheard/inferred; optional teller, is_secret |
+| `reveal_fact` | learner, statement, source | source ∈ witnessed/told/overheard/inferred; optional teller, is_secret. Compression item 3 (2026-07-09): a near-restatement (token Jaccard ≥ 0.75) SUPERSEDES the older fact — it gains `retired_turn` + `superseded_by` (kept + labeled, never deleted); retired facts leave the L10 premise set |
+| `fact_retire` | fact **or** statement | engine-internal (user/rule/genesis only — extraction REJECTED: the model never erases truth). Retires by fid, or best statement-token match ≥ 0.5 |
 | `memory_event` | text | + participants[], importance 1–10, tags[] |
 | `goal` | char, action, text | action ∈ add/complete/abandon |
 | `time_advance` | (minutes \| to_time_of_day) | wrapping to_time_of_day advances the day; triggers craving ramp |
@@ -592,3 +593,60 @@ the summary/memory ledger (the AI-search hook, read-only, fail-open).
 
 A `none` session remains byte-identical: every surface above is rpg-gated (tags, wire tier,
 progression passes, pools only exist on rpg cards), welded by the test suite (453 green).
+
+### 7.11 Phase 1 — the full combat loop + 3v3 party / War Room (1.13.0, plan doc 13)
+
+**Runtime keys (lazy — a pre-1.13 checkpoint replays untouched):** `state["combat"]`
+`{active, started_turn, combatants: {cid: row}, history[≤10]}`; a combatant ROW is
+snapshot-frozen at spawn: `{id, name, side: ally|enemy, kind: extra|tracked, eid?, tier,
+hp{cur,max}, armament, mod, loot[], defeated, defeated_turn?, spawned_turn, dropped[]}`.
+Plus `state["clashes"]` (≤20 recorded NPC-vs-NPC fights) and `state["loot"]`
+(tier → frozen rows, written only by `loot_table`).
+
+**Ops.** PRIVILEGED (rule/user/genesis; extraction rejected): `combatant_spawn{name, side,
+tier?, char?, armament?}` — `_enrich` bakes `_cid`, `_hp` (THREAT_HP by tier — minion 6 /
+standard 14 / elite 26 / boss 44 — or, for a tracked `char`, the entity's persisted
+`attributes.hp`: wounds carry between fights), `_mod` (curated by tier) and `_loot` (the
+frozen table: `state["loot"]` > `registry/loot.toml` > fallback); the reducer enforces the
+3v3 cap (player holds an ally slot) and one live row per tracked entity.
+`combatant_defeat{target}` — `_enrich` bakes `_xp` (THREAT_XP 15/30/60/120) and
+`_loot_drop` (md5-seeded roll over the row's frozen table, iids pre-generated); drops mint
+as `world` items. `combat_end{outcome?}` — extras evaporate; tracked survivors write
+`attributes.hp` back (below half ⇒ `Wounded`, beaten ⇒ `Battered` — healing is a routed
+in-world path); a history entry records defeated/survivors/loot. `loot_table{tier,
+entries}` — Creator/assist-authored rows clamped + FROZEN (pillar 18). PROPOSABLE:
+`combatant_hp{target, delta}` (resolves cid | unique name among LIVE rows; per-op clamp
+±max(5, max//4) baked; a code-decided player strike carries `_strike` and lands exact) and
+`clash_record{a, b, method?, outcome?}` (participants alias-resolve to REAL rows or
+quarantine; commits a bounded clash entry + a fact — record, never resolve).
+
+**Tier-0 / dice.** `((aether.check <skill> at <target>))` (or prose naming a live foe, or
+the lone-foe + attack-verb floor) binds a check to an enemy row: damage = STRIKE_FACTOR
+(crit 3 / success 2 / partial 1) × the equipped weapon's `damage` mod (floor 1, +1 on a
+surge), emitted as a rule `combatant_hp` alongside the check and shown on the [DIRECTIVE]
+("the blow lands on X for N — narrate that exact toll"). Every live ally gets ONE
+pre-decided `[ALLY]` die per combat turn (`compose._ally_die`, md5(turn·scene·cid) — the
+R8c pattern: deterministic, no journal row); enemy→player harm stays R8c `[OPPOSITION]` +
+`[hp]` (the opposition die now also arms whenever live enemy rows exist, so extras with no
+affinity ledger still fight). The `[WAR]` board (exact HP, ratified) rides the volatile
+directive tail (0a-safe). The DM's channels: `[foe | <name> | <tier?> | <weapon?>]`
+(validated → re-sourced as rule by the pipeline, the R8b pattern; a known cast name spawns
+TRACKED) and `[hp | <combatant> | -N | why]`; the user's: `((aether.foe/ally/combat end))`.
+
+**The referee (`state.combat_ops`)** — pure, journaled, on BOTH apply paths (pipeline
+`_progress` + `_ingest_reply_tags` + the jobs batch, before the progression pass so defeat
+XP feeds level-ups): floor auto-spawn (combat phase/flag ⇒ present Cold-or-worse hostiles
+enlist as foes, Ally-tier friends + the soulmate as allies, caps honored), HP-0 defeats +
+XP, and self-ending fights (last foe down = victory; player `defeat_resolve` = defeat;
+scene phase moving on = resolved).
+
+**Lint / prompts / surfaces.** `combatant_alive`: prose killing a live-HP row is a
+contradiction (death comes from the ledger). Contract `dm-rules/7` (+ War Room teaching,
+compact variant included, gated on the knob); tags `world-tags/4` (+[foe]/[clash]);
+`RPG_CLASH_CARD` + `clash_record` on the rpg extraction wire (`RPG_COMBAT_OPS`).
+`hud_view().war_room` (exact HP, per-row dice, drops, last settled fight) feeds the ST
+HUD's combat lane; `state_summary` carries `combat`/`clashes`/`loot` raw.
+
+A `none` session remains byte-identical: `empty_state()` gained no keys, every parser,
+pass, block, and wire row is rpg-gated (+ the `war_room` knob), welded by
+`test_p12_combat.py` (23 green, incl. none-leak + deterministic replay).

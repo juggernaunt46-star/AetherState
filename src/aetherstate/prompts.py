@@ -92,6 +92,14 @@ quest = its exact name. Log EVERY quest beat — an objective that only lives in
 hp_adj{char,delta,reason?} — the Player visibly took harm or was healed; small integers
 (the engine clamps swings). Never invent numbers for anything else."""
 
+# Phase 1 (plan doc 13): the clash-record card — appended under rpg only. NPC-vs-NPC
+# fights resolve in prose (no dice); the LEDGER records method + outcome on real rows.
+RPG_CLASH_CARD = """RPG CLASH RECORDING (NPC-vs-NPC fights are prose, never dice — but outcomes are ledger truth):
+clash_record{a,b,method,outcome} — two KNOWN characters/factions fought or contended this
+exchange. a/b = their exact names from CHARACTERS; method = how it was fought (a phrase);
+outcome = who prevailed / what changed. Never for the Player's own fights (those use the
+engine's dice), never for people not in CHARACTERS."""
+
 # RPG-3 (doc 05 §5.4): the effect-op card — appended alongside the item card under rpg only.
 # Teaches the three PROPOSABLE effect ops; the LLM proposes, the ledger owns the truth.
 RPG_EFFECT_CARD = """RPG EFFECT OPS (propose when a Status/Condition visibly changes; [EFFECTS] is the ledger of what is already active):
@@ -163,7 +171,26 @@ JSON: {"schema":"aetherstate/delta/1","turn_range":[19,19],"ops":[
 # non-negotiables (honor the [DIRECTIVE]; never invent mechanics). Droppable under budget
 # (rides its own component, not the never-dropped header) — the [DIRECTIVE] itself is what is
 # load-bearing per turn and rides the header.
-DM_CONTRACT_VERSION = "dm-rules/5"
+DM_CONTRACT_VERSION = "dm-rules/7"
+
+# Phase 1 combat / War Room (plan doc 13, ratified) — appended to the contract when
+# [specialization].war_room is on. Teaches the combat channels: the DM introduces foes by
+# TAG (the engine mints the instance with real HP), damage flows through pre-decided dice
+# and the clamped [hp] channel, death comes from the ledger, initiative is loose.
+_WAR_ROOM_RULES = (
+    " WAR ROOM: when real combat starts, fighters become tracked combatants with exact HP — "
+    "the [WAR] line is the board; trust its numbers. Introduce a NEW opponent with "
+    "[foe | <name> | minion|standard|elite|boss | <weapon>] on its own line (at most 3 foes "
+    "on the field; a known NPC's name fights as themselves, wounds and all). The Player's "
+    "strike damage arrives ALREADY APPLIED on the [DIRECTIVE] — narrate that exact toll. "
+    "Enemy harm to the Player uses the [OPPOSITION] die's [hp] tag; each ally acts on their "
+    "[ALLY] die — on a hit, emit [hp | <foe> | -N | why] for the foe they struck; your own "
+    "chip damage to a foe uses the same [hp | <foe> | -N | why] tag (the engine clamps it). "
+    "A combatant dies ONLY when the ledger reads 0 HP — never narrate a death the engine "
+    "has not recorded; loot drops are handed to you pre-rolled. Initiative is LOOSE: weave "
+    "the pre-rolled results into one flowing beat, in whatever order the fiction wants. "
+    "Fights between NPCs use no dice — narrate them freely, then record the outcome with "
+    "[clash | <A> vs <B> | <how> | <what changed>].")
 DM_RULES_CONTRACT = (
     "[RULES] You are the Game Master of a mechanical RPG — a GAME with dice and stakes, not "
     "free chat. The engine, not you, resolves dice, checks, damage, loot, and stats; you only "
@@ -185,8 +212,14 @@ DM_RULES_CONTRACT = (
     "blocks; never invent mechanics, roll your own dice, or grant items/skills the engine "
     "has not. Speak the world and its NPCs; never the Player. Characters named in state "
     "blocks are KNOWN, not on-scene — only [SCENE]'s present list is here; don't stage a "
-    "known NPC unless the scene places them. End each reply in-fiction on the beat where the "
-    "Player must act — never an out-of-character prompt like 'What will you do?'.")
+    "known NPC unless the scene places them. [NEARBY] names notables anchored at this "
+    "location but currently off-scene — you may bring one on (then declare them in your "
+    "[scene] present list); notables anchored elsewhere stay elsewhere unless the fiction "
+    "moves them. The Player is NOT a known main character: an NPC marked 'stranger' does "
+    "not know, recognize, or have history with the Player; 'by reputation' knows ONLY the "
+    "named faction standing — recognition and history must be earned in play. End each "
+    "reply in-fiction on the beat where the Player must act — never an out-of-character "
+    "prompt like 'What will you do?'.")
 
 
 # RPG-3 (doc 05 §5.4): the tag protocol + a compact preset slice, appended to the DM
@@ -194,7 +227,15 @@ DM_RULES_CONTRACT = (
 # the change inline, the ENGINE commits it to the ledger, and the [EFFECTS] block feeds the
 # committed truth back every turn. Re-sent with the contract each request (droppable under
 # budget), so even after a context rollover the model is re-anchored. ~120 tokens.
-EFFECTS_PROTOCOL_VERSION = "world-tags/3"
+EFFECTS_PROTOCOL_VERSION = "world-tags/4"
+
+# Phase 1: the combat tag slice — appended to the [TAGS] protocol under war_room only.
+_WAR_TAGS = (
+    " Combat tags: [foe | <name> | <tier?> | <weapon?>] when a NEW opponent squares up "
+    "(the engine spawns it with real HP — tiers minion|standard|elite|boss) · "
+    "[hp | <combatant> | -N | <why>] lands harm on ANY tracked combatant, not just the "
+    "Player · [clash | <A> vs <B> | <how> | <outcome>] when NPCs fight each other — "
+    "record it, never roll for it.")
 _EFFECTS_PROTOCOL = (
     "\n[TAGS] When the fiction changes tracked truth, emit the matching tag on its own line "
     "so the engine commits it to the ledger: "
@@ -232,7 +273,8 @@ DM_RULES_CONTRACT_COMPACT = (
     "settles the attempt NOW. When the Player risks something uncertain and no [DIRECTIVE] "
     "settled it, CALL FOR the check by skill (((aether.check <skill>))) and stop where they "
     "roll — a plain-prose answer auto-fires your call. Enemy attacks use the [OPPOSITION] die, never your judgment. Use only shown skills/items; "
-    "invent none. Never write the Player. Only [SCENE]'s present list is on-scene. End "
+    "invent none. Never write the Player. Only [SCENE]'s present list is on-scene; [NEARBY] "
+    "may be brought on. A 'stranger' NPC does not know or recognize the Player. End "
     "in-fiction — no 'What will you do?'.")
 
 
@@ -242,9 +284,25 @@ def rules_contract(cfg=None) -> str:
     RPG-4: [specialization].contract='compact' selects the degradation-ladder shrunk form."""
     base = DM_RULES_CONTRACT
     try:
-        if cfg is not None and getattr(cfg, "specialization", None) is not None \
-                and getattr(cfg.specialization, "contract", "full") == "compact":
+        compact = cfg is not None and getattr(cfg, "specialization", None) is not None \
+            and getattr(cfg.specialization, "contract", "full") == "compact"
+        if compact:
             base = DM_RULES_CONTRACT_COMPACT
+        if cfg is None or getattr(getattr(cfg, "specialization", None),
+                                  "war_room", True):    # Phase 1 (byte-stable per cfg — 0a)
+            base += (" WAR ROOM: combat uses tracked HP ([WAR] board); new foes via "
+                     "[foe | <name> | <tier> | <weapon>]; harm via [hp | <combatant> | -N]; "
+                     "allies act on their [ALLY] die; death ONLY at ledger 0 HP; NPC-vs-NPC "
+                     "fights are prose — record with [clash | A vs B | how | outcome]."
+                     if compact else _WAR_ROOM_RULES)
+        if cfg is not None and getattr(getattr(cfg, "injection", None),
+                                       "briefing_style", "verbose") == "compact":
+            # compression item 2: the one-time legend for the dense briefing notation —
+            # byte-stable per cfg, so it rides the cacheable contract, not the state blocks
+            base += (" [KEY] compact briefing: here=on-scene cast · St/Sk/Ab=stats/skills/"
+                     "abilities · wear/exp=worn/exposed · rep(F: t)=knows the Player only "
+                     "by reputation with faction F at standing t · ability tags: "
+                     "adv=advantage, no-fumble=crit-fumble guard, xdie=extra die on a miss.")
     except Exception:
         base = DM_RULES_CONTRACT
     try:
@@ -256,6 +314,9 @@ def rules_contract(cfg=None) -> str:
             cds = ", ".join(sorted(str((e or {}).get("name", k)) for k, e in eff.items()
                                    if (e or {}).get("kind") != "status"))
             base += _EFFECTS_PROTOCOL.format(statuses=sts or "none", conditions=cds or "none")
+            if cfg is None or getattr(getattr(cfg, "specialization", None),
+                                      "war_room", True):
+                base += _WAR_TAGS                  # Phase 1: the combat tag slice
     except Exception:
         pass
     return base
@@ -270,7 +331,7 @@ def system_prompt(rung: int, assist_tier: bool = False, include_card: bool = Tru
     if not include_card and rung <= 2 and not assist_tier:
         return SYSTEM_CORE
     card = OP_CARD + ("\n" + RPG_ITEM_CARD + "\n" + RPG_EFFECT_CARD + "\n" + RPG_SOCIAL_CARD
-                      + "\n" + RPG_QUEST_CARD if rpg else "")
+                      + "\n" + RPG_QUEST_CARD + "\n" + RPG_CLASH_CARD if rpg else "")
     return SYSTEM_CORE + "\n\n" + card
 
 

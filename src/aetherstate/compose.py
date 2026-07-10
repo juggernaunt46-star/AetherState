@@ -16,10 +16,16 @@ import random as _random
 from dataclasses import dataclass
 from typing import Optional
 
-from .state import (GEAR_SLOT_ORDER, GEAR_SLOTS, affinity_tier, derived_exposure, is_empty,
-                    item_is_gear)
+from .state import (GEAR_SLOT_ORDER, GEAR_SLOTS, _norm_loc, affinity_tier, derived_exposure,
+                    is_empty, item_is_gear)
 
 CHARS_PER_TOKEN = 3.3     # 03 SS4 estimate; backend tokenizer replaces this in P3
+
+
+def _compact(cfg) -> bool:
+    """Compression item 2 (2026-07-09): [injection].briefing_style == 'compact'. Verbose
+    (default) renders byte-identically to 1.11 — the knob is opt-in by ratified decision."""
+    return getattr(getattr(cfg, "injection", None), "briefing_style", "verbose") == "compact"
 
 
 def estimate_tokens(text: str) -> int:
@@ -69,9 +75,12 @@ def _render_player(state: dict, cfg=None) -> str:
         if int(p.get("stat_points", 0) or 0) > 0:
             head += f' · {p["stat_points"]} stat pt unspent'
         block = [head]
+        c2 = _compact(cfg)
+        st_lbl, sk_lbl, ab_lbl = ("St: ", "Sk: ", "Ab: ") if c2 \
+            else ("Stats: ", "Skills: ", "Abilities: ")
         stats = p.get("stats") or {}
         if stats:
-            block.append("Stats: " + " ".join(f"{k}{v}" for k, v in stats.items()))
+            block.append(st_lbl + " ".join(f"{k}{v}" for k, v in stats.items()))
         skills = p.get("skills") or {}
         line = ""
         if reg is not None:
@@ -88,7 +97,7 @@ def _render_player(state: dict, cfg=None) -> str:
         if not line and skills:              # fallback: stored ranks (pre-RPG-1 shape)
             line = " ".join(f"{str(k).capitalize()} {v}" for k, v in skills.items())
         if line:
-            block.append("Skills: " + line)
+            block.append(sk_lbl + line)
         abil = p.get("abilities") or []
         if abil:
             mab = {}
@@ -97,7 +106,9 @@ def _render_player(state: dict, cfg=None) -> str:
                     mab = reg.merged_abilities(p)
                 except Exception:
                     mab = {}
-            tag = {"edge": "passive: advantage", "ward": "passive: no fumble",
+            tag = {"edge": "adv", "ward": "no-fumble", "extra_die": "xdie", "reroll": "reroll",
+                   "surge": "surge", "basis": "basis"} if c2 else \
+                  {"edge": "passive: advantage", "ward": "passive: no fumble",
                    "extra_die": "active: extra die on a miss", "reroll": "active: reroll a miss",
                    "surge": "active: big swing + higher ceiling", "basis": "grants a basis"}
             bits = []
@@ -109,12 +120,12 @@ def _render_player(state: dict, cfg=None) -> str:
                 except Exception:
                     mech = "mod"
                 bits.append(f"{nm} [{tag[mech]}]" if mech in tag else nm)
-            block.append("Abilities: " + ", ".join(bits))
+            block.append(ab_lbl + ", ".join(bits))
         cards.append("\n".join(block))
     return "[PLAYER] " + "\n".join(cards) if cards else ""
 
 
-def _render_gear(state: dict) -> str:
+def _render_gear(state: dict, cfg=None) -> str:
     """[GEAR] — the equipped paper-doll (slot=Name(mods)[cap]) PLUS carried GEAR-class items
     (weapons/armor/tools/bags not currently worn), so a sheathed sword reads as gear, not
     inventory (Bean 2026-07-07). Reads only baked per-instance data — pure state, µs."""
@@ -151,6 +162,8 @@ def _render_gear(state: dict) -> str:
                     continue
                 q = int(it.get("qty", 1))
                 stowed.append((f"{q}× " if q > 1 else "") + str(it.get("name", iid)))
+        if cfg is not None and _compact(cfg) and len(stowed) > 8:   # item 2: long packs cap
+            stowed = stowed[:8] + [f"+{len(stowed) - 8} more"]
         line = " · ".join(bits)
         if stowed:
             line += (" · " if line else "") + "stowed: " + ", ".join(stowed)
@@ -200,9 +213,15 @@ def _render_effects(state: dict) -> str:
     from . import registry as _registry
     turn = state.get("meta", {}).get("turn", -1)
     players = list((state.get("player") or {}).keys())
+    bonds = {p[ptr] for p in (state.get("player") or {}).values() if isinstance(p, dict)
+             for ptr in ("soulmate", "nemesis") if p.get(ptr)}
+    ents = state.get("entities") or {}
     order = players + [e for e in effs if e not in players]
     out: list[str] = []
     for eid in order:
+        if eid not in players and eid not in bonds \
+                and (ents.get(eid) or {}).get("present") is False:
+            continue        # item 5: an absent NPC's statuses stay ledger-only (bonds ride)
         bits = []
         for rec in (effs.get(eid) or {}).values():
             if not isinstance(rec, dict) or not _registry.effect_active(rec, turn):
@@ -234,6 +253,63 @@ _DEFEAT_PHRASE = {
     "rescued": "downed until someone intervenes to pull them out",
     "death": "this is death, final and unsoftened — narrate it with the weight it deserves",
 }
+
+
+def _war_room_on(state: dict, cfg=None) -> bool:
+    """Phase 1 gate: combat instances active + the war_room knob (default on)."""
+    if cfg is not None and not getattr(getattr(cfg, "specialization", None),
+                                       "war_room", True):
+        return False
+    return bool((state.get("combat") or {}).get("active"))
+
+
+def _ally_die(state: dict, cid: str) -> tuple[int, int]:
+    """Phase 1 (ratified): ONE pre-rolled action die per ally per combat turn — the R8c
+    pattern exactly: derived DETERMINISTICALLY from (turn, scene, ally row), no journal
+    row, the same turn always re-renders the same dice. Returns (2d6 total, damage die)."""
+    import hashlib
+    meta = state.get("meta", {})
+    loc = str(state.get("scene", {}).get("location_id", ""))
+    seed = int(hashlib.md5(f"ally:{meta.get('turn', -1)}:{loc}:{cid}".encode())
+               .hexdigest()[:8], 16)
+    rng = _random.Random(seed)
+    return rng.randint(1, 6) + rng.randint(1, 6), rng.randint(1, 6)
+
+
+def _die_tier(total: int) -> str:
+    return ("CRITS" if total >= 12 else "HITS" if total >= 10
+            else "GRAZES" if total >= 7 else "MISSES")
+
+
+def _render_war(state: dict) -> str:
+    """[WAR] — the board, exact HP (Bean: decided — pillar-17 rawness for the DM too):
+    every live combatant with side, tier, HP numbers, and armament; the fallen marked.
+    Rendered from committed rows only; rides the volatile directive tail (0a constraint)."""
+    rows = ((state.get("combat") or {}).get("combatants") or {})
+    if not rows:
+        return ""
+    turn = state.get("meta", {}).get("turn", -1)
+    started = (state.get("combat") or {}).get("started_turn")
+    rnd = max(1, turn - int(started or turn) + 1)
+    foes, allies = [], []
+    for r in rows.values():
+        if not isinstance(r, dict):
+            continue
+        hp = r.get("hp") or {}
+        t = f"{r.get('name', '?')} {int(hp.get('cur', 0))}/{int(hp.get('max', 1))}"
+        if r.get("armament"):
+            t += f" ({r['armament']})"
+        if r.get("tier") and r.get("tier") != "standard":
+            t += f" [{r['tier']}]"
+        if r.get("defeated"):
+            t = f"☠ {r.get('name', '?')} DOWN"
+        (foes if r.get("side") == "enemy" else allies).append(t)
+    bits = []
+    if foes:
+        bits.append("foes: " + ", ".join(foes))
+    if allies:
+        bits.append("allies: " + ", ".join(allies))
+    return f"[WAR] round {rnd} — " + " · ".join(bits) if bits else ""
 
 
 def _opposition_roll(state: dict) -> tuple[int, int]:
@@ -278,12 +354,34 @@ def _render_directive(state: dict, cfg=None) -> str:
             else:
                 clause += (f" (the player spent {sh['fired']} but the roll still fell short — "
                            f"narrate the effort and the failure, no rescue)")
+        tgt = c.get("target") or c.get("_target")     # Phase 1: a strike's damage is
+        dmg = c.get("dmg") if c.get("dmg") is not None else c.get("_dmg")   # code-decided
+        if tgt and isinstance(dmg, int):
+            if dmg > 0:
+                clause += (f" — the blow lands on {tgt} for {dmg} damage (already committed "
+                           f"to the ledger; narrate that exact toll, no more, no less)")
+            else:
+                clause += f" — the attempt on {tgt} draws no blood"
         clauses.append(clause)
     for eid, p in (state.get("player") or {}).items():   # RPG-5 (doc 10 §7): a defeat this
         d = p.get("defeated") if isinstance(p, dict) else None   # turn is a code-decided
         if isinstance(d, dict) and d.get("turn") == turn:        # outcome CLASS to narrate
             phrase = _DEFEAT_PHRASE.get(str(d.get("outcome")), "defeated")
             clauses.append(f"{_name(state, eid)} is DEFEATED — {phrase}")
+    for r in ((state.get("combat") or {}).get("combatants") or {}).values():
+        if isinstance(r, dict) and r.get("defeated") and r.get("defeated_turn") == turn:
+            c2 = (f"{r.get('name', '?')} FALLS this turn — the ledger has them at 0 HP; "
+                  f"narrate the fall")                # Phase 1: code-detected defeat + the
+            if r.get("dropped"):                      # frozen loot roll, handed pre-decided
+                c2 += " (they drop: " + ", ".join(r["dropped"]) + " — now on the field)"
+            clauses.append(c2)
+    hist = (state.get("combat") or {}).get("history") or []
+    if hist and hist[-1].get("turn") == turn:         # the fight settled THIS turn
+        h = hist[-1]
+        c2 = f"the combat is OVER ({h.get('outcome', 'resolved')})"
+        if h.get("loot"):
+            c2 += " — unclaimed spoils on the field: " + ", ".join(h["loot"][:6])
+        clauses.append(c2 + "; narrate the dust settling and any wounds carried out of it")
     out = ""
     if clauses:
         what = "these outcomes" if len(clauses) > 1 else "this outcome"
@@ -291,8 +389,11 @@ def _render_directive(state: dict, cfg=None) -> str:
                "do not soften, upgrade, or override the result of a roll.")
     # R8c — the enemy acts on real dice too (rendered whenever a non-player is on scene;
     # the DM is told to ignore it in peaceful beats). Code rolls, the model narrates.
-    if cfg is not None and getattr(getattr(cfg, "specialization", None),
-                                   "enemy_rolls", True) and (state.get("player") or {}):
+    # Phase 1 rides here too: with the War Room active, ally dice + the exact-HP board
+    # join the volatile tail (enemy_rolls only gates the [OPPOSITION] die itself).
+    enemy_rolls = cfg is not None and getattr(getattr(cfg, "specialization", None),
+                                              "enemy_rolls", True)
+    if cfg is not None and (state.get("player") or {}):
         peid = next(iter(state["player"]), "")
         pname = _name(state, peid)
         present = [eid for eid, e in (state.get("entities") or {}).items()
@@ -308,7 +409,13 @@ def _render_directive(state: dict, cfg=None) -> str:
         combat_flag = any(str(k).lower() in ("combat", "battle", "fight", "under_attack")
                           and v and str(v).lower() not in ("no", "false", "0", "none")
                           for k, v in flags.items())
-        if present and (hostile_present or combat_phase or combat_flag):
+        war = _war_room_on(state, cfg)                 # Phase 1: instances on the field
+        live_foes = [r for r in ((state.get("combat") or {}).get("combatants")
+                                 or {}).values()
+                     if isinstance(r, dict) and not r.get("defeated")
+                     and r.get("side") == "enemy"] if war else []
+        if enemy_rolls and ((present and (hostile_present or combat_phase or combat_flag))
+                            or live_foes):
             total, dmg = _opposition_roll(state)
             graze = (dmg + 1) // 2
             tier = ("CRITS" if total >= 12 else "HITS" if total >= 10
@@ -323,15 +430,44 @@ def _render_directive(state: dict, cfg=None) -> str:
                    "This die is final (do not soften or invert it); if no one hostile acts "
                    "this turn, ignore this line entirely.")
             out = (out + "\n" + opp) if out else opp
+        if war:
+            allies = [r for r in ((state.get("combat") or {}).get("combatants")
+                                  or {}).values()
+                      if isinstance(r, dict) and not r.get("defeated")
+                      and r.get("side") == "ally"]
+            for r in allies:                           # ratified: ally dice VISIBLE, the R8c
+                total, dmg = _ally_die(state, str(r.get("id")))   # pattern (no journal row)
+                tier = _die_tier(total)
+                act = {"CRITS": f"they strike true — emit [hp | <their foe> | -{dmg + 2} | <why>]",
+                       "HITS": f"their blow lands — emit [hp | <their foe> | -{dmg} | <why>]",
+                       "GRAZES": f"a glancing effort — emit [hp | <their foe> | "
+                                 f"-{(dmg + 1) // 2} | <why>] or a costly setback",
+                       "MISSES": "they come up short — narrate the miss honestly"}[tier]
+                out += (("\n" if out else "")
+                        + f"[ALLY] {r.get('name', '?')}'s action this turn came up "
+                          f"2d6={total} — it {tier}. If they engage, {act}. This die is "
+                          "final; if they hold back this turn, ignore this line.")
+            wl = _render_war(state)
+            if wl:
+                out += ("\n" if out else "") + wl
     return out
 
 
-def _render_quest(state: dict) -> str:
+def _render_quest(state: dict, cfg=None) -> str:
     """[QUEST] — the quest LEDGER first (RPG-5, G3): active quests with stakes/notes, plus
     recently-settled ones so the narrator can close arcs. Falls back to the legacy
-    per-character `goal` lines when no quest has ever been recorded."""
+    per-character `goal` lines when no quest has ever been recorded. Item 5 (2026-07-09):
+    only the 3 most-recently-touched active quests carry stakes/notes — older actives ride
+    name-only (still true, just lean) until the story touches them again."""
     qs = state.get("quests") or {}
     turn = state.get("meta", {}).get("turn", -1)
+    note_cap = 40 if (cfg is not None and _compact(cfg)) else 80
+    actives = [(qid, q) for qid, q in qs.items()
+               if isinstance(q, dict) and q.get("status", "active") == "active"]
+    detail = {qid for qid, q in sorted(
+        actives, key=lambda kv: int(kv[1].get("updated_turn",
+                                              kv[1].get("created_turn", 0)) or 0),
+        reverse=True)[:3]}
     bits: list[str] = []
     for qid, q in qs.items():
         if not isinstance(q, dict):
@@ -339,10 +475,11 @@ def _render_quest(state: dict) -> str:
         st = q.get("status", "active")
         if st == "active":
             t = str(q.get("name", qid))
-            if q.get("stakes"):
-                t += f" ({q['stakes']})"
-            if q.get("note"):
-                t += f" — {str(q['note'])[:80]}"
+            if qid in detail:
+                if q.get("stakes"):
+                    t += f" ({q['stakes']})"
+                if q.get("note"):
+                    t += f" — {str(q['note'])[:note_cap]}"
             bits.append(t)
         elif st in ("complete", "failed") \
                 and turn - int(q.get("updated_turn", -10**9)) <= 4:
@@ -370,7 +507,7 @@ def _flag_str(v) -> str:
     return str(v)
 
 
-def _render_relations(state: dict) -> str:
+def _render_relations(state: dict, cfg=None) -> str:
     """[RELATIONS] — present NPCs' affinity TIER (label, never the integer — doc 05 §5.4)
     plus the bond pointers, flagged (doc 06 §2.4). A bond renders even for an absent
     character (a soulmate matters off-screen). Pure state, µs."""
@@ -400,7 +537,87 @@ def _render_relations(state: dict) -> str:
     for b, ptr in bonds.items():                 # a bond without a ledger row still renders
         if b not in seen:
             bits.append(f"{_name(state, b)}: {_BOND_GLYPH[ptr]}")
-    return "[RELATIONS] " + " · ".join(bits) if bits else ""
+            seen.add(b)
+    # 0b (anti-main-character): a PRESENT NPC with no relationship row is a STRANGER — said
+    # structurally so the DM cannot default to treating the Player as a known main character.
+    for eid in sorted(ents):
+        e = ents.get(eid) or {}
+        if not e.get("present") or eid == peid or eid in seen \
+                or e.get("kind") not in ("character", "npc"):
+            continue
+        bits.append(f"{_name(state, eid)}: {_knows_player(state, peid, eid)}")
+    if not bits:
+        return ""
+    out = "[RELATIONS] " + " · ".join(bits)
+    if cfg is not None and _compact(cfg):
+        out = out.replace("by reputation (", "rep(")   # item 2 (legend on the contract)
+    return out
+
+
+def _knows_player(state: dict, peid: str, eid: str) -> str:
+    """0b (anti-main-character, plan doc 13): how an NPC knows the Player, read from the
+    LEDGER — structural, not contract prose. Direct player->npc affinity row = its tier
+    label; npc `faction` attribute + a player->faction row = by reputation (that faction's
+    standing, and only that); nothing = a stranger. Pure state reads, µs."""
+    aff = state.get("affinity") or {}
+    rec = aff.get(f"{peid}->{eid}")
+    if isinstance(rec, dict):
+        return affinity_tier(rec.get("value", 0))
+    fac = str(((state.get("attributes") or {}).get(eid) or {}).get("faction") or "")
+    if fac:
+        fid = fac
+        frec = aff.get(f"{peid}->{fid}")
+        if not isinstance(frec, dict):           # the attribute may carry a display name
+            for key, r in aff.items():
+                a, _, b = key.partition("->")
+                if a == peid and isinstance(r, dict) and r.get("kind") == "faction" \
+                        and _name(state, b).lower() == fac.lower():
+                    fid, frec = b, r
+                    break
+        if isinstance(frec, dict):
+            return f"by reputation ({_name(state, fid)}: {affinity_tier(frec.get('value', 0))})"
+    return "stranger"
+
+
+def _render_nearby(state: dict, cfg=None) -> str:
+    """[NEARBY] — 0b home anchors: notables whose authored `home` matches the scene's
+    canonical location and who are NOT on scene. Tells the DM who is plausibly here —
+    with the knows-player gate inline — without staging anyone; presence stays a fiction
+    move ([scene]/present tags). Anchored-elsewhere notables spend ZERO tokens (the
+    presence-basis gate). Caps at 4 (the fidelity budget goes to the player, pillar 12)."""
+    loc = str((state.get("scene") or {}).get("location_id") or "")
+    if not loc:
+        return ""
+    players = state.get("player") or {}
+    peid = next(iter(players), None)
+    ents = state.get("entities") or {}
+    attrs = state.get("attributes") or {}
+    loc_ent = ents.get(loc) or {}
+    keys = {_norm_loc(loc), _norm_loc(loc.replace("_", " "))}
+    for n in [loc_ent.get("name") or ""] + list(loc_ent.get("aliases") or []):
+        keys.add(_norm_loc(n))
+    keys.discard("")
+    bits: list[str] = []
+    for eid in sorted(ents):
+        e = ents[eid] or {}
+        if e.get("present") or e.get("kind") not in ("character", "npc") or eid in players:
+            continue
+        home = ((attrs.get(eid) or {}).get("home") or "")
+        if not home or _norm_loc(str(home)) not in keys:
+            continue
+        role = (attrs.get(eid) or {}).get("role")
+        t = _name(state, eid) + (f" ({role})" if role else "")
+        if peid:
+            t += f" — {_knows_player(state, peid, eid)}"
+        bits.append(t)
+        if len(bits) >= 4:
+            break
+    if not bits:
+        return ""
+    out = "[NEARBY] " + " · ".join(bits)
+    if cfg is not None and _compact(cfg):
+        out = out.replace("by reputation (", "rep(")   # item 2 (legend on the contract)
+    return out
 
 
 def _render_factions(state: dict) -> str:
@@ -453,12 +670,20 @@ def render_header(state: dict, cfg) -> str:
     if sc.get("mode") in ("flashback", "dream"):
         scene_bits.append(f'{sc["mode"].upper()} SCENE')
     if present:
-        scene_bits.append("present: " + ", ".join(sorted(present)))
+        scene_bits.append(("here: " if _compact(cfg) else "present: ")
+                          + ", ".join(sorted(present)))
     if sc or present:
         lines.append("[SCENE] " + " · ".join(scene_bits))
 
-    # [PHYSICAL] pose; worn items; derived exposure (02 SS5.2 — derived, never stored)
-    phys_ids = sorted(set(state.get("poses", {})) | set(state.get("clothing", {})))
+    # [PHYSICAL] pose; worn items; derived exposure (02 SS5.2 — derived, never stored).
+    # Item 5 scoping (2026-07-09): an EXPLICITLY-absent entity spends no tokens here — its
+    # ledger state persists untouched; only the render is scene-scoped. Missing/unknown
+    # presence keeps rendering (chats that never emit presence ops lose nothing).
+    ents_all = state.get("entities", {})
+    phys_ids = sorted(eid for eid in (set(state.get("poses", {}))
+                                      | set(state.get("clothing", {})))
+                      if (ents_all.get(eid) or {}).get("present") is not False)
+    wear_lbl, exp_lbl = ("wear: ", "exp: ") if _compact(cfg) else ("wearing ", "exposed: ")
     phys = []
     for eid in phys_ids:
         bits = []
@@ -469,10 +694,10 @@ def render_header(state: dict, cfg) -> str:
         on_body = [f"{n}({it['state']})" for n, it in items.items()
                    if it.get("state") in ("worn", "opened", "displaced")]
         if on_body:
-            bits.append("wearing " + ", ".join(sorted(on_body)))
+            bits.append(wear_lbl + ", ".join(sorted(on_body)))
         exposed = derived_exposure(state, eid)
         if exposed:
-            bits.append("exposed: " + ", ".join(exposed))
+            bits.append(exp_lbl + ", ".join(exposed))
         if bits:
             phys.append(f'{_name(state, eid)}: ' + "; ".join(bits))
     if phys:
@@ -506,10 +731,13 @@ def render_header(state: dict, cfg) -> str:
     elif state.get("frozen"):   # user-commanded freeze surfaces even in raw (Q13: user controls always work)
         lines.append("[CONTROL] scene paused by user — do not escalate; follow the user's lead")
 
-    # [DRIVES] — only drives >= inject_threshold (02 SS4.1)
+    # [DRIVES] — only drives >= inject_threshold (02 SS4.1); item 5: absent NPCs' drives
+    # stay ledger-only (rendered again the moment they return)
     thr = cfg.drives.inject_threshold
     dbits = []
     for eid, ch in state.get("chars", {}).items():
+        if (ents_all.get(eid) or {}).get("present") is False:
+            continue
         for o in ch.get("obsessions", {}).values():
             if o["intensity"] >= thr:
                 dbits.append(f'{_name(state, eid)}: obsession {o["target"]} '
@@ -550,7 +778,7 @@ def render_header(state: dict, cfg) -> str:
             if eblock:
                 lines.append(eblock)
         if "GEAR" in blocks:
-            gblock = _render_gear(state)
+            gblock = _render_gear(state, cfg)
             if gblock:
                 lines.append(gblock)
         if "INVENTORY" in blocks:
@@ -562,11 +790,15 @@ def render_header(state: dict, cfg) -> str:
             if fblock:
                 lines.append(fblock)
         if "RELATIONS" in blocks:
-            rblock = _render_relations(state)
+            rblock = _render_relations(state, cfg)
             if rblock:
                 lines.append(rblock)
+        if "NEARBY" in blocks:                   # 0b home anchors (plan doc 13)
+            nblock = _render_nearby(state, cfg)
+            if nblock:
+                lines.append(nblock)
         if "QUEST" in blocks:
-            qblock = _render_quest(state)
+            qblock = _render_quest(state, cfg)
             if qblock:
                 lines.append(qblock)
         if "WORLD" in blocks:

@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — card-seed build (2026-07-08)");
+  console.log("[AetherState] Companion loaded — hud-clarity build (2026-07-09)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -24,7 +24,9 @@
            edit: false, compact: false, tab: "char", hideTags: true },
   };
   const settings = Object.assign({}, defaults, ctx.extensionSettings[MODULE]);
-  if (!settings.hud) settings.hud = Object.assign({}, defaults.hud);   // migrate older saves
+  // per-key hud merge (2026-07-09): a saved hud from an older build REPLACES the default
+  // object wholesale, so any newly-added key came up undefined forever. Merge key-by-key.
+  settings.hud = Object.assign({}, defaults.hud, settings.hud || {});
   ctx.extensionSettings[MODULE] = settings;
   const save = () => { try { ctx.saveSettingsDebounced(); } catch (e) {} };
 
@@ -492,7 +494,8 @@
     if (settings.hud.edit) hud.classList.add("editing");
     if (settings.hud.compact) hud.classList.add("compact");
     $h("aes_hud_edit").onclick = () => { settings.hud.edit = hud.classList.toggle("editing"); save(); };
-    $h("aes_hud_min").onclick = () => { settings.hud.compact = hud.classList.toggle("compact"); save(); hudRefresh(); };
+    $h("aes_hud_min").onclick = () => { settings.hud.compact = hud.classList.toggle("compact"); save(); syncMinBtn(); hudRefresh(); };
+    syncMinBtn();
     makeDraggable(hud, $h("aes_hud_bar"));
     if (settings.hud.open) openHud();
   }
@@ -515,6 +518,19 @@
   function closeHud() { const h = document.getElementById("aes_hud"); if (!h) return;
     h.classList.add("hidden"); settings.hud.open = false; save(); }
   function toggleHud() { hudVisible() ? closeHud() : openHud(); }
+  // the minimize button must SHOW which state you're in (2026-07-09: Bean lost days to a
+  // silently-minimized HUD that "displayed nothing beyond hp/stamina/mana") — never again.
+  function syncMinBtn() {
+    const h = document.getElementById("aes_hud"), b = document.getElementById("aes_hud_min");
+    if (!h || !b) return;
+    const c = h.classList.contains("compact");
+    b.textContent = c ? "▣" : "▁";
+    b.title = c ? "EXPAND — the HUD is minimized to a vitals strip" : "minimize to a compact vitals strip";
+  }
+  window.aetherHudExpand = () => {
+    const h = document.getElementById("aes_hud"); if (!h) return;
+    h.classList.remove("compact"); settings.hud.compact = false; save(); syncMinBtn(); hudRefresh();
+  };
   function makeDraggable(box, handle) {
     let sx, sy, ox, oy, drag = false;
     handle.addEventListener("mousedown", (e) => {
@@ -541,13 +557,26 @@
     lastHudView = v;
     const _ae = document.activeElement;
     if (_ae && _ae.id === "aes_roll_custom") return;   // don't clobber a custom roll being typed
-    body.innerHTML = (hud && hud.classList.contains("compact")) ? renderCompact(v) : renderHud(v);
+    // VISIBLE fail-open (2026-07-09): a throw inside a renderer used to leave the PREVIOUS
+    // innerHTML on screen forever — an invisible break that looks like "the HUD lost my data".
+    // The ledger is never at risk; the reader must SEE that the view (not the truth) failed.
+    try {
+      body.innerHTML = (hud && hud.classList.contains("compact")) ? renderCompact(v) : renderHud(v);
+    } catch (e) {
+      console.error("[AetherState] HUD render failed", e);
+      body.innerHTML = `<div class="aes-hud-empty aes-hud-off">⚠ HUD render error — ${esc(e && e.message ? e.message : String(e))}.<br>The ledger is intact; refresh (⟳) or report this.</div>`;
+    }
   }
   // tab switch: re-render the cached payload in place (no network round-trip)
   window.aetherHudTab = (t) => {
     settings.hud.tab = t; save();
     const body = document.getElementById("aes_hud_body");
-    if (body && lastHudView) body.innerHTML = renderHud(lastHudView);
+    if (!body || !lastHudView) return;
+    try { body.innerHTML = renderHud(lastHudView); }
+    catch (e) {
+      console.error("[AetherState] HUD tab render failed", e);
+      body.innerHTML = `<div class="aes-hud-empty aes-hud-off">⚠ HUD render error — ${esc(e && e.message ? e.message : String(e))}.<br>The ledger is intact; refresh (⟳) or report this.</div>`;
+    }
   };
   // an inline op button (edit-mode only via CSS). JSON is single-quote-safe for the attribute.
   function actBtn(label, ops, title, cls) {
@@ -564,11 +593,18 @@
     for (const k in (p.resources || {})) { const r = p.resources[k]; bars.push(bar(k, r.cur, r.max)); }
     if (bars.length) h += `<div class="aes-bars">${bars.join("")}</div>`;
     if ((p.effects || []).length) h += `<div class="aes-rows" style="margin-top:4px">${p.effects.map((e) => { const cls = e.valence === "positive" ? "pos good" : e.valence === "negative" ? "neg bad" : "neu"; return `<span class="aes-pill ${cls}"><span class="g">${esc(e.glyph)}</span> ${esc(e.name)}</span>`; }).join("")}</div>`;
+    if (v.war_room && v.war_room.active) {           // Phase 1: minimized combat strip
+      const foes = (v.war_room.combatants || []).filter((c) => c.side === "enemy" && !c.defeated);
+      if (foes.length) h += `<div class="aes-kv" style="margin-top:4px">⚔ ${foes.map((c) => `${esc(c.name)} ${esc(c.hp.cur)}/${esc(c.hp.max)}`).join(" · ")}</div>`;
+    }
     const lr = (v.rolls || []).slice(-1)[0];
     if (lr && lr.tier_label) {
       const tc = (lr.tier === "success" || lr.tier === "crit_success") ? "success" : (lr.tier === "partial" ? "partial" : "fail");
       h += `<div class="aes-lastroll ${tc}">\uD83C\uDFB2 ${esc(lr.skill || "roll")} \u2192 <b>${esc(lr.tier_label)}</b> <span class="m">(${esc(lr.result)})</span></div>`;
     }
+    // the strip must SAY it is a strip (2026-07-09) — a minimized HUD with no label reads
+    // as "everything is gone". One tap restores the full sheet.
+    h += `<button class="aes-expand" onclick="window.aetherHudExpand()" title="this compact strip shows vitals only — the full sheet (skills, gear, status, world…) is one tap away">▣ expand — full sheet</button>`;
     return h;
   }
   function bar(kind, cur, max) { const pct = max ? Math.max(0, Math.min(100, Math.round(100 * cur / max))) : 0;
@@ -582,6 +618,8 @@
     const p = (v.players || [])[0];
     let head = renderVitals(v, p);
     if (v.frozen) head += `<div class="aes-hud-off">⏸ scene frozen${v.frozen_reason ? " (" + esc(v.frozen_reason) + ")" : ""}</div>`;
+    if (v.war_room && v.war_room.active) head += renderWarRoom(v.war_room);   // Phase 1:
+    // the combat lane rides ABOVE the tabs, combat-phase-only — it vanishes with the fight
     const tab = HUD_TABS.some((t) => t[0] === settings.hud.tab) ? settings.hud.tab : "char";
     head += `<div class="aes-tabs">${HUD_TABS.map(([k, label]) =>
       `<button class="aes-tab ${k === tab ? "on" : ""}" onclick="window.aetherHudTab('${k}')">${esc(label)}</button>`).join("")}</div>`;
@@ -614,6 +652,33 @@
         h += `<div class="aes-lastroll ${tc}">\uD83C\uDFB2 ${esc(lr.skill || "roll")} \u2192 <b>${esc(lr.tier_label)}</b> <span class="m">(${esc(lr.result)})</span></div>`;
       }
     }
+    return h + `</div>`;
+  }
+  // ---- Phase 1: the War Room lane (plan doc 13, ratified) — combatant cards with EXACT HP
+  // numbers (pillar-17 rawness), tier/armament, the pre-rolled enemy + ally dice (visible,
+  // ratified), defeat marks and fresh loot chips. Rendered from committed rows only.
+  function renderWarRoom(w) {
+    const die = (d) => d ? `<span class="aes-die ${d.tier === "MISSES" ? "miss" : d.tier === "GRAZES" ? "graze" : "hit"}" title="pre-rolled action die (deterministic this turn)">🎲${esc(d.total)} ${esc(d.tier.toLowerCase())}</span>` : "";
+    const card = (c) => {
+      const pct = c.hp.max ? Math.max(0, Math.min(100, Math.round(100 * c.hp.cur / c.hp.max))) : 0;
+      let h = `<div class="aes-com ${c.side}${c.defeated ? " down" : ""}">`;
+      h += `<div class="aes-com-h">${c.side === "enemy" ? "⚔" : "🛡"} <b>${esc(c.name)}</b>`;
+      if (c.tier && c.tier !== "standard") h += ` <span class="aes-tag${c.tier === "boss" ? " warn" : ""}">${esc(c.tier)}</span>`;
+      if (c.kind === "tracked") h += ` <span class="aes-tag ok" title="a tracked character — wounds persist after the fight">tracked</span>`;
+      h += c.defeated ? ` <span class="aes-tag bad">☠ down</span>` : ` ${die(c.die)}`;
+      h += `</div>`;
+      if (!c.defeated) h += `<div class="aes-bar hp com"><i style="width:${pct}%"></i><span>HP ${esc(c.hp.cur)}/${esc(c.hp.max)}</span></div>`;
+      const bits = [];
+      if (c.armament) bits.push(`<span class="aes-dim">⚒ ${esc(c.armament)}</span>`);
+      if ((c.dropped || []).length) bits.push(`<span class="aes-pill warn" title="dropped loot on the field">💰 ${c.dropped.map(esc).join(", ")}</span>`);
+      if (bits.length) h += `<div class="aes-kv">${bits.join(" ")}</div>`;
+      return h + `</div>`;
+    };
+    const foes = (w.combatants || []).filter((c) => c.side === "enemy");
+    const allies = (w.combatants || []).filter((c) => c.side !== "enemy");
+    let h = `<div class="aes-war"><div class="aes-war-h">⚔ WAR ROOM <span class="m">round ${esc(w.round)}</span></div>`;
+    if (foes.length) h += `<div class="aes-war-side">${foes.map(card).join("")}</div>`;
+    if (allies.length) h += `<div class="aes-war-side">${allies.map(card).join("")}</div>`;
     return h + `</div>`;
   }
   function renderRules(rules) {

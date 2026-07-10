@@ -234,6 +234,75 @@ def xp_level(xp) -> int:
         lvl += 1
     return lvl
 
+# ---- Phase 1 combat / War Room vocab (plan doc 13, ratified 2026-07-09) --------------
+# Combatant INSTANCES are snapshot-frozen at spawn (replay-pure): HP by threat tier, an
+# armament tag, and the loot row all bake into the journaled op. Two classes (Bean's split):
+# EXTRAS are unnamed-procedural rows that evaporate at combat_end; TRACKED combatants
+# REFERENCE their entity row so wounds persist after the fight (FULL persistence, ratified).
+# 3v3 cap, player included on the ally side. All numbers curated — never model-typed.
+COMBAT_SIDES = {"ally", "enemy"}
+THREAT_TIERS = ["minion", "standard", "elite", "boss"]
+THREAT_HP = {"minion": 6, "standard": 14, "elite": 26, "boss": 44}
+THREAT_XP = {"minion": 15, "standard": 30, "elite": 60, "boss": 120}
+THREAT_MOD = {"minion": 0, "standard": 1, "elite": 2, "boss": 3}
+COMBAT_SIDE_CAP = 3              # per side; the player occupies one ally slot (Bean: 3v3)
+COMBAT_HISTORY_CAP = 10          # settled fights kept for the War Room / Console record
+CLASH_CAP = 20                   # recorded NPC-vs-NPC clashes kept (prose fights, no dice)
+_COMBAT_PHASES = ("climax", "combat", "battle", "fight", "ambush")   # shares R8c's gate
+# curated fallback loot rows (registry/loot.toml overrides; a Creator-frozen state["loot"]
+# table wins over both). Baked into combatant_defeat at _enrich -> replay never re-rolls.
+_LOOT_FALLBACK = {
+    "minion": [{"name": "a few coins", "qty_min": 1, "qty_max": 4, "chance": 0.7}],
+    "standard": [{"name": "coin purse", "qty_min": 1, "qty_max": 1, "chance": 0.8},
+                 {"name": "worn weapon", "qty_min": 1, "qty_max": 1, "chance": 0.35}],
+    "elite": [{"name": "heavy coin purse", "qty_min": 1, "qty_max": 1, "chance": 0.9},
+              {"name": "quality arm or trinket", "qty_min": 1, "qty_max": 1, "chance": 0.6}],
+    "boss": [{"name": "trove of coin", "qty_min": 1, "qty_max": 1, "chance": 1.0},
+             {"name": "signature relic", "qty_min": 1, "qty_max": 1, "chance": 0.9}],
+}
+
+
+def _combat(state: dict) -> dict:
+    """The combat ledger (created lazily so a pre-1.13 checkpoint replays untouched)."""
+    return state.setdefault("combat", {"active": False, "combatants": {},
+                                       "started_turn": None, "history": []})
+
+
+def combat_active(state: dict) -> bool:
+    return bool((state.get("combat") or {}).get("active"))
+
+
+def live_combatants(state: dict, side: Optional[str] = None) -> list[dict]:
+    """Non-defeated combatant rows, spawn order (dict order = journal order = stable)."""
+    rows = [r for r in ((state.get("combat") or {}).get("combatants") or {}).values()
+            if isinstance(r, dict) and not r.get("defeated")]
+    return [r for r in rows if side is None or r.get("side") == side]
+
+
+def resolve_combatant(state: dict, token) -> Optional[str]:
+    """cid | exact name | unique ci name/token match among LIVE combatants -> cid.
+    The [hp | <foe> | -N] channel and player-strike targeting both resolve through this;
+    ambiguous or unknown -> None (visible quarantine, never a guess). Pure state reads."""
+    t = str(token or "").strip()
+    if not t:
+        return None
+    rows = (state.get("combat") or {}).get("combatants") or {}
+    if t in rows and not (rows[t] or {}).get("defeated"):
+        return t
+    low = t.lower()
+    live = [(cid, r) for cid, r in rows.items()
+            if isinstance(r, dict) and not r.get("defeated")]
+    hits = [cid for cid, r in live if str(r.get("name", "")).lower() == low]
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:                                 # token-subset fallback ("bandit" -> Bandit 2
+        toks = set(re.findall(r"[a-z0-9]+", low))  # ONLY when a single live row matches)
+        if toks:
+            hits = [cid for cid, r in live
+                    if toks <= set(re.findall(r"[a-z0-9]+", str(r.get("name", "")).lower()))]
+    return hits[0] if len(hits) == 1 else None
+
+
 # ---- op spec: op -> (required fields, per-field validator hints) (02 SS11) --------
 _SPEC: dict[str, set[str]] = {
     "set_attribute": {"entity", "key", "value"},
@@ -253,6 +322,7 @@ _SPEC: dict[str, set[str]] = {
     "obsession": {"char", "target_kind", "target"},
     "craving": {"char", "substance", "action"},
     # engine-internal ops (rule/user sources; never emitted by extraction):
+    "fact_retire": set(),                      # compression item 3: `fact` id OR `statement`
     "clock_tick": {"minutes"},                 # R2 scene-minutes counter (no craving ramp)
     "scene_set": set(),                        # location / participants / phase
     "scene_dial": {"dial"},                    # tension | intimacy (organic)
@@ -305,6 +375,16 @@ _SPEC: dict[str, set[str]] = {
     "evolve_def": {"char", "table", "id", "def"},
     "defeat_resolve": {"char", "outcome"},
     "stat_spend": {"char", "stat"},            # spend a banked stat point: +1 stat, -1 point
+    # Phase 1 combat / War Room (plan doc 13, ratified). combatant_spawn / combatant_defeat /
+    # combat_end / loot_table are PRIVILEGED (rule/user/genesis — the DM's [foe] tag is
+    # validated and re-sourced as rule by the pipeline, the R8b pattern); combatant_hp and
+    # clash_record are PROPOSABLE (tag protocol + rpg wire, clamped/checked at apply).
+    "combatant_spawn": {"name", "side"},
+    "combatant_hp": {"target", "delta"},
+    "combatant_defeat": {"target"},
+    "combat_end": set(),
+    "clash_record": {"a", "b"},                # NPC-vs-NPC: record, never resolve (no dice)
+    "loot_table": {"tier", "entries"},         # Creator/assist-frozen loot rows (pillar 18)
 }
 
 # 08 E2 deterministic family apply-order (freeze first so mid-delta safewords gate the rest)
@@ -314,7 +394,9 @@ _ORDER = {"freeze": -1, "unfreeze": 0, "entity_add": 0, "presence": 1, "move_ent
           "clothing": 4, "item_move": 4, "item_equip": 4, "item_unequip": 4, "item_lose": 4,
           "contact": 5, "item_consume": 5, "effect_add": 5, "arousal": 6, "effect_update": 6,
           "effect_remove": 6, "hp_adj": 6, "award_exp": 8, "level_up": 9,
-          "defeat_resolve": 9}
+          "defeat_resolve": 9,
+          "loot_table": 1, "combatant_spawn": 2, "combatant_hp": 6,   # Phase 1: spawn before
+          "combatant_defeat": 8, "combat_end": 9}                     # harm; settle last
 _DEFAULT_ORDER = 7
 
 # 02 SS12b families
@@ -324,6 +406,7 @@ _FAMILY = {
     "scene_set": "scene", "scene_mode": "scene", "entity_add": "scene", "roll": "scene",
     "stagnation": "scene",
     "reveal_fact": "facts", "memory_event": "facts", "goal": "facts",
+    "fact_retire": "facts",                # compression item 3 (privileged: never extraction)
     "arousal": "organic", "mood": "organic", "relationship_adj": "organic",
     "obsession": "organic", "craving": "organic", "scene_dial": "organic",
     "consent_signal": "consent", "consent_set": "consent",
@@ -343,6 +426,9 @@ _FAMILY = {
     "award_exp": "player", "level_up": "player", "master_tick": "player",   # RPG-5
     "evolve_def": "player", "defeat_resolve": "player",               # progression (privileged)
     "stat_spend": "player",                                            # spend a banked stat point
+    "combatant_spawn": "scene", "combatant_hp": "scene",              # Phase 1 combat: the
+    "combatant_defeat": "scene", "combat_end": "scene",               # fight is scene truth;
+    "clash_record": "facts", "loot_table": "facts",                   # records are facts
 }
 # frozen-session suppression set (02 SS6: arousal/escalation/consent families)
 _FROZEN_SUPPRESSED = {"arousal", "scene_dial", "consent_signal"}
@@ -379,8 +465,9 @@ _NONLIVE_SUPPRESSED = {"clothing", "position", "contact", "arousal", "consent_si
                        "item_mint", "item_move", "item_equip", "item_unequip",   # a flashback
                        "item_consume", "item_transfer",               # can't touch live items
                        "effect_add", "effect_remove", "effect_update",   # ...or live effects
-                       "item_gain", "item_lose", "hp_adj", "defeat_resolve"}   # RPG-5: nor
-#                        grant items / deal harm — a dream can't rob or wound the present
+                       "item_gain", "item_lose", "hp_adj", "defeat_resolve",   # RPG-5: nor
+                       "combatant_spawn", "combatant_hp", "combatant_defeat",  # grant items /
+                       "combat_end"}   # deal harm — a dream can't rob, wound, or start a war
 
 
 def slug(name: str) -> str:
@@ -444,6 +531,8 @@ def validate_op(op: Any) -> Optional[dict]:
             return None
         if kind == "goal" and op["action"] not in {"add", "complete", "abandon"}:
             return None
+        if kind == "fact_retire" and not (op.get("fact") or op.get("statement")):
+            return None                        # needs a fid or a statement to match
         if kind == "time_advance" and not ("minutes" in op or "to_time_of_day" in op):
             return None
         if kind == "time_advance" and op.get("to_time_of_day") not in (None, *TIMES):
@@ -545,6 +634,27 @@ def validate_op(op: Any) -> Optional[dict]:
                 return None
         if kind == "defeat_resolve" and op["outcome"] not in DEFEAT_OUTCOMES:
             return None
+        if kind == "combatant_spawn":              # Phase 1: instances are typed at the door
+            if not str(op.get("name", "")).strip() or op["side"] not in COMBAT_SIDES:
+                return None
+            if op.get("tier") is not None and op["tier"] not in THREAT_TIERS:
+                return None
+            if op.get("char") is not None and not str(op["char"]).strip():
+                return None
+        if kind == "combatant_hp":
+            if not str(op.get("target", "")).strip():
+                return None
+            if isinstance(op["delta"], bool) or not isinstance(op["delta"], (int, float)):
+                return None
+        if kind == "combatant_defeat" and not str(op.get("target", "")).strip():
+            return None
+        if kind == "clash_record":                 # record, never resolve (plan doc 13)
+            a, b = str(op.get("a", "")).strip(), str(op.get("b", "")).strip()
+            if not a or not b or a.lower() == b.lower():
+                return None
+        if kind == "loot_table":
+            if op["tier"] not in THREAT_TIERS or not isinstance(op["entries"], list):
+                return None
     except (TypeError, KeyError, ValueError):
         return None
     return op
@@ -558,7 +668,11 @@ _ENTITY_FIELDS = {"entity", "char", "from_char", "to_char", "learner", "teller",
 # alias-resolved. Affinity/bond targets and a world_flag's faction ARE real entities: unknown
 # names quarantine (extraction/rule) or auto-create (user), exactly like any other reference.
 _ENTITY_FIELDS_BY_OP = {"affinity_adj": {"target"}, "set_soulmate": {"target"},
-                        "set_nemesis": {"target"}, "world_flag": {"faction"}}
+                        "set_nemesis": {"target"}, "world_flag": {"faction"},
+                        # Phase 1: a clash lands on REAL rows — unknown names quarantine
+                        # (and feed discovery); combatant_hp's target is deliberately NOT
+                        # here (extras are combatant rows, not entities — resolved at apply)
+                        "clash_record": {"a", "b"}}
 
 # resolve_aliases sentinel: skip this op silently — NO quarantine and NO discovery-counter feed
 # (distinct from a None-return quarantine). Used when presence/move_entity name a non-entity.
@@ -621,6 +735,23 @@ def resolve_aliases(op: dict, state: dict, source: str) -> tuple[Optional[dict],
 # ---- RPG-4 location registry & canonicalization (doc 05 §9) -------------------------
 _LOC_ARTICLES = ("the ", "a ", "an ")
 _LOC_HEAD_RE = re.compile(r"[,;:.(]|\s[—–-]\s")   # name head before prose; keeps 'Vael-Cora'
+
+
+_FACT_STOP = frozenset({"the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "is",
+                        "are", "was", "were", "has", "have", "it", "its", "that", "this"})
+
+
+def _fact_tokens(text: str) -> frozenset:
+    """Content tokens for fact/memory similarity (compression item 3). Pure text math —
+    deterministic at apply time, so supersede decisions bake into the journal order."""
+    return frozenset(t for t in re.findall(r"[a-z0-9']+", str(text or "").lower())
+                     if t not in _FACT_STOP)
+
+
+def _jaccard(a: frozenset, b: frozenset) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
 
 
 def _norm_loc(name: str) -> str:
@@ -695,6 +826,17 @@ def authority_violation(op: dict, source: str, state: dict, cfg) -> Optional[str
     if kind == "stat_spend":                   # spending a banked point is the player's call
         return None if source in ("user", "genesis", "rule") else \
             "stat points are spent by the player, never asserted by a model (doc 10)"
+
+    if kind in ("combatant_spawn", "combatant_defeat", "combat_end", "loot_table"):
+        return None if source in ("user", "genesis", "rule") else \
+            "combat instances are engine-owned: spawn/defeat/end and loot tables are " \
+            "privileged — the DM introduces foes via the [foe] tag (validated, re-sourced), " \
+            "never by writing state (plan doc 13)"   # Phase 1: code resolves, the model narrates
+
+    if kind == "fact_retire":                  # compression item 3: only code or the user may
+        return None if source in ("user", "genesis", "rule") else \
+            "facts are retired by the engine or the user, never by a model — truth " \
+            "leaves the ledger the same way it entered: through authority"
 
     if kind == "consent_signal" and op["signal"] == "safeword":
         return None if not raw else None  # handled at apply: freeze in non-raw, log-only in raw
@@ -1142,19 +1284,48 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         del hist[:-100]
     elif kind == "reveal_fact":
         fid = hashlib.blake2b(str(op["statement"]).encode(), digest_size=6).hexdigest()
+        # Compression item 3 (2026-07-09): a near-restatement SUPERSEDES the older record —
+        # the old fact is retired (kept, labeled), never deleted; L10 and the briefing stop
+        # reading it. Deterministic (pure token math over the op sequence) so replay holds.
+        new_toks = _fact_tokens(op["statement"])
+        if new_toks:
+            for ofid, f in state["facts"].items():
+                if ofid == fid or not isinstance(f, dict) or f.get("retired_turn") is not None:
+                    continue
+                old_toks = _fact_tokens(f.get("statement", ""))
+                if old_toks and _jaccard(new_toks, old_toks) >= 0.75:
+                    f["retired_turn"] = turn
+                    f["superseded_by"] = fid
         state["facts"].setdefault(fid, {"statement": op["statement"], "established_turn": turn,
                                         "is_secret": bool(op.get("is_secret"))})
         state["beliefs"][f'{op["learner"]}|{fid}'] = {
             "stance": "believes_true", "source": op["source"],
             "teller": op.get("teller"), "acquired_turn": turn}
+    elif kind == "fact_retire":                 # compression item 3: retire by fid or by text
+        target = None
+        if op.get("fact") and op["fact"] in state["facts"]:
+            target = op["fact"]
+        elif op.get("statement"):
+            want = _fact_tokens(op["statement"])
+            best = 0.0
+            for ofid, f in state["facts"].items():
+                if not isinstance(f, dict) or f.get("retired_turn") is not None:
+                    continue
+                sim = _jaccard(want, _fact_tokens(f.get("statement", "")))
+                if sim > best and sim >= 0.5:   # user-directed: looser match, still one target
+                    target, best = ofid, sim
+        if target is not None:
+            state["facts"][target]["retired_turn"] = turn
     elif kind == "memory_event":
         tags = list(op.get("tags", []))
         mode = state.get("scene", {}).get("mode")
         if mode in ("flashback", "dream") and mode not in tags:
             tags.append(mode)                              # 08 B4: tag non-live memories
-        if not any(m.get("text") == op["text"]             # 2026-07-07: a double-clicked
-                   for m in state["memories"][-20:]):      # creator save duplicated every
-            state["memories"].append({                     # lore row — exact-dupe guard
+        new_m = _fact_tokens(op["text"])                   # compression item 3 (2026-07-09):
+        if not any(m.get("text") == op["text"]             # the 07-07 exact-dupe guard widens
+                   or (new_m and _jaccard(new_m, _fact_tokens(m.get("text", ""))) >= 0.85)
+                   for m in state["memories"][-20:]):      # to NEAR-dupes — a restated lore
+            state["memories"].append({                     # line no longer rides recall twice
                 "text": op["text"], "participants": op.get("participants", []),
                 "importance": _clamp(op.get("importance", 3), 1, 10),
                 "tags": tags, "turn": turn})
@@ -1269,7 +1440,9 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                                "dice": op.get("_dice"), "dc": op.get("dc"),
                                "char": op.get("char"), "turn": turn,
                                "shape": op.get("_shape"),    # 2026-07-07: dice-shaping audit
-                               "dm_called": bool(op.get("_dm_called"))})   # R8b provenance
+                               "dm_called": bool(op.get("_dm_called")),   # R8b provenance
+                               "target": op.get("_target"),  # Phase 1: strike audit for the
+                               "dmg": op.get("_dmg")})       # HUD/directive (None off-combat)
         del state["rolls"][:-10]
         cost = op.get("_cost")                  # RPG-5 (doc 10 §5.4): resource cost charged
         pl = state.get("player", {}).get(op.get("char")) if op.get("char") else None
@@ -1746,6 +1919,122 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         if eff.get("id"):
             effs = state.setdefault("effects", {}).setdefault(op["char"], {})
             effs[eff["id"]] = {**eff, "gained_turn": turn}
+    elif kind == "combatant_spawn":             # Phase 1: a snapshot-frozen combat instance
+        cb = _combat(state)
+        rows = cb["combatants"]
+        eid = op.get("char")                    # tracked: references a REAL entity row
+        if eid and any(isinstance(r, dict) and r.get("eid") == eid
+                       and not r.get("defeated") for r in rows.values()):
+            raise OpReject(f"{op['name']} is already on the field")
+        side = op["side"]
+        cap = COMBAT_SIDE_CAP - 1 if side == "ally" else COMBAT_SIDE_CAP   # player holds an
+        if len(live_combatants(state, side)) >= cap:                       # ally slot (3v3)
+            raise OpReject(f"the {side} side is full — 3v3 is the cap (plan doc 13)")
+        cid = op.get("_cid") or slug(op["name"])[:32]
+        if cid in rows:
+            n = 2
+            while f"{cid}#{n}" in rows:
+                n += 1
+            cid = f"{cid}#{n}"
+        hp = dict(op.get("_hp") or {"cur": THREAT_HP["standard"], "max": THREAT_HP["standard"]})
+        rows[cid] = {"id": cid, "name": str(op["name"]).strip()[:60], "side": side,
+                     "kind": "tracked" if eid else "extra", "eid": eid,
+                     "tier": op.get("tier") or "standard", "hp": hp,
+                     "armament": str(op.get("armament") or "")[:60],
+                     "mod": int(op.get("_mod", 0)), "loot": list(op.get("_loot") or []),
+                     "defeated": False, "spawned_turn": turn, "dropped": []}
+        if not cb["active"]:
+            cb["active"] = True
+            cb["started_turn"] = turn
+    elif kind == "combatant_hp":                # the clamped harm channel for combatant rows
+        cid = resolve_combatant(state, op["target"])
+        if cid is None:
+            raise OpReject(f"'{op['target']}' is not a live combatant — the War Room "
+                           f"ledger, not the prose, is what's true")
+        row = state["combat"]["combatants"][cid]
+        d = int(op.get("_delta", op["delta"]))
+        row["hp"]["cur"] = _clamp(int(row["hp"].get("cur", row["hp"]["max"])) + d,
+                                  0, int(row["hp"]["max"]))
+    elif kind == "combatant_defeat":            # code-detected: HP 0 -> defeat + frozen loot
+        rows = (state.get("combat") or {}).get("combatants") or {}
+        cid = op["target"] if op["target"] in rows else resolve_combatant(state, op["target"])
+        row = rows.get(cid) if cid else None
+        if not isinstance(row, dict):
+            raise OpReject(f"'{op['target']}' is not on the field — nothing to defeat")
+        row["defeated"], row["defeated_turn"] = True, turn
+        row["hp"]["cur"] = 0
+        items = state.setdefault("items", {})
+        for drop in (op.get("_loot_drop") or []):   # baked at _enrich: replay never re-rolls
+            iid = str(drop.get("_iid") or slug(str(drop.get("name", "loot")))[:48])
+            n = 1
+            while iid in items:
+                n += 1
+                iid = f"{str(drop.get('_iid') or slug(str(drop.get('name', 'loot')))[:48])}#{n}"
+            items[iid] = {"template_id": None, "name": str(drop.get("name", "loot"))[:80],
+                          "qty": max(1, int(drop.get("qty", 1))), "loc": "world",
+                          "owner": None, "mods_snapshot": {}, "minted_turn": turn,
+                          "class": "inv"}       # dropped on the field; picked up via item tags
+            row["dropped"].append(items[iid]["name"])
+    elif kind == "combat_end":                  # extras evaporate; tracked wounds PERSIST
+        cb = state.get("combat")
+        if not isinstance(cb, dict) or not cb.get("active"):
+            raise OpReject("no active combat to end")
+        rows = cb.get("combatants") or {}
+        defeated, survivors, loot = [], [], []
+        for row in rows.values():
+            if not isinstance(row, dict):
+                continue
+            (defeated if row.get("defeated") else survivors).append(str(row.get("name", "?")))
+            loot += list(row.get("dropped") or [])
+            eid = row.get("eid")
+            if eid and eid in state.get("entities", {}):   # FULL wound persistence (ratified):
+                hp = row.get("hp") or {}                   # the fight's toll lands on the row
+                state.setdefault("attributes", {}).setdefault(eid, {})["hp"] = {
+                    "cur": int(hp.get("cur", 0)), "max": int(hp.get("max", 1))}
+                if row.get("defeated"):
+                    effs = state.setdefault("effects", {}).setdefault(eid, {})
+                    effs["battered"] = {"id": "battered", "name": "Battered",
+                                        "kind": "condition", "valence": "negative",
+                                        "duration": 6, "mods": {"all": -1}, "preset": True,
+                                        "gained_turn": turn}
+                elif int(hp.get("cur", 1)) * 2 < int(hp.get("max", 1)):
+                    effs = state.setdefault("effects", {}).setdefault(eid, {})
+                    effs.setdefault("wounded", {"id": "wounded", "name": "Wounded",
+                                                "kind": "condition", "valence": "negative",
+                                                "mods": {"all": -1}, "preset": True,
+                                                "gained_turn": turn})   # heals in-world (routed)
+        cb["history"].append({"turn": turn, "started_turn": cb.get("started_turn"),
+                              "defeated": defeated, "survivors": survivors, "loot": loot,
+                              "outcome": str(op.get("outcome") or "resolved")})
+        del cb["history"][:-COMBAT_HISTORY_CAP]
+        cb["active"], cb["started_turn"], cb["combatants"] = False, None, {}
+    elif kind == "clash_record":                # NPC-vs-NPC: prose fight, outcome RECORDED
+        a, b = op["a"], op["b"]
+        rec = {"a": a, "b": b, "method": str(op.get("method") or "")[:120],
+               "outcome": str(op.get("outcome") or "")[:160], "turn": turn}
+        cl = state.setdefault("clashes", [])
+        if not any(c.get("a") == a and c.get("b") == b and c.get("turn") == turn
+                   for c in cl):                # same-turn dupe (tag + ladder both saw it)
+            cl.append(rec)
+            del cl[:-CLASH_CAP]
+            na = state.get("entities", {}).get(a, {}).get("name", a)
+            nb = state.get("entities", {}).get(b, {}).get("name", b)
+            stmt = f"{na} clashed with {nb}" \
+                + (f" ({rec['method']})" if rec["method"] else "") \
+                + (f" — {rec['outcome']}" if rec["outcome"] else "")
+            fid = hashlib.blake2b(stmt.encode(), digest_size=6).hexdigest()
+            state["facts"].setdefault(fid, {"statement": stmt, "established_turn": turn})
+    elif kind == "loot_table":                  # Creator/assist-authored rows, FROZEN here
+        entries = []
+        for e in op["entries"][:12]:
+            if not isinstance(e, dict) or not str(e.get("name", "")).strip():
+                continue
+            entries.append({"name": str(e["name"]).strip()[:80],
+                            "qty_min": max(1, int(e.get("qty_min", e.get("qty", 1)) or 1)),
+                            "qty_max": max(1, int(e.get("qty_max", e.get("qty", 1)) or 1)),
+                            "chance": min(1.0, max(0.0, float(e.get("chance", 1.0))))})
+        if entries:
+            state.setdefault("loot", {})[op["tier"]] = entries
     elif kind == "stagnation":
         state["scene"]["stagnation"] = round(float(op["value"]), 3)
     elif kind == "player_seed":
@@ -1965,6 +2254,108 @@ def progression_ops(state: dict, applied: list[dict], hardcore: bool = False) ->
     return out
 
 
+# ---- Phase 1 combat pass (plan doc 13) — pure, deterministic, journaled ----------------
+def combat_gate(state: dict) -> bool:
+    """The War Room's floor trigger: the scene PHASE says violence (same vocabulary R8c's
+    opposition die uses) or a combat-ish world flag is truthy. A hostile merely being
+    present does NOT open the war room — talking to an enemy is still talking."""
+    phase = str((state.get("scene") or {}).get("phase", "")).lower()
+    if phase in _COMBAT_PHASES:
+        return True
+    for k, v in (state.get("world") or {}).items():
+        if str(k).lower() in ("combat", "battle", "fight", "under_attack") and v \
+                and str(v).lower() not in ("no", "false", "0", "none"):
+            return True
+    return False
+
+
+def combat_ops(state: dict, applied: list[dict]) -> list[dict]:
+    """Phase 1 (ratified doc 13): the code-side combat referee. Pure reader over
+    (state, this batch's applied ops); returns PRIVILEGED rule ops for the caller to
+    apply — propose-then-commit, journaled, never a hidden reducer side-effect.
+
+    Floor (weak-model guarantee): when the scene phase turns to violence, PRESENT tracked
+    hostiles become enemy combatants and present friends (Ally-tier standing / soulmate)
+    enlist beside the player, no tag required. Defeat is CODE-DETECTED (HP 0) -> curated
+    XP by threat tier + the frozen loot roll; combat ends itself when a side falls, the
+    player is defeated, or the scene phase moves on. Extras arrive only through the DM's
+    [foe] tag / OOC (there is no in-world basis for inventing them code-side)."""
+    out: list[dict] = []
+    peid = _player_eid(state)
+    if not peid:
+        return out
+    cb = state.get("combat") or {}
+    active = bool(cb.get("active"))
+    ents = state.get("entities") or {}
+    aff = state.get("affinity") or {}
+    pl = (state.get("player") or {}).get(peid) or {}
+
+    def _standing(eid: str) -> int:
+        rec = aff.get(f"{peid}->{eid}")
+        return int(rec.get("value", 0)) if isinstance(rec, dict) else 0
+
+    present = [eid for eid, e in ents.items()
+               if isinstance(e, dict) and e.get("present") and eid != peid
+               and e.get("kind") in ("character", "npc")]
+    on_field = {r.get("eid") for r in (cb.get("combatants") or {}).values()
+                if isinstance(r, dict) and not r.get("defeated") and r.get("eid")}
+    gate = combat_gate(state)
+    if gate:
+        want_foes = 0
+        if not active:                          # open the war room: present hostiles enlist
+            hostiles = sorted([e for e in present if _standing(e) <= -10],
+                              key=lambda e: (_standing(e), e))[:COMBAT_SIDE_CAP]
+            for eid in hostiles:
+                out.append({"op": "combatant_spawn", "name": ents[eid].get("name", eid),
+                            "side": "enemy", "char": eid})
+            want_foes = len(hostiles)
+        if active or want_foes:                 # allies enlist beside the player (cap 2)
+            slots = (COMBAT_SIDE_CAP - 1) - len([1 for r in (cb.get("combatants") or
+                                                             {}).values()
+                                                 if isinstance(r, dict)
+                                                 and not r.get("defeated")
+                                                 and r.get("side") == "ally"])
+            mates = {pl.get("soulmate")}
+            friends = sorted([e for e in present if e not in on_field
+                              and (_standing(e) >= 40 or e in mates)],
+                             key=lambda e: (-_standing(e), e))
+            for eid in friends[:max(0, slots)]:
+                out.append({"op": "combatant_spawn", "name": ents[eid].get("name", eid),
+                            "side": "ally", "char": eid})
+    if not active:
+        return out
+    # defeat detection: HP floored -> privileged defeat + curated XP (enemy rows only)
+    live_enemies = 0
+    for cid, row in (cb.get("combatants") or {}).items():
+        if not isinstance(row, dict) or row.get("defeated"):
+            continue
+        if int((row.get("hp") or {}).get("cur", 1)) <= 0:
+            out.append({"op": "combatant_defeat", "target": cid})
+            if row.get("side") == "enemy":
+                out.append({"op": "award_exp", "char": peid,
+                            "amount": THREAT_XP.get(str(row.get("tier")),
+                                                    THREAT_XP["standard"]),
+                            "reason": f"defeated {row.get('name', cid)}"})
+        elif row.get("side") == "enemy":
+            live_enemies += 1
+    # the fight settles itself: last foe falls, the player falls, or the scene moves on
+    player_fell = any(isinstance(o, dict) and o.get("op") == "defeat_resolve"
+                      for o in (applied or [])) \
+        or int((pl.get("defeated") or {}).get("turn", -10**9)) \
+        == int((state.get("meta") or {}).get("turn", -1))
+    phase_left = any(isinstance(o, dict) and o.get("op") == "scene_set"
+                     and o.get("phase") is not None
+                     and str(o.get("phase")).lower() not in _COMBAT_PHASES
+                     for o in (applied or []))
+    if live_enemies == 0:
+        out.append({"op": "combat_end", "outcome": "victory"})
+    elif player_fell:
+        out.append({"op": "combat_end", "outcome": "defeat"})
+    elif phase_left:
+        out.append({"op": "combat_end", "outcome": "resolved"})
+    return out
+
+
 # ================================ derived views =====================================
 def derived_exposure(state: dict, eid: str) -> list[str]:
     """02 SS5.2: exposure DERIVED, never stored. Zone exposed iff tracked but no worn item covers it."""
@@ -2137,6 +2528,66 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
             out.setdefault("_effect", {"id": "battered", "name": "Battered",
                                        "kind": "condition", "valence": "negative",
                                        "duration": 6, "mods": {"all": -1}, "preset": True})
+    if op["op"] == "combatant_spawn":          # Phase 1: freeze the instance AT SPAWN —
+        rows = ((state or {}).get("combat") or {}).get("combatants") or {}
+        base = slug(str(op.get("name", "foe")))[:32] or "foe"
+        cid, n = base, 1
+        while cid in rows:
+            n += 1
+            cid = f"{base}#{n}"
+        out["_cid"] = cid
+        tier = op.get("tier") if op.get("tier") in THREAT_TIERS else "standard"
+        out.setdefault("tier", tier)
+        hp = {"cur": THREAT_HP[tier], "max": THREAT_HP[tier]}
+        eid = op.get("char")                    # tracked: WOUNDS PERSIST — a prior fight's
+        prior = (((state or {}).get("attributes") or {}).get(eid) or {}).get("hp") \
+            if eid else None                    # toll is the next fight's starting HP
+        if isinstance(prior, dict) and int(prior.get("max", 0)) > 0:
+            hp = {"cur": _clamp(prior.get("cur", prior["max"]), 0, int(prior["max"])),
+                  "max": int(prior["max"])}
+        out["_hp"] = hp
+        out["_mod"] = THREAT_MOD.get(tier, 1)   # procedural logical stats, curated by tier
+        table = ((state or {}).get("loot") or {}).get(tier)   # frozen table wins (pillar 18);
+        if not isinstance(table, list) or not table:          # registry rows are the floor
+            try:
+                from . import registry as _registry
+                table = (_registry.load(cfg).loot or {}).get(tier)
+            except Exception:
+                table = None
+        out["_loot"] = list(table) if isinstance(table, list) else list(_LOOT_FALLBACK[tier])
+    if op["op"] == "combatant_hp":             # per-op swing clamp, mirrored from hp_adj
+        cid = resolve_combatant(state or {}, op.get("target"))
+        row = (((state or {}).get("combat") or {}).get("combatants") or {}).get(cid) or {}
+        mx = int((row.get("hp") or {}).get("max", 0))
+        cap = max(HP_ADJ_MIN_CAP, mx // 4)
+        if not op.get("_strike"):              # a code-decided player strike is exact — only
+            out["_delta"] = _clamp(op.get("delta", 0), -cap, cap)   # proposals get clamped
+    if op["op"] == "combatant_defeat":         # deterministic loot roll, baked — replay-pure
+        import random as _rnd
+        rows = (((state or {}).get("combat") or {}).get("combatants") or {})
+        cid = op.get("target") if op.get("target") in rows \
+            else resolve_combatant(state or {}, op.get("target"))
+        row = rows.get(cid) or {}
+        seed = int(hashlib.md5(f"loot:{turn}:{cid}".encode()).hexdigest()[:8], 16)
+        rng = _rnd.Random(seed)
+        drops, existing = [], set(((state or {}).get("items") or {}).keys())
+        for e in (row.get("loot") or []):
+            if not isinstance(e, dict) or not str(e.get("name", "")).strip():
+                continue
+            if rng.random() > float(e.get("chance", 1.0)):
+                continue
+            lo = max(1, int(e.get("qty_min", e.get("qty", 1)) or 1))
+            hi = max(lo, int(e.get("qty_max", e.get("qty", 1)) or 1))
+            iid, base2, k = None, slug(str(e["name"]))[:48], 0
+            iid = base2
+            while iid in existing:
+                k += 1
+                iid = f"{base2}#{k + 1}"
+            existing.add(iid)
+            drops.append({"name": str(e["name"]).strip(), "qty": rng.randint(lo, hi),
+                          "_iid": iid})
+        out["_loot_drop"] = drops
+        out["_xp"] = THREAT_XP.get(str(row.get("tier")), THREAT_XP["standard"])
     if op["op"] == "scene_set" and "location" in op \
             and getattr(cfg, "specialization", None) is not None \
             and cfg.specialization.name == "rpg":
@@ -2378,5 +2829,10 @@ def state_summary(state: dict) -> dict:
                      if isinstance(rec, dict)},
         "factions": state.get("factions", {}),
         "world": state.get("world", {}),
+        # Phase 1 War Room: the raw combat ledger + recorded clashes + frozen loot tables —
+        # the Console never hides anything (pillar 17); empty in every pre-combat session.
+        "combat": state.get("combat", {}),
+        "clashes": state.get("clashes", []),
+        "loot": state.get("loot", {}),
         "turn": state.get("meta", {}).get("turn", -1),
     }

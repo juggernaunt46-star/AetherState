@@ -57,6 +57,7 @@ then defaults. `Config.source` records which loaded.
 | header_floor_tokens | 150 | below floor → header-only; cap ≤ 0 → inject nothing |
 | placement | `depth` | `depth \| system_merge \| suffix \| st_native` |
 | depth | 3 | messages from the end (for `depth` placement) |
+| briefing_style | `verbose` | compression item 2: `compact` = dense briefing notation (here:/St:/Sk:/Ab:/wear:/exp:/rep(...), capped stowed lists, 40-char quest notes) + a one-line `[KEY]` legend on the rpg contract. Opt-in; `verbose` renders byte-identically to 1.11. Item 5 rides regardless of style: explicitly-absent NPCs' physical/effect/drive detail stays ledger-only (bonds always ride), and only the 3 most-recently-touched active quests carry stakes/notes |
 | tc_marker | `{{aetherstate}}` | text-completion marker |
 | assumed_ctx_tokens | 0 | 0 = unknown → cap = max_tokens |
 | priorities | state_header 100, director_note 80, memories 60, relationship_belief 40, lore 20 | drop order (low first) |
@@ -105,7 +106,7 @@ then defaults. `Config.source` records which loaded.
 ### `[linter]` — `LinterConfig`
 | key | default | meaning |
 |---|---|---|
-| enabled | true | run the L1–L9 consistency pass (and L10, the NLI check) at all |
+| enabled | true | run the L1–L11 consistency pass (and L10, the NLI check) at all. **L11** (0b, rpg-only): the DM deciding for the Player outside an open bracketed intent — `[I persuade Jerald.]` opens the one door (and stands L9 down that turn); a bracketed direct quote must survive verbatim. Disable with `rules_off = ["L11"]` |
 | rules_off | `[]` | silence specific rules by name, e.g. `["L6"]` for timeline, `["L10"]` for the NLI ledger-contradiction check |
 | corrective_notes | true | false = detect + log to the inspector only, **never** steer the next turn (the director's corrective slot stays empty) |
 | nli_threshold | 0.85 | L10: minimum contradiction confidence (0.0–1.0) before a corrective note is staged. Local NLI models over-fire on RP prose — keep ~0.85–0.9; a chat-judge (`main`) can go lower. Consulted only when `[assist.groups].linter_nli` = `assist`/`main` |
@@ -284,7 +285,7 @@ the character card into a Dungeon Master and tracks the user's persona as a Play
 | key | default | meaning |
 |---|---|---|
 | `name` | `"none"` | `none` \| `rpg` |
-| `blocks` | `[PLAYER,EFFECTS,GEAR,INVENTORY,FACTIONS,RELATIONS,QUEST,WORLD,DIRECTIVE]` | header blocks the profile may render (consulted only under `rpg`) |
+| `blocks` | `[PLAYER,EFFECTS,GEAR,INVENTORY,FACTIONS,RELATIONS,NEARBY,QUEST,WORLD,DIRECTIVE]` | header blocks the profile may render (consulted only under `rpg`). `NEARBY` (0b): notables whose Creator-authored `home` anchor matches the scene's location but who are NOT on scene — with the knows-player gate inline (`stranger` / `by reputation (Faction: tier)` / affinity tier); anchored-elsewhere notables spend zero tokens. `[RELATIONS]` adds the same gate line for PRESENT NPCs with no relationship row (anti-main-character) |
 | `dm_guard` | `true` | Dungeon-Master framing of the Q12 guard |
 | `dice` | `"2d6"` | resolution dice knob (consumed from RPG-1) |
 | `tiers` | `"pbta3"` | resolution tier model (consumed from RPG-1) |
@@ -294,6 +295,7 @@ the character card into a Dungeon Master and tracks the user's persona as a Play
 | `hardcore` | `false` | RPG-5 (doc 10 §7): `defeat_resolve` routes to DEATH (permadeath) instead of the contextual non-lethal outcomes (captured / wake safe / robbed / rescued) |
 | `auto_dm_checks` | `true` | R8b (1.9.0): a `((aether.check …))` the DM calls in its OWN reply ARMS — a plain-prose player answer rolls it automatically next request (the player's explicit/NL checks always win; the [DIRECTIVE] marks it DM-called) |
 | `enemy_rolls` | `true` | R8c (1.9.0, Bean): hostile beats pre-roll ONE enemy-action die and inject it as `[OPPOSITION]` alongside the [DIRECTIVE] — foes attack on real dice the DM must narrate, never wave through. Arms when a Cold-or-worse NPC is present, scene phase is climax/combat/battle/fight/ambush, or a combat-ish world flag is truthy. Deterministic per (turn·scene·player) — replay re-renders the same die |
+| `war_room` | `true` | Phase 1 (1.13.0, plan doc 13 ratified): the full combat loop — combatant INSTANCES (extras via the DM's `[foe \| name \| tier \| weapon]` tag / `((aether.foe …))`; known NPCs fight tracked and KEEP their wounds via `attributes.hp` + a `Wounded`/`Battered` condition), 3v3 cap with auto-enlisted Ally-tier friends on per-ally pre-rolled `[ALLY]` dice, code-derived player strike damage (outcome tier × weapon `damage` mod, applied to the ledger, handed to the DM on the [DIRECTIVE]), the clamped `[hp \| <combatant> \| -N]` chip-damage channel, code-detected defeat → XP by threat tier + a loot roll frozen at spawn (`state["loot"]` via `loot_table` ops > `registry/loot.toml`), self-ending fights, the exact-HP `[WAR]` board, the `[clash \| A vs B \| how \| outcome]` NPC-fight record, the `combatant_alive` linter rule, and the War Room HUD lane. Off = pre-1.13 combat (R8c + `[hp]` only) |
 
 **Overlay resolver (`config._apply_specialization`).** When `name == "rpg"` the built-in
 `RPG_PROFILE` is deep-merged UNDER the user's config, so precedence is **user-override >

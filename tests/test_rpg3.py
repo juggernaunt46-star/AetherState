@@ -275,7 +275,14 @@ def test_effects_block_renders_and_none_gate():
         {"op": "effect_add", "char": "Mira", "effect": "Pregnant"}], "user", cfg)
     st = current_state(store, bid)
     h = render_header(st, cfg)
-    assert "[EFFECTS] Kael: Bleeding(-)[6t], Blessed(+) · Mira: Pregnant(~)" in h
+    # item 5 (2026-07-09, compression): Mira is ABSENT — her condition stays ledger-only
+    assert "[EFFECTS] Kael: Bleeding(-)[6t], Blessed(+)" in h
+    assert "Mira" not in h.split("[EFFECTS]")[1].split("\n")[0]
+    apply_delta(store, sid, bid, 2, [{"op": "presence", "entity": "Mira",
+                                      "present": True}], "user", cfg)
+    st2 = current_state(store, bid)
+    h2 = render_header(st2, cfg)                     # on scene -> her statuses ride again
+    assert "Mira: Pregnant(~)" in h2
     h_none = render_header(st, Config())
     assert "[EFFECTS]" not in h_none                 # inert under none (invariant 3)
 

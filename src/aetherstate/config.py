@@ -75,6 +75,12 @@ class InjectionConfig(BaseModel):
     placement: str = "depth"         # depth | system_merge | suffix | st_native
     depth: int = 3                   # messages from the end (Q1)
     tc_marker: str = "{{aetherstate}}"
+    briefing_style: str = "verbose"  # compression item 2 (2026-07-09): "compact" = dense
+    #                                  key:val briefing notation (+ a one-line [KEY] legend on
+    #                                  the DM contract under rpg) — leaner state blocks, same
+    #                                  facts. OPT-IN for now (Bean's call); may become the
+    #                                  API-class default after a live campaign verifies
+    #                                  adherence. "verbose" (default) is byte-identical to 1.11
     assumed_ctx_tokens: int = 0      # 0 = unknown -> cap = max_tokens (probe fills this, P3)
     priorities: dict[str, int] = {"state_header": 100, "director_note": 80, "memories": 60,
                                   "relationship_belief": 40, "lore": 20}
@@ -232,7 +238,8 @@ class SpecializationConfig(BaseModel):
     name == 'rpg' and are the profile's own knobs a table may override normally."""
     name: str = "none"               # none | rpg
     blocks: list[str] = ["PLAYER", "EFFECTS", "GEAR", "INVENTORY", "FACTIONS",
-                         "RELATIONS", "QUEST", "WORLD", "DIRECTIVE"]   # doc 05 §6 catalog
+                         "RELATIONS", "NEARBY", "QUEST", "WORLD", "DIRECTIVE"]   # doc 05 §6
+    #                      catalog (+ NEARBY: 0b home anchors, 2026-07-09)
     dm_guard: bool = True            # DM/Game-Master framing of the Q12 user guard (05 §3.2)
     dice: str = "2d6"                # D1 resolution dice knob   (consumed at RPG-1)
     tiers: str = "pbta3"             # resolution tier model     (consumed at RPG-1)
@@ -250,6 +257,12 @@ class SpecializationConfig(BaseModel):
     #                                  it automatically (explicit/NL checks still win)
     hardcore: bool = False           # RPG-5 (doc 10 §7): defeat_resolve routes to DEATH —
     #                                  permadeath; off = contextual non-lethal outcomes
+    war_room: bool = True            # Phase 1 (plan doc 13, ratified 2026-07-09): combatant
+    #                                  instances (extras + tracked NPCs, 3v3), code-derived
+    #                                  player strike damage, [ALLY] dice, code-detected
+    #                                  defeat -> XP + frozen loot, the [WAR] board, the
+    #                                  [foe]/[clash] tag channels, and the War Room HUD lane.
+    #                                  off = 1.12 combat behavior (R8c/[hp] only)
     narrator_card_dir: str = ""      # optional: a SillyTavern characters dir where the
     #                                  world-specific Narrator card (narrator.py) is installed
     #                                  on request; empty = download-only (never writes out)

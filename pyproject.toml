@@ -1,6 +1,6 @@
 [project]
 name = "aetherstate"
-version = "1.10.0"
+version = "1.13.1"
 description = "Model-agnostic narrative state engine: a transparent OpenAI-compatible proxy for long-form RP"
 readme = "README.md"
 license = { text = "MIT" }

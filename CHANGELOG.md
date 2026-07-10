@@ -1,5 +1,140 @@
 # Changelog
 
+## 1.13.1 — 2026-07-09
+
+The "minimized is not broken" fix. After 1.13.0 the player HUD appeared to lose everything
+but the hp/stamina/mana bars. Nothing in the ledger or the renderers was actually broken —
+the HUD had been left MINIMIZED (`hud.compact` saved as `true` in SillyTavern's settings by
+the previous session), and the compact strip carried no hint that it *was* a strip. An
+invisible UI state that reads as data loss is a real bug (pillars 17/19), so:
+
+### ST extension (hud-clarity build 2026-07-09)
+- The compact strip now labels itself: a full-width `▣ expand — full sheet` button sits
+  under the vitals, and one tap restores the whole tabbed sheet (`window.aetherHudExpand`).
+- The minimize button shows the state you're IN: `▁` when expanded, `▣` when minimized,
+  with matching tooltips (`syncMinBtn`).
+- Renderer failures are now VISIBLE: a throw inside any HUD renderer used to leave the
+  previous innerHTML on screen forever (stale content that looks like lost data). Both
+  `hudRefresh` and the tab switcher now catch, log, and render a `⚠ HUD render error` line
+  instead — the ledger is untouched and the reader can see the view (not the truth) failed.
+- Per-key hud settings merge: a saved `hud` object from an older build used to REPLACE the
+  defaults wholesale, so every newly-added hud key (`hideTags`, future ones) came up
+  `undefined` forever. Defaults now merge key-by-key under any saved values.
+
+### Never again: the HUD render guard
+- `tests/st_hud_smoke.mjs` runs the REAL `st-extension/index.js` in a stub DOM against a
+  full-fat synthetic payload and asserts every surface renders: boot-minimized self-labels,
+  expand re-renders (stale-body guard), all 8 tabs emit their content markers, the war-room
+  lane renders, and a poisoned payload surfaces the visible error line.
+- `tests/test_st_extension_hud.py` wires it into `pytest -q` (skips without node), adds a
+  no-node static integrity check (every renderer entry point present + the IIFE still
+  closes — catches silent file truncation), and asserts the INSTALLED SillyTavern copy is
+  byte-identical to `st-extension/` so the UI can never run stale code.
+
+No wire, state, or hot-path changes; a `none` session stays byte-identical.
+
+## 1.13.0 — 2026-07-09
+
+Phase 1 — the full combat loop + 3v3 party / War Room (plan doc 13, every ratified decision
+in). Fights now run on engine-owned combatant instances with exact HP; the model narrates
+dice it was handed, never outcomes it invented.
+
+### New: combatant instances (extras vs tracked)
+- `combatant_spawn` (privileged) freezes a combat instance AT SPAWN: HP by threat tier
+  (minion 6 / standard 14 / elite 26 / boss 44), armament tag, and the loot row all bake
+  into the journaled op (replay-pure). Unnamed EXTRAS evaporate when the fight ends;
+  TRACKED combatants (known NPCs) reference their entity row — wounds persist in full:
+  end-of-fight HP lands on the entity (`attributes.hp`), a survivor below half is visibly
+  `Wounded`, a beaten one `Battered`, and the next fight starts from that toll.
+- 3v3 cap, player included on the ally side; the reducer rejects a fourth visibly.
+- The DM introduces foes with `[foe | <name> | <tier> | <weapon>]` (validated, re-sourced
+  as rule — the R8b pattern); the player has `((aether.foe ...))` / `((aether.ally ...))`
+  / `((aether.combat end))`.
+
+### New: damage is code-decided
+- A check bound to a live enemy (`at <name>`, prose naming the foe, or the lone-foe +
+  attack-verb floor) deals outcome-tier × weapon-magnitude damage, applied to the ledger
+  before the DM ever writes — the [DIRECTIVE] hands over the exact number.
+- Enemy→player harm stays R8c + `[hp]`; DM chip damage and ally blows land through the
+  same `[hp | <combatant> | -N]` tag, rerouted onto combatant rows and engine-clamped.
+- Every ally rolls ONE pre-decided action die per combat turn (`[ALLY]`, deterministic,
+  no journal row — the R8c pattern; visible in the HUD lane, ratified). Initiative is
+  loose: the DM weaves the pre-rolled results into one beat.
+
+### New: code-detected defeat, curated XP, frozen loot
+- HP 0 is detected by the combat referee (`combat_ops`, both apply paths): privileged
+  defeat + XP by threat tier (15/30/60/120) + a deterministic loot roll from the table
+  frozen at spawn — Creator/assist-authored `loot_table` rows win, `registry/loot.toml`
+  is the floor, drops land as world items. Fights end themselves: last foe down, player
+  defeated, or the scene phase moves on.
+
+### New: the record keeps up
+- `[clash | A vs B | how | outcome]` + a `clash_record` extraction op: NPC-vs-NPC fights
+  stay prose (no dice, Bean's call) but method + outcome commit as facts on REAL rows.
+- `combatant_alive` linter rule: narration killing a combatant whose row still has HP is
+  a contradiction — death comes from the ledger.
+- The War Room HUD lane (combat-phase-only): combatant cards with exact HP, tier,
+  armament, the pre-rolled dice, defeat marks and loot chips; a minimized-HUD foe strip;
+  `state_summary` carries `combat`/`clashes`/`loot` raw (the Console hides nothing).
+- DM contract → `dm-rules/7` (+War Room teaching), tag protocol → `world-tags/4`
+  (+[foe]/[clash]); the Creator's world autofill now authors per-tier loot rows, frozen
+  at save.
+- Knob: `[specialization] war_room = true` (off = 1.12 combat behavior; a `none` session
+  carries no fingerprint — checkpoints, wire, prompts all byte-identical).
+
+## 1.12.0 — 2026-07-09
+
+The compression pass (doc-13 items 2–5): the briefing gets leaner without losing a single
+committed truth — less for the model to wade through, cheaper turns, fewer stale-fact
+false alarms.
+
+### New: compact briefing (opt-in)
+- `[injection] briefing_style = "compact"` switches the state blocks to dense notation
+  (`here:`, `St:/Sk:/Ab:`, `wear:/exp:`, `rep(Faction: tier)`, capped stowed lists, shorter
+  quest notes) with a one-line `[KEY]` legend riding the DM contract. The default stays
+  `verbose` and renders exactly as 1.11 did.
+
+### New: facts retire instead of rotting
+- Restating a fact now supersedes the old record — it's kept and labeled (`retired`,
+  `superseded_by`), never deleted, and stops feeding the L10 contradiction check (the known
+  stale-fact false-positive source). A `fact_retire` op (Console/OOC/engine only — the model
+  can never erase truth) retires by id or text match. Near-duplicate lore memories no longer
+  land twice.
+
+### Scoping: the briefing follows the scene
+- An explicitly-absent NPC's pose, clothing, statuses, and drives stay in the ledger but out
+  of the prompt until they're back on stage (your soulmate/nemesis always rides). Only the 3
+  most-recently-touched active quests carry their stakes/notes — older ones stay listed by
+  name. Stale rolls were already gone from prompts; now it's pinned by test.
+
+## 1.11.0 — 2026-07-09
+
+Phase 0b — the notables gate and the player's voice. Fixes the two "main character syndrome"
+bugs: notables no longer wander into scenes without an in-world basis, and every NPC now
+carries a structural answer to "does this person actually know the Player?" Plus L11: the
+engine now enforces that the DM never decides for you.
+
+### New: home anchors + [NEARBY]
+- Notable NPCs authored in the Creator carry a `home` location (a new field, AI autofill
+  writes one per NPC). Anchors are frozen at creation. When the scene is at a notable's home
+  and they're not on stage, a compact `[NEARBY]` line tells the DM who is plausibly here —
+  anchored-elsewhere notables spend zero prompt tokens.
+- The presence heuristic is stricter under RPG: only the NARRATOR placing someone in the
+  scene stages them — a player wondering "I hope Marla arrives" no longer summons anyone.
+
+### New: the knows-player gate (anti-main-character)
+- Every on-scene NPC without a relationship row renders as `stranger`; with only a faction
+  standing, as `by reputation (Faction: tier)`; a real relationship shows its tier as before.
+  The DM contract (now dm-rules/6) enforces it: strangers don't recognize the Player, and
+  recognition must be earned in play.
+
+### New: L11 — your voice is yours
+- Outside an open bracketed intent like `[I persuade Jerald.]`, the DM deciding for your
+  character ("Bean agrees to the terms…") is flagged and corrected next turn. Inside one,
+  the door is open — but a line you wrote in quotes must appear VERBATIM; a paraphrase is
+  flagged. The open bracket also stands L9 down for that turn (it was always meant to be
+  the one door). RPG-only; base sessions are unchanged. Disable with `rules_off = ["L11"]`.
+
 ## 1.10.0 — 2026-07-09
 
 Prompt caching (KV-cache) enablement: long roleplay prompts are exactly the shape provider

@@ -107,6 +107,14 @@ nli_threshold = 0.85  # L10: minimum contradiction confidence (0.0-1.0) before a
 #                       ~0.85-0.9; a chat-judge (main) can go lower. linter_nli = assist|main only.
 
 # ------------------------------------------------------------------
+# BRIEFING SIZE (compression, 1.12). The state briefing already scopes itself to the scene
+# (absent NPCs' detail stays in the ledger, out of the prompt). For long campaigns you can
+# additionally switch to dense notation — same facts, fewer tokens, with a one-line [KEY]
+# legend taught on the DM contract:
+# [injection]
+# briefing_style = "verbose"   # verbose (default, full words) | compact (dense notation)
+
+# ------------------------------------------------------------------
 # NARRATIVE MODE (Q27 / RPG specialization). Leave as "none" for normal chat-RP — that is
 # byte-identical to not having this section at all. Set "rpg" to turn the character card
 # into a Dungeon Master: it runs the world, NPCs and factions, YOUR character becomes a
@@ -130,6 +138,13 @@ name = "none"         # none | rpg
 #                           # it to the DM as [OPPOSITION] — foes attack on real dice
 # hardcore = false          # RPG-5: defeat becomes DEATH (permadeath). Off = contextual
 #                           # non-lethal outcomes (captured / wake safe / robbed / rescued)
+# war_room = true           # Phase 1 (1.13.0): the full combat loop — combatant instances
+#                           # with exact HP (extras via the DM's [foe] tag; known NPCs fight
+#                           # as themselves and KEEP their wounds), 3v3 with allies on their
+#                           # own pre-rolled [ALLY] dice, code-derived player strike damage,
+#                           # code-detected defeat -> XP + frozen loot, the [WAR] board, the
+#                           # [clash | A vs B | how | outcome] NPC-fight record, and the War
+#                           # Room HUD lane. Off = pre-1.13 combat (R8c + [hp] tags only)
 # narrator_card_dir = ""    # optional: a SillyTavern characters dir (e.g.
 #                           # ".../SillyTavern/data/default-user/characters"). When set, the
 #                           # Creator's "Generate Narrator card" button installs a world-named

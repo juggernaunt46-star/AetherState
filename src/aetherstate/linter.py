@@ -1,4 +1,4 @@
-"""Consistency linter L1-L9 (03 SS9, 08 L-rows, Q12/Q13) — cold path only.
+"""Consistency linter L1-L11 (03 SS9, 08 L-rows, Q12/Q13; L11: 0b pillar-14 agency) — cold path only.
 
 Deterministic checks against the post-apply snapshot + the turn's assistant prose.
 Each violation -> (rule, severity, subjects, evidence_span). Violations NEVER rewrite
@@ -312,6 +312,63 @@ def _l8_consent(state, cfg, v):
                           f"asked for and answered first."))
 
 
+_DECIDE_VERBS = (r"(?:decides?|decided|agrees?|agreed|accepts?|accepted|refuses?|refused|"
+                 r"chooses?|chose|resolves?\s+to|makes?\s+up\s+(?:his|her|their)\s+mind)")
+
+
+def _open_intents(user_text: str) -> list[str]:
+    """0b / pillar 14: the player's OPEN bracketed intents — '[I persuade Jerald.]' opens
+    the one door through which the DM may voice the PC. [OOC ...] brackets are not a door."""
+    return [m.group(1).strip() for m in re.finditer(r"\[([^\[\]]{2,300})\]", user_text or "")
+            if not m.group(1).strip().lower().startswith("ooc")]
+
+
+def _l11_player_voice(text, user_text, cfg, user_names, v):
+    """L11 (0b, pillar 14): the DM never DECIDES for the Player. With no open bracketed
+    intent this turn, decision-verbs attributed to the PC are a violation (L9 covers
+    speech/action voice; this covers agency). With the door OPEN, one protection remains:
+    a DIRECT QUOTE the player wrote inside the bracket is verbatim canon — PC speech that
+    drops it is a rewrite. Quoted NPC dialogue is stripped before scanning (an NPC may
+    SAY 'you agree, then?'). Conservative on purpose: precision over recall."""
+    if not cfg.user_guard.enabled or not user_names:
+        return
+    intents = _open_intents(user_text)
+    if not intents:
+        unquoted = re.sub(r"[\"“][^\"”]*[\"”]", " ", text)
+        for n in user_names:
+            if len(n) < 2:
+                continue
+            m = (re.search(rf"\b{re.escape(n)}\s+{_DECIDE_VERBS}\b", unquoted)
+                 or re.search(rf"(?i)\byou\s+{_DECIDE_VERBS}\b", unquoted))
+            if m:
+                v.append(Violation("L11", "high", ("user",),
+                         f"assistant decided for the player character '{n}'",
+                         evidence=m.group(0)[:80].strip(),
+                         note=f"Note: never decide, agree, or choose on {n}'s behalf — "
+                              f"present the moment and stop where {n} must decide."))
+                return
+        return
+    quotes = [q for it in intents for q in re.findall(r"[\"“]([^\"”]{4,200})[\"”]", it)]
+    if not quotes:
+        return
+
+    def _core(s: str) -> str:
+        return re.sub(r"[^a-z0-9 ]+", "", s.lower()).strip()
+
+    reply_core = _core(text)
+    for q in quotes:
+        cq = _core(q)
+        if cq and cq not in reply_core:
+            for n in user_names:
+                if re.search(rf"\b{re.escape(n)}\b[^\n]{{0,60}}[\"“]", text):
+                    v.append(Violation("L11", "high", ("user",),
+                             "player's quoted line was rewritten",
+                             evidence=q[:80],
+                             note="Note: a line the player wrote in quotes is VERBATIM "
+                                  "canon — deliver it word-for-word, never paraphrased."))
+                    return
+
+
 def _l9_user_guard(text, cfg, user_names, v):
     if not cfg.user_guard.enabled or not user_names:
         return
@@ -490,6 +547,50 @@ def _one_instance_one_place(state, v, *, heal=True):
                     lst.remove(x)
 
 
+# ============ RPG Phase 1: combatant_alive (plan doc 13) — death comes from the ledger ======
+# The War Room's anti-fudging net: a combatant dies ONLY when code detects HP 0 (combatant_
+# defeat). Narration killing a combatant whose row is alive is a contradiction — same family
+# as outcome_match: conservative proximity binding, prose-facing, precision over recall.
+_KILL_RE = re.compile(
+    r"\b(?:dies|died|dead|slain|slays?|kill(?:s|ed)?|lifeless|corpse|breathes? "
+    r"(?:his|her|their) last|no longer breathing|life (?:leaves|left)|"
+    r"fell dead|drops? dead)\b", re.IGNORECASE)
+
+
+def _combatant_alive(state, text, v):
+    rows = ((state.get("combat") or {}).get("combatants") or {})
+    if not rows or not text:
+        return
+    low = text.lower()
+    spans = [m.start() for m in _KILL_RE.finditer(low)]
+    if not spans:
+        return
+    for row in rows.values():
+        if not isinstance(row, dict) or row.get("defeated"):
+            continue
+        hp = row.get("hp") or {}
+        if int(hp.get("cur", 1)) <= 0:
+            continue                            # about to be code-defeated: not a lie
+        name = str(row.get("name", "")).lower()
+        if len(name) < 3:
+            continue
+        for m in re.finditer(re.escape(name), low):
+            if any(abs(m.start() - sp) <= 100 for sp in spans):
+                lo = max(0, min(m.start(), min(spans, key=lambda s: abs(s - m.start()))) - 10)
+                v.append(Violation("combatant_alive", "med", (row.get("id"),),
+                         f"narration kills {row.get('name')} but the ledger has them at "
+                         f"{hp.get('cur')}/{hp.get('max')} HP",
+                         evidence=text[lo:lo + 90].strip(),
+                         note=f"Continuity: {row.get('name')} still stands at "
+                              f"{hp.get('cur')}/{hp.get('max')} HP — death comes from the "
+                              f"ledger, never the prose. Bring their HP to 0 through the "
+                              f"fight ([hp] tags / the engine's dice) before they can fall."))
+                break
+        else:
+            continue
+        break                                   # one hit is enough (single note slot)
+
+
 # ============ RPG: one_soulmate / one_nemesis (06 §2.4, 07 §7.8, 08 §4) =====================
 # The single-bond uniqueness + eligibility net. The reducer's demote-then-set keeps uniqueness
 # BY CONSTRUCTION, so the structural arm firing means an out-of-band edit/migration; the
@@ -610,9 +711,11 @@ def _ledger_premises(state: dict) -> list:
         if sentence and len(prem) < _LEDGER_PREMISE_CAP:
             prem.append((key, sentence))
 
-    for fid, f in list((state.get("facts") or {}).items())[-8:]:   # base facts: durable, top authority
-        st = str((f or {}).get("statement", "")).strip()
-        if st:
+    live = [(fid, f) for fid, f in (state.get("facts") or {}).items()
+            if not (isinstance(f, dict) and f.get("retired_turn") is not None)]
+    for fid, f in live[-8:]:        # base facts: durable, top authority. Retired/superseded
+        st = str((f or {}).get("statement", "")).strip()   # facts left the premise set — the
+        if st:                                             # known stale-fact FP engine (item 3)
             add(f"fact:{fid}", st.rstrip(".") + ".")
     # presence is deliberately NOT a premise: a character legitimately enters/leaves as new fiction,
     # so it flips every sentence, and the deterministic L1/L5 rules already own absent-voice with
@@ -726,7 +829,7 @@ async def ledger_contradiction_pass(store, cfg, get_client, ep, session_id: str,
 # ================================ entry points ======================================
 def run(state: dict, text: str, cfg, *, applied_kinds: frozenset = frozenset(),
         klass: str = "new_turn", user_name: str = "", user_aliases: tuple = (),
-        turn: int = -1) -> list[Violation]:
+        turn: int = -1, user_text: str = "") -> list[Violation]:
     """Pure rule pass. Never raises on malformed state (invariant 3) — callers still wrap."""
     v: list[Violation] = []
     text = text or ""
@@ -736,6 +839,11 @@ def run(state: dict, text: str, cfg, *, applied_kinds: frozenset = frozenset(),
     scene = state.get("scene")
     nonlive = isinstance(scene, dict) and scene.get("mode") in ("flashback", "dream")  # 08 B4
     user_names = tuple(n for n in (user_name, *user_aliases) if n)
+    # 0b / pillar 14: an OPEN bracketed intent in the player's message ('[I persuade
+    # Jerald.]') is the one door through which the DM may voice the PC — with it open,
+    # L9 stands down this turn and L11 guards only the verbatim-quote rule. RPG-gated:
+    # base sessions keep L9 byte-identical behavior.
+    door = bool(_open_intents(user_text)) and _rpg_active(state, cfg)
     try:
         user_eids = {e for n, e in _char_names(state, set()).items() if n in user_names}
     except Exception:
@@ -750,12 +858,18 @@ def run(state: dict, text: str, cfg, *, applied_kinds: frozenset = frozenset(),
               ("L7", lambda: _l7_belief_leak(state, text, user_eids, nonlive, v), True),
               ("L8", lambda: _l8_consent(state, cfg, v), True),
               ("L9", lambda: _l9_user_guard(text, cfg, user_names, v),
-               klass != "impersonate")]       # impersonate = asked to write the user
+               klass != "impersonate" and not door)]   # impersonate/door = user-voice OK
     if _rpg_active(state, cfg):                # RPG rules — inert in non-RPG sessions (08 §1)
+        checks.append(("L11",                  # 0b / pillar 14: agency + verbatim quotes
+                       lambda: _l11_player_voice(text, user_text, cfg, user_names, v),
+                       klass != "impersonate"))
         checks.append(("outcome_match",
                        lambda: _outcome_match(state, text, cfg, turn, v), not nonlive))
         checks.append(("one_instance_one_place",   # state integrity: live AND non-live (08 §3)
                        lambda: _one_instance_one_place(state, v), bool(state.get("items"))))
+        checks.append(("combatant_alive",          # Phase 1: death comes from the ledger
+                       lambda: _combatant_alive(state, text, v),
+                       bool((state.get("combat") or {}).get("active")) and not nonlive))
         nemesis_on = bool(getattr(getattr(cfg, "specialization", None),   # D6: off by default
                                   "nemesis_enabled", False))
         checks.append(("one_soulmate",             # RPG-3b bonds (08 §4)
@@ -775,13 +889,14 @@ def run(state: dict, text: str, cfg, *, applied_kinds: frozenset = frozenset(),
 def lint_turn(store, cfg, session_id: str, branch_id: str, turn: int, state: dict,
               text: str, *, applied_kinds: frozenset = frozenset(),
               klass: str = "new_turn", user_name: str = "",
-              user_aliases: tuple = ()) -> list[Violation]:
+              user_aliases: tuple = (), user_text: str = "") -> list[Violation]:
     """Orchestrator: run rules, cooldown-dedup vs the lint log, persist survivors,
     stage the corrective note for the next turn. Fail-open at every seam."""
     if not cfg.linter.enabled:
         return []
     vios = run(state, text, cfg, applied_kinds=applied_kinds, klass=klass,
-               user_name=user_name, user_aliases=user_aliases, turn=turn)
+               user_name=user_name, user_aliases=user_aliases, turn=turn,
+               user_text=user_text)
     seen: set = set()
     fresh: list[Violation] = []
     recent = store.lint_recent(branch_id, turn - COOLDOWN_TURNS)

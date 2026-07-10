@@ -173,6 +173,32 @@ rollable, without an in-world basis.**
   the engine still rolls and writes the outcome. Also fixes a bug where a check could silently stop
   resolving after reloading the page: the proxy's turn head is now authoritative, so a new message
   is always the next turn and a client turn is never allowed to regress.
+- **New in 1.13 — real combat: the War Room.** Fights run on engine-owned combatant
+  instances with **exact HP**: the DM summons foes with a `[foe | name | tier | weapon]`
+  tag (or you do, with `((aether.foe ...))`), known NPCs fight as themselves and **keep
+  their wounds after the battle**, and up to 3v3 with friends who join in on their own
+  pre-rolled **[ALLY] dice**. Your strike damage is code-decided (outcome tier × your
+  weapon) and applied to the ledger before the DM writes a word; enemy blows still land
+  through the pre-rolled [OPPOSITION] die. Drop a foe to 0 HP and the engine — not the
+  model — declares the defeat, pays XP by threat tier, and rolls loot from a table frozen
+  at spawn (your world's Creator can author its own drop tables). A combat lane appears in
+  the HUD with every fighter's exact HP, dice, and loot; NPC-vs-NPC fights stay pure prose
+  but their outcomes are recorded (`[clash | A vs B | how | outcome]`); and a new lint
+  catches any narration that kills a fighter the ledger says is still standing.
+- **New in 1.12 — a leaner briefing that loses nothing.** Absent NPCs' physical detail,
+  statuses, and drives stay in the ledger but out of your prompts until they're back on
+  stage; only your freshest three quests carry full detail; restated facts retire their old
+  versions (kept and labeled, never deleted — and no longer tripping the contradiction
+  checker); and an opt-in `briefing_style = "compact"` squeezes the state blocks into dense
+  notation with a one-line key, for smaller prompts on long campaigns.
+- **New in 1.11 — the notables gate, and your voice is yours.** Notable NPCs get an authored
+  **home** location: when you're at their home turf a `[NEARBY]` line tells the DM who's
+  plausibly around, and notables anchored elsewhere stay out of your prompts entirely. Every
+  on-scene NPC now declares how they know you — `stranger`, `by reputation (Faction)`, or a
+  real relationship tier — so the world stops treating a newcomer like a famous main
+  character. And a new lint (L11) enforces the player-voice rule: the DM deciding or speaking
+  for your character gets flagged and corrected — unless you opened the door with an intent
+  like `[I persuade Jerald.]`, and even then a line you wrote in quotes is delivered verbatim.
 - **New in 1.10 — prompt caching, enabled and measured.** Long RP prompts are exactly what
   provider prompt-caches reward (a huge stable history + a small volatile tail), so enriched
   requests now carry a per-conversation `prompt_cache_key` that keeps every turn on the same warm

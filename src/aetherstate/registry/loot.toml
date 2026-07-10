@@ -1,0 +1,34 @@
+# AetherState RPG registry — loot tables (Phase 1 combat / War Room, plan doc 13).
+# The FLOOR for the deterministic defeat-time loot roll: one table per threat tier.
+# A Creator/assist-frozen state["loot"] table (loot_table op) WINS over these rows at
+# combatant_spawn bake time; a user override dir (<data_dir>/registry/loot.toml) merges
+# over this file. Rows: name (required), qty_min/qty_max (default 1), chance (0..1).
+# The roll itself is seeded from (turn, combatant id) and BAKED into the journaled
+# combatant_defeat op — editing this file never rewrites a loot drop that already fell.
+
+[minion]
+entries = [
+  { name = "a few coins", qty_min = 1, qty_max = 4, chance = 0.7 },
+  { name = "crude weapon", chance = 0.25 },
+]
+
+[standard]
+entries = [
+  { name = "coin purse", chance = 0.8 },
+  { name = "worn weapon", chance = 0.35 },
+  { name = "Healing Draught", chance = 0.2 },
+]
+
+[elite]
+entries = [
+  { name = "heavy coin purse", chance = 0.9 },
+  { name = "quality weapon", chance = 0.5 },
+  { name = "Healing Draught", qty_min = 1, qty_max = 2, chance = 0.5 },
+]
+
+[boss]
+entries = [
+  { name = "trove of coin", chance = 1.0 },
+  { name = "signature relic", chance = 0.9 },
+  { name = "Healing Draught", qty_min = 2, qty_max = 3, chance = 0.7 },
+]

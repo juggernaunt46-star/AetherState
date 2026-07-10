@@ -139,7 +139,7 @@ when the user-guard is in `prevent_and_correct`), `compose.compose`, `write_slic
 **Key internals — cold path (`on_response`).** `_response_text` reconstructs assistant text from SSE
 deltas or a plain JSON body → write it as this turn's `assistant_text` → `_discover` (entity
 evidence) → `_recall_pass` (only when extraction is `off/rules`; otherwise the jobs path owns recall)
-→ `_lint_pass` (full L1–L9 when `off/rules`, which also stages the director note; L9-only otherwise
+→ `_lint_pass` (full L1–L11 when `off/rules`, which also stages the director note; L9-only otherwise
 so the guard can still correct the next turn) → `_genesis_pass` (schedule Stage-B LLM seed after
 turn 1) → `jobs.notify` (arm Tier-1). `_capture_user_text` only fires on `new_turn/new_session/
 impersonate`; `_swipe_rollback_guard` retracts state if a swiped turn was already extracted early.
