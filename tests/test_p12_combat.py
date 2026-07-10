@@ -190,6 +190,129 @@ def test_nl_attack_binds_the_lone_foe_and_miss_draws_no_blood():
         assert not [o for o in res.rule_ops if o.get("op") == "combatant_hp"]
 
 
+def test_strike_then_dm_hp_tag_on_same_foe_counts_once():
+    """fix B (2026-07-10): the code-decided player strike is authoritative and pre-applied; the
+    DM re-narrating that SAME blow as a same-turn [hp | <foe>] tag must not double it. A chip
+    hit on a DIFFERENT foe still lands, and a later turn's harm on the struck foe applies."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    _spawn(store, sid, bid, 1, cfg, name="Bandit", tier="standard")
+    _spawn(store, sid, bid, 1, cfg, name="Thug", tier="standard")
+    apply_delta(store, sid, bid, 2, [                       # the player's bound strike: -3
+        {"op": "combatant_hp", "target": "Bandit", "delta": -3, "_strike": True}], "rule", cfg)
+    apply_delta(store, sid, bid, 2, [                       # same turn: the DM re-tags the SAME
+        {"op": "combatant_hp", "target": "Bandit", "delta": -3},   # blow (dropped) + a chip on
+        {"op": "combatant_hp", "target": "Thug", "delta": -2}], "extraction", cfg)  # the OTHER
+    rows = current_state(store, bid)["combat"]["combatants"]
+    assert rows["bandit"]["hp"]["cur"] == THREAT_HP["standard"] - 3   # strike counted ONCE
+    assert rows["thug"]["hp"]["cur"] == THREAT_HP["standard"] - 2     # other foe's chip lands
+    apply_delta(store, sid, bid, 3, [                       # a LATER turn's harm applies fine
+        {"op": "combatant_hp", "target": "Bandit", "delta": -4}], "extraction", cfg)
+    assert current_state(store, bid)["combat"]["combatants"]["bandit"]["hp"]["cur"] \
+        == THREAT_HP["standard"] - 7
+
+
+def test_floor_staged_foe_takes_the_opening_strike_and_raises_the_phase():
+    """fix C (2026-07-10): attacking a DM-narrated hostile with no live combatant stages the foe
+    AND lands the opening strike the SAME turn (was: the spawn journaled after the check, so the
+    first blow whiffed). The scene also rises to a combat phase."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)                          # Kael has melee 2; no live foes
+    st = current_state(store, bid)
+    doc = {"messages": [
+        {"role": "assistant",
+         "content": "A hollow revenant drags itself out of the mere, jaw unhinged, wading in."},
+        {"role": "user", "content": "((aether.check melee at Hollow Revenant)) I cut it down."}]}
+    res = tier0.run(doc, "new_turn", False, st, cfg, _Rig(5))       # 2d6=10 -> success
+    spawn = next(o for o in res.rule_ops if o.get("op") == "combatant_spawn")
+    assert spawn.get("_floor") and spawn.get("_cid") == "hollow_revenant"
+    strikes = [o for o in res.rule_ops if o.get("op") == "combatant_hp"]
+    assert strikes and strikes[0]["target"] == "hollow_revenant" and strikes[0]["_strike"]
+    assert any(o.get("op") == "scene_set" and o.get("phase") == "climax" for o in res.rule_ops)
+    r = apply_delta(store, sid, bid, 1, res.rule_ops, "rule", cfg)  # spawn (2) before hp (6)
+    row = r.state["combat"]["combatants"]["hollow_revenant"]
+    assert row["hp"]["cur"] < row["hp"]["max"]                      # the opening blow LANDED
+    assert r.state["scene"]["phase"] == "climax"
+
+
+def test_floor_names_the_target_not_the_weapon_or_a_location():
+    """Redgate live (2026-07-10): "lunge FROM THE PINES and stab MY SHORTSWORD into the nearest
+    cutthroat" must stage the CUTTHROAT — not the movement-verb's location object, not the
+    Player's weapon. The targeting-preposition object ("into <foe>") wins; weapon/location words
+    are skipped."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)                     # Kael, no live foes
+    st = current_state(store, bid)
+    doc = {"messages": [
+        {"role": "assistant",
+         "content": "Three Redgate cutthroats dice by the fire in the pines of the overlook."},
+        {"role": "user", "content": ("((aether.check melee)) I lunge from the pines and stab my "
+                                     "shortsword into the nearest Redgate cutthroat.")}]}
+    res = tier0.run(doc, "new_turn", False, st, cfg, _Rig(5))
+    spawn = next((o for o in res.rule_ops if o.get("op") == "combatant_spawn"), None)
+    assert spawn is not None, "the floor should still stage a foe"
+    nm = spawn["name"].lower()
+    assert "cutthroat" in nm and "sword" not in nm and "pine" not in nm
+
+
+def test_peaceful_scene_never_stages_a_phantom_foe():
+    """Thornhale live ROOT-CAUSE regression (2026-07-10): a PEACEFUL message ('slip out to the
+    STABLE and scry Fenn') fired Stealth + Hexcraft checks, but the old attack-verb regex matched
+    "stab"le and 'slip OUT' staged a foe named 'Out' — the phantom [WAR]/[DIRECTIVE] then wrecked
+    the scene. Now: the fixed regex ignores 'stable', and only a COMBAT skill can arm the floor,
+    so a stealth/hexcraft turn stages no foe, no strike, no war room."""
+    cfg = _rpg_cfg()
+    store = Store(":memory:")
+    sid, bid = store.create_session(external_id="p12peace")
+    apply_delta(store, sid, bid, 0, [
+        {"op": "entity_add", "name": "Wren", "kind": "player"},
+        {"op": "entity_add", "name": "Fenn"},
+        {"op": "presence", "entity": "Fenn", "present": True},
+        {"op": "player_seed", "entity": "Wren",
+         "card": {"stats": {"DEX": 14, "INT": 13}, "skills": {"stealth": 3, "hexcraft": 2},
+                  "defs": {"skills": {
+                      "stealth": {"name": "Stealth", "keyed_stat": "DEX",
+                                  "governs": ["sneak", "slip", "creep", "hide"]},
+                      "hexcraft": {"name": "Hexcraft", "keyed_stat": "INT",
+                                   "governs": ["scry", "ward", "curse", "hex"]}}},
+                  "resources": {"hp": {"max": 20}, "mana": {"max": 8}}}}], "genesis", cfg)
+    st = current_state(store, bid)
+    doc = {"messages": [
+        {"role": "assistant", "content": "Old Fenn crouches in the stable, drawing circles."},
+        {"role": "user", "content": "I slip out back to the stable and scry Fenn for a hex."}]}
+    res = tier0.run(doc, "new_turn", False, st, cfg, _Rig(4))
+    assert res.checks, "the stealth/hexcraft checks should still fire (they're legit)"
+    assert not any(o.get("op") == "combatant_spawn" for o in res.rule_ops)   # NO phantom foe
+    assert not any(o.get("op") == "combatant_hp" for o in res.rule_ops)      # NO phantom strike
+    assert not any(o.get("op") == "scene_set" and o.get("phase") == "climax"
+                   for o in res.rule_ops)                                    # scene stays peaceful
+    r = apply_delta(store, sid, bid, 1, res.rule_ops, "rule", cfg)
+    assert not (r.state.get("combat") or {}).get("active")                   # war room never armed
+
+
+def test_initiative_order_ranks_combatants_and_renders_everywhere():
+    """Explicit initiative (2026-07-10, Bean): every LIVE combatant + the Player is ranked by a
+    curated, baked init score (replay-pure); the order rides the [INIT] directive line AND the
+    HUD war-room payload; a minion never leads a +DEX player or an elite."""
+    from aetherstate.compose import _initiative_order
+    from aetherstate.hud import hud_view
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)                     # Kael DEX 14 (+2)
+    _spawn(store, sid, bid, 1, cfg, name="Goblin", tier="minion")   # _mod 0 -> low init
+    _spawn(store, sid, bid, 1, cfg, name="Ogre", tier="elite")      # _mod 2 -> high init
+    st = current_state(store, bid)
+    rows = st["combat"]["combatants"]
+    assert all(isinstance(r.get("init"), int) for r in rows.values())   # baked on the rows
+    order = _initiative_order(st, cfg)
+    names = [nm for _s, nm, _sd in order]
+    assert set(names) == {"Kael", "Goblin", "Ogre"} and names[-1] == "Goblin"   # minion last
+    hv = hud_view(st, cfg)                              # HUD carries the same order
+    assert [o["name"] for o in hv["war_room"]["order"]] == names
+    st["_fresh_checks"] = []                            # the directive renders an [INIT] line
+    d = _render_directive(st, cfg)
+    assert "[INIT]" in d and "Kael" in d and "Goblin" in d
+
+
 # ------------------------------ the DM's combat tags -----------------------------------
 def test_foe_tag_parses_tier_armament_and_tracked_names():
     cfg = _rpg_cfg()
@@ -429,6 +552,7 @@ def test_none_session_carries_no_combat_fingerprint():
     assert not res.user_ops or all(o["op"] != "combatant_spawn" for o in res.user_ops)
     assert not res.rule_ops or all("combatant" not in o["op"] for o in res.rule_ops)
     assert "[WAR]" not in render_header(st, cfg)
+    assert "[INIT]" not in render_header(st, cfg)          # initiative is rpg-only (2026-07-10)
     r = apply_delta(store, sid, bid, 1, [
         {"op": "combatant_spawn", "name": "Thug", "side": "enemy"}], "extraction", cfg)
     assert not r.applied                                  # privileged even under none

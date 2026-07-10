@@ -450,6 +450,30 @@ def _norm_extras(extras) -> list:
     return out
 
 
+def _norm_gear(raw) -> list:
+    """Starting gear (RPG-5 G2) — a plain name, OR a structured row {name, slot?, effect?} so the
+    player (or the assist author) can PIN a slot and give the piece a PROSE effect (2026-07-10,
+    Bean: gear "can change prose … beauty, glamour"). Strings stay strings (the name heuristic
+    slots them); dicts carry the authored slot + effect through to item_gain, frozen at mint."""
+    out: list = []
+    for g in _lst(raw)[:_MAX_LIST]:
+        if isinstance(g, dict):
+            nm = _s(g.get("name") or g.get("item"), 60)
+            if not nm:
+                continue
+            row: dict = {"name": nm}
+            sl = _s(g.get("slot"), 20).lower().replace(" ", "").replace("-", "")
+            if sl:
+                row["slot"] = sl
+            eff = _s(g.get("effect") or g.get("aura") or g.get("prose"), 240)
+            if eff:
+                row["effect"] = eff
+            out.append(row)
+        elif isinstance(g, str) and g.strip():
+            out.append(_s(g, 60))
+    return out[:10]
+
+
 def _norm_npcs(npcs) -> list:
     out = []
     for n in _lst(npcs)[:_MAX_LIST]:
@@ -557,7 +581,7 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
     mana = _pool("mana", 10 if magicish else 0)
     if mana:
         resources["mana"] = {"max": mana}
-    gear = [_s(g, 60) for g in _lst(doc.get("gear")) if _s(g)][:8]   # RPG-5 (G2): starting
+    gear = _norm_gear(doc.get("gear"))                              # RPG-5 (G2): starting
     return {                                                         # gear finally SEEDS
         "name": _s(doc.get("name"), 80) or "Player",
         "sex": _s(doc.get("sex"), 40),
@@ -819,8 +843,16 @@ def player_to_ops(player: dict, cfg=None) -> list[dict]:
     if p.get("appearance"):                     # player appearance/description — was missing
         ops.append({"op": "set_attribute", "entity": eid, "key": "appearance",
                     "value": p["appearance"]})   # entirely (only NPCs had one); HUD/Console/card read it
-    for g in p.get("gear") or []:               # RPG-5 (G2): starting gear becomes INSTANCES —
-        ops.append({"op": "item_gain", "char": name, "name": g})   # template names ground
+    for g in _norm_gear(p.get("gear")):         # RPG-5 (G2): starting gear becomes INSTANCES —
+        if isinstance(g, dict):                 # a structured row PINS the slot + a prose effect
+            gop = {"op": "item_gain", "char": name, "name": g["name"]}
+            if g.get("slot"):
+                gop["slot"] = g["slot"]         # authored/manual slot (frozen at mint)
+            if g.get("effect"):
+                gop["aura"] = g["effect"]       # prose/glamour effect the DM will honor
+            ops.append(gop)
+        else:
+            ops.append({"op": "item_gain", "char": name, "name": g})   # a plain name grounds
     for ex in p.get("extras", []):              # Bean 07-07: free-form custom character detail
         if ex.get("text"):                      # categories -> retrievable lore about the PC
             ops.append({"op": "memory_event", "text": f"{name} — {ex['label']}: {ex['text']}"})
@@ -922,7 +954,7 @@ _CHAR_SYSTEM_TMPL = (
     "{{\"name\":str,\"sex\":str,\"pronouns\":str,\"species\":str,\"appearance\":str,"
     "\"concept\":str,"
     "\"stats\":{{STAT:int}},\"skills\":{{skill_id:rank}},\"abilities\":[ability_id],"
-    "\"gear\":[str],"
+    "\"gear\":[str OR {{\"name\":str,\"slot\":str,\"effect\":str}}],"
     "\"defs\":{{\"skills\":[{{\"id\":str,\"name\":str,\"keyed_stat\":STAT,\"base_mod\":int,"
     "\"max_rank\":int,\"governs\":[str],\"desc\":str,\"requires_ability\":str,\"group\":str,"
     "\"cost\":{{\"stamina\":int,\"mana\":int}}}}],"
@@ -963,8 +995,13 @@ _CHAR_SYSTEM_TMPL = (
     "new inventions. "
     "`appearance` is a vivid 1-3 sentence PHYSICAL description of the character (face, build, "
     "dress, notable marks) that fits the world — what someone would see on meeting them. "
-    "`gear` is 2-5 STARTING ITEMS that fit the concept — plain names ('worn leather satchel', "
-    "'combat knife'), no stats. A def skill may carry `cost` (stamina and/or mana, 1-5) when "
+    "`gear` is 2-5 STARTING ITEMS that fit the concept — usually plain names ('worn leather "
+    "satchel', 'combat knife'). An item MAY instead be an object {{name, slot, effect}}: set "
+    "`slot` (head/face/neck/shoulders/body/cape/arms/hands/mainhand/offhand/waist/legs/feet/back/"
+    "accessory1/accessory2) only when it matters, and `effect` is a short PROSE line for what a "
+    "signature or glamorous piece DOES in the fiction — appearance, glamour, lore, presence, NOT a "
+    "dice stat (e.g. 'turns every entrance into a weapon'). Keep most items plain names. "
+    "A def skill may carry `cost` (stamina and/or mana, 1-5) when "
     "using it should visibly tire or drain the character; omit it otherwise. If the "
     "player gives `notes`, treat them as creative direction and follow them faithfully.")
 

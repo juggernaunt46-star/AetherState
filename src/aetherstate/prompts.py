@@ -171,9 +171,10 @@ JSON: {"schema":"aetherstate/delta/1","turn_range":[19,19],"ops":[
 # non-negotiables (honor the [DIRECTIVE]; never invent mechanics). Droppable under budget
 # (rides its own component, not the never-dropped header) — the [DIRECTIVE] itself is what is
 # load-bearing per turn and rides the header.
-DM_CONTRACT_VERSION = "dm-rules/8"   # /8 (2026-07-10, Eranmor): a [DIRECTIVE] resolves the
-#                                      Player's NEWEST message (was "reaches you next turn" —
-#                                      GLM burned reasoning deciding if directives were stale)
+DM_CONTRACT_VERSION = "dm-rules/9"   # /9 (2026-07-10, Bean): explicit [INIT] turn order in the
+#                                      War Room (was "initiative is loose"). /8 (Eranmor): a
+#                                      [DIRECTIVE] resolves the Player's NEWEST message (was
+#                                      "reaches you next turn" — GLM burned reasoning on staleness)
 
 # Phase 1 combat / War Room (plan doc 13, ratified) — appended to the contract when
 # [specialization].war_room is on. Teaches the combat channels: the DM introduces foes by
@@ -189,8 +190,9 @@ _WAR_ROOM_RULES = (
     "[ALLY] die — on a hit, emit [hp | <foe> | -N | why] for the foe they struck; your own "
     "chip damage to a foe uses the same [hp | <foe> | -N | why] tag (the engine clamps it). "
     "A combatant dies ONLY when the ledger reads 0 HP — never narrate a death the engine "
-    "has not recorded; loot drops are handed to you pre-rolled. Initiative is LOOSE: weave "
-    "the pre-rolled results into one flowing beat, in whatever order the fiction wants. "
+    "has not recorded; loot drops are handed to you pre-rolled. INITIATIVE: the [INIT] line "
+    "gives the turn order (highest initiative first) — resolve the round in that sequence, "
+    "weaving the pre-rolled dice into one flowing beat but honoring who acts before whom. "
     "Fights between NPCs use no dice — narrate them freely, then record the outcome with "
     "[clash | <A> vs <B> | <how> | <what changed>].")
 DM_RULES_CONTRACT = (

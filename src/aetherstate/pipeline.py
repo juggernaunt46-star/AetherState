@@ -134,6 +134,8 @@ class Pipeline:
                                           if isinstance(o, dict) and o.get("op") == "check"]
                 if t0.off_protocol:
                     state["_protocol_nudge"] = t0.off_protocol
+                if getattr(t0, "kill_note", ""):        # out-of-combat kill outcome (2026-07-10)
+                    state["_kill_note"] = t0.kill_note
                 for n in t0.notices:
                     log.info("tier0 notice: %s", n)
                 self._notice(res, t0.notices)

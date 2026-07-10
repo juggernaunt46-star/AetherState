@@ -335,6 +335,11 @@
               <span id="aes_spec_state" class="aes-chip">spec: …</span>
             </div>
             <div class="aes-help" id="aes_spec_help"></div>
+            <div class="aes-row" id="aes_intent_row" style="display:none">
+              <label class="aes-check" title="Pure-code semantic reflex floor: natural phrasings map to the skill they mean (sweet-talk -> persuasion, sneaked -> stealth), and a strike targets a REAL on-scene character, not a stray word. No model, no network.">
+                <input type="checkbox" id="aes_intent_floor"> semantic intent floor</label>
+              <span class="aes-opt">grounds rolls &amp; targets by meaning</span>
+            </div>
             <div class="aes-field">
               <label class="aes-label" for="aes_proxy">Proxy URL</label>
               <input id="aes_proxy" class="text_pole aes-input" placeholder="http://127.0.0.1:9130" />
@@ -373,16 +378,28 @@
         el.innerHTML = name === "rpg"
           ? "<b>RPG (DM mode):</b> the card runs the world as your Dungeon Master. Full engine — dice &amp; skill checks, a Player sheet, gear &amp; inventory, statuses, quests, XP &amp; mastery. Use the 🎛 player HUD and the Creator."
           : "<b>Chat RP:</b> casual roleplay with silent state-tracking only — no dice, no DM framing, no Player sheet. Byte-identical to plain AetherState 1.0."; };
+      const applyIntent = (sp) => {            // reflex-floor toggle: only meaningful under rpg
+        const row = $("aes_intent_row"), box = $("aes_intent_floor");
+        if (!row || !box || !sp) return;
+        row.style.display = (sp.name === "rpg") ? "" : "none";
+        if (typeof sp.intent_floor === "boolean") box.checked = sp.intent_floor;
+      };
       try {                                    // narrative mode: show it + let the user switch it
         const sp = await api("/aether/specialization");
         if (sp && sp.name) { $("aes_spec").value = sp.name; $("aes_spec_state").textContent = "spec: " + sp.name; setSpecHelp(sp.name); }
+        applyIntent(sp);                        // reflex-floor toggle: reflect + show under rpg
       } catch (e) {}
       $("aes_spec").onchange = async (e) => {
         setSpecHelp(e.target.value);
         const d = await api("/aether/specialization", { method: "POST",
           headers: { "content-type": "application/json" }, body: JSON.stringify({ name: e.target.value }) }).catch(() => null);
         if (d && d.name) { $("aes_spec_state").textContent = "spec: " + d.name; setSpecHelp(d.name); refreshChip();
-          try { if (hudVisible()) hudRefresh(); } catch (err) {} }
+          applyIntent(d); try { if (hudVisible()) hudRefresh(); } catch (err) {} }
+      };
+      $("aes_intent_floor").onchange = async (e) => {   // the semantic reflex floor, flipped live
+        await api("/aether/specialization", { method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ intent_floor: e.target.checked }) }).catch(() => null);
       };
       $("aes_enabled").onchange = (e) => { settings.enabled = e.target.checked; save(); };
       $("aes_proxy").onchange = (e) => {
@@ -703,6 +720,11 @@
     const foes = (w.combatants || []).filter((c) => c.side === "enemy");
     const allies = (w.combatants || []).filter((c) => c.side !== "enemy");
     let h = `<div class="aes-war"><div class="aes-war-h">⚔ WAR ROOM <span class="m">round ${esc(w.round)}</span></div>`;
+    if ((w.order || []).length > 1) {                // explicit initiative order (2026-07-10)
+      h += `<div class="aes-war-init"><span class="aes-dim">initiative</span> ` +
+        w.order.map((o, i) => `<span class="aes-init ${o.side === "player" ? "me" : esc(o.side)}">` +
+          `${i + 1}. ${esc(o.name)}</span>`).join(` <span class="aes-dim">→</span> `) + `</div>`;
+    }
     if (foes.length) h += `<div class="aes-war-side">${foes.map(card).join("")}</div>`;
     if (allies.length) h += `<div class="aes-war-side">${allies.map(card).join("")}</div>`;
     return h + `</div>`;
@@ -917,7 +939,7 @@
       h += `<div class="aes-doll-gh">${GH[g]}</div>`;
       h += groups[g].filter((s) => s.item).map((s) => {
         const it = s.item;
-        return `<div class="aes-slot filled ${g}"><span class="aes-slot-l">${esc(s.label)}</span><span class="aes-slot-i">${esc(it.name)}${it.mods ? ` <span class="m">${esc(it.mods)}</span>` : ""}</span>${actBtn("✕", [{ op: "item_unequip", instance: it.iid }], "take off", "x")}</div>`;
+        return `<div class="aes-slot filled ${g}"><span class="aes-slot-l">${esc(s.label)}</span><span class="aes-slot-i">${esc(it.name)}${it.mods ? ` <span class="m">${esc(it.mods)}</span>` : ""}${it.aura ? `<span class="aes-aura">✦ ${esc(it.aura)}</span>` : ""}</span>${actBtn("✕", [{ op: "item_unequip", instance: it.iid }], "take off", "x")}</div>`;
       }).join("");
       const empties = groups[g].filter((s) => !s.item);   // 2026-07-09: 12 "— empty —" rows
       if (empties.length) h += `<div class="aes-slot-empties">open: ${empties.map((s) => esc(s.label)).join(" · ")}</div>`;   // said nothing — one line says it all

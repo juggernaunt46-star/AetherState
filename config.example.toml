@@ -170,6 +170,14 @@ name = "none"         # none | rpg
 #                           # DM to remember the [foe] tag for a fight to start. Body parts and
 #                           # ungrounded names never spawn (no in-world basis). Off = the DM
 #                           # must tag [foe] to stage an opponent
+# intent_floor = true       # 1.18.0: the pure-code semantic REFLEX floor (no model, no network).
+#                           # (a) a light stemmer + curated intent lexicon so natural phrasings
+#                           # roll the skill they MEAN ("sweet-talk"/"haggle" -> persuasion,
+#                           # "sneaked" -> stealth) — not just literal skill/`governs` words;
+#                           # (b) the entity-aware target picker: a strike resolves to a PRESENT
+#                           # cast member, never a stray word (ends the 'Out'/'Pines'/'Shortsword'
+#                           # phantom-foe class). Live-switchable from the Console + ST panel.
+#                           # Off = the exact-match keyword floor (1.17.0 behavior)
 # narrator_card_dir = ""    # optional: a SillyTavern characters dir (e.g.
 #                           # ".../SillyTavern/data/default-user/characters"). When set, the
 #                           # Creator's "Generate Narrator card" button installs a world-named

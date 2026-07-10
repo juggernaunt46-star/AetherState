@@ -56,6 +56,61 @@ def test_classify_item_gear_vs_inventory():
     assert classify_item("x", {"on_consume": {"heal": 8}})["class"] == "inv"
 
 
+def test_classify_item_expanded_slot_recognition():
+    """2026-07-10 (Bean: "high heels don't even go to feet"): the slot heuristic recognizes a much
+    wider wardrobe — footwear/dresses/accessories — with plural tolerance, and long-only compound
+    suffixes so common non-gear words don't misfire ("husband" is not headgear)."""
+    feet = ("high heels", "red stilettos", "ballet flats", "leather loafers", "wool socks",
+            "combat boots", "silk slippers", "platform wedges", "running sneakers")
+    for nm in feet:
+        assert classify_item(nm)["slot"] == "feet", nm
+    cases = {"silk evening gown": "body", "black cocktail dress": "body", "tight corset": "body",
+             "velvet cloak": "cape", "golden circlet": "head", "silk gloves": "hands",
+             "pearl necklace": "neck", "jeweled anklet": "accessory2", "signet ring": "accessory1",
+             "studded belt": "waist", "leather leggings": "legs", "oaken buckler": "offhand",
+             "worn backpack": "back", "steel gauntlets": "hands", "feathered mask": "face"}
+    for nm, slot in cases.items():
+        got = classify_item(nm)
+        assert got["class"] == "gear" and got["slot"] == slot, (nm, got)
+    # false positives the OLD end-anchored suffix match would have produced are gone
+    assert classify_item("her jealous husband")["slot"] != "head"      # "…band"
+    assert classify_item("a strong handicap")["slot"] != "head"        # "…cap"
+    assert classify_item("smoked herring")["slot"] != "accessory1"     # "…ring"
+
+
+def test_gear_authored_slot_and_prose_effect_flow_through():
+    """2026-07-10 (Bean): a gear item can carry an AUTHORED slot (manual/creator — overriding the
+    name heuristic) and a PROSE 'aura' effect (appearance/glamour/lore). Both freeze at mint and
+    ride the item, [GEAR], and the HUD."""
+    from aetherstate.compose import _render_gear
+    from aetherstate.config import Config
+    from aetherstate.hud import hud_view
+    from aetherstate.store import Store
+    cfg = Config()
+    cfg.specialization.name = "rpg"
+    store = Store(":memory:")
+    sid, bid = store.create_session(external_id="gear-aura")
+    apply_delta(store, sid, bid, 0, [
+        {"op": "entity_add", "name": "Sera", "kind": "player"},
+        {"op": "player_seed", "entity": "Sera", "card": {"resources": {"hp": {"max": 18}}}}],
+        "genesis", cfg)
+    # a name the heuristic would classify as plain inventory, PINNED to the neck slot with a prose
+    # effect — the authored slot must win and the aura must survive to the render surfaces
+    r = apply_delta(store, sid, bid, 1, [
+        {"op": "item_gain", "char": "Sera", "name": "the Murmuring Oath", "slot": "neck",
+         "aura": "a black pearl that hushes a room when you enter; strangers lean in"}], "user", cfg)
+    assert r.applied, r.quarantined
+    st = current_state(store, bid)
+    it = next(i for i in st["items"].values() if i["name"] == "the Murmuring Oath")
+    assert it["class"] == "gear" and it["slot"] == "neck"          # authored slot won
+    assert it["loc"] == "gear:neck" and "hushes a room" in it.get("aura", "")   # equipped + frozen
+    gear = _render_gear(st, cfg)
+    assert "neck=the Murmuring Oath" in gear and "strangers lean in" in gear    # aura rides [GEAR]
+    hv = hud_view(st, cfg)
+    doll = [r2 for r2 in hv["players"][0]["gear_slots"] if r2["slot"] == "neck"][0]
+    assert doll["item"] and "hushes a room" in doll["item"]["aura"]              # HUD carries it
+
+
 # ------------------------------ worn-at-start auto-equip ----------------------------
 def test_starting_worn_gear_auto_equips_to_paperdoll():
     cfg = _rpg_cfg()

@@ -529,10 +529,17 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
                                "max_concurrent": e.max_concurrent} for e in new_eps],
                 "persisted": persisted}
 
+    # the RPG knobs a human flips live from the Console / ST panel (bools + the contract enum).
+    _SPEC_BOOL_KNOBS = ("intent_floor", "war_room", "enemy_rolls", "auto_dm_checks", "foe_floor",
+                        "stealth_kills", "living_world", "hardcore", "dm_guard")
+
     def _spec_view() -> dict:
         s = cfg.specialization
-        return {"name": s.name, "blocks": list(s.blocks), "dm_guard": bool(s.dm_guard),
-                "dice": s.dice, "tiers": s.tiers}
+        view = {"name": s.name, "blocks": list(s.blocks), "dice": s.dice, "tiers": s.tiers,
+                "contract": getattr(s, "contract", "full")}
+        for k in _SPEC_BOOL_KNOBS:
+            view[k] = bool(getattr(s, k, k != "hardcore"))
+        return view
 
     @router.get("/specialization")
     async def specialization_get():
@@ -540,18 +547,28 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
 
     @router.post("/specialization")
     async def specialization_set(request: Request):
-        """Q27 / doc 05: switch narrative specialization (none|rpg) at runtime. Live for
-        rendering + the DM guard immediately (compose reads cfg per request); persisted so the
-        profile overlay (injection priorities etc.) fully re-applies on next load."""
+        """Q27 / doc 05: switch narrative specialization (none|rpg) AND its knobs at runtime. Live
+        for rendering + the DM guard immediately (compose/tier0 read cfg per request); persisted so
+        the profile overlay fully re-applies on next load. `name` is optional now — a knob-only
+        POST (e.g. {"intent_floor": false}) flips just that switch and leaves the mode alone."""
         try:
             payload = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
-        name = str(payload.get("name", "")).strip().lower()
-        if name not in ("none", "rpg"):
-            return JSONResponse({"error": "name must be none|rpg"}, status_code=422)
-        cfg.specialization.name = name
-        log.info("specialization set: %s", name)
+        if "name" in payload:
+            name = str(payload.get("name", "")).strip().lower()
+            if name not in ("none", "rpg"):
+                return JSONResponse({"error": "name must be none|rpg"}, status_code=422)
+            cfg.specialization.name = name
+            log.info("specialization set: %s", name)
+        for k in _SPEC_BOOL_KNOBS:                       # bool knobs — the visible opt-in switches
+            if k in payload:
+                setattr(cfg.specialization, k, bool(payload[k]))
+                log.info("specialization %s = %s", k, bool(payload[k]))
+        if "contract" in payload:
+            c = str(payload.get("contract", "")).strip().lower()
+            if c in ("full", "compact"):
+                cfg.specialization.contract = c
         return {**_spec_view(), "persisted": _persist_config(cfg)}
 
     def _connection_view() -> dict:

@@ -223,7 +223,8 @@ def _first_mes(world: dict, player: Optional[dict]) -> str:
         parts.append(opening)
         if quest:
             parts.append(f"\nAt the edge of it all: {quest}")
-        parts.append("\nThe world holds its breath, waiting on you.")
+        # 2026-07-10 (Bean): no canned closer — the authored opening scene ends on its own beat
+        # (the same boilerplate "the world holds its breath…" on every card read as filler).
     else:
         setting = _s_sent(world.get("setting"), 900)
         if setting:

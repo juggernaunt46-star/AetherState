@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from . import registry
-from .state import EFFECT_VALENCES, MASTERY_TICKS, slug, translate_path
+from .state import _COMBAT_PHASES, EFFECT_VALENCES, MASTERY_TICKS, slug, translate_path
 
 OOC_RE = re.compile(r"\(\(\s*(aether\.[a-z_]+[^)]*?|roll\s+[^)]*?)\s*\)\)", re.IGNORECASE)
 _DICE_RE = re.compile(r"^(\d*)d(\d+)\s*([+-]\s*\d+)?$", re.IGNORECASE)
@@ -65,6 +65,8 @@ class Tier0Result:
     off_protocol: list[str] = field(default_factory=list)    # 2026-07-10: invented bracket-tag
     #                                     heads in the DM's last reply ("[TAGS]", "[AWAIT]") —
     #                                     compose turns them into a one-line corrective
+    kill_note: str = ""                 # 2026-07-10: an out-of-combat kill outcome (stealth kill,
+    #                                     grand working, or a routed NON-MOVE) for the [DIRECTIVE]
 
 
 def _msg_text(content) -> str:
@@ -171,6 +173,90 @@ def _norm_phrase(text) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", str(text or "").lower()))
 
 
+# ---- pure-code semantic REFLEX floor (2026-07-10, Bean) — intent by MEANING, no network -------
+# The keyword floor matched skill names / `governs` verbs LITERALLY, so a conjugation ("sneaked",
+# "convincing") or an everyday synonym ("sweet-talk", "haggle") the curated list didn't spell out
+# fired no check at all. These add two grounded, deterministic, replay-pure layers that need NO
+# model and NO network (invariant 2 safe): (a) a light stemmer so morphological variants collapse
+# to one form on BOTH sides of the match; (b) a curated intent lexicon tying natural phrasings to
+# the `governs` seed they mean — expanded ONLY for skills the player OWNS (the eligibility gate
+# holds). Gated by [specialization].intent_floor (default on); off = the exact-match floor.
+_STEM_SUF = ("ing", "edly", "ed", "es", "s")
+
+
+def _stem_token(w: str) -> str:
+    """Aggressive, CONSISTENT stem (not a real lemma — both sides stem the same way so they meet
+    in the middle): strip a common verb/plural suffix, undo CVC doubling, drop a final 'e'.
+    'moving'/'move' -> 'mov'; 'sneaked'/'sneak' -> 'sneak'; 'castle' -> 'castl' (never 'cast')."""
+    w = "".join(re.findall(r"[a-z0-9]+", w.lower()))
+    if len(w) <= 3:
+        return w
+    for suf in _STEM_SUF:
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            w = w[: -len(suf)]
+            break
+    if len(w) >= 4 and w[-1] == w[-2] and w[-1] not in "aeiou":
+        w = w[:-1]
+    if len(w) >= 4 and w.endswith("e"):
+        w = w[:-1]
+    return w
+
+
+def _stem_seq(text: str) -> list:
+    return [_stem_token(t) for t in _norm_phrase(text).split()]
+
+
+def _seq_contains(hay: list, needle: list) -> bool:
+    """needle is a contiguous sublist of hay (both already stemmed)."""
+    n = len(needle)
+    if not n or n > len(hay):
+        return False
+    return any(hay[i:i + n] == needle for i in range(len(hay) - n + 1))
+
+
+def _phrase_hit(cand: str, msg_norm: str, msg_stems: list, stem_aware: bool) -> bool:
+    """Does the candidate phrase occur in the message? Exact padded-substring by default; also a
+    stem-aware contiguous-token match when the reflex floor is on (so 'sneaked'/'convincing'/a
+    lexicon synonym all land). Pure string work — no model, no network."""
+    if f" {cand} " in msg_norm:                      # exact always counts (fast path)
+        return True
+    if not stem_aware:
+        return False
+    return _seq_contains(msg_stems, [_stem_token(t) for t in cand.split()])
+
+
+# curated intent lexicon: a `governs` seed (already tied to a skill) -> the natural phrasings it
+# means. Expanded ONLY for a skill the player OWNS, so nothing becomes rollable without a basis.
+_INTENT_SYN: dict = {
+    "sneak": ("tiptoe", "skulk", "prowl", "slink", "steal past", "creep past", "melt into",
+              "blend into", "pad silently"),
+    "hide": ("conceal", "duck behind", "take cover", "hunker down", "lie low"),
+    "persuade": ("sweet talk", "talk into", "win over", "bring around", "reason with", "coax",
+                 "cajole", "wheedle", "talk round"),
+    "convince": ("win over", "talk into", "bring around"),
+    "charm": ("flirt", "woo", "flatter", "butter up", "sweet talk"),
+    "barter": ("haggle", "bargain", "dicker", "beat down the price", "talk down the price"),
+    "plead": ("beg", "implore", "appeal to", "entreat"),
+    "notice": ("scan", "look around", "case the room", "size up", "survey", "take stock"),
+    "search": ("rummage", "rifle through", "comb through", "scour", "ransack", "root through"),
+    "spot": ("catch sight of", "make out", "pick out"),
+    "listen": ("eavesdrop", "overhear", "strain to hear"),
+    "recall": ("call to mind", "dredge up"),
+    "identify": ("make sense of", "figure out", "puzzle out"),
+    "decipher": ("crack", "translate", "work out"),
+    "climb": ("scale", "clamber", "scramble up", "shinny up"),
+    "jump": ("leap", "vault", "bound across"),
+    "swim": ("wade across", "paddle across", "strike out across"),
+    "run": ("sprint", "dash", "race", "tear off"),
+    "pick": ("jimmy", "crack the lock", "spring the lock", "work the lock"),
+    "unlock": ("crack open", "spring open"),
+    "cast": ("invoke", "intone", "chant the", "work a spell", "utter the words"),
+    "channel": ("pull mana", "gather power", "focus my magic"),
+    "conjure": ("summon", "call forth", "manifest"),
+    "weave": ("spin a spell", "trace the sigil", "trace a sigil"),
+}
+
+
 def _parse_checks_only(text: str, res: Tier0Result) -> None:
     """Re-parse ONLY ((aether.check ...)) spans (used for swipe re-rolls) — never the other
     commands (freeze/scene/set), which must not re-fire when a reply is merely re-generated."""
@@ -193,6 +279,8 @@ def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
     if not player:
         return
     msg = " " + _norm_phrase(text) + " "
+    stem_aware = bool(getattr(getattr(cfg, "specialization", None), "intent_floor", True))
+    msg_stems = _stem_seq(text) if stem_aware else []
     already = {str(c.get("skill", "")).lower() for c in res.checks}
     cands = []                                   # (normalized_name, kind, id, entry)
     owned = set(player.get("skills") or {})
@@ -205,6 +293,11 @@ def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
             n = _norm_phrase(nm)
             if len(n) >= 3:
                 cands.append((n, "skill", str(sid), entry))
+                if stem_aware:                   # curated intent lexicon: this governs seed's
+                    for syn in _INTENT_SYN.get(n, ()):     # natural synonyms, tied to THIS skill
+                        s = _norm_phrase(syn)
+                        if len(s) >= 3:
+                            cands.append((s, "skill", str(sid), entry))
     for aid, a in (reg.known_abilities(player) or {}).items():
         for nm in {str(aid), str((a or {}).get("name", aid))}:
             n = _norm_phrase(nm)
@@ -213,7 +306,7 @@ def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
     cands.sort(key=lambda c: -len(c[0]))         # prefer the most specific phrase
     detected: dict = {}                          # skill_id -> {"use": [ability_id, ...]}
     for n, kind, rid, entry in cands:
-        if f" {n} " not in msg:
+        if not _phrase_hit(n, msg, msg_stems, stem_aware):
             continue
         if kind == "skill":
             sid = reg.resolve_skill(rid, player) or rid
@@ -392,9 +485,36 @@ def _find_active_ability(reg, player: dict, ref: str):
 
 # ---- Phase 1 (plan doc 13): the player's strike — code-derived damage ------------------
 _STRIKE_FACTOR = {"crit_success": 3, "success": 2, "partial": 1}   # x weapon magnitude
-_ATTACK_VERBS = re.compile(
-    r"\b(attack|strike|hit|shoot|stab|slash|swing|fire|punch|kick|blast|charge|shove|"
-    r"cut|cleave|smash|bash|lunge|throw|cast|loose|impale|tackle|grapple)\w*\b", re.IGNORECASE)
+# 2026-07-10 (Thornhale live, ROOT CAUSE of the recurring "phantom combat" bug): the old
+# `\b(stab|cast|bash|…)\w*\b` matched ORDINARY WORDS — "stab"->"STABLE", "cast"->"CASTLE"/"casting",
+# "bash"->"bashful", "cut"->"cutlery" — so walking to a stable fired the combat FLOOR, a phantom
+# foe was staged, and its [WAR]/[OPPOSITION]/[DIRECTIVE] wrecked a peaceful scene (the LLM then
+# spiralled trying to reconcile it). We now match only REAL conjugations of each verb, built as an
+# EXACT-WORD alternation, so no common word can masquerade as an attack. Same fix pattern applies
+# to any code that keys combat/kills off a verb regex.
+def _conjugate(v: str) -> set:
+    f = {v, v + "s", v + "ing", v + "ed"}
+    if v.endswith("e"):                                   # -e drop: cleave -> cleaved/cleaving
+        f |= {v + "d", v[:-1] + "ing", v[:-1] + "ed"}
+    else:
+        f |= {v + "es"}
+        if len(v) >= 3 and v[-1] in "bdgklmnprtvz" and v[-2] in "aeiou" and v[-3] not in "aeiou":
+            f |= {v + v[-1] + "ing", v + v[-1] + "ed"}    # CVC doubling: stab -> stabbed/stabbing
+    return f
+
+
+_ATTACK_BASES = ("attack", "strike", "hit", "shoot", "stab", "slash", "swing", "fire", "punch",
+                 "kick", "blast", "charge", "shove", "cut", "cleave", "smash", "bash", "lunge",
+                 "throw", "cast", "impale", "tackle", "grapple", "hack", "maim", "skewer",
+                 "pierce", "gore", "batter", "thrust", "slam", "ram", "chop", "spear", "club")
+_ATTACK_SET = set().union(*(_conjugate(v) for v in _ATTACK_BASES))
+_ATTACK_VERBS = re.compile(r"\b(?:" + "|".join(sorted(_ATTACK_SET, key=len, reverse=True))
+                           + r")\b", re.IGNORECASE)
+
+# the foe is usually the object of a TARGETING preposition ("stab into <foe>", "cut at <foe>") —
+# those objects are tried before a bare attack-verb object, which can lead with a direction or
+# the Player's own weapon (2026-07-10 Redgate: "lunge FROM the pines and stab MY SHORTSWORD…").
+_TARGET_PREP_RE = re.compile(r"\b(?:at|into|onto|upon|through|toward|towards)\s+", re.IGNORECASE)
 
 
 def _war_room(state: dict, cfg) -> bool:
@@ -419,11 +539,12 @@ def _weapon_magnitude(state: dict, eid: str) -> int:
     return max(1, best // 10) if best else 1
 
 
-def _bind_targets(res: Tier0Result, state: dict, text: str) -> None:
+def _bind_targets(res: Tier0Result, state: dict, text: str, entity_aware: bool = True) -> None:
     """Bind each declared check to a LIVE enemy combatant so its damage can land:
     an explicit `at <name>` wins; else the player's prose naming a foe binds it (longest
-    name first); else a lone surviving enemy + an attack verb is unambiguous. A check
-    that binds to nothing stays a plain skill check — nothing is guessed."""
+    name first); else (entity-aware) the OBJECT of the attack resolved to a live foe; else a
+    lone surviving enemy + an attack verb is unambiguous. A check that binds to nothing stays
+    a plain skill check — nothing is guessed."""
     from .state import live_combatants, resolve_combatant
     foes = live_combatants(state, "enemy")
     if not foes or not res.checks:
@@ -437,6 +558,12 @@ def _bind_targets(res: Tier0Result, state: dict, text: str) -> None:
             continue
         hit = next((r["id"] for r in named
                     if f" {_norm_phrase(r.get('name', ''))} " in low), None)
+        if hit is None and entity_aware:         # entity-aware: the OBJECT of the attack (prep
+            for span in _attack_object_spans(text):    # object first, then verb object) resolved
+                cid = resolve_combatant(state, " ".join(_norm_phrase(span).split()[:4]))
+                if cid:
+                    hit = cid                    # to a LIVE foe — precise, before the lone fallback
+                    break
         if hit is None and len(foes) == 1 and _ATTACK_VERBS.search(text or ""):
             hit = foes[0]["id"]                  # one foe + an attack verb: unambiguous
         c["target"] = hit
@@ -478,36 +605,129 @@ def _scan_off_protocol(text: str) -> list[str]:
 # name token must appear in the DM's prose, body parts / stopwords never become foes.
 _FLOOR_STOP = {"the", "and", "that", "this", "with", "from", "into", "onto", "them", "him",
                "her", "its", "his", "your", "their", "one", "two", "few", "all", "any",
-               "closest", "nearest", "first", "last", "next", "other", "another"}
+               "closest", "nearest", "first", "last", "next", "other", "another",
+               # directions / adverbs are never a foe (Thornhale: "slip OUT" staged foe 'Out')
+               "out", "off", "up", "down", "back", "away", "aside", "here", "there", "around",
+               "inside", "outside", "past", "forward", "onward", "toward", "towards", "over",
+               "under", "behind", "ahead", "left", "right", "then", "again", "still", "just"}
 _BODY_PARTS = {"head", "face", "neck", "throat", "chest", "arm", "arms", "leg", "legs",
                "hand", "hands", "eye", "eyes", "back", "side", "body", "torso", "shoulder",
                "shoulders", "knee", "knees", "foot", "feet", "skull", "heart", "gut",
                "belly", "waist", "hip", "hips", "wrist", "ankle", "jaw", "chin", "brow",
                "temple", "ribs", "spine", "flank", "wing", "tail", "maw", "mouth"}
+# 2026-07-10 (Redgate live): "stab my SHORTSWORD into the nearest cutthroat" staged the weapon
+# as a foe — the object of an attack verb often leads with the Player's own weapon/gear. Generic
+# held-item words (plus the Player's actual owned gear tokens) are skipped BEFORE the target run.
+_HELD_WORDS = {"sword", "shortsword", "longsword", "greatsword", "blade", "knife", "dagger",
+               "axe", "handaxe", "mace", "spear", "lance", "staff", "wand", "gun", "pistol",
+               "rifle", "bow", "crossbow", "hammer", "warhammer", "katana", "cleaver", "machete",
+               "baton", "club", "sabre", "saber", "revolver", "blaster", "rapier", "scimitar",
+               "glaive", "halberd", "polearm", "scythe", "sickle", "whip", "flail", "falchion",
+               "fist", "fists", "weapon", "blades", "knives", "shield", "buckler"}
+
+
+def _attack_object_spans(user_text: str) -> list:
+    """The text after a targeting preposition (precise) then after any attack verb — the span
+    most likely to NAME who is being hit. Used by the entity-aware target picker."""
+    spans = []
+    for mp in _TARGET_PREP_RE.finditer(user_text or ""):
+        spans.append(user_text[mp.end():])
+    for m in _ATTACK_VERBS.finditer(user_text or ""):
+        spans.append(user_text[m.end():])
+    return spans
+
+
+def _present_cast(state: dict, peid) -> list:
+    """Present, non-player character/npc entities: (eid, name, name-token set). The grounded
+    cast a strike can land on — a target should be a REAL on-scene person, never a token run off
+    the prose (Thornhale: 'Out'/'Pines'/'Shortsword' were a direction, a place, a weapon)."""
+    out = []
+    for eid, e in (state.get("entities") or {}).items():
+        if not isinstance(e, dict) or eid == peid:
+            continue
+        if e.get("kind") not in ("character", "npc") or not e.get("present"):
+            continue
+        toks = {w for w in _norm_phrase(e.get("name", "")).split() if len(w) >= 3}
+        if toks:
+            out.append((eid, str(e.get("name", "")), toks))
+    return out
+
+
+def _entity_target(state: dict, user_text: str, peid) -> Optional[tuple]:
+    """The PRESENT cast member the Player is attacking, or None. Matches the object-of-attack
+    tokens (prep object first, then verb object) against present cast names; a whole-text name
+    match is the last resort. Pure state read — resolves to a KNOWN entity, never mints one."""
+    cast = _present_cast(state, peid)
+    if not cast:
+        return None
+    for span in _attack_object_spans(user_text):
+        head = {t for t in _norm_phrase(span).split()[:4] if len(t) >= 3}
+        if not head:
+            continue
+        best = None
+        for eid, name, ntoks in cast:
+            score = len(ntoks & head)
+            if score and (best is None or score > best[0]):
+                best = (score, eid, name)
+        if best:
+            return best[1], best[2]
+    low = " " + _norm_phrase(user_text or "") + " "     # last resort: a present name in the text
+    for eid, name, ntoks in sorted(cast, key=lambda c: -len(c[1])):
+        if ntoks and all(f" {t} " in low for t in ntoks):
+            return eid, name
+    return None
 
 
 def _floor_stage_foe(res: Tier0Result, state: dict, user_text: str,
-                     dm_text: str) -> Optional[dict]:
-    """A grounded `combatant_spawn` for the target the Player is attacking, or None."""
-    if not _ATTACK_VERBS.search(user_text or "") or not (dm_text or "").strip():
+                     dm_text: str, entity_aware: bool = True) -> Optional[dict]:
+    """A grounded `combatant_spawn` for the target the Player is attacking, or None. Entity-aware
+    FIRST (2026-07-10): a strike on a PRESENT cast member stages THAT person (grounded by their
+    existence — no DM-prose echo needed); else the conservative DM-prose token-run heuristic."""
+    if not _ATTACK_VERBS.search(user_text or ""):
         return None
     from .state import live_combatants, resolve_entity_ref
     if live_combatants(state, "enemy"):
         return None                                  # foes exist — binding handles it
     peid, _p = _player_card(state)
+    if entity_aware:                                 # the strike lands on a REAL on-scene person
+        pick = _entity_target(state, user_text, peid)
+        if pick:
+            eid, name = pick
+            base = slug(name)[:32] or "foe"          # deterministic cid (mirrors the reducer's
+            rows = (state.get("combat") or {}).get("combatants") or {}   # collision suffix) so
+            cid, n = base, 2                          # the opening strike can bind it THIS batch
+            while cid in rows:
+                cid, n = f"{base}#{n}", n + 1
+            return {"op": "combatant_spawn", "name": name, "side": "enemy", "tier": "standard",
+                    "_floor": True, "char": eid, "_cid": cid}
+    if not (dm_text or "").strip():
+        return None
     pname_toks = set()
+    held = set(_HELD_WORDS)                           # the Player's own weapon/gear never a foe
     if peid:
         ent = (state.get("entities") or {}).get(peid) or {}
         pname_toks = {w for w in _norm_phrase(ent.get("name", "")).split() if len(w) >= 3}
+        for it in (state.get("items") or {}).values():   # the Player's actual owned item words
+            if isinstance(it, dict) and it.get("owner") == peid:
+                held |= {w for w in _norm_phrase(str(it.get("name", ""))).split() if len(w) >= 3}
+    for e in (state.get("entities") or {}).values():  # a LOCATION is never a foe (Redgate live:
+        if isinstance(e, dict) and e.get("kind") == "location":   # "lunge from the pines")
+            held |= {w for w in _norm_phrase(str(e.get("name", ""))).split() if len(w) >= 3}
     dm_low = " " + _norm_phrase(dm_text) + " "
     cands = [str(c["target"]) for c in res.checks if c.get("target")]
-    m = _ATTACK_VERBS.search(user_text)
-    cands.append(user_text[m.end():])                # the object of the attack verb
+    for mp in _TARGET_PREP_RE.finditer(user_text or ""):   # targeting-preposition objects FIRST
+        cands.append(user_text[mp.end():])
+    for m in _ATTACK_VERBS.finditer(user_text or ""):      # then every attack-verb object
+        cands.append(user_text[m.end():])
     for cand in cands:
         run: list[str] = []
         for t in _norm_phrase(cand).split():
-            if len(t) >= 3 and t not in _FLOOR_STOP and t not in _BODY_PARTS \
-                    and t not in pname_toks and f" {t} " in dm_low:
+            if t in held and not run:
+                continue                             # skip the Player's own weapon/gear lead-in
+            grounded = (f" {t} " in dm_low or f" {t}s " in dm_low   # plural/singular tolerant:
+                        or (t.endswith("s") and f" {t[:-1]} " in dm_low))   # "cutthroat(s)"
+            if len(t) >= 3 and t not in _FLOOR_STOP and t not in _BODY_PARTS and t not in held \
+                    and t not in pname_toks and grounded:
                 run.append(t)
             elif run:
                 break                                # keep the FIRST grounded run only
@@ -522,11 +742,18 @@ def _floor_stage_foe(res: Tier0Result, state: dict, user_text: str,
         if eid and (state.get("entities", {}).get(eid) or {}).get("kind") \
                 in ("character", "npc"):
             op["char"] = eid                         # a KNOWN NPC fights as themselves
+        base = slug(name)[:32] or "foe"              # deterministic cid (mirrors the reducer's
+        rows = (state.get("combat") or {}).get("combatants") or {}   # collision suffix) so the
+        cid, n = base, 2                             # opening strike can bind it THIS batch
+        while cid in rows:
+            cid, n = f"{base}#{n}", n + 1
+        op["_cid"] = cid
         return op
     return None
 
 
-def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> None:
+def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
+                    pending_foe: Optional[dict] = None) -> None:
     """R8 resolution: map each declared skill to a REGISTERED skill, pass the ELIGIBILITY
     GATE, roll real dice, compute the PbtA tier, and emit a `check` rule op (with the
     effective mod / dice / naturals / scope arithmetic baked for audit + replay).
@@ -742,22 +969,34 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
         if cd_set:
             op["_ability_cd"] = cd_set              # cooldowns set for fired/used actives
         strike = None                               # Phase 1: a check BOUND to a live enemy
-        if c.get("target") and _war_room(state, cfg):   # deals code-derived damage — outcome
+        tgt = c.get("target")
+        # fix C (2026-07-10): a foe the FLOOR is staging THIS batch is not in state yet, but its
+        # combatant_spawn (prio 2) applies BEFORE combatant_hp (prio 6), so a strike against its
+        # baked cid lands the same turn — the opening blow of a floor-started fight no longer whiffs.
+        # (Binding itself requires an attack verb — see _bind_targets — so a non-attack utility
+        # check like a Stealth 'slip' or Hexcraft 'scry' is never bound and never strikes.)
+        floor_hit = bool(pending_foe and tgt and tgt == pending_foe.get("cid"))
+        if tgt and (_war_room(state, cfg) or floor_hit):   # code-derived damage — outcome
             from .state import resolve_combatant       # tier x weapon magnitude (ratified)
-            cid = resolve_combatant(state, c["target"])
-            row = ((state.get("combat") or {}).get("combatants") or {}).get(cid)
-            if isinstance(row, dict) and not row.get("defeated") \
-                    and row.get("side") == "enemy":
+            if floor_hit:
+                cid, fname, is_enemy = pending_foe["cid"], pending_foe["name"], True
+            else:
+                cid = resolve_combatant(state, tgt)
+                row = ((state.get("combat") or {}).get("combatants") or {}).get(cid)
+                is_enemy = isinstance(row, dict) and not row.get("defeated") \
+                    and row.get("side") == "enemy"
+                fname = str((row or {}).get("name", cid))
+            if is_enemy:
                 factor = _STRIKE_FACTOR.get(tier, 0)
                 if factor:
                     dmg = _weapon_magnitude(state, player_eid) * factor \
                         + (1 if surge_mod else 0)
-                    op["_target"], op["_dmg"] = str(row.get("name", cid)), dmg
+                    op["_target"], op["_dmg"] = fname, dmg
                     strike = {"op": "combatant_hp", "target": cid, "delta": -dmg,
                               "reason": f"{reg.skill_label(sid, player)} {tier}",
                               "_strike": True}   # exact — code decided it, no proposal clamp
                 else:
-                    op["_target"], op["_dmg"] = str(row.get("name", cid)), 0
+                    op["_target"], op["_dmg"] = fname, 0
         res.rule_ops.append(op)
         if strike is not None:
             res.rule_ops.append(strike)
@@ -770,6 +1009,111 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
                 res.rule_ops.append({                # a mark; overreach bites back harder
                     "op": "effect_add", "char": player_eid,
                     "effect": "Backlash" if over else "Strained", "kind": "status"})
+
+
+# ---- Out-of-combat kills (2026-07-10, Bean) ------------------------------------------
+# Outside an active fight you cannot simply DECLARE a kill. Three roads: a STEALTH/concealed
+# approach makes it a real Stealth roll (success = a silent kill + XP); a GRAND working
+# (epic/mythic scope, ritual / reality-warp) kills by prose + XP; anything else is a NON-MOVE —
+# routed, not blocked (approach unseen, force a fight, or bring world-ending power). Combat
+# resolves kills through HP, so this only fires when combat.active is False. Freedom of fiction,
+# constraint on fact (pillars 4-5).
+_KILL_VERBS = re.compile(
+    r"\b(kill|kills|slay|slays|murder|murders|assassinate|assassinates|execute|executes|"
+    r"behead|beheads|decapitate|finish(?:es)?|dispatch(?:es)?|silence|silences|strangle|"
+    r"strangles|throttle|throttles|slit|slits|gut|guts)\b", re.IGNORECASE)
+_KILL_STEALTH = ("stealth", "sneak", "shadow", "assassin", "infiltrat", "subterfuge", "guile",
+                 "prowl", "stalk", "ambush", "backstab")
+_CONCEAL = {"invisible", "invisibility", "hidden", "cloaked", "unseen", "concealed", "shadowmeld",
+            "veiled", "obscured", "camouflaged"}
+_GRAND = re.compile(
+    r"\b(ritual|reality[- ]?warp\w*|unmake\w*|unwrite\w*|erase\w*|obliterate\w*|annihilate\w*|"
+    r"disintegrate\w*|apocalyp\w*|cataclysm\w*|godlike|unbeing|banish\w*)\b", re.IGNORECASE)
+STEALTH_KILL_XP = 40                    # curated (doc 10 XP scale); a named/tracked target +20
+GRAND_KILL_XP = 60
+
+
+def _kill_intent(res: Tier0Result, state: dict, cfg, user_text: str) -> None:
+    """Gate + resolve a DECLARED kill against a present target outside active combat."""
+    if (state.get("combat") or {}).get("active"):
+        return                                       # inside a fight kills come from HP (War Room)
+    if not _KILL_VERBS.search(user_text or "") and not _GRAND.search(user_text or ""):
+        return                                       # a kill verb OR a grand-working verb (erase…)
+    peid, _player = _player_card(state)
+    if not peid:
+        return
+    ents = state.get("entities") or {}
+    eff = state.get("effects") or {}
+    present = [(eid, e) for eid, e in ents.items()
+               if isinstance(e, dict) and e.get("present") and eid != peid
+               and e.get("kind") in ("character", "npc")]
+    low = " " + _norm_phrase(user_text) + " "
+    tid = tname = None
+    for eid, e in sorted(present, key=lambda p: -len(str(p[1].get("name", "")))):
+        nm = _norm_phrase(str(e.get("name", "")))
+        toks = [t for t in nm.split() if len(t) >= 3]
+        if nm and (f" {nm} " in low or (toks and all(f" {t} " in low for t in toks))):
+            tid, tname = eid, str(e.get("name", ""))
+            break
+    if not tid:
+        return                                       # no present target named -> not a declared kill
+    if any(str(x.get("name", "")).lower() in ("slain", "dead") for x in (eff.get(tid) or [])):
+        return                                       # already dead
+    tent = ents.get(tid) or {}
+    pname = str((ents.get(peid) or {}).get("name", "The player"))
+    check_ops = [o for o in res.rule_ops if o.get("op") == "check"]
+    stealth_chk = next((o for o in check_ops
+                        if any(k in str(o.get("skill", "")).lower() for k in _KILL_STEALTH)), None)
+    concealed = any(str(x.get("name", "")).lower() in _CONCEAL for x in (eff.get(peid) or []))
+    # a GRAND working is grounded in a real roll: an epic/mythic-scope check, or a reality-warp
+    # invocation that ALSO rolled a check (bare "I erase you from reality" with no roll = no basis)
+    grand = any(str(o.get("scope", "")).lower() in ("epic", "mythic") for o in check_ops) \
+        or (bool(_GRAND.search(user_text or "")) and bool(check_ops))
+
+    def _kill_ops(reason: str, xp: int) -> None:
+        bonus = 20 if tent.get("kind") == "npc" or tent.get("role") else 0
+        res.rule_ops.extend([
+            {"op": "effect_add", "char": tid, "effect": "Slain", "kind": "condition",
+             "valence": "negative"},
+            {"op": "presence", "entity": tid, "present": False},
+            {"op": "award_exp", "char": peid, "amount": int(xp) + bonus, "reason": reason},
+            {"op": "reveal_fact", "statement": f"{pname} killed {tname} ({reason})"}])
+
+    if stealth_chk is not None or concealed:         # STEALTH KILL — a real roll carries it
+        tier = str((stealth_chk or {}).get("tier", "success" if concealed else "fail"))
+        if tier in ("success", "crit_success"):
+            _kill_ops("stealth kill", STEALTH_KILL_XP)
+            res.kill_note = (f"STEALTH KILL — {tname} dies here, silently and unseen (the roll "
+                             f"landed). Narrate the kill: they never cried out, the body is down, "
+                             f"{tname} is gone from the scene. Do NOT start a fight.")
+        elif tier == "partial":
+            res.kill_note = (f"The stealth strike on {tname} only HALF-lands — a wound, not a "
+                             f"clean kill, and {tname} is ALERTED. Narrate the botch; a fight may "
+                             f"erupt (raise the scene to climax if it does).")
+        else:
+            res.kill_note = (f"The stealth kill on {tname} FAILS — {tname} senses you, unharmed "
+                             f"and alerted. Narrate the miss; a fight is now likely.")
+        return
+    if grand:                                        # GRAND WORKING — prose kill + XP
+        ok = (not check_ops) or any(str(o.get("tier")) in ("success", "crit_success", "partial")
+                                    for o in check_ops)
+        if ok:
+            _kill_ops("a grand working", GRAND_KILL_XP)
+            res.kill_note = (f"GRAND WORKING — the reality-bending power the Player invoked "
+                             f"consumes {tname}; they are dead and gone from the scene. Narrate it "
+                             f"as the momentous, world-touching event it is.")
+        else:
+            res.kill_note = (f"The grand working aimed at {tname} does not take hold — narrate the "
+                             f"power guttering out, {tname} unharmed.")
+        return
+    res.notices.append(                              # NO BASIS — a routed NON-MOVE
+        f"non-move: you can't just declare {tname} dead outside a fight — approach UNSEEN and roll "
+        f"Stealth for a silent kill, force a real confrontation, or bring overwhelming power")
+    res.kill_note = (
+        f"NON-MOVE: the Player declared killing {tname} but has no in-world basis for it here — no "
+        f"stealth approach, no fight, no overwhelming power. Do NOT narrate {tname}'s death. Show "
+        f"why it can't simply happen and offer the road: slip in unseen (a Stealth roll), force a "
+        f"fight, or wield something world-ending.")
 
 
 # ---- R9: the effect tag protocol (RPG-3, doc 05 §5.4) --------------------------------
@@ -1136,6 +1480,18 @@ def _commands(text: str, rng: random.Random, res: Tier0Result, rpg: bool = False
                 res.user_ops.append({"op": "combat_end", "outcome": "called"})
             else:
                 res.notices.append("usage: ((aether.combat end))")
+        elif rpg and low.startswith("aether.equip "):   # manual re-slot failsafe (2026-07-10,
+            rest2 = cmd.split(None, 1)[1].strip()        # Bean): ((aether.equip <item> <slot>))
+            m2 = re.match(r"^(.*?)[\s,]+(?:to\s+|in\s+|->\s*)?([a-z0-9_]+)\s*$", rest2, re.I)
+            from .state import GEAR_SLOTS
+            slot2 = m2.group(2).lower() if m2 else ""
+            if m2 and slot2 in GEAR_SLOTS and m2.group(1).strip():
+                res.user_ops.append({"op": "item_equip", "instance": m2.group(1).strip(),
+                                     "slot": slot2})       # _resolve_instance matches by NAME
+            else:
+                res.notices.append("usage: ((aether.equip <item name> <slot>)) — slots: head "
+                                   "face neck shoulders body cape arms hands mainhand offhand "
+                                   "waist legs feet back accessory1 accessory2")
         elif low.startswith("aether.status"):
             res.notices.append("status")
         else:
@@ -1208,18 +1564,36 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
                 and getattr(cfg.specialization, "auto_dm_checks", True):
             _parse_dm_called_checks(last_assistant, state, cfg, res)   # R8b: the DM's call arms
         if res.checks:
+            pending_foe = None
+            entity_aware = bool(getattr(cfg.specialization, "intent_floor", True))
             if getattr(cfg.specialization, "foe_floor", True) \
                     and getattr(cfg.specialization, "war_room", True) \
                     and not (state.get("combat") or {}).get("active"):
-                sp = _floor_stage_foe(res, state, last_user, last_assistant)
+                sp = _floor_stage_foe(res, state, last_user, last_assistant,
+                                      entity_aware=entity_aware)
                 if sp is not None:               # Eranmor floor: the attacked, DM-narrated
                     res.rule_ops.append(sp)      # target opens the War Room itself —
                     res.notices.append(          # no [foe] tag required (pillar 6)
                         f"combat floor: staged '{sp['name']}' as a foe — the Player "
                         f"attacked it and the DM's prose grounds it")
+                    # fix C: bind the attacking check(s) to the just-staged foe so the opening
+                    # strike LANDS this turn (spawn applies before the strike in the batch), and
+                    # raise the scene to a combat phase so the fight reads as begun (not 'setup').
+                    pending_foe = {"cid": sp["_cid"], "name": sp["name"]}
+                    for c in res.checks:            # rebind the attacking check(s) onto the
+                        t = str(c.get("target") or "")     # freshly-staged foe: empty targets,
+                        if not t or slug(t)[:32] == sp["_cid"] \
+                                or _norm_phrase(t) == _norm_phrase(sp["name"]):   # or its name
+                            c["target"] = sp["_cid"]
+                    if str((state.get("scene") or {}).get("phase", "")).lower() \
+                            not in _COMBAT_PHASES:
+                        res.rule_ops.append({"op": "scene_set", "phase": "climax",
+                                             "_floor": True})
             if _war_room(state, cfg):        # Phase 1: bind strikes to live enemy rows
-                _bind_targets(res, state, last_user)
-            _resolve_checks(res, state, cfg, rng)
+                _bind_targets(res, state, last_user, entity_aware=entity_aware)
+            _resolve_checks(res, state, cfg, rng, pending_foe=pending_foe)
+        if getattr(cfg.specialization, "stealth_kills", True):   # out-of-combat kill gating +
+            _kill_intent(res, state, cfg, last_user)             # stealth/grand-event kills
 
     # 2026-07-10 (Eranmor): invented bracket grammar in the DM's last reply -> a one-line
     # corrective on the next prompt (compose renders it; silent both-ways failure no more)

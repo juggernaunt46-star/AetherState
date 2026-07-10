@@ -156,6 +156,8 @@ def _render_gear(state: dict, cfg=None) -> str:
                 txt += "(" + " ".join(mbits) + ")"
             if it.get("capacity"):
                 txt += f"[{it['capacity']}]"
+            if it.get("aura"):                  # 2026-07-10 (Bean): a gear piece's PROSE effect —
+                txt += f" — {str(it['aura'])[:140]}"   # appearance/glamour/lore the DM must honor
             bits.append(f"{slot}={txt}")
         stowed = []                             # carried GEAR-class items (not in a body slot)
         for lst in ((state.get("inventory") or {}).get(eid) or {}).values():
@@ -330,6 +332,45 @@ def _opposition_roll(state: dict) -> tuple[int, int]:
     return rng.randint(1, 6) + rng.randint(1, 6), rng.randint(1, 6)
 
 
+def _initiative_order(state: dict, cfg=None) -> list:
+    """War-Room turn order (2026-07-10, Bean): every LIVE combatant + the Player, ranked by a
+    curated initiative score DESC — the baked row['init'] for foes/allies, the Player's DEX
+    modifier ×10 + a stable tiebreak. Pure reader (baked scores) → replay-independent. Returns
+    [(score, name, side), ...] highest first; [] when no fight is on."""
+    rows = ((state.get("combat") or {}).get("combatants") or {})
+    if not rows:
+        return []
+    order: list = []
+    pdict = state.get("player") or {}
+    peid = next(iter(pdict), "")
+    if peid:
+        try:
+            dex = int(((pdict.get(peid) or {}).get("stats") or {}).get("DEX", 10))
+        except (TypeError, ValueError):
+            dex = 10
+        pmod = (dex - 10) // 2
+        if cfg is not None:
+            try:
+                from . import registry as _registry
+                pmod = int(_registry.load(cfg).stat_mod(dex))
+            except Exception:
+                pass
+        tb = 0
+        for ch in peid:
+            tb = (tb * 31 + ord(ch)) & 0x7FFF
+        order.append((pmod * 10 + (tb % 10), _name(state, peid), "player"))
+    for cid, r in rows.items():
+        if not isinstance(r, dict) or r.get("defeated"):
+            continue
+        try:
+            init = int(r.get("init"))
+        except (TypeError, ValueError):
+            init = 10
+        order.append((init, str(r.get("name", cid)), str(r.get("side", "enemy"))))
+    order.sort(key=lambda x: (-x[0], x[1]))
+    return order
+
+
 def _render_directive(state: dict, cfg=None) -> str:
     """[DIRECTIVE] — the pre-decided outcome(s) of THIS turn's check(s) (doc 05 §4/§5.2). Reads
     every `check` record for the current turn (checks reuse the rolls buffer, doc 07 §7.1), so a
@@ -400,6 +441,9 @@ def _render_directive(state: dict, cfg=None) -> str:
         out = ("[DIRECTIVE] NARRATE: " + "; ".join(clauses) + f". Narrate exactly {what}; "
                "do not soften, upgrade, or override the result of a roll. This directive "
                "always resolves the Player's NEWEST message — never an earlier one.")
+    kn = state.get("_kill_note")             # 2026-07-10 (Bean): out-of-combat kill outcome —
+    if kn:                                   # stealth kill, grand working, or a routed NON-MOVE
+        out = (out + "\n" + kn) if out else ("[DIRECTIVE] " + kn)
     # R8c — the enemy acts on real dice too (rendered whenever a non-player is on scene;
     # the DM is told to ignore it in peaceful beats). Code rolls, the model narrates.
     # Phase 1 rides here too: with the War Room active, ally dice + the exact-HP board
@@ -463,6 +507,13 @@ def _render_directive(state: dict, cfg=None) -> str:
             wl = _render_war(state)
             if wl:
                 out += ("\n" if out else "") + wl
+            io = _initiative_order(state, cfg)   # explicit turn order (2026-07-10, Bean)
+            if len(io) > 1:
+                seq = " → ".join(nm for _s, nm, _sd in io)
+                out += ("\n" if out else "") + (
+                    f"[INIT] Turn order this round (highest initiative first): {seq}. Resolve "
+                    "the beat in this order — weave the pre-rolled dice above into that sequence; "
+                    "whoever is higher acts first when it matters.")
     nud = state.get("_protocol_nudge")
     if nud:                                    # 2026-07-10 (Eranmor): the DM wrote invented
         heads = ", ".join(f"[{h}]" for h in nud[:4])   # bracket grammar last reply — correct

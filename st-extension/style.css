@@ -288,6 +288,15 @@
 .aes-war-h { font-size:11px; font-weight:800; letter-spacing:1px; color:var(--bad);
   margin-bottom:4px; }
 .aes-war-h .m { color:var(--dim); font-weight:600; letter-spacing:0; }
+.aes-war-init { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-bottom:5px;
+  font-size:10.5px; }
+.aes-init { border:1px solid var(--line); border-radius:6px; padding:1px 5px; background:var(--panel);
+  font-weight:700; }
+.aes-init.me { border-color:var(--accent); color:var(--accent); }
+.aes-init.enemy { border-color:var(--bad); }
+.aes-init.ally { border-color:var(--ok); }
+.aes-aura { display:block; font-size:10px; font-style:italic; color:var(--accent); opacity:.9;
+  margin-top:1px; line-height:1.25; }
 .aes-war-side { display:flex; flex-direction:column; gap:4px; margin-bottom:4px; }
 .aes-com { border:1px solid var(--line); border-radius:8px; padding:4px 6px;
   background:var(--panel); }

@@ -320,7 +320,7 @@ def test_tags_header_renamed_and_versions_bumped():
     assert "LEDGER TAGS" in text
     assert "\n[TAGS]" not in text
     assert prompts.EFFECTS_PROTOCOL_VERSION == "world-tags/6"
-    assert prompts.DM_CONTRACT_VERSION == "dm-rules/8"
+    assert prompts.DM_CONTRACT_VERSION == "dm-rules/9"
 
 
 def test_rpg_profile_depth_one_places_block_above_newest_message():

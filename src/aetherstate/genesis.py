@@ -235,11 +235,46 @@ DEFAULT_PLAYER_STATS = {"STR": 10, "DEX": 10, "INT": 10, "CHA": 10, "CUN": 10, "
 DEFAULT_PLAYER_HP_MAX = 20
 
 
+# 2026-07-10 (Bean): a DM card's opening commonly NAMES the player character in second person
+# ("You are Kael, a down-on-your-luck sellsword…"). Genesis used to ignore it and seed a generic
+# "Player", so the ledger player ("Player") disagreed with the fiction ("Kael") AND stage B often
+# staged a separate "Kael" NPC — the DM then couldn't tell who the player was. Derive the PC name
+# from that phrasing (high-precision; proper-noun only) so the Player Card matches the fiction.
+_PC_NAME_RE = re.compile(
+    r"\byou(?:\s+are|\s*'?re|\s+play(?:\s+as)?)\s+([A-Za-z][\w'-]*(?:\s+[A-Z][\w'-]*)?)"
+    r"|\byour\s+name\s+is\s+([A-Za-z][\w'-]*(?:\s+[A-Z][\w'-]*)?)"
+    r"|\bplaying(?:\s+as)?\s+([A-Za-z][\w'-]*(?:\s+[A-Z][\w'-]*)?)",
+    re.IGNORECASE)
+_PC_STOP = {"a", "an", "the", "you", "your", "now", "here", "there", "when", "as", "it", "this",
+            "that", "if", "so", "and", "but", "not", "no", "about", "going", "ready", "free",
+            "alone", "standing", "still", "just", "one", "my", "his", "her", "their", "our",
+            "to", "in", "on", "at", "with", "who", "up", "down", "back", "out"}
+
+
+def _player_name_from_text(*texts: str) -> str:
+    """A player-character name declared in second person ("You are Kael" / "your name is Kael" /
+    "playing as Kael"), or "". Conservative: the captured name must be a proper noun (capitalized
+    in the source) and not a common word, so a phrase like "you are standing" never matches."""
+    for text in texts:
+        for m in _PC_NAME_RE.finditer(text or ""):
+            cap = (next((g for g in m.groups() if g), "") or "").strip()
+            if not cap:
+                continue
+            toks = cap.split()[:2]
+            if toks[0].lower() in _PC_STOP or not toks[0][:1].isupper():
+                continue
+            if len(toks) == 2 and (toks[1].lower() in _PC_STOP or not toks[1][:1].isupper()):
+                toks = toks[:1]                  # a trailing common word ("Corvin the") is not part
+            return " ".join(toks)                # of the name (IGNORECASE let it slip the regex)
+    return ""
+
+
 def _player_seed_from_doc(doc: dict, cfg) -> tuple[str, dict]:
     """(player_name, seed_card). Tolerates a few carrier shapes for an explicit seed
     (doc 06 §S4: ST card extensions.aetherstate.player) without depending on any; falls back
     to a sensible default. The player is the USER's character, so the default name is the
-    user persona (never the card/DM speaker)."""
+    user persona (never the card/DM speaker); if neither is set, a PC name the opening declares
+    in second person ("You are Kael") is used before the generic "Player" placeholder."""
     name = (cfg.user_guard.name or "").strip() or "Player"
     seed: dict = {}
     try:
@@ -272,7 +307,12 @@ def _player_seed_from_doc(doc: dict, cfg) -> tuple[str, dict]:
         # [PLAYER] renders from turn 0). Mark it so a later authored player_seed (Creator save)
         # REPLACES it without leaving a ghost 'Player' entity behind (2026-07-06 live repro:
         # the placeholder rode alongside the real character as a second player).
-        card["_genesis_default"] = True
+        if name == "Player":                    # no persona name — take one the opening declares
+            card_txt, prompt_txt = card_and_prompt(doc)   # "You are Kael" -> player IS Kael
+            derived = _player_name_from_text(prompt_txt, card_txt)
+            if derived:
+                name = derived
+        card["_genesis_default"] = True          # still replaceable by a Creator-authored card
     return name, card
 
 
@@ -323,8 +363,19 @@ async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
                         "re-seedable", ep.base_url or "(no endpoint)")
             store.genesis_mark(session_id, "rules")
             return 0
+        pname = ""
+        try:                                     # the PLAYER's name (stage A already seeded it),
+            _ps = current_state(store, branch_id)    # so stage B never twins the PC as an NPC
+            for _eid, _rec in (_ps.get("player") or {}).items():
+                _ent = (_ps.get("entities") or {}).get(_eid) or {}
+                pname = str(_ent.get("name") or (_rec or {}).get("name") or _eid).strip()
+                break
+        except Exception:
+            pname = ""
         user = (f"CHARACTER CARD:\n{card}\n\n"
-                f"MAIN CHARACTER NAME: {speaker or '(infer from card)'}\n\n"
+                f"NARRATOR / DM NAME: {speaker or '(infer from card)'}\n\n"
+                f"PLAYER CHARACTER (the user — NEVER create as an NPC or place in the scene): "
+                f"{pname or '(unknown)'}\n\n"
                 f"OPENING PROMPT:\n{prompt or '(none)'}\n\nJSON array of seed ops:")
         raw = await _chat(get_client, cfg, ep, _LLM_SYSTEM, user, max_tokens=3200,
                           timeout_s=120.0)
@@ -333,7 +384,8 @@ async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
                         "re-seedable", ep.base_url, ep.model)
             store.genesis_mark(session_id, "rules")
             return 0
-        ops = _presence_with_basis(_parse_ops(raw, speaker=speaker), card, prompt, speaker)
+        ops = _presence_with_basis(_parse_ops(raw, speaker=speaker, player_name=pname),
+                                   card, prompt, speaker)
         log.info("genesis stage B: raw=%d chars, %d valid op(s) parsed via %s",
                  len(raw or ""), len(ops), ep.model)
         if not ops and raw:
@@ -412,7 +464,7 @@ def _presence_with_basis(ops: list[dict], card: str, prompt: str,
     return keep
 
 
-def _parse_ops(raw, speaker: str = "") -> list[dict]:
+def _parse_ops(raw, speaker: str = "", player_name: str = "") -> list[dict]:
     if not raw:
         return []
     text = _FENCE.sub("", raw)
@@ -451,12 +503,23 @@ def _parse_ops(raw, speaker: str = "") -> list[dict]:
         if v["op"] == "player_seed" or (v["op"] == "entity_add"
                                         and str(v.get("kind", "")) == "player"):
             continue
+        # never TWIN the player as an NPC (2026-07-10): the opening's "You are Kael" IS the player,
+        # not a cast member — drop an entity_add for the player's own name, and don't let the
+        # world-seed stage the player into the scene (the player track owns the PC's presence).
+        pn = player_name.strip().lower()
+        if pn and str(v.get("name", "")).strip().lower() == pn and v["op"] == "entity_add":
+            continue
+        if pn and v["op"] == "presence" and str(v.get("entity", "")).strip().lower() == pn:
+            continue
         out.append(v)
     # every referenced character must exist or its ops quarantine on alias resolution:
     # auto-prepend entity_add for names the model referenced but forgot to create.
     named = {str(o.get("name", "")).strip().lower() for o in out if o["op"] == "entity_add"}
     if speaker:
         named.add(speaker.strip().lower())   # Stage A already created the speaker
+    if player_name:
+        named.add(player_name.strip().lower())   # refs to the player resolve to the player entity
+                                                 # (never auto-mint a same-name NPC twin)
     refs: list[str] = []
     for o in out:
         for k in ("char", "entity", "from_char", "to_char", "subject", "partner",

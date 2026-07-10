@@ -341,3 +341,22 @@ def test_hp_adj_same_turn_near_dupe_counts_once():
     _apply_op(st, {"op": "hp_adj", "char": "rho", "delta": -2,
                    "reason": "hook-pole strike, ribs below compression plate", "_turn": 6})
     assert st["player"]["rho"]["hp"]["cur"] == 14          # a later turn re-applies fine
+
+
+def test_hp_adj_paraphrased_reason_counts_once():
+    """The cold-path ladder can PARAPHRASE the [hp] tag's reason enough to drop Jaccard below
+    the near-dupe gate (2026-07-10 Hollowmere live: "wight's pike-butt grazes his ribs below
+    the plate" vs "pike-butt graze below breastplate" -> J=0.30, so -1 landed twice -> -2).
+    Containment catches the compressed re-report; a distinct same-magnitude wound still stacks."""
+    from aetherstate.state import _apply_op
+    st = {"player": {"ald": {"hp": {"cur": 24, "max": 24}}}, "meta": {"turn": 1},
+          "entities": {}, "attributes": {}}
+    _apply_op(st, {"op": "hp_adj", "char": "ald", "delta": -1,
+                   "reason": "wight's pike-butt grazes his ribs below the plate", "_turn": 1})
+    assert st["player"]["ald"]["hp"]["cur"] == 23
+    _apply_op(st, {"op": "hp_adj", "char": "ald", "delta": -1,
+                   "reason": "pike-butt graze below breastplate", "_turn": 1})
+    assert st["player"]["ald"]["hp"]["cur"] == 23          # paraphrased re-report counts once
+    _apply_op(st, {"op": "hp_adj", "char": "ald", "delta": -1,
+                   "reason": "second wight's claw rakes his sword-arm", "_turn": 1})
+    assert st["player"]["ald"]["hp"]["cur"] == 22          # a distinct wound still applies

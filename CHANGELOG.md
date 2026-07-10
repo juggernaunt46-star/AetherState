@@ -1,5 +1,78 @@
 # Changelog
 
+## 1.18.0 — 2026-07-10
+
+The natural-language layer of the RPG engine gets smarter — and your character's identity is now
+read straight from the story.
+
+- **Roll what you MEAN, not just what you type.** A new pure-code "reflex floor" (no model, no
+  network) reads actions by meaning: "I sweet-talk the guard" or "I haggle her down" now roll
+  Persuasion, "I sneaked past" rolls Stealth — not only when you name the skill outright. It uses a
+  light word-stemmer plus a curated intent lexicon, and only ever fires for skills your character
+  actually has (nothing becomes rollable without an in-world basis). Toggle it live from the Console
+  or the SillyTavern panel ("semantic intent floor"); off = the exact-keyword behavior of 1.17.
+- **Strikes hit real people, not stray words.** When you attack, the engine resolves your target to
+  an actual on-scene character instead of grabbing a noun out of the prose — ending the class of bug
+  where a direction ("out"), a place ("the pines"), or your own weapon ("shortsword") could be
+  staged as a phantom enemy.
+- **"You are Kael" now means your character IS Kael.** When a DM card's opening names your
+  character, the engine names your Player Card that (instead of a generic "Player") and never stages
+  a duplicate NPC by the same name — so the Dungeon Master always knows who you are.
+- `none` (non-RPG) sessions stay byte-identical. Suite 685 passed + 1 skip; ruff clean.
+
+## 1.17.0 — 2026-07-10
+
+The gear overhaul completed (prose effects + manual slotting), the out-of-combat kill system, the
+narrator-card boilerplate fix — and, headlined, the ROOT CAUSE of the recurring "phantom combat /
+lingering wrong directive" bug. Found in a long-form (social→magic→stealth) live playtest; full
+write-up in `PLAYTEST-2026-07-10-Thornhale-RootCause-and-Findings.md`.
+
+- **Phantom combat, fixed at the root.** The attack-verb (and companion) regexes matched with a
+  trailing `\w*`, so ordinary words masqueraded as attacks — **"stab" matched "STABLE"**, "cast"
+  matched "castle", "bash" matched "bashful". Walking to a *stable* fired the War-Room floor, staged
+  a foe (once literally named "Out", from "slip **out**"), forced the scene to climax, and handed
+  the model a `[WAR]`/`[OPPOSITION]`/`[DIRECTIVE]` that contradicted a peaceful scene — the LLM then
+  spiralled. Verbs now match only real conjugations (base + s/es/ed/ing + doubled-consonant +
+  -e-drop) as whole words; directions can never be a foe name. This is a distinct root from the
+  earlier stale-directive fixes — the same symptom had several causes. (Not the KV cache.)
+- **Gear can change the story, not just the dice.** Gear carries an authored **prose/glamour/lore
+  effect** that rides `[GEAR]` and the HUD paper-doll — livetested: the narrator honored a cloak's
+  "eyes slide off her in shadow." The Creator's gear box is now structured rows (name · slot · what
+  it does); a pinned **slot** overrides the recognizer (the manual failsafe), and mid-play
+  `((aether.equip <item> <slot>))` re-slots anything. The HUD shows what each piece does.
+- **Out-of-combat kills.** Outside a fight you can't just declare a kill: a stealth/concealed
+  approach makes it a real Stealth roll (success = a silent kill + XP), a grand working (epic/mythic
+  scope or a reality-warp + a roll) kills by prose + XP, and anything else is a routed NON-MOVE
+  (approach unseen, force a fight, or bring overwhelming power). Knob `[specialization].stealth_kills`.
+- **Narrator cards drop the boilerplate.** Every card used to end on the same "the world holds its
+  breath, waiting on you." — removed; the authored opening scene ends on its own beat.
+- `none` sessions stay byte-identical. Suite 672 passed + 1 skip; ruff clean.
+
+## 1.16.0 — 2026-07-10
+
+Combat hardening, an explicit War-Room initiative order, and a much smarter gear-slot recognizer —
+plus the Player-HP double-count fix. All verified on a live bench (Hollowmere / Redgate / Velvet
+Court) with eyes on the UI.
+
+- **Explicit initiative.** The War Room now shows a turn order — every live combatant plus the
+  Player, ranked by a curated, baked initiative score (foes by threat tier, the Player by DEX),
+  rendered on a new `[INIT]` directive line, in the HUD combat lane, and taught by the contract
+  (dm-rules/9, replacing "initiative is loose"). Deterministic and replay-pure.
+- **The opening blow of a floor-started fight lands.** When you attack a foe the DM only narrated
+  (no `[foe]` tag), the engine stages that foe AND applies your opening strike the same turn (it
+  used to whiff), and raises the scene to a combat phase. The foe's name is read correctly now,
+  too — your own weapon ("stab my *shortsword* into…") and nearby scenery ("lunge *from the
+  pines*…") are skipped in favor of the actual target (a targeting preposition — "into/at/through
+  <foe>" — wins).
+- **No more double damage.** A foe the Player struck this turn no longer takes a second hit when
+  the DM re-narrates the same blow as an `[hp]` tag; and a Player wound reported twice with reworded
+  reasons (the extraction ladder's paraphrase) counts once.
+- **Gear slotting actually works.** The slot recognizer was widened enormously — footwear
+  (heels, stilettos, pumps, flats, loafers, sneakers…), dresses/gowns/corsets, and the full
+  accessory wardrobe now land in the right slot, with plural tolerance and long-only compound
+  matching so ordinary words ("husband", "handicap") never masquerade as gear.
+- Knobs unchanged; `none` sessions stay byte-identical. Suite 664 passed + 1 skip; ruff clean.
+
 ## 1.15.0 — 2026-07-10
 
 The Eranmor fix pack: a live high-fantasy campaign exposed six ways the engine could resolve a

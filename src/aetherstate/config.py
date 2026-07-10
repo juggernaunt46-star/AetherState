@@ -274,6 +274,21 @@ class SpecializationConfig(BaseModel):
     #                                  War Room opens even with a zero-protocol narrator.
     #                                  Basis-gated: every name token must appear in the DM's
     #                                  prose (the fiction grounds it, never the player alone)
+    intent_floor: bool = True        # 2026-07-10 (Bean): the pure-code semantic REFLEX floor —
+    #                                  intent by MEANING, no model/network (invariant-2 safe).
+    #                                  (a) a light stemmer + curated intent lexicon so natural
+    #                                  phrasings ("sweet-talk", "sneaked", "haggle") map to the
+    #                                  owned skill they mean, not just literal `governs` words;
+    #                                  (b) the entity-aware target picker — a strike resolves to
+    #                                  a PRESENT cast member, never a token run off the prose
+    #                                  (ends the 'Out'/'Pines'/'Shortsword' phantom-foe class).
+    #                                  off = the exact-match keyword floor (v1.17.0 behavior)
+    stealth_kills: bool = True       # 2026-07-10 (Bean): out-of-combat kill gating. Outside an
+    #                                  active fight a DECLARED kill on a present target is a
+    #                                  NON-MOVE unless routed — a Stealth/concealed approach makes
+    #                                  it a real roll (success = silent kill + XP), or a grand
+    #                                  working (epic/mythic scope, ritual/reality-warp) kills by
+    #                                  prose + XP. Off = the model narrates kills unchecked.
     living_world: bool = True        # Phase 2 (plan doc 13, ratified 2026-07-09): the
     #                                  living-world referee — travel consumes clock segments,
     #                                  idle turns auto-advance the clock, authored faction

@@ -223,8 +223,12 @@ summary:hover{color:var(--fg)}
     </div>
 
     <div class="card">
-      <h2>Starting gear <small>comma-separated item names — seeded as real inventory instances at save</small></h2>
-      <div class="field"><input id="c_gear" placeholder="e.g. combat knife, worn leather satchel, med-spray — AI fills if blank"></div>
+      <h2>Starting gear <small>name · slot (leave "auto" to let the engine guess) · what it does — seeded as real instances at save</small></h2>
+      <div class="hint">Pin a <b>slot</b> when the auto-guess gets it wrong, and give a piece an
+        <b>effect</b> — it doesn't have to be a dice bonus; "turns every entrance into a weapon"
+        or "hums with old grief" rides the ledger so the story honors it.</div>
+      <div id="c_gear_rows" class="list"></div>
+      <button class="mini" onclick="addGearRow()">+ gear</button>
     </div>
 
     <div class="card">
@@ -350,6 +354,31 @@ function readNpcs(){ return [...$("w_npcs").querySelectorAll(".item")].map(it=>{
   const i=it.querySelectorAll("input"); return {name:i[0].value.trim(), role:i[1].value.trim(), desc:i[2].value.trim(), home:i[3].value.trim()};
 }).filter(n=>n.name); }
 
+// ---- starting gear rows (2026-07-10, Bean): name · slot · what-it-does. A blank slot lets the
+// engine's recognizer guess; a set slot PINS it (the manual failsafe). The effect is prose — it
+// can change how a piece READS in the story, not just a dice bonus.
+const GEAR_SLOTS_UI=[["","auto"],["head","Head"],["face","Face"],["neck","Neck"],["shoulders","Shoulders"],
+  ["body","Body"],["cape","Cape"],["arms","Arms"],["hands","Hands"],["mainhand","Main Hand"],
+  ["offhand","Off Hand"],["waist","Waist"],["legs","Legs"],["feet","Feet"],["back","Back"],
+  ["accessory1","Trinket I"],["accessory2","Trinket II"]];
+function addGearRow(g){ g=g||{}; const host=$("c_gear_rows"); const d=document.createElement("div"); d.className="item";
+  const name = typeof g==="string" ? g : (g.name||"");
+  const slot = (typeof g==="object" && g) ? (g.slot||"") : "";
+  const eff  = (typeof g==="object" && g) ? (g.effect||g.aura||g.prose||"") : "";
+  const opts = GEAR_SLOTS_UI.map(([v,l])=>`<option value="${v}" ${slot===v?'selected':''}>${l}</option>`).join("");
+  d.innerHTML=`<input placeholder="item name" value="${String(name).replace(/"/g,'&quot;')}" style="flex:1;min-width:110px">
+    <select title="which slot it occupies — 'auto' lets the engine guess" style="flex:0 0 92px">${opts}</select>
+    <input placeholder="what it does — prose/glamour/lore (optional)" value="${String(eff).replace(/"/g,'&quot;')}" style="flex:2;min-width:150px">
+    <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
+  host.appendChild(d);
+}
+function readGear(){ return [...$("c_gear_rows").querySelectorAll(".item")].map(it=>{
+  const el=it.querySelectorAll("input,select");
+  const name=el[0].value.trim(); if(!name) return null;
+  const slot=el[1].value, eff=el[2].value.trim();
+  if(!slot && !eff) return name;                 // a bare name stays a plain string (heuristic slots it)
+  const o={name}; if(slot) o.slot=slot; if(eff) o.effect=eff; return o;
+}).filter(Boolean); }
 // ---- custom skills / abilities
 function addCustomSkill(s){ s=s||{}; const host=$("c_cskills"); const opts=Object.keys(REG.stats).map(k=>`<option ${s.keyed_stat===k?'selected':''}>${k}</option>`).join("");
   const d=document.createElement("div"); d.className="item";
@@ -533,7 +562,7 @@ function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks
   stats:Object.assign({},statVals), skills, abilities:pickedAbilities(),
   custom,
   notes:$("c_notes").value.trim(),
-  gear:$("c_gear").value.split(",").map(s=>s.trim()).filter(Boolean),
+  gear:readGear(),
   extras:readExtras("c_extras"),
   resources:{hp:{max:+$("c_hp").value||20}} }; }
 
@@ -552,7 +581,7 @@ function applyPlayer(p){ if(!p) return;
   $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
   $("c_species").value=p.species||""; $("c_appearance").value=p.appearance||""; $("c_concept").value=p.concept||""; $("c_level").value=p.level||1;
   if(p.resources&&p.resources.hp&&p.resources.hp.max) $("c_hp").value=p.resources.hp.max;
-  if(Array.isArray(p.gear)&&p.gear.length) $("c_gear").value=p.gear.join(", ");
+  $("c_gear_rows").innerHTML=""; if(Array.isArray(p.gear)) p.gear.forEach(addGearRow);
   if(p.stats) Object.assign(statVals, p.stats); buildStats();
   if(p.skills){ for(const k in skillRanks) skillRanks[k]=0; Object.assign(skillRanks, p.skills); }
   buildSkills();

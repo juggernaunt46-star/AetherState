@@ -405,6 +405,7 @@ function routeRowHtml(g,mode,ep,names){
  return `<tr><td>${g}</td>
   <td><select onchange="routeMode('${g}',this.value)">${modes}</select></td>
   <td><select onchange="routeEp('${g}',this.value)" ${mode==="assist"?"":"disabled"}>${epo}</select></td></tr>`}
+async function toggleIntent(el){try{const d=await j("/aether/specialization",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({intent_floor:el.checked})});toast("semantic intent floor "+(el.checked?"ON":"OFF")+(d.persisted?" — saved":""))}catch(e){el.checked=!el.checked;toast("failed: "+e,1)}}
 async function routeMode(g,v){try{await j("/aether/groups",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[g]:v})});toast(g+" → "+v);render()}catch(e){toast("failed: "+e,1)}}
 async function routeEp(g,v){try{const dd=await j("/aether/groups",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({group_endpoints:{[g]:v}})});toast(g+" endpoint → "+(v||"(default)")+(dd.persisted?" — saved":""))}catch(e){toast("failed: "+e,1)}}
 async function connectionTab(){const d=await j("/aether/connection");const a=(d.assist&&d.assist[0])||{};
@@ -516,6 +517,7 @@ function playerView(){
  const v=HUD,s=v.scene||{};let h="";
  h+=`<div class="card"><div class="row" style="margin-top:0"><h3 style="margin:0">Player dashboard</h3>
   <span class="pill ${v.spec==="rpg"?"vio":"dim"}" title="narrative mode">spec: ${esc(v.spec)}</span>
+  ${v.spec==="rpg"?`<label class="sw" title="Pure-code semantic reflex floor: natural phrasings map to the skill they mean (sweet-talk → persuasion, sneaked → stealth) and a strike targets a REAL on-scene character, not a stray word. No model, no network."><input type="checkbox" id="intentfloor" ${v.intent_floor?"checked":""} onchange="toggleIntent(this)"> intent floor</label>`:""}
   <span style="flex:1"></span>${v.frozen?`<span class="pill bad">FROZEN</span>`:""}
   <span class="hint">turn ${v.head_turn??"?"}</span></div>`;
  const sb=[];if(s.location)sb.push(`📍 ${esc(String(s.location).replace(/_/g," "))}`);

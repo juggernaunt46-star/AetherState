@@ -13,8 +13,8 @@ and every section is defensively wrapped — a bad slice yields an empty section
 exception. By Bean (AetherState, MIT)."""
 from __future__ import annotations
 
-from .compose import (GEAR_SLOT_ORDER, GEAR_SLOTS, _VALENCE_GLYPH, affinity_tier,
-                      derived_exposure)
+from .compose import (GEAR_SLOT_ORDER, GEAR_SLOTS, _VALENCE_GLYPH, _initiative_order,
+                      affinity_tier, derived_exposure)
 
 _TIER_LABEL = {
     "crit_fail": "Critical Failure", "fail": "Failure",
@@ -246,7 +246,8 @@ def _gear_rows(state: dict, eid: str) -> list[dict]:
         if not it:
             continue
         rows.append({"slot": str(slot), "iid": str(iid), "name": str(it.get("name", iid)),
-                     "mods": _mods_str(it.get("mods_snapshot") or {}), "capacity": it.get("capacity")})
+                     "mods": _mods_str(it.get("mods_snapshot") or {}),
+                     "aura": str(it.get("aura", "")), "capacity": it.get("capacity")})
     return rows
 
 
@@ -280,6 +281,7 @@ def _gear_slots(state: dict, eid: str) -> list[dict]:
         if it:
             row["item"] = {"iid": str(iid), "name": str(it.get("name", iid)),
                            "mods": _mods_str(it.get("mods_snapshot") or {}),
+                           "aura": str(it.get("aura", "")),
                            "type": str(it.get("type", "")), "capacity": it.get("capacity")}
         out.append(row)
     return out
@@ -624,6 +626,7 @@ def _war_room(state: dict, cfg=None) -> dict:
                "tier": str(r.get("tier", "standard")),
                "hp": {"cur": int(hp.get("cur", 0)), "max": int(hp.get("max", 1))},
                "armament": str(r.get("armament", "")),
+               "init": int(r.get("init", 10)),          # baked turn-order score (2026-07-10)
                "defeated": bool(r.get("defeated")),
                "dropped": list(r.get("dropped") or [])}
         if not row["defeated"]:
@@ -635,6 +638,8 @@ def _war_room(state: dict, cfg=None) -> dict:
                 row["die"] = {"total": t, "tier": _die_tier(t), "dmg": d}
         out["combatants"].append(row)
     out["combatants"].sort(key=lambda r: (r["side"] != "enemy", r["defeated"], r["name"]))
+    out["order"] = [{"name": nm, "side": sd, "init": sc}          # explicit initiative order
+                    for sc, nm, sd in _initiative_order(state, cfg)]   # (2026-07-10, Bean)
     return out
 
 
@@ -649,6 +654,7 @@ def hud_view(state: dict, cfg=None) -> dict:
     player_eids = set((state.get("player") or {}).keys())
     out: dict = {
         "spec": spec, "frozen": bool(state.get("frozen")),
+        "intent_floor": bool(getattr(getattr(cfg, "specialization", None), "intent_floor", True)),
         "frozen_reason": state.get("frozen_reason"), "turn": turn,
         "scene": {}, "players": [], "cast": [], "quests": [], "rolls": [],
         "relationships": [], "relations": [], "factions": [], "world_flags": {},

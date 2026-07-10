@@ -85,29 +85,55 @@ INV_TYPES = {"consumable", "potion", "food", "drink", "material", "ingredient", 
              "junk", "treasure", "gem", "supply", "supplies", "ration", "medicine",
              "quest_item", "keepsake", "photo", "datapad", "chip"}
 # ordered name-token -> gear slot: the paper-doll auto-equip heuristic for free-form kit.
+# Ordered SPECIFIC-first (the first hint that matches wins). Greatly widened 2026-07-10 (Bean:
+# "high heels don't even go to feet") — plurals are listed explicitly because the compound-suffix
+# match in _hit is end-anchored (it catches "longCOAT" but not the plural "coatS").
 _SLOT_HINTS: list[tuple[tuple[str, ...], str]] = [
-    (("helm", "helmet", "hood", "circlet", "crown", "coif", "cap", "hat", "headband"), "head"),
-    (("goggles", "visor", "spectacles", "glasses", "monocle", "mask", "respirator"), "face"),
-    (("amulet", "necklace", "pendant", "torc", "collar", "choker", "locket"), "neck"),
-    (("cloak", "mantle", "cape", "robe", "shawl", "poncho"), "cape"),
-    (("pauldron", "spaulder", "epaulet", "mantlet"), "shoulders"),
-    (("gauntlet", "gauntlets", "glove", "gloves", "bracer", "vambrace", "mitt"), "hands"),
-    (("boot", "boots", "greave", "sabaton", "shoe", "shoes", "sandal", "sandals"), "feet"),
-    (("belt", "sash", "girdle", "bandolier", "holster"), "waist"),
-    (("greaves", "leggings", "trousers", "pants", "breeches", "kilt", "skirt"), "legs"),
+    (("helm", "helmet", "hood", "circlet", "crown", "coif", "cap", "hat", "headband", "hairband",
+      "tiara", "diadem", "coronet", "headdress", "headpiece", "turban", "beret", "bonnet",
+      "fedora", "cowl", "cloche", "fascinator", "veil", "bandana", "kerchief", "hairpin",
+      "hairclip", "barrette", "wreath"), "head"),
+    (("goggles", "visor", "spectacles", "glasses", "monocle", "mask", "respirator", "eyepatch",
+      "blindfold", "eyewear", "faceplate"), "face"),
+    (("amulet", "necklace", "pendant", "torc", "torque", "collar", "choker", "locket", "medallion",
+      "gorget", "cravat", "necktie", "ascot", "lanyard"), "neck"),
+    (("cloak", "mantle", "cape", "robe", "robes", "shawl", "poncho", "drape", "stole",
+      "capelet"), "cape"),
+    (("pauldron", "pauldrons", "spaulder", "spaulders", "epaulet", "epaulette", "epaulettes",
+      "mantlet", "shrug", "shoulderguard"), "shoulders"),
+    (("gauntlet", "gauntlets", "glove", "gloves", "bracer", "bracers", "vambrace", "vambraces",
+      "mitt", "mitts", "mitten", "mittens", "handwraps", "cestus"), "hands"),
+    (("heel", "heels", "stiletto", "stilettos", "stilettoes", "pumps", "flats",
+      "loafer", "loafers", "moccasin", "moccasins", "slipper", "slippers", "clog", "clogs",
+      "wedges", "sneaker", "sneakers", "trainer", "trainers", "brogue", "brogues",
+      "oxfords", "mules", "espadrille", "espadrilles", "boot", "boots",
+      "shoe", "shoes", "sandal", "sandals", "greave", "greaves", "sabaton", "sabatons",
+      "footwear", "sock", "socks", "stocking", "stockings", "tabi", "galoshes", "wader",
+      "waders", "cleat", "cleats"), "feet"),
+    (("belt", "sash", "girdle", "bandolier", "holster", "cummerbund", "waistband", "obi"), "waist"),
+    (("legging", "leggings", "trousers", "pants", "breeches", "kilt", "skirt", "jeans", "tights",
+      "chaps", "culottes", "pantaloons", "hakama", "shorts", "slacks", "jodhpurs",
+      "cuisses"), "legs"),
     (("ring", "signet"), "accessory1"),
-    (("satchel", "backpack", "rucksack", "knapsack", "haversack", "bag", "quiver"), "back"),
-    (("shield", "buckler", "aegis"), "offhand"),
+    (("satchel", "backpack", "rucksack", "knapsack", "haversack", "bag", "quiver",
+      "wineskin"), "back"),
+    (("shield", "buckler", "aegis", "targe", "grimoire"), "offhand"),
     (("sword", "blade", "knife", "dagger", "axe", "mace", "spear", "lance", "staff", "wand",
       "gun", "pistol", "rifle", "bow", "crossbow", "hammer", "katana", "cleaver", "machete",
       "baton", "club", "sabre", "saber", "revolver", "blaster", "launcher", "polearm",
-      "halberd", "scythe", "sickle", "whip", "flail", "rapier", "scimitar", "glaive"), "mainhand"),
-    (("armor", "armour", "cuirass", "breastplate", "vest", "jacket", "coat", "mail", "plate",
-      "hauberk", "tunic", "shirt", "gambeson", "harness", "suit", "chestplate", "carapace",
-      "duster", "parka", "overalls", "jerkin", "doublet", "brigandine", "kimono", "kaftan",
-      "blouse", "sweater", "hoodie", "raincoat", "chestpiece", "flak",
-      "rig", "exosuit", "exoframe"), "body"),
-    (("bracelet", "charm", "talisman", "brooch", "badge", "insignia", "bracer"), "accessory2"),
+      "halberd", "scythe", "sickle", "whip", "flail", "rapier", "scimitar", "glaive", "falchion",
+      "warhammer", "greatsword", "longsword", "shortsword", "handaxe", "hatchet", "trident",
+      "naginata", "nunchaku", "shuriken", "sling", "musket", "carbine", "shotgun"), "mainhand"),
+    (("dress", "gown", "corset", "bodice", "kirtle", "chemise", "negligee", "leotard", "bodysuit",
+      "catsuit", "armor", "armour", "cuirass", "breastplate", "vest", "jacket", "coat", "mail",
+      "plate", "hauberk", "tunic", "shirt", "gambeson", "harness", "suit", "chestplate",
+      "carapace", "duster", "parka", "overalls", "jerkin", "doublet", "brigandine", "kimono",
+      "kaftan", "blouse", "sweater", "hoodie", "raincoat", "chestpiece", "flak", "rig", "exosuit",
+      "exoframe", "cardigan", "tabard", "surcoat", "cassock", "frock", "smock", "toga", "sari",
+      "cheongsam", "waistcoat", "poncho"), "body"),
+    (("bracelet", "bangle", "talisman", "brooch", "badge", "insignia", "anklet",
+      "earring", "earrings", "piercing", "cufflink", "cufflinks", "wristband", "armband"),
+     "accessory2"),
 ]
 # gear-class by NAME but with no natural body slot -> carried as "stowed gear" (tools/kits/bags)
 _GEAR_NAME_TOKENS = {"lockpick", "lockpicks", "picks", "toolkit", "toolset", "tools", "tool",
@@ -116,9 +142,6 @@ _GEAR_NAME_TOKENS = {"lockpick", "lockpicks", "picks", "toolkit", "toolset", "to
                      "scanner", "toolbox", "pouch", "case", "holster", "sheath", "scabbard",
                      "bandolier", "webbing"}
 _ITEM_WORD_RE = re.compile(r"[a-z0-9]+")
-# short suffixes whose compound-word matches misfire on common non-gear words -> exact only.
-# "ring": herring / spring / string / offspring. (An actual "gold ring" still matches exactly.)
-_SUFFIX_BLOCK = {"ring"}
 
 
 def classify_item(name: str, snap: Optional[dict] = None) -> dict:
@@ -136,10 +159,15 @@ def classify_item(name: str, snap: Optional[dict] = None) -> dict:
                 "slot": str(snap.get("slot") or "back"), "type": t or "container"}
     toks = _ITEM_WORD_RE.findall(str(name or "").lower())
 
-    def _hit(hints) -> bool:                          # exact token, or a compound-word suffix:
-        return any(tk == h or (len(h) >= 3 and h not in _SUFFIX_BLOCK   # longcoat->coat,
-                               and len(tk) > len(h) and tk.endswith(h))  # shotgun->gun,
-                   for tk in toks for h in hints)      # breastplate->plate, chainmail->mail
+    def _hit(hints) -> bool:                          # exact, plural, or a LONG compound suffix:
+        for tk in toks:                               # "gloves"->glove, "breastplate"->plate;
+            tks = tk[:-1] if tk.endswith("s") and len(tk) > 3 else tk   # plural-tolerant match
+            for h in hints:
+                if tk == h or tks == h:               # exact / singular-of-plural
+                    return True
+                if len(h) >= 5 and len(tk) > len(h) and tk.endswith(h):   # compound suffix, LONG
+                    return True                       # hints only (kills band->husband, cap->…)
+        return False
     if toks:
         for hints, slot in _SLOT_HINTS:
             if _hit(hints):
@@ -1791,7 +1819,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                    "qty": gain_qty, "loc": loc, "owner": owner, "_gain_turn": turn,
                    "mods_snapshot": dict(snap.get("mods") or {}), "minted_turn": turn}
             for k in ("slot", "covers", "on_consume", "stackable", "max_stack",
-                      "capacity", "is_container", "worn", "type", "class"):
+                      "capacity", "is_container", "worn", "type", "class", "aura"):
                 if k in snap:
                     rec[k] = snap[k]
             items[iid] = rec
@@ -1885,13 +1913,19 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         d = int(op.get("_delta", op["delta"]))
         last = pl.get("_hp_adj_last") or {}
         toks = _fact_tokens(str(op.get("reason") or ""))
-        if (last.get("turn") == turn and last.get("delta") == d and toks
-                and _jaccard(toks, frozenset(last.get("toks") or ())) >= 0.5):
-            return                              # same-turn near-identical wound: the [hp] tag
-        #                                         and the ladder both reported it (2026-07-09
-        #                                         Cinderveil live: a -2 graze landed as -4) —
-        #                                         count once; a same-turn DIFFERENT wound
-        #                                         (two foes) keeps its own reason and applies
+        prev = frozenset(last.get("toks") or ())
+        if last.get("turn") == turn and last.get("delta") == d and toks and prev:
+            # ONE wound reported twice — the [hp] tag (hot path, verbatim) AND the cold-path
+            # ladder's paraphrase both land it. Jaccard alone misses when the paraphrase
+            # COMPRESSES the reason (2026-07-09 Cinderveil: a -2 graze landed as -4; 2026-07-10
+            # Hollowmere live: "…grazes his ribs below the plate" vs "pike-butt graze below
+            # breastplate" → J=0.30, the -1 applied twice → -2). Containment (overlap / the
+            # shorter reason) is paraphrase-robust; genuinely distinct same-magnitude wounds
+            # share far fewer nouns (measured <=0.5 across side/arm/leg/shoulder controls), so
+            # 0.6 dedups the re-report without eating a real second wound.
+            contain = len(toks & prev) / min(len(toks), len(prev))
+            if _jaccard(toks, prev) >= 0.5 or contain >= 0.6:
+                return                          # same-turn re-report of one wound: count once
         pl["_hp_adj_last"] = {"turn": turn, "delta": d, "toks": sorted(toks)}
         hp["cur"] = _clamp(int(hp.get("cur", hp["max"])) + d, 0, int(hp["max"]))
     elif kind == "award_exp":                   # RPG-5 progression (privileged, code-awarded)
@@ -1998,6 +2032,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                      "tier": op.get("tier") or "standard", "hp": hp,
                      "armament": str(op.get("armament") or "")[:60],
                      "mod": int(op.get("_mod", 0)), "loot": list(op.get("_loot") or []),
+                     "init": int(op.get("_init", THREAT_MOD.get(op.get("tier") or "standard", 1)
+                                            * 10)),   # baked turn-order score (2026-07-10)
                      "defeated": False, "spawned_turn": turn, "dropped": []}
         if not cb["active"]:
             cb["active"] = True
@@ -2008,9 +2044,18 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             raise OpReject(f"'{op['target']}' is not a live combatant — the War Room "
                            f"ledger, not the prose, is what's true")
         row = state["combat"]["combatants"][cid]
+        # fix B (2026-07-10): the Player's code-decided strike (_strike) is authoritative and
+        # already applied; the DM re-narrating that same blow as a same-turn [hp | <foe>] tag is
+        # a DOUBLE (the contract says the strike toll is pre-applied — don't re-tag it). Drop a
+        # NON-strike harm on a foe the player struck THIS turn; ally/DM harm on OTHER foes (or a
+        # foe the player didn't strike) is unaffected, so multi-foe chip damage still lands.
+        if not op.get("_strike") and int(row.get("_struck_turn", -10**9)) == turn:
+            return
         d = int(op.get("_delta", op["delta"]))
         row["hp"]["cur"] = _clamp(int(row["hp"].get("cur", row["hp"]["max"])) + d,
                                   0, int(row["hp"]["max"]))
+        if op.get("_strike"):
+            row["_struck_turn"] = turn
     elif kind == "combatant_defeat":            # code-detected: HP 0 -> defeat + frozen loot
         rows = (state.get("combat") or {}).get("combatants") or {}
         cid = op["target"] if op["target"] in rows else resolve_combatant(state, op["target"])
@@ -2689,6 +2734,12 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
                 "max_stack", "capacity", "is_container", "type") if k in tpl}
             snap["_template"] = tid
         snap.setdefault("name", str(op.get("name", "")))
+        want_slot = str(op.get("slot") or "").strip().lower()   # authored/MANUAL slot wins over
+        if want_slot in GEAR_SLOTS:                             # the name heuristic (Creator row /
+            snap["slot"], snap["worn"], snap["class"] = want_slot, True, "gear"   # ((aether.equip)))
+        aura = str(op.get("aura") or op.get("effect") or "").strip()   # 2026-07-10 (Bean): a gear
+        if aura:                                                       # PROSE/glamour/lore effect
+            snap["aura"] = aura[:240]                                  # that MATTERS to narration
         cls = classify_item(snap.get("name", ""), snap)
         snap["class"] = cls["class"]
         if cls["worn"]:
@@ -2758,6 +2809,10 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
                   "max": int(prior["max"])}
         out["_hp"] = hp
         out["_mod"] = THREAT_MOD.get(tier, 1)   # procedural logical stats, curated by tier
+        _tb = 0                                 # initiative (2026-07-10, Bean): a curated turn-
+        for _ch in cid:                         # order score — the tier's logical stat scaled,
+            _tb = (_tb * 31 + ord(_ch)) & 0x7FFF   # plus a STABLE per-combatant tiebreak, baked
+        out["_init"] = out["_mod"] * 10 + (_tb % 10)   # so replay stays pure (no re-roll)
         table = ((state or {}).get("loot") or {}).get(tier)   # frozen table wins (pillar 18);
         if not isinstance(table, list) or not table:          # registry rows are the floor
             try:
