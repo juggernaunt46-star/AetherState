@@ -105,6 +105,20 @@ def ability_mechanic(entry: dict) -> str:
     return "basis" if str(entry.get("kind", "")).lower() == "passive" else "mod"
 
 
+def ability_is_active(entry: dict) -> bool:
+    """Must the player INVOKE this ability (`use <id>` in a check)? The authored `kind` is
+    the truth (Bean 2026-07-09: customs authored as actives were reading as inert passives
+    when only the mechanic was consulted); the mechanic keeps the floor when kind is absent."""
+    if not isinstance(entry, dict):
+        return False
+    k = str(entry.get("kind", "")).strip().lower()
+    if k == "active":
+        return True
+    if k in ("passive", "basis"):
+        return False
+    return ability_mechanic(entry) in ACTIVE_MECHANICS
+
+
 def ability_applies(entry: dict, skill_id: str) -> bool:
     """Does this ability shape a check on `skill_id`? `applies_to` = "all" | id | [ids]."""
     a = (entry or {}).get("applies_to", "all")

@@ -289,8 +289,11 @@ def test_stamped_turn_never_regresses_below_head():
     hist.append({"role": "user", "content": "after reload"})
     r2 = e.resolve_stamped(Stamp(session=sess, gen_type="normal", turn=1), list(hist))
     assert r2.turn_index == head + 1 == 6, r2.turn_index
-    # a genuinely advancing stamp is still honored verbatim
+    # 2026-07-10 (Eranmor): a FORWARD-jumping stamp is no longer honored either — the
+    # extension's counter ticks on continues/stopped generations that never reach the proxy,
+    # which skipped indices (live session recorded turns 1,3,4,5) and desynced cooldown/
+    # regen/mastery arithmetic. head+1 is the only truth; the stamp is a dedup/debug hint.
     hist.append({"role": "assistant", "content": "a6"})
     hist.append({"role": "user", "content": "ahead"})
     r3 = e.resolve_stamped(Stamp(session=sess, gen_type="normal", turn=50), list(hist))
-    assert r3.turn_index == 50, r3.turn_index
+    assert r3.turn_index == 7, r3.turn_index

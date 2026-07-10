@@ -65,6 +65,11 @@ class SessionConfig(BaseModel):
     adopt_min_lcp: int = 6           # unknown external id needs this much chain evidence (08 S4/S5)
     align_k: int = 3                 # consecutive content matches to verify alignment (08 B1)
     checkpoint_every_turns: int = 20  # state_at replay spine (03 SS3.3)
+    reserve_lost_turns: bool = True  # 2026-07-10 (Eranmor): a new turn whose user text is
+    #                                  byte-identical to the PREVIOUS turn's, when that turn's
+    #                                  reply settled EMPTY (lost stream), RE-SERVES the settled
+    #                                  rolls on its [DIRECTIVE] instead of re-rolling — one
+    #                                  player action, one resolution; no double cost/cooldown
 
 
 class InjectionConfig(BaseModel):
@@ -263,6 +268,21 @@ class SpecializationConfig(BaseModel):
     #                                  defeat -> XP + frozen loot, the [WAR] board, the
     #                                  [foe]/[clash] tag channels, and the War Room HUD lane.
     #                                  off = 1.12 combat behavior (R8c/[hp] only)
+    foe_floor: bool = True           # 2026-07-10 (Eranmor floor): the Player ATTACKING a
+    #                                  target the DM's own last reply narrated (but never
+    #                                  tagged [foe]) stages it as an enemy combatant — the
+    #                                  War Room opens even with a zero-protocol narrator.
+    #                                  Basis-gated: every name token must appear in the DM's
+    #                                  prose (the fiction grounds it, never the player alone)
+    living_world: bool = True        # Phase 2 (plan doc 13, ratified 2026-07-09): the
+    #                                  living-world referee — travel consumes clock segments,
+    #                                  idle turns auto-advance the clock, authored faction
+    #                                  fronts tick deterministically and FILL into world
+    #                                  events, rumor-gated in HUD/briefing (Console shows
+    #                                  all). off = 1.13 behavior (clock moves only by hand)
+    clock_turns: int = 6             # Phase 2: idle auto-tick — advance one time segment
+    #                                  after this many turns with no real time passing
+    #                                  (0 disables the idle floor; travel still costs time)
     narrator_card_dir: str = ""      # optional: a SillyTavern characters dir where the
     #                                  world-specific Narrator card (narrator.py) is installed
     #                                  on request; empty = download-only (never writes out)
@@ -284,6 +304,12 @@ RPG_PROFILE: dict[str, Any] = {
         # A bigger budget (Bean 07-07) keeps the state blocks AND the contract from colliding
         # at the default 1200 (the contract alone is ~1k tokens). The user's own value wins.
         "max_tokens": 2200,
+        # 2026-07-10 (Eranmor): volatile state sits DIRECTLY above the Player's newest
+        # message — depth 3 put the [DIRECTIVE] before the previous exchange in reading
+        # order, and GLM burned reasoning deciding whether it was stale ("the [DIRECTIVE]
+        # mentioned earlier... from before"). depth 1 also moves the provider prompt-cache
+        # cut later (longer stable prefix). The user's own value wins.
+        "depth": 1,
         # RPG header-class ranking (doc 05 §6): directive very high so it is never
         # budget-dropped, player_card high, then quest/relations/factions/gear/inventory/
         # world. A superset of the base priorities so no base class is lost on override.

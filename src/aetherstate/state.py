@@ -385,6 +385,14 @@ _SPEC: dict[str, set[str]] = {
     "combat_end": set(),
     "clash_record": {"a", "b"},                # NPC-vs-NPC: record, never resolve (no dice)
     "loot_table": {"tier", "entries"},         # Creator/assist-frozen loot rows (pillar 18)
+    # Phase 2 living world (plan doc 13, ratified). front_add / front_tick / route_set are
+    # PRIVILEGED (fronts are authored frozen and advanced by CODE — the world_ops referee);
+    # front_reveal is PROPOSABLE (a rumor heard in the fiction is witnessed truth — the
+    # [rumor] tag / name-mention floor surface a hidden clock, never advance it).
+    "front_add": {"name", "segments", "consequence"},
+    "front_tick": {"front"},
+    "front_reveal": {"front"},
+    "route_set": {"a", "b", "segments"},
 }
 
 # 08 E2 deterministic family apply-order (freeze first so mid-delta safewords gate the rest)
@@ -396,7 +404,8 @@ _ORDER = {"freeze": -1, "unfreeze": 0, "entity_add": 0, "presence": 1, "move_ent
           "effect_remove": 6, "hp_adj": 6, "award_exp": 8, "level_up": 9,
           "defeat_resolve": 9,
           "loot_table": 1, "combatant_spawn": 2, "combatant_hp": 6,   # Phase 1: spawn before
-          "combatant_defeat": 8, "combat_end": 9}                     # harm; settle last
+          "combatant_defeat": 8, "combat_end": 9,                     # harm; settle last
+          "front_add": 1, "route_set": 1, "front_reveal": 5, "front_tick": 8}   # Phase 2
 _DEFAULT_ORDER = 7
 
 # 02 SS12b families
@@ -429,6 +438,8 @@ _FAMILY = {
     "combatant_spawn": "scene", "combatant_hp": "scene",              # Phase 1 combat: the
     "combatant_defeat": "scene", "combat_end": "scene",               # fight is scene truth;
     "clash_record": "facts", "loot_table": "facts",                   # records are facts
+    "front_add": "facts", "front_tick": "facts",                      # Phase 2: the living
+    "front_reveal": "facts", "route_set": "facts",                    # world is world truth
 }
 # frozen-session suppression set (02 SS6: arousal/escalation/consent families)
 _FROZEN_SUPPRESSED = {"arousal", "scene_dial", "consent_signal"}
@@ -655,6 +666,16 @@ def validate_op(op: Any) -> Optional[dict]:
         if kind == "loot_table":
             if op["tier"] not in THREAT_TIERS or not isinstance(op["entries"], list):
                 return None
+        if kind == "front_add":                    # Phase 2: an authored clock, typed at the door
+            if not str(op.get("name", "")).strip():
+                return None
+            int(op["segments"])                    # int-able or the op is dropped
+        if kind in ("front_tick", "front_reveal") and not str(op.get("front", "")).strip():
+            return None
+        if kind == "route_set":
+            if not str(op.get("a", "")).strip() or not str(op.get("b", "")).strip():
+                return None
+            int(op["segments"])
     except (TypeError, KeyError, ValueError):
         return None
     return op
@@ -734,7 +755,9 @@ def resolve_aliases(op: dict, state: dict, source: str) -> tuple[Optional[dict],
 
 # ---- RPG-4 location registry & canonicalization (doc 05 §9) -------------------------
 _LOC_ARTICLES = ("the ", "a ", "an ")
-_LOC_HEAD_RE = re.compile(r"[,;:.(]|\s[—–-]\s")   # name head before prose; keeps 'Vael-Cora'
+_LOC_HEAD_RE = re.compile(r"[,;:.(·•|]|\s[—–-]\s")   # name head before prose; keeps 'Vael-Cora'
+#             GLM-5.2 separates sub-locations with a MIDDLE DOT ("Vael Thyrr · temple
+#             quarter") — split on it too or the whole string mints a twin (2026-07-09)
 
 
 _FACT_STOP = frozenset({"the", "a", "an", "and", "or", "of", "to", "in", "on", "at", "is",
@@ -798,6 +821,19 @@ def canonical_location(state: dict, raw: str) -> tuple[str, str, bool]:
                 or any(toks <= set(_norm_loc(a).split()) for a in e.get("aliases", []))]
         if len(hits) == 1:                               # ambiguous → new row, never a guess
             return hits[0], (ents[hits[0]] or {}).get("name", head), False
+    # PARENT rung (2026-07-09 Cinderveil live): the extractor/DM often writes a known place
+    # PLUS a sub-area specifier ("Ashen Maw rim", "Vael Thyrr archive hall"). When exactly
+    # one location's own name-HEAD tokens (≥2 — never a one-word swallow) are all contained
+    # in the raw head's tokens, that place is the parent — resolve to it, never mint a twin.
+    if toks:
+        phits = []
+        for eid, e in locs:
+            chead = _LOC_HEAD_RE.split(str(e.get("name", "")).strip(), 1)[0].strip()
+            ctoks = set(_norm_loc(chead).split())
+            if len(ctoks) >= 2 and ctoks <= toks:
+                phits.append(eid)
+        if len(set(phits)) == 1:
+            return phits[0], (ents[phits[0]] or {}).get("name", head), False
     return slug(head), head, True
 
 
@@ -826,6 +862,11 @@ def authority_violation(op: dict, source: str, state: dict, cfg) -> Optional[str
     if kind == "stat_spend":                   # spending a banked point is the player's call
         return None if source in ("user", "genesis", "rule") else \
             "stat points are spent by the player, never asserted by a model (doc 10)"
+
+    if kind in ("front_add", "front_tick", "route_set"):
+        return None if source in ("user", "genesis", "rule") else \
+            "the living world is engine-owned: fronts are authored frozen and advanced by " \
+            "code (world_ops) — a model may only surface one via [rumor] (plan doc 13)"
 
     if kind in ("combatant_spawn", "combatant_defeat", "combat_end", "loot_table"):
         return None if source in ("user", "genesis", "rule") else \
@@ -1357,6 +1398,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                         full = str(rname).lower() == "stamina"
                         gain = int(r["max"]) if full else max(1, int(r["max"]) // 2)
                         r["cur"] = _clamp(int(r.get("cur", 0)) + gain, 0, int(r["max"]))
+        if op.get("_turn_mark"):                           # Phase 2 (rpg-baked only): the
+            state["clock"]["last_advance_turn"] = turn     # idle auto-tick counts from here
         _craving_ramp(state)                               # 03 R4 (replay-safe: lives in reducer)
     elif kind == "clock_tick":
         state["clock"]["minutes"] = int(state["clock"].get("minutes", 0)) + int(op["minutes"])
@@ -1414,6 +1457,9 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 al = op.get("_loc_alias")
                 if al and al != ent.get("name") and al not in ent.get("aliases", []):
                     ent.setdefault("aliases", []).append(al)
+            if op.get("_prev_loc") and boundary:             # Phase 2: travel is committed
+                sc["last_move"] = {"from": op["_prev_loc"],  # truth (rpg-baked ops only; a
+                                   "to": op["location"], "turn": turn}   # none op has no key)
         if "participants" in op:
             sc["participants"] = [p for p in op["participants"]]
         if "phase" in op:
@@ -1837,6 +1883,16 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             raise OpReject(f"no HP pool for '{op['char']}' — hp_adj tracks the Player Card")
         hp = pl["hp"]
         d = int(op.get("_delta", op["delta"]))
+        last = pl.get("_hp_adj_last") or {}
+        toks = _fact_tokens(str(op.get("reason") or ""))
+        if (last.get("turn") == turn and last.get("delta") == d and toks
+                and _jaccard(toks, frozenset(last.get("toks") or ())) >= 0.5):
+            return                              # same-turn near-identical wound: the [hp] tag
+        #                                         and the ladder both reported it (2026-07-09
+        #                                         Cinderveil live: a -2 graze landed as -4) —
+        #                                         count once; a same-turn DIFFERENT wound
+        #                                         (two foes) keeps its own reason and applies
+        pl["_hp_adj_last"] = {"turn": turn, "delta": d, "toks": sorted(toks)}
         hp["cur"] = _clamp(int(hp.get("cur", hp["max"])) + d, 0, int(hp["max"]))
     elif kind == "award_exp":                   # RPG-5 progression (privileged, code-awarded)
         pl = state.get("player", {}).get(op["char"])
@@ -2035,6 +2091,37 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                             "chance": min(1.0, max(0.0, float(e.get("chance", 1.0))))})
         if entries:
             state.setdefault("loot", {})[op["tier"]] = entries
+    elif kind == "front_add":                   # Phase 2: an authored clock, frozen at creation
+        fid = str(op.get("_fid") or slug(str(op.get("name", "")))[:64])
+        fronts = state.setdefault("fronts", {})
+        if fid and fid not in fronts:           # seed-once: re-seeding never resets progress
+            fronts[fid] = {"name": str(op["name"]).strip()[:80],
+                           "faction": slug(str(op["faction"]))[:64] if op.get("faction") else None,
+                           "segments": int(op.get("_segments", op.get("segments", 6))),
+                           "filled": 0, "pace": int(op.get("_pace", 1)),
+                           "consequence": str(op.get("consequence", "")).strip()[:300],
+                           "revealed": False, "done": False,
+                           "created_turn": turn, "log": []}
+    elif kind == "front_tick":
+        rec = (state.get("fronts") or {}).get(str(op.get("front", "")))
+        if isinstance(rec, dict) and not rec.get("done"):
+            segs = max(1, int(rec.get("segments", 6)))
+            rec["filled"] = min(segs, int(rec.get("filled", 0)) + int(op.get("_delta", 1)))
+            rec["log"] = (rec.get("log") or [])[-19:] + [[turn, str(op.get("reason", ""))[:80]]]
+            if rec["filled"] >= segs:           # the clock strikes: consequence is world truth
+                rec["done"] = True
+                rec["revealed"] = True          # a consequence on-screen is its own rumor
+                rec["filled_turn"] = turn
+    elif kind == "front_reveal":
+        rec = (state.get("fronts") or {}).get(str(op.get("front", "")))
+        if isinstance(rec, dict) and not rec.get("revealed"):
+            rec["revealed"] = True
+            rec["revealed_turn"] = turn
+    elif kind == "route_set":                   # travel-time edge (undirected; slugged at bake)
+        a, b = str(op.get("a", "")), str(op.get("b", ""))
+        if a and b and a != b:
+            state.setdefault("routes", {})["|".join(sorted((a, b)))] = \
+                int(op.get("_segments", op.get("segments", 1)))
     elif kind == "stagnation":
         state["scene"]["stagnation"] = round(float(op["value"]), 3)
     elif kind == "player_seed":
@@ -2356,6 +2443,130 @@ def combat_ops(state: dict, applied: list[dict]) -> list[dict]:
     return out
 
 
+# ---- Phase 2 living-world pass (plan doc 13, ratified) — pure, deterministic, journaled ----
+def travel_cost(state: dict, a: str, b: str) -> int:
+    """Committed route override between two canon locations, else the inferred 1-segment
+    default. Reads only state — callers bake the result into the ops they emit."""
+    key = "|".join(sorted((str(a), str(b))))
+    try:
+        return max(1, min(4, int((state.get("routes") or {}).get(key, 1))))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _lw_tokens(*texts) -> set:
+    """Normalized >=4-char name tokens for front-touch matching (the discovery pattern)."""
+    out = set()
+    for t in texts:
+        for w in re.split(r"[^a-z0-9]+", str(t or "").lower()):
+            if len(w) >= 4:
+                out.add(w)
+    return out
+
+
+def world_ops(state: dict, applied: list[dict], clock_turns: int = 6) -> list[dict]:
+    """Phase 2 (ratified plan doc 13): the living-world referee. Pure reader over
+    (state, this batch's applied ops); returns PRIVILEGED rule ops for the caller to
+    apply — propose-then-commit, journaled, never a hidden reducer side-effect.
+
+    Floor (weak-model guarantee): the world moves even if the model never cooperates.
+    Travel between canon locations consumes clock segments (route override, default 1);
+    idle turns advance the clock on a curated cadence; authored faction FRONTS tick
+    deterministically off committed triggers (day pace, the Player touching the faction,
+    quests resolving against it, its people falling in combat) and a front that FILLS
+    commits a world-event + flag the DM is directed to narrate. Rumor-gating is a RENDER
+    concern (HUD/briefing) — this pass advances hidden clocks exactly like visible ones."""
+    out: list[dict] = []
+    if not state.get("player"):
+        return out
+    turn = int((state.get("meta") or {}).get("turn", -1))
+    clock = state.get("clock") or {}
+    tod = str(clock.get("time_of_day", "evening"))
+    ti = TIMES.index(tod) if tod in TIMES else 4
+    advanced = any(isinstance(o, dict) and o.get("op") == "time_advance"
+                   and o.get("to_time_of_day") for o in (applied or []))
+    move = None                              # the LAST committed location change this batch
+    for o in (applied or []):
+        if isinstance(o, dict) and o.get("op") == "scene_set" and o.get("_prev_loc") \
+                and o.get("location") and o["_prev_loc"] != o["location"]:
+            move = o
+    pmove = None                             # (from, to) — the camera follows the player
+    if move is None:
+        # Floor repair (2026-07-09 live, Cinderveil bench): a DM that never emits a [scene]
+        # tag still yields extraction move_entity ops on the PLAYER. The scene — and the
+        # travel clock — must follow the player deterministically (pillars 6/12), not the
+        # model's tag discipline. Only KNOWN locations move the camera (never mint here).
+        dest = None
+        pids = set((state.get("player") or {}).keys())
+        for o in (applied or []):
+            if isinstance(o, dict) and o.get("op") == "move_entity" and o.get("to_location") \
+                    and resolve_entity_ref(state, o.get("entity")) in pids:
+                dest = str(o["to_location"])
+        if dest:
+            sc = state.get("scene") or {}
+            cur = str(sc.get("location_id") or sc.get("location") or "")
+            loc_id, _disp, is_new = canonical_location(state, dest)
+            if not is_new and loc_id and loc_id != cur:
+                pmove = (cur, loc_id)
+                out.append({"op": "scene_set", "location": loc_id})
+    if move is not None and not advanced:    # travel consumes time (an explicit advance wins)
+        cost = travel_cost(state, move["_prev_loc"], move["location"])
+        out.append({"op": "time_advance", "to_time_of_day": TIMES[(ti + cost) % len(TIMES)]})
+    elif pmove is not None and not advanced:  # the player-move fallback pays the same toll
+        cost = travel_cost(state, pmove[0], pmove[1]) if pmove[0] else 1
+        out.append({"op": "time_advance", "to_time_of_day": TIMES[(ti + cost) % len(TIMES)]})
+    elif not advanced and clock_turns > 0:   # the idle floor: stories drift forward too
+        if turn - int(clock.get("last_advance_turn", -1)) >= int(clock_turns):
+            out.append({"op": "time_advance", "to_time_of_day": TIMES[(ti + 1) % len(TIMES)]})
+    fronts = state.get("fronts") or {}
+    if not fronts:
+        return out
+    day_wrap = any(isinstance(o, dict) and o.get("op") == "time_advance"
+                   and o.get("_day_wrap") for o in (applied or [])) \
+        or any(isinstance(o, dict) and o.get("op") == "time_advance"
+               and o.get("to_time_of_day")
+               and TIMES.index(o["to_time_of_day"]) <= ti for o in out)
+    day = int(clock.get("day", 1)) + (1 if day_wrap else 0)
+    combat_rows = (state.get("combat") or {}).get("combatants") or {}
+    for fid, f in sorted(fronts.items()):
+        if not isinstance(f, dict) or f.get("done"):
+            continue
+        fac = str(f.get("faction") or "")
+        toks = _lw_tokens(f.get("name"), fac.replace("_", " "))
+        reason = None
+        if day_wrap and day % max(1, int(f.get("pace", 1))) == 0:
+            reason = f"day {day}: the agenda advances on its own"
+        for o in (applied or []):
+            if reason:
+                break
+            if not isinstance(o, dict):
+                continue
+            k = o.get("op")
+            if k == "affinity_adj" and fac and slug(str(o.get("target", ""))) == fac:
+                reason = "the Player's dealings with the faction shifted its designs"
+            elif k == "world_flag" and fac and slug(str(o.get("faction") or "")) == fac:
+                reason = "world truth moved around the faction"
+            elif k == "quest_update" and str(o.get("status")) == "complete" \
+                    and toks & _lw_tokens(o.get("quest"), o.get("note")):
+                reason = "a resolved quest touched the agenda"
+            elif k == "combatant_defeat":
+                row = combat_rows.get(str(o.get("target", "")))
+                if isinstance(row, dict) and row.get("side") == "enemy" \
+                        and toks & _lw_tokens(row.get("name")):
+                    reason = "its people met defeat at the Player's hand"
+        if not reason:
+            continue
+        out.append({"op": "front_tick", "front": fid, "reason": reason})
+        if int(f.get("filled", 0)) + 1 >= max(1, int(f.get("segments", 6))):
+            cons = str(f.get("consequence") or "").strip() \
+                or f"the {f.get('name', fid)} agenda comes to a head"
+            out.append({"op": "world_flag", "key": fid, "value": "come to a head",
+                        **({"faction": fac} if fac else {})})
+            out.append({"op": "memory_event",
+                        "text": f"World event — {f.get('name', fid)}: {cons}"})
+    return out
+
+
 # ================================ derived views =====================================
 def derived_exposure(state: dict, eid: str) -> list[str]:
     """02 SS5.2: exposure DERIVED, never stored. Zone exposed iff tracked but no worn item covers it."""
@@ -2604,6 +2815,40 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
             names = [ent.get("name", "")] + [str(a) for a in ent.get("aliases", [])]
             if raw_head and all(_norm_loc(raw_head) != _norm_loc(n) for n in names if n):
                 out["_loc_alias"] = raw_head   # learn the variant: canon self-improves
+        prev = (state or {}).get("scene", {}).get("location_id")
+        if prev and prev != out["location"]:   # Phase 2: the move itself is baked — travel
+            out["_prev_loc"] = prev            # cost + the [TRAVEL] cue derive from it
+    rpg = getattr(cfg, "specialization", None) is not None \
+        and cfg.specialization.name == "rpg"
+    if op["op"] == "time_advance" and rpg:     # Phase 2 (rpg-baked only — a `none` session's
+        out["_turn_mark"] = 1                  # ops stay byte-identical): idle-tick anchor +
+        new = op.get("to_time_of_day")         # day-wrap mark for day-paced fronts
+        cur = str(((state or {}).get("clock") or {}).get("time_of_day", "evening"))
+        if new in TIMES and cur in TIMES and TIMES.index(new) <= TIMES.index(cur):
+            out["_day_wrap"] = 1
+    if op["op"] == "front_add":
+        out["_fid"] = slug(str(op.get("name", "")))[:64]
+        out["_segments"] = _clamp(op.get("segments", 6), 3, 12)
+        out["_pace"] = _clamp(op.get("pace", 1), 1, 3)
+    if op["op"] == "front_tick":
+        out["_delta"] = 1                      # one segment per tick, always — pace lives in
+        #                                        the trigger cadence, never the step size
+    if op["op"] == "front_reveal":             # resolve id | display name against committed rows
+        ref = str(op.get("front", "")).strip()
+        fronts = (state or {}).get("fronts") or {}
+        if ref not in fronts:
+            low = ref.lower()
+            for fid, f in fronts.items():
+                if isinstance(f, dict) and str(f.get("name", "")).lower() == low:
+                    out["front"] = fid
+                    break
+            else:
+                hit = slug(ref)[:64]
+                if hit in fronts:
+                    out["front"] = hit
+    if op["op"] == "route_set":
+        out["a"], out["b"] = slug(str(op.get("a", "")))[:64], slug(str(op.get("b", "")))[:64]
+        out["_segments"] = _clamp(op.get("segments", 1), 1, 4)
     return out
 
 
@@ -2834,5 +3079,9 @@ def state_summary(state: dict) -> dict:
         "combat": state.get("combat", {}),
         "clashes": state.get("clashes", []),
         "loot": state.get("loot", {}),
+        # Phase 2 living world: ALL fronts (hidden included — rumor-gating applies to the
+        # HUD/briefing ONLY; the Console/inspectors show clocks from turn one) + routes.
+        "fronts": state.get("fronts", {}),
+        "routes": state.get("routes", {}),
         "turn": state.get("meta", {}).get("turn", -1),
     }

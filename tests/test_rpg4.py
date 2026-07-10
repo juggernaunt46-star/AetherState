@@ -60,9 +60,11 @@ def test_wrong_merge_guard_ambiguity_mints_new():
                                                        "aliases": [], "present": False}
     loc_id, _, new = canonical_location(st, "Gate")     # subset of BOTH -> never a guess
     assert new and loc_id == "gate"
-    # unique subset DOES resolve
+    # unique PARENT resolves (changed 2026-07-09, Cinderveil live: "Ashen Maw rim"-style
+    # sub-area strings were minting twin locations every session — a unique ≥2-token
+    # name-head containment is the parent, while true ambiguity still mints new above)
     loc_id2, _, new2 = canonical_location(st, "North Gate Plaza")
-    assert new2                                          # superset != subset: new row too
+    assert (loc_id2, new2) == ("north_gate", False)
     loc_id3, _, new3 = canonical_location(st, "North")
     assert (loc_id3, new3) == ("north_gate", False)      # unique 1-token subset resolves
 

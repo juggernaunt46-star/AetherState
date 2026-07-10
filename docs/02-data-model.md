@@ -650,3 +650,46 @@ HUD's combat lane; `state_summary` carries `combat`/`clashes`/`loot` raw.
 A `none` session remains byte-identical: `empty_state()` gained no keys, every parser,
 pass, block, and wire row is rpg-gated (+ the `war_room` knob), welded by
 `test_p12_combat.py` (23 green, incl. none-leak + deterministic replay).
+
+### 7.12 Phase 2 — the living world (1.14.0, plan doc 13 ratified)
+
+Pillar 12 operational: the world moves whether or not the model cooperates. All state is
+lazy (`empty_state()` unchanged); every surface is rpg-gated + the `living_world` knob.
+
+**Ops.** `front_add {name, faction?, segments, pace?, consequence}` — an authored PbtA
+agenda clock, PRIVILEGED, seed-once (re-seeding never resets progress); `_enrich` bakes
+`_fid`/`_segments` (3–12)/`_pace` (1–3). `front_tick {front, reason}` — PRIVILEGED,
+`_delta` baked 1; the reducer fills the clock, logs `[turn, reason]`, and on FILL sets
+`done` + `revealed` + `filled_turn`. `front_reveal {front}` — PROPOSABLE (a rumor heard in
+the fiction is witnessed truth); `_enrich` resolves id|display-name. `route_set {a, b,
+segments}` — PRIVILEGED travel-time edge, undirected, slugged + clamped 1–4 at bake.
+State keys: `fronts`, `routes` (lazy); `scene.last_move {from, to, turn}` (written only by
+rpg-baked `scene_set` ops carrying `_prev_loc` — a `none` op has no key); `clock.
+last_advance_turn` (written only by rpg-baked `time_advance` ops carrying `_turn_mark`;
+`_day_wrap` marks a wrap for day-paced fronts).
+
+**The referee (`state.world_ops`)** — pure, journaled, on BOTH apply paths after the
+progression pass (`pipeline._progress` + `jobs` post-batch), like the combat referee:
+(a) TRAVEL — the last committed location change this batch (baked `_prev_loc` ≠
+`location`) emits a privileged `time_advance` of `travel_cost()` segments (route override,
+default 1); an explicit time move in the same batch wins. (b) IDLE — `clock_turns`
+(default 6) turns without real time passing advance one segment. (c) FRONTS — one tick
+max per front per batch, reasons journaled: day pace (`day % pace == 0` on a wrap),
+`affinity_adj` targeting the faction, `world_flag` touching it, a completed quest sharing
+a ≥4-char name token, or a `combatant_defeat` of an enemy sharing one. A tick that FILLS
+also commits `world_flag {key: fid, value: "come to a head"}` + a world-event memory.
+
+**Channels.** DM tags (world-tags/5): `[time | <segment>]`/`[time | +N]` (+N clamped to
+2; restating the current segment is a no-op; at most one time move per reply) and
+`[rumor | <front/faction> | <whisper>]` → `front_reveal` (+ a Rumor memory); the
+name-mention floor reveals a hidden front whose name appears in the reply. Volatile tail
+(0a constraint): `[TRAVEL]` (fresh move + a deterministic md5 en-route cue — quiet/omen/
+"stage an encounter NOW" routed through `[foe]`), `[FRONT]` (fresh fill: narrate the
+consequence NOW), `[FRONTS]` (revealed, unfilled standings). Director: binds `front`
+(fronts filled 1–4 turns ago) + the `rpg_adventure.front_fallout` beat.
+
+**Visibility (ratified).** Rumor-gating applies to the HUD/briefing ONLY: `hud_view().
+fronts` renders revealed clocks (consequence hidden until fill), the ST World tab shows
+them as pip bars under "Agendas"; `state_summary` carries `fronts`/`routes` RAW from turn
+one — the Console never hides. Knobs: `living_world` (off = 1.13 behavior), `clock_turns`.
+Welded by `test_p14_living_world.py` (none-leak + deterministic replay included).

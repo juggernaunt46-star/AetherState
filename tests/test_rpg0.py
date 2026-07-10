@@ -293,7 +293,7 @@ def test_dm_contract_v2_in_fiction_and_known_vs_present():
     """dm-rules/2 (2026-07-06): no out-of-character endings; state-block NPCs are known,
     not on-scene."""
     from aetherstate.prompts import DM_CONTRACT_VERSION, DM_RULES_CONTRACT
-    assert DM_CONTRACT_VERSION == "dm-rules/7"          # Phase 1: the War Room slice landed
+    assert DM_CONTRACT_VERSION == "dm-rules/8"          # 2026-07-10 Eranmor: NEWEST-msg anchoring
     assert "stranger" in DM_RULES_CONTRACT                  # 0b: anti-main-character
     assert "[NEARBY]" in DM_RULES_CONTRACT                  # 0b: home anchors
     assert "HOSTILES ACT" in DM_RULES_CONTRACT              # R8c: enemies act on real dice

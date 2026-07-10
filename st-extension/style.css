@@ -303,3 +303,7 @@
 .aes-die.graze { color:var(--warn); border-color:var(--warn); }
 .aes-die.miss { color:var(--dim); }
 .aes-com.ally .aes-die.hit { color:var(--good); border-color:var(--good); }
+
+/* Phase 2 living world: rumored faction clocks (Agendas, World tab) */
+.aes-front .aes-pips { letter-spacing: 2px; opacity: .85; margin-left: 6px; }
+.aes-front.done { color: var(--SmartThemeQuoteColor, #d9a441); }

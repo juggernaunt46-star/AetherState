@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — hud-clarity build (2026-07-09)");
+  console.log("[AetherState] Companion loaded — Eranmor fix-pack build (2026-07-10)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -209,9 +209,16 @@
       try {
         if (dryRun) return;
         if (type) lastGenType = type;                       // fallback capture
-        if (!type || type === "normal" || type === "continue") turnCounter++;
+        // 2026-07-10 (Eranmor): continues no longer tick the counter — a continue re-generates
+        // the SAME server turn, and phantom ticks skipped indices (live session recorded turns
+        // 1,3,4,5). The proxy now files every new turn at head+1 regardless; this keeps the
+        // stamp honest as a dedup/debug hint.
+        if (!type || type === "normal") turnCounter++;
+        genBusySince = Date.now();                          // thinking pulse (2026-07-10)
       } catch (e) {}
     });
+    on("GENERATION_ENDED", () => { try { genBusySince = 0; } catch (e) {} });
+    on("GENERATION_STOPPED", () => { try { genBusySince = 0; } catch (e) {} });
     on("MESSAGE_SWIPED", (i) => { hint("swipe", Number(i)); genesisAtGreetingSwipe(i);
       try { setTimeout(scrubTags, 120); setTimeout(scrubTags, 900); } catch (e) {} });
     on("MESSAGE_EDITED", (i) => { hint("edit", Number(i)); try { setTimeout(scrubTags, 120); } catch (e) {} });
@@ -223,6 +230,23 @@
 
   // ---- quick panel (05 §7)
   let lastGen = 0;
+  // 2026-07-10 (Eranmor): the thinking pulse. Reasoning models (GLM-5.2) can think silently
+  // for a minute-plus while ST renders "..." — a healthy turn LOOKED dead in live play. While
+  // a generation is in flight the HUD vitals show a live "narrating… Ns" chip instead.
+  let genBusySince = 0;
+  setInterval(() => {
+    try {
+      const el = document.getElementById("aes_pulse");
+      if (!el) return;
+      if (genBusySince) {
+        el.style.display = "";
+        el.textContent = "✦ narrating… " +
+          Math.max(1, Math.round((Date.now() - genBusySince) / 1000)) + "s";
+        el.title = "the model is generating — reasoning models can think silently for a " +
+          "minute or more before the first visible word; the turn is alive";
+      } else { el.style.display = "none"; }
+    } catch (e) {}
+  }, 1000);
   // Circuit breaker (2026-07-07): the browser logs a failed request for EVERY poll while the
   // proxy is down — with the HUD/writeback/chip loops that is a console flood. When calls start
   // failing we mark the proxy offline and the periodic POLLERS back off to one probe / 20 s
@@ -639,7 +663,7 @@
   function renderVitals(v, p) {
     const s = v.scene || {};
     const loc = s.location ? esc(String(s.location).replace(/_/g, " ")) : "—";
-    let h = `<div class="aes-vitals"><div class="aes-vit-scene">📍 ${loc}${s.time_of_day ? " · " + esc(s.time_of_day) : ""}${s.phase ? " · " + esc(s.phase) : ""}</div>`;
+    let h = `<div class="aes-vitals"><div class="aes-vit-scene">📍 ${loc}${s.time_of_day ? " · " + esc(s.time_of_day) : ""}${s.phase ? " · " + esc(s.phase) : ""} <span id="aes_pulse" class="aes-tag" style="display:none"></span></div>`;
     if (p) {
       h += `<div class="aes-vit-name">${esc(p.name)} <span class="m">Lv${esc(p.level)}${p.xp ? " · XP " + esc(p.xp) : ""}</span>${p.stat_points ? ` <span class="aes-tag warn">${esc(p.stat_points)} pt</span>` : ""}${p.mood ? ` <span class="aes-dim">${esc(p.mood)}</span>` : ""}</div>`;
       const bars = []; if (p.hp && p.hp.max) bars.push(bar("hp", p.hp.cur, p.hp.max));
@@ -651,6 +675,8 @@
         const tc = (lr.tier === "success" || lr.tier === "crit_success") ? "success" : (lr.tier === "partial" ? "partial" : "fail");
         h += `<div class="aes-lastroll ${tc}">\uD83C\uDFB2 ${esc(lr.skill || "roll")} \u2192 <b>${esc(lr.tier_label)}</b> <span class="m">(${esc(lr.result)})</span></div>`;
       }
+      const ln = (v.notices || []).slice(-1)[0];   // 2026-07-10 (pillar 17): latest engine
+      if (ln) h += `<div class="aes-roll-note" title="engine notice — the Rolls tab keeps the recent ones">⚠ ${esc(ln.text)}</div>`;
     }
     return h + `</div>`;
   }
@@ -724,6 +750,13 @@
     const u = String(use || "").trim();
     aetherInsertText(`((aether.check ${s}${u ? " use " + u : ""}))`);
   };
+  window.aetherRollGated = (msg) => {          // 2026-07-10 (Eranmor): a gated button now
+    try {                                       // REFUSES — it used to insert anyway and the
+      const m = String(msg || "not available right now");   // engine rolled WITHOUT the ability
+      if (window.toastr) toastr.warning(m, "AetherState");
+      else console.warn("[AetherState] " + m);
+    } catch (e) {}
+  };
   window.aetherRollDraft = (el) => { rollDraft = el.value; };
   window.aetherInsertCustom = () => {
     const inp = document.getElementById("aes_roll_custom");
@@ -735,6 +768,8 @@
   function tabRolls(v, p) {
     const sk = p.skills || [], abils = p.abilities || [];
     let h = `<div class="aes-roll-help"><b>Skills</b> are what you roll; <b>abilities</b> bend or unlock a skill roll — they never roll on their own. Tap to drop a check into your message, <b>or just write it</b>: name a skill or ability in your prose (e.g. \u201cI use Fire-Slash\u201d) and the engine rolls it for you.</div>`;
+    const nts = (v.notices || []).slice(-4);   // 2026-07-10 (pillar 17): engine notices
+    if (nts.length) h += sechdr("Engine notices — what recent rolls actually did") + `<div class="aes-rows2">${nts.map((n) => `<div class="aes-roll-note">⚠ t${esc(n.turn)} — ${esc(n.text)}</div>`).join("")}</div>`;
     if (!sk.length) h += `<div class="aes-hud-empty">No skills yet. Build a character in the Creator, or earn skills in-world.</div>`;
     else {
       const { groups, order } = groupByCategory(sk, "Skills");
@@ -745,7 +780,7 @@
           const gated = s.gated && !s.basis_met;
           const t = gated ? "needs " + esc(s.basis_name || "a basis") + " \u2014 this would be a non-move"
                           : "roll ((aether.check " + esc(s.id) + "))";
-          return `<button class="aes-rollbtn${gated ? " gated" : ""}" title="${t}" onclick="window.aetherInsertRoll('${esc(s.id)}')">${esc(s.label)} <span class="m">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></button>`;
+          return `<button class="aes-rollbtn${gated ? " gated" : ""}" title="${t}" onclick="${gated ? "window.aetherRollGated(this.title)" : `window.aetherInsertRoll('${esc(s.id)}')`}">${esc(s.label)} <span class="m">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></button>`;
         }).join("")}</div>`;
       }
     }
@@ -754,8 +789,9 @@
       h += sechdr("Active abilities \u2014 invoke on a check");
       h += `<div class="aes-rollbtns">${acts.map((a) => {
         if (a.applies_id) {
-          const t = "roll " + esc(a.applies_id) + " and spend " + esc(a.name) + (a.on_cd ? " (recharging " + esc(a.on_cd) + "t)" : "");
-          return `<button class="aes-rollbtn act${a.on_cd ? " gated" : ""}" title="${t}" onclick="window.aetherInsertRoll('${esc(a.applies_id)}','${esc(a.id)}')">\u2726 ${esc(a.name)} <span class="m">on ${esc(a.applies_to)}</span></button>`;
+          const t = a.on_cd ? esc(a.name) + " is recharging (" + esc(a.on_cd) + "t) — a roll now would go WITHOUT it"
+                            : "roll " + esc(a.applies_id) + " and spend " + esc(a.name);
+          return `<button class="aes-rollbtn act${a.on_cd ? " gated" : ""}" title="${t}" onclick="${a.on_cd ? "window.aetherRollGated(this.title)" : `window.aetherInsertRoll('${esc(a.applies_id)}','${esc(a.id)}')`}">\u2726 ${esc(a.name)} <span class="m">on ${esc(a.applies_to)}</span></button>`;
         }
         return `<span class="aes-pill">\u2726 ${esc(a.name)} <span class="aes-tag">any check \u2014 type \u2018use ${esc(a.id)}\u2019</span></span>`;
       }).join("")}</div>`;
@@ -909,6 +945,13 @@
     if (rel.length) parts.push(sec("Relations & Factions", "♥", `<div class="aes-rows">${rel.join("")}</div>`));
     if ((v.relationships || []).length) parts.push(sec("Relationships", "🔗", v.relationships.map((r) => `<div class="aes-kv"><b>${esc(r.a)} → ${esc(r.b)}</b> ${r.dims.map((d) => `<span class="aes-dim">${esc(d.dim)} ${d.val >= 0 ? "+" : ""}${esc(d.val)}</span>`).join(" ")}</div>`).join("")));
     if (Object.keys(v.world_flags || {}).length) parts.push(sec("World", "🌍", `<div class="aes-rows">${Object.entries(v.world_flags).map(([k, val]) => `<span class="aes-pill">${esc(k)}=${esc(String(val))}</span>`).join("")}</div>`));
+    if ((v.fronts || []).length) parts.push(sec("Agendas", "⏳", v.fronts.map((f) => {
+      const segs = Math.max(1, f.segments | 0), fill = Math.min(segs, f.filled | 0);
+      const pips = "●".repeat(fill) + "○".repeat(segs - fill);
+      const head = `<b>${esc(f.name)}</b>${f.faction ? ` <span class="m">(${esc(f.faction)})</span>` : ""}`;
+      if (f.done) return `<div class="aes-kv aes-front done">${head} — <b>${f.fresh ? "⚠ COME TO A HEAD" : "concluded"}</b>${f.consequence ? `: ${esc(f.consequence)}` : ""}</div>`;
+      return `<div class="aes-kv aes-front">${head} <span class="aes-pips" title="${fill}/${segs}">${pips}</span></div>`;
+    }).join("") + `<div class="aes-roll-note">Rumored faction clocks — they advance whether or not you watch.</div>`));
     if ((v.memories || []).length) parts.push(sec("Recent events", "📜", v.memories.map((m) => `<div class="aes-kv"><span class="m">t${esc(m.turn)}</span> ${esc(m.text)}</div>`).join("")));
     if ((v.consent || []).length) parts.push(sec("Consent", "✔", v.consent.map((c) => `<div class="aes-kv"><b>${esc(c.pair)}</b> · ${esc(c.category)} <span class="m">${esc(c.level)}</span>${c.cap != null ? " ≤" + esc(c.cap) : ""}</div>`).join("")));
     return parts.join("") || `<div class="aes-hud-empty">The world is quiet.</div>`;

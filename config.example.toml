@@ -115,6 +115,16 @@ nli_threshold = 0.85  # L10: minimum contradiction confidence (0.0-1.0) before a
 # briefing_style = "verbose"   # verbose (default, full words) | compact (dense notation)
 
 # ------------------------------------------------------------------
+# SESSION / turn engine. These rarely need tuning; the one user-facing knob:
+# [session]
+# reserve_lost_turns = true    # 1.15.0 (Eranmor): if a turn's reply is lost upstream (the
+#                              # generation returns empty) and you re-send the SAME message, the
+#                              # engine RE-SERVES the roll it already settled instead of rolling a
+#                              # fresh one — no double dice, no double clock/cost/cooldown. The
+#                              # [DIRECTIVE] says the reply was lost in transit. Off = re-sending a
+#                              # lost turn rolls again (pre-1.15 behavior)
+
+# ------------------------------------------------------------------
 # NARRATIVE MODE (Q27 / RPG specialization). Leave as "none" for normal chat-RP — that is
 # byte-identical to not having this section at all. Set "rpg" to turn the character card
 # into a Dungeon Master: it runs the world, NPCs and factions, YOUR character becomes a
@@ -138,6 +148,15 @@ name = "none"         # none | rpg
 #                           # it to the DM as [OPPOSITION] — foes attack on real dice
 # hardcore = false          # RPG-5: defeat becomes DEATH (permadeath). Off = contextual
 #                           # non-lethal outcomes (captured / wake safe / robbed / rescued)
+# living_world = true       # Phase 2 (1.14.0): the living world — travel between canon
+#                           # locations costs day-segments (route_set edges override the
+#                           # 1-segment default), idle turns advance the clock, and authored
+#                           # faction FRONTS (agenda clocks) tick deterministically and FILL
+#                           # into world events. Rumor-gated: hidden from the HUD/briefing
+#                           # until the fiction mentions them; the Console always shows all.
+# clock_turns = 6           # Phase 2: idle auto-tick — advance one time segment after this
+#                           # many turns with no real time passing (0 disables; travel and
+#                           # the DM's [time] tag still move the clock)
 # war_room = true           # Phase 1 (1.13.0): the full combat loop — combatant instances
 #                           # with exact HP (extras via the DM's [foe] tag; known NPCs fight
 #                           # as themselves and KEEP their wounds), 3v3 with allies on their
@@ -145,6 +164,12 @@ name = "none"         # none | rpg
 #                           # code-detected defeat -> XP + frozen loot, the [WAR] board, the
 #                           # [clash | A vs B | how | outcome] NPC-fight record, and the War
 #                           # Room HUD lane. Off = pre-1.13 combat (R8c + [hp] tags only)
+# foe_floor = true          # 1.15.0 (Eranmor floor): the Player ATTACKING a target the DM's
+#                           # own last reply narrated (but never tagged [foe]) stages it as an
+#                           # enemy combatant and opens combat — the engine no longer needs the
+#                           # DM to remember the [foe] tag for a fight to start. Body parts and
+#                           # ungrounded names never spawn (no in-world basis). Off = the DM
+#                           # must tag [foe] to stage an opponent
 # narrator_card_dir = ""    # optional: a SillyTavern characters dir (e.g.
 #                           # ".../SillyTavern/data/default-user/characters"). When set, the
 #                           # Creator's "Generate Narrator card" button installs a world-named

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .state import (GEAR_SLOT_ORDER, GEAR_SLOTS, _norm_loc, affinity_tier, derived_exposure,
-                    is_empty, item_is_gear)
+                    is_empty, item_is_gear, travel_cost)
 
 CHARS_PER_TOKEN = 3.3     # 03 SS4 estimate; backend tokenizer replaces this in P3
 
@@ -107,16 +107,19 @@ def _render_player(state: dict, cfg=None) -> str:
                 except Exception:
                     mab = {}
             tag = {"edge": "adv", "ward": "no-fumble", "extra_die": "xdie", "reroll": "reroll",
-                   "surge": "surge", "basis": "basis"} if c2 else \
+                   "surge": "surge", "basis": "basis", "mod_active": "burst"} if c2 else \
                   {"edge": "passive: advantage", "ward": "passive: no fumble",
                    "extra_die": "active: extra die on a miss", "reroll": "active: reroll a miss",
-                   "surge": "active: big swing + higher ceiling", "basis": "grants a basis"}
+                   "surge": "active: big swing + higher ceiling", "basis": "grants a basis",
+                   "mod_active": "active: +N burst on use"}
             bits = []
             for a in abil:
                 d = mab.get(str(a)) or {}
                 nm = str(d.get("name", a))
                 try:
                     mech = _registry.ability_mechanic(d)
+                    if mech == "mod" and _registry.ability_is_active(d):
+                        mech = "mod_active"          # flat-burst active — invoked, not always-on
                 except Exception:
                     mech = "mod"
                 bits.append(f"{nm} [{tag[mech]}]" if mech in tag else nm)
@@ -345,6 +348,15 @@ def _render_directive(state: dict, cfg=None) -> str:
         clause = f"{phrase} — the {skill} check resolved as {tier.upper()}"
         if c.get("dm_called") or c.get("_dm_called"):   # R8b: the DM asked for this roll and
             clause += " (the roll YOU called for last reply — narrate it as its answer)"
+        if c.get("lost_reply"):                # Eranmor re-serve: same action, lost reply —
+            clause += (" (ALREADY SETTLED: this same action was sent before but your reply "
+                       "was lost in transit — this is that roll re-served, not a new or "
+                       "repeated one; answer the Player's message with it now)")
+        bl = c.get("_ability_blocked")         # Eranmor: a declared active that didn't ride
+        if isinstance(bl, list) and bl:
+            why = "; ".join(f"{b.get('name', '?')} did NOT ride this roll ({b.get('why', '')})"
+                            for b in bl if isinstance(b, dict))
+            clause += f" ({why} — narrate a plain attempt, not the technique)"
         sh = c.get("shape") or c.get("_shape")
         sh = sh if isinstance(sh, dict) else None
         if sh and sh.get("fired"):            # 2026-07-07: an active ability fired on the miss —
@@ -386,7 +398,8 @@ def _render_directive(state: dict, cfg=None) -> str:
     if clauses:
         what = "these outcomes" if len(clauses) > 1 else "this outcome"
         out = ("[DIRECTIVE] NARRATE: " + "; ".join(clauses) + f". Narrate exactly {what}; "
-               "do not soften, upgrade, or override the result of a roll.")
+               "do not soften, upgrade, or override the result of a roll. This directive "
+               "always resolves the Player's NEWEST message — never an earlier one.")
     # R8c — the enemy acts on real dice too (rendered whenever a non-player is on scene;
     # the DM is told to ignore it in peaceful beats). Code rolls, the model narrates.
     # Phase 1 rides here too: with the War Room active, ally dice + the exact-HP board
@@ -450,6 +463,19 @@ def _render_directive(state: dict, cfg=None) -> str:
             wl = _render_war(state)
             if wl:
                 out += ("\n" if out else "") + wl
+    nud = state.get("_protocol_nudge")
+    if nud:                                    # 2026-07-10 (Eranmor): the DM wrote invented
+        heads = ", ".join(f"[{h}]" for h in nud[:4])   # bracket grammar last reply — correct
+        out += (("\n" if out else "")                  # it NOW, in one line, self-clearing
+                + f"[PROTOCOL] Your last reply wrote {heads} line(s) — those are NOT engine "
+                  "channels and were IGNORED. The ledger only commits these tags: "
+                  "[scene | <loc> | <phase> | present: <names>] · "
+                  "[status gained/lost | <char> | <Name> | <valence>] · "
+                  "[item gained/lost | <char> | <Item> | <qty>] · "
+                  "[quest | <Name> | new/update/complete] · [affinity | <target> | +/-N | <why>] "
+                  "· [hp | <char> | -N | <why>] · [foe | <name> | minion/standard/elite/boss | "
+                  "<weapon>] · [clash | A vs B | how | outcome]. To call for a roll write "
+                  "((aether.check <skill>)) inline — never a [CHECK] line.")
     return out
 
 
@@ -651,6 +677,53 @@ def _render_world(state: dict) -> str:
     return "[WORLD] " + " · ".join(f"{k}={_flag_str(v)}" for k, v in w.items())
 
 
+def _render_living_tail(state: dict, cfg=None) -> str:
+    """Phase 2 (plan doc 13, ratified): the living-world lines — volatile, so they ride
+    the injected TAIL after the directive (the 0a KV-cache constraint). Renders ONLY
+    committed truth: a fresh travel move (with a deterministic en-route cue — md5 of the
+    committed route + day, the R8c pattern: same state, same bytes, no journal row), a
+    front that just FILLED (the DM is directed to narrate its consequence NOW), and the
+    REVEALED clocks' standings. Rumor-gating applies here — hidden fronts stay hidden
+    from the briefing; the Console shows everything (state_summary)."""
+    if getattr(cfg, "specialization", None) is None or cfg.specialization.name != "rpg" \
+            or not getattr(cfg.specialization, "living_world", True) \
+            or not state.get("player"):
+        return ""
+    import hashlib
+    out: list[str] = []
+    turn = int((state.get("meta") or {}).get("turn", -1))
+    day = int((state.get("clock") or {}).get("day", 1))
+    mv = (state.get("scene") or {}).get("last_move") or {}
+    if isinstance(mv, dict) and mv.get("to") and turn - int(mv.get("turn", -10**9)) <= 1:
+        frm, to = str(mv.get("from", "")), str(mv.get("to", ""))
+        cost = travel_cost(state, frm, to)
+        seed = int(hashlib.md5(f"trav:{frm}:{to}:{day}".encode()).hexdigest()[:8], 16)
+        cue = ("the road is quiet", "an omen on the road — foreshadow trouble ahead",
+               "danger finds them en route — stage an encounter NOW (introduce the threat "
+               "with a [foe] tag if it comes to violence)")[
+                   0 if seed % 6 < 3 else (1 if seed % 6 < 5 else 2)]
+        out.append(f"[TRAVEL] {_name(state, frm)} → {_name(state, to)} "
+                   f"({cost} segment{'s' if cost > 1 else ''} of the day spent): {cue}.")
+    fresh, standing = [], []
+    for fid, f in sorted((state.get("fronts") or {}).items()):
+        if not isinstance(f, dict) or not f.get("revealed"):
+            continue
+        nm = str(f.get("name", fid))
+        if f.get("done") and turn - int(f.get("filled_turn", -10**9)) <= 1:
+            cons = str(f.get("consequence") or "").strip() or "its consequence lands"
+            fresh.append(f"[FRONT] {nm} HAS COME TO A HEAD: {cons} — the world moved; "
+                         f"show it on-screen NOW, do not wait for the Player.")
+        elif not f.get("done"):
+            fac = str(f.get("faction") or "").replace("_", " ")
+            standing.append(f"{nm}{' (' + fac + ')' if fac else ''} "
+                            f"{int(f.get('filled', 0))}/{int(f.get('segments', 6))}")
+    out.extend(fresh)
+    if standing:
+        out.append("[FRONTS] rumored agendas in motion — " + " · ".join(standing) +
+                   " (these advance on their own; weave their momentum into the world)")
+    return "\n".join(out)
+
+
 # ------------------------------ header (04 SS3.1) -----------------------------------
 def render_header(state: dict, cfg) -> str:
     if is_empty(state):
@@ -769,6 +842,9 @@ def render_header(state: dict, cfg) -> str:
             dblock = _render_directive(state, cfg)
             if dblock:
                 lines.append(dblock)
+            lw = _render_living_tail(state, cfg)   # Phase 2: clock/front/travel lines ride
+            if lw:                                 # the volatile tail (0a constraint)
+                lines.append(lw)
         if "PLAYER" in blocks:
             pblock = _render_player(state, cfg)
             if pblock:
@@ -848,12 +924,16 @@ def govern(components: list[Component], cfg) -> list[Component]:
     header_only = cap < cfg.injection.header_floor_tokens
     kept, spent = [], 0
     for c in sorted(comps, key=lambda c: -c.priority):
-        if header_only and c.cls != "state_header":
-            continue
+        if header_only and c.cls not in ("state_header", "rules_contract"):
+            continue                                     # the contract is floored too (below)
         if c.cls == "state_header":                     # header (+guard) never dropped (04 SS3.2)
             kept.append(c)
             spent += c.tokens
             continue
+        if c.cls == "rules_contract":                   # 2026-07-10 (Eranmor): the rpg contract
+            kept.append(c)                              # DEGRADES (compose picks compact) but
+            spent += c.tokens                           # never silently drops — losing the tag
+            continue                                    # grammar mid-campaign bred fake dialects
         if spent + c.tokens <= cap:
             kept.append(c)
             spent += c.tokens
@@ -901,7 +981,20 @@ def compose(doc: dict, state: dict, cfg, stamp, klass: str,
                                cfg.injection.priorities.get("director_note", 80)))
     if getattr(cfg, "specialization", None) is not None and cfg.specialization.name == "rpg":
         from . import prompts                               # DM rules-contract (doc 05 §5.2)
-        comps.append(Component("rules_contract", prompts.rules_contract(cfg),
+        # 2026-07-10 (Eranmor): the contract used to be a droppable component — on a rich
+        # sheet the WHOLE protocol ([TAGS] grammar, [foe], dm-rules, R8b) silently vanished
+        # mid-campaign and the DM invented its own grammar, unheard and uncorrected. The
+        # contract is what MAKES rpg an RPG (Bean 07-07): degrade full -> compact when the
+        # budget is tight, and govern keeps whichever variant rides STICKY (never dropped).
+        cap = cfg.injection.max_tokens
+        if cfg.injection.assumed_ctx_tokens > 0:
+            cap = min(cap, int(cfg.injection.max_fraction * cfg.injection.assumed_ctx_tokens))
+        spent = sum(c.tokens for c in comps)
+        text = prompts.rules_contract(cfg)
+        if getattr(cfg.specialization, "contract", "full") != "compact" \
+                and spent + estimate_tokens(text) > cap:
+            text = prompts.rules_contract(cfg, force_compact=True)   # D7: degrade, never drop
+        comps.append(Component("rules_contract", text,
                                cfg.injection.priorities.get("rules_contract", 30)))
     if recall:                                             # Q15 precomputed lines (04 SS3.5)
         from . import memory as _memory

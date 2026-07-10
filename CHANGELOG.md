@@ -1,5 +1,127 @@
 # Changelog
 
+## 1.15.0 — 2026-07-10
+
+The Eranmor fix pack: a live high-fantasy campaign exposed six ways the engine could resolve a
+roll correctly and still feel broken around it. All six are fixed.
+
+- **Lost turns re-serve instead of re-rolling.** If a generation dies upstream (an empty reply)
+  after the engine already rolled, re-sending the same action now RE-SERVES that settled roll —
+  no second dice, no double clock/cost/cooldown, and the directive tells the DM the earlier reply
+  was lost in transit. A reply that actually exists still starts a genuinely new turn. Knob
+  `[session].reserve_lost_turns` (default on).
+- **The directive says which message it resolves.** `[DIRECTIVE]` now states it always resolves
+  the Player's NEWEST message (never an earlier one), and when a declared ability could not ride
+  the roll (e.g. still recharging) it says so — "narrate a plain attempt, not the technique." The
+  RPG state block is placed directly above the newest message. This cuts the model's per-turn
+  deliberation over whether a directive was stale.
+- **The War Room starts itself.** A DM that narrates enemies but forgets the `[foe]` tag no longer
+  leaves combat un-started: attacking a target the DM's own prose put on the scene now stages that
+  foe and opens the fight (`[specialization].foe_floor`, default on). Body parts and ungrounded
+  names never spawn. The DM's improvised `[CHECK] … | skill: X` roll-calls are also understood now
+  (healed into a real armed check), and off-protocol bracket lines get a one-line nudge back to the
+  real channels.
+- **Turn counting can't drift.** The server turn head is authoritative — the next turn is always
+  head+1, so a client counter that ticks on stopped or continued generations can no longer skip
+  indices and desync cooldown / regen / mastery timing.
+- **Roll notices are visible.** "Recharging", "not a move", "not enough stamina" and the like now
+  surface to the HUD instead of only the proxy log; greyed roll buttons no longer fire.
+- **The rules contract is never dropped.** Under a tight token budget the DM contract degrades to
+  its compact form but always ships — losing the tag grammar mid-campaign was what let the model
+  invent its own.
+
+Tests: `tests/test_p9_eranmor_fixpack.py`. A `none` (non-RPG) session stays byte-identical; the
+new resolution/staging paths are replay-deterministic.
+
+## 1.14.1 — 2026-07-09
+
+The Creator auto-fill finally completes the boxes (Bean's long-standing bug, live-reproduced
+and root-caused this pass).
+
+- **Rows no longer amputated mid-word.** `deterministic_world` hard-clamped every
+  'Name — description' faction/location row at 80 chars, so each AI auto-fill returned
+  stumps ('…behind hydrogel windo') that round-tripped into drafts, cards, and the ledger.
+  Prose-facing fields now clamp WORD-SAFE with honest caps (rows 500, tone/date 160,
+  front names 120; `_s_soft`), and `_split_name_desc`'s description tail is word-safe too.
+- **Blanks on existing rows now fill.** The 'typed content is canon' merge kept seed rows
+  verbatim at ROW level and discarded the model's completed version — an npc's empty
+  `home`, a bare faction's description, or a bare custom skill's mechanics could never be
+  auto-filled. `_keep_seed_rows` now match-merges per FIELD (`_row_fill`): every typed
+  field wins verbatim, blank fields fill from the model's matching row, new rows append.
+  The authoring prompt explicitly requires every npc to come back with a `home`.
+- Tests: `tests/test_p15_creator_fill.py` (9). No wire/state/hot-path changes; a `none`
+  session stays byte-identical.
+
+Plus the Phase 2 live-verify fix pack (Cinderveil bench, all live-reproduced):
+
+- **The camera follows the player (living-world floor).** A DM that never emits `[scene]`
+  tags still yields extraction `move_entity` ops on the player — `world_ops` now emits the
+  privileged `scene_set` + the travel toll from them (known locations only, never minting).
+  Travel time no longer depends on the model's tag discipline.
+- **The living-world referee reads the fresh reply.** `pipeline._ingest_reply_tags` ran
+  combat_ops but never world_ops, so a reply-committed move bypassed travel/fronts entirely
+  (the ladder later deduped it away). The live path now runs the referee too.
+- **Location canonicalization: middle-dot + parent rung.** GLM-5.2 writes sub-locations as
+  "Vael Thyrr · temple quarter" (middle dot — now a head separator) and "<known place> +
+  specifier" ("Ashen Maw rim") — a unique ≥2-token name-head containment now resolves to
+  the parent instead of minting a twin location every session.
+- **hp_adj same-turn near-dupe dedup.** The DM's `[hp]` tag AND the extraction ladder both
+  reported the same wound with slightly different words — a −2 graze landed as −4 (the item
+  double-gain bug's hp cousin). Same-turn, same-delta, reason-similar (Jaccard ≥ 0.5)
+  proposals now count once.
+- Journal inspector briefs carry `to_location`/`front`. Creator chip shows the GLOBAL
+  specialization when no session is picked (it claimed "RPG off" while the proxy ran rpg).
+- Tests: +5 in `tests/test_p14_living_world.py` (camera floor, middle-dot, parent rung,
+  hp dedup) + the updated `test_rpg4` wrong-merge pin. 638 passed + ruff clean.
+
+## 1.14.0 — 2026-07-09
+
+Phase 2: the living world (ratified plan doc 13) — pillar 12 made operational. The world
+now moves whether or not the model cooperates, and custom ACTIVE abilities work again.
+
+### Active abilities: authored kind is the truth (bug fix)
+- Custom abilities frozen as `kind: "active"` with a flat-bonus mechanic (the Combat-Stims
+  pattern: `resolution_mod` + cost + cooldown) were reading as inert PASSIVES everywhere —
+  wrongly badged in the ST HUD, rejected at `use` ("it already applies"), and never applied
+  at all. Active-ness now honors the authored `kind` (`registry.ability_is_active`), with
+  the mechanic as the floor when kind is absent.
+- Invoking a flat-burst active (`((aether.check <skill> use <ability>))` or naming it in
+  prose) now applies its +N to THAT roll, pays its cost, and starts its cooldown — baked
+  into the check op (`_shape.burst`), replay-pure. The Creator freeze keeps cost/cooldown
+  on authored mod-actives; `combat_stims`/`adrenal_booster` genre-pack entries carry a real
+  cost. `use` on a true passive/basis stays a friendly notice; actives never auto-apply.
+
+### The world clock
+- Travel between canon locations consumes day-segments: the committed `scene_set` move
+  (baked `_prev_loc`, RPG-only) drives a privileged `time_advance` — 1 segment by default,
+  `route_set` edges (Creator-authored `routes`) override up to 4.
+- Idle floor: `clock_turns` (default 6) turns without real time passing advance one
+  segment on their own. The DM ceiling: a `[time | <segment>]` / `[time | +1]` tag moves
+  the clock (+N clamped to 2; restating the current segment moves nothing).
+- A fresh move renders a volatile `[TRAVEL]` tail line with a deterministic en-route cue
+  (md5 of route+day, the R8c pattern — no journal row): quiet road, omen, or "stage an
+  encounter NOW" routing violence through the existing `[foe]` channel.
+
+### Faction fronts (PbtA agenda clocks)
+- `front_add` (privileged, Creator/genesis-frozen: name, faction, 3-12 segments, pace,
+  consequence) creates a clock the ENGINE advances: `world_ops` (both apply paths, like
+  the combat referee) ticks fronts deterministically — day pace, the Player's dealings
+  with the faction, world flags touching it, quests resolving against it, its people
+  falling in combat. One tick per front per batch; every tick journaled with its reason.
+- A front that FILLS commits the consequence as world truth: a `world_flag`, a world-event
+  memory, a fresh `[FRONT] ... HAS COME TO A HEAD` directive on the tail, and the
+  `front_fallout` director beat (binds `front`) keeps the fallout landing for a few turns.
+- Rumor-gating (ratified): fronts exist HIDDEN. They surface in the HUD/briefing only when
+  the fiction references them — the DM's `[rumor | <agenda> | <whisper>]` tag (proposable
+  `front_reveal`) or the name-mention floor. The Console/state_summary shows every clock
+  from turn one (`fronts`/`routes` keys — raw, never hidden).
+- HUD: World tab gains an "Agendas" section (revealed clocks as pip bars, fresh fills
+  flagged); `hud_view` carries `fronts` + `clock`; `[FRONTS]` briefing line lists revealed,
+  unfilled clocks. [TAGS] protocol is now world-tags/5 (adds [time]/[rumor]).
+- Knobs: `[specialization] living_world = true`, `clock_turns = 6`. Off = 1.13 behavior.
+  A `none` session stays byte-identical (every surface rpg-gated; baked keys only on
+  rpg-enriched ops).
+
 ## 1.13.1 — 2026-07-09
 
 The "minimized is not broken" fix. After 1.13.0 the player HUD appeared to lose everything

@@ -269,6 +269,13 @@ def bindings(beat: dict, state: dict, user_ids: set) -> list[dict]:
         return [{"quest": qid, "quest_name": str((q or {}).get("name", qid))}
                 for qid, q in sorted((state.get("quests") or {}).items())
                 if isinstance(q, dict) and q.get("status") == "active"]
+    if kind == "front":                          # Phase 2: a JUST-FILLED front demands fallout
+        turn = state.get("meta", {}).get("turn", -1)   # (the bind IS the filter — recency-gated)
+        return [{"front": fid, "front_name": str(f.get("name", fid)),
+                 "front_consequence": str(f.get("consequence") or "its consequence lands")[:200]}
+                for fid, f in sorted((state.get("fronts") or {}).items())
+                if isinstance(f, dict) and f.get("done")
+                and 1 <= turn - int(f.get("filled_turn", -10**9)) <= 4]
     return []
 
 

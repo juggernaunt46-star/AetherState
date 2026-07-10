@@ -723,6 +723,13 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         view["session_id"] = row["session_id"]
         view["external_id"] = row["external_id"]
         view["head_turn"] = _head(store, row["active_branch"])
+        try:    # 2026-07-10 (Eranmor, pillar 17): tier0 notices — "recharging", non-moves,
+            #   unknown skills, re-served rolls — used to die in the proxy log; the HUD
+            #   rolls lane now shows them. Transient ring (a restart clears it), fail-open.
+            view["notices"] = (pipeline.recent_notices(row["session_id"])
+                               if pipeline is not None else [])
+        except Exception:
+            view["notices"] = []
         return view
 
     @router.post("/session/{sid}/freeze")
@@ -1008,9 +1015,10 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
                     continue
                 brief = {k: op[k] for k in (
                     "name", "entity", "char", "kind", "skill", "tier", "effect", "location",
-                    "template", "item", "slot", "target", "key", "value", "delta", "present",
-                    "text", "statement", "reason", "phase", "ability", "valence",
-                    "quest", "status", "note", "outcome", "amount", "qty") if k in op}
+                    "to_location", "front", "template", "item", "slot", "target", "key",
+                    "value", "delta", "present", "text", "statement", "reason", "phase",
+                    "ability", "valence", "quest", "status", "note", "outcome", "amount",
+                    "qty") if k in op}
                 for tk in ("text", "statement", "reason"):   # reveal_fact rows were empty {}
                     if isinstance(brief.get(tk), str) and len(brief[tk]) > 80:
                         brief[tk] = brief[tk][:77] + "..."

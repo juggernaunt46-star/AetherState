@@ -116,10 +116,18 @@ class SessionEngine:
         # chat reload / CHAT_CHANGED, so a stamped turn can fall BELOW the real head after a
         # page refresh. Trusting it verbatim landed the roll/ops on an early turn while the
         # [DIRECTIVE] rendered at the true head (meta.turn) -> the resolution silently vanished.
-        # The server head is authoritative: a new turn is head+1; a client turn is honored ONLY
-        # when it ADVANCES past the head, never when it regresses.
+        # 2026-07-10 (Eranmor): forward jumps are no longer honored either — the extension's
+        # counter also ticks on continues / stopped generations that never reach the proxy,
+        # which SKIPPED indices (live session recorded turns 1,3,4,5) and desynced every
+        # turn-arithmetic surface (cooldown maturation, regen, mastery caps). Once a branch
+        # HAS a head, the next turn is EXACTLY head+1 — a forward-jumped OR reset counter never
+        # moves it. The stamp only ESTABLISHES the base on a brand-new branch (normally 1: ST's
+        # counter is 0 then ticks to 1 on the first generation, and genesis pre-seeds turn 0);
+        # thereafter stamp.turn is a dedup/debug hint only. (The extension no longer counts
+        # continues — build 2026-07-10.)
         _head = self._head(branch)
-        turn = stamp.turn if (stamp.turn is not None and stamp.turn > _head) else _head + 1
+        turn = (stamp.turn if (_head < 0 and stamp.turn is not None and stamp.turn >= 0)
+                else _head + 1)
         self.store.record_turn(branch, turn, klass.value, gt)
         if canon:
             self._append_tail(branch, self._unseen_tail(branch, canon), record_turns=False)

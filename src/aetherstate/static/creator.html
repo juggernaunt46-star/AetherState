@@ -314,10 +314,17 @@ function showTab(name){
 }
 
 // ---- dynamic lists
+// Full-row hover tooltips (2026-07-09, Bean): a long COMPLETED row still visually clips at
+// the input's right edge and reads as truncated — mirror the full value into title so hover
+// shows the whole row. Only inputs marked autotitle get this (never clobbers a help title).
+function _autoTitle(scope){ scope.querySelectorAll("input:not([title])").forEach(i=>{
+  i.dataset.autotitle="1"; i.title=i.value; }); }
+document.addEventListener("input", e=>{ const t=e.target;
+  if(t && t.tagName==="INPUT" && t.dataset.autotitle==="1") t.title=t.value; }, true);
 function addLine(hostId, val){
   const host=$(hostId); const d=document.createElement("div"); d.className="item";
   d.innerHTML=`<input value="${(val||"").replace(/"/g,'&quot;')}"><button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
-  host.appendChild(d);
+  host.appendChild(d); _autoTitle(d);
 }
 function readLines(hostId){ return [...$(hostId).querySelectorAll("input")].map(i=>i.value.trim()).filter(Boolean); }
 // free-form custom detail categories (Bean 2026-07-07): label + text -> retrievable lore
@@ -325,7 +332,7 @@ function addExtra(hostId, e){ e=e||{}; const host=$(hostId); const d=document.cr
   d.innerHTML=`<input placeholder="label (e.g. Magic System)" value="${(e.label||'').replace(/"/g,'&quot;')}" style="flex:0 0 34%">
     <input placeholder="detail — write as much as you like" value="${(e.text||'').replace(/"/g,'&quot;')}" style="flex:1">
     <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
-  host.appendChild(d);
+  host.appendChild(d); _autoTitle(d);
 }
 function readExtras(hostId){ return [...$(hostId).querySelectorAll(".item")].map(it=>{
   const el=it.querySelectorAll("input"); return {label:el[0].value.trim(), text:el[1].value.trim()};
@@ -337,7 +344,7 @@ function addNpc(n){ n=n||{}; const host=$("w_npcs"); const d=document.createElem
     <input placeholder="short description" value="${(n.desc||'').replace(/"/g,'&quot;')}">
     <input placeholder="home (a location)" title="Where this NPC is usually found — anchors them: they only surface in play at or near this place, until the story moves them." value="${(n.home||'').replace(/"/g,'&quot;')}" style="flex:0 0 18%">
     <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
-  host.appendChild(d);
+  host.appendChild(d); _autoTitle(d);
 }
 function readNpcs(){ return [...$("w_npcs").querySelectorAll(".item")].map(it=>{
   const i=it.querySelectorAll("input"); return {name:i[0].value.trim(), role:i[1].value.trim(), desc:i[2].value.trim(), home:i[3].value.trim()};
@@ -351,11 +358,18 @@ function addCustomSkill(s){ s=s||{}; const host=$("c_cskills"); const opts=Objec
     <input type="number" title="base mod" value="${s.base_mod||0}" style="flex:0 0 56px">
     <input placeholder="category" title="optional group — e.g. Spells, Cyber-Ware, Disciplines" value="${(s.group||'').replace(/"/g,'&quot;')}" style="flex:0 0 108px" list="aes_cats">
     <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
+  // the row inputs only SHOW 4 fields — stash the full authored def (governs/desc/cost/
+  // requires_ability) so the save round-trip stops degrading it (2026-07-09; the ability
+  // rows got this in 1.9.0, the skill rows never did). Edited inputs still win below.
+  try{ d.dataset.def = JSON.stringify(s); }catch(e){}
   host.appendChild(d);
 }
 function readCustomSkills(){ return [...$("c_cskills").querySelectorAll(".item")].map(it=>{
-  const el=it.querySelectorAll("input,select"); const o={name:el[0].value.trim(), keyed_stat:el[1].value, base_mod:+el[2].value||0};
-  if(el[3] && el[3].value.trim()) o.group=el[3].value.trim(); return o;
+  const el=it.querySelectorAll("input,select");
+  let base={}; try{ base=JSON.parse(it.dataset.def||"{}")||{}; }catch(e){}
+  const o=Object.assign({}, base, {name:el[0].value.trim(), keyed_stat:el[1].value, base_mod:+el[2].value||0});
+  if(el[3] && el[3].value.trim()) o.group=el[3].value.trim(); else delete o.group;
+  return o;
 }).filter(s=>s.name); }
 const MECHS=[["","mech: auto"],["edge","edge — extra die, keep best"],["ward","ward — no crit-fumble"],
   ["extra_die","extra_die — 2nd chance on a miss"],["reroll","reroll a miss"],["surge","surge — big bonus + lifts ceiling"],
@@ -376,13 +390,19 @@ function addCustomAbil(a){ a=a||{}; const host=$("c_cabil"); const d=document.cr
     <input placeholder="effect (prose)" value="${(a.effect||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:140px">
     <input placeholder="category" title="optional group — e.g. Spells, Cyber-Ware, Disciplines" value="${(a.group||'').replace(/"/g,'&quot;')}" style="flex:0 0 90px" list="aes_cats">
     <button class="mini x" onclick="this.parentNode.remove()">✕</button>`;
+  try{ d.dataset.def = JSON.stringify(a); }catch(e){}   // full def survives the round-trip
   host.appendChild(d);
 }
 function readCustomAbils(){ return [...$("c_cabil").querySelectorAll(".item")].map(it=>{
   const el=it.querySelectorAll("input,select");
+  let base={}; try{ base=JSON.parse(it.dataset.def||"{}")||{}; }catch(e){}
+  // the row inputs OWN these fields — the stash only contributes what the row can't show
+  // (id/desc/requires_ability…), so clearing an input never resurrects a stale value
+  ["mechanic","applies_to","magnitude","cost","cooldown_turns","passive_mod",
+   "resolution_mod","group","kind","effect","name"].forEach(k=>delete base[k]);
   // 0 name · 1 kind · 2 mechanic · 3 applies-to · 4 magnitude · 5 cost · 6 cooldown · 7 effect · 8 group
   const kind=el[1].value, mech=el[2].value, applies=el[3].value.trim(), amt=+el[4].value||0;
-  const o={name:el[0].value.trim(), kind, effect:el[7].value.trim()};
+  const o=Object.assign({}, base, {name:el[0].value.trim(), kind, effect:el[7].value.trim()});
   if(mech) o.mechanic=mech;
   if(applies) o.applies_to=applies;
   if(amt) o.magnitude=amt;
@@ -480,12 +500,18 @@ function genreChanged(){ if(!REG) return;               // rebuild the preset fl
   const hint=(REG.concept_hints||{})[currentGenre()]; if(hint) $("c_concept").placeholder=hint; }
 
 // ---- collect docs
-function worldDoc(){ return {
+function worldDoc(){ const d = {
   name:$("w_name").value.trim(), genre:$("w_genre").value, setting:$("w_setting").value.trim(),
   date:$("w_date").value.trim(), time:$("w_time").value, tone:$("w_tone").value.trim(),
   factions:readLines("w_factions"), locations:readLines("w_locations"), npcs:readNpcs(),
   aspects:readLines("w_aspects"), opening_scene:$("w_scene").value.trim(), opening_quest:$("w_quest").value.trim(),
-  extras:readExtras("w_extras"), notes:$("w_notes").value.trim() }; }
+  extras:readExtras("w_extras"), notes:$("w_notes").value.trim() };
+  // Phase 1/2 sections with no form rows yet (loot / fronts / routes) ride from the last
+  // authored/loaded doc — without this they silently VANISHED at save/card time and the
+  // living-world freeze never saw them (found live 2026-07-09).
+  if(WORLD_CACHE){ for(const k of ["loot","fronts","routes"]){ const v=WORLD_CACHE[k];
+    if(v && (Array.isArray(v)?v.length:Object.keys(v).length)) d[k]=v; } }
+  return d; }
 function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks[k]>0) skills[k]=skillRanks[k]; }
   // Pack entries aren't registry rows: everything USED from the genre pack ships as a custom
   // def so the server freezes it into the card (snapshot overlay) and the ranks stick.
@@ -735,6 +761,9 @@ async function boot(){
     SPEC = pre.specialization || "none";
     if(!restored && pre.persona && !$("c_name").value) $("c_name").value=pre.persona;
   }catch(e){ /* no session yet — fine */ } }
+  else { try{ const st = await api("/aether/status");   // no session picked: show the GLOBAL
+    SPEC = st.specialization || "none";                  // spec honestly (2026-07-09: the chip
+  }catch(e){} }                                          // claimed "off" while the proxy ran rpg)
   genreChanged();                            // set the genre-true concept hint on first paint
   renderSpec();
   wireDraftAutosave();

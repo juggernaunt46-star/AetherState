@@ -29,7 +29,7 @@ from typing import Optional
 from . import assist, compose, director, discovery, linter, memory
 from .extraction import Endpoint, Ladder
 from .state import (apply_delta, combat_ops, current_state, faction_cascade_ops, is_empty,
-                    progression_ops, reduce_state)
+                    progression_ops, reduce_state, world_ops)
 
 log = logging.getLogger("aetherstate.jobs")
 
@@ -265,6 +265,19 @@ class JobRunner:
                     log.info("progression: %d op(s) applied", len(r3.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("progression pass skipped: %s", type(exc).__name__)
+        try:                                   # Phase 2 (plan doc 13): the living-world pass —
+            spec = getattr(self.cfg, "specialization", None)   # travel time, the idle clock,
+            if spec is not None and spec.name == "rpg" and res.state.get("player") \
+                    and getattr(spec, "living_world", True):   # and faction-front ticks
+                lw = world_ops(res.state, res.applied,
+                               clock_turns=getattr(spec, "clock_turns", 6))
+                if lw:
+                    r4 = apply_delta(self.store, b.session_id, b.branch_id, b.hi, lw,
+                                     "rule", self.cfg)
+                    res.state = r4.state
+                    log.info("living world: %d op(s) applied", len(r4.applied))
+        except Exception as exc:               # never fails the batch (invariant 3)
+            log.warning("living-world pass skipped: %s", type(exc).__name__)
         self.store.mark_extraction(b.branch_id, b.lo, b.hi, "done")
         log.info("extracted [%d,%d]: %d applied, %d quarantined, %d retro-applied",
                  b.lo, b.hi, len(res.applied), len(res.quarantined), requeued)

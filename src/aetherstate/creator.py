@@ -135,6 +135,7 @@ GENRE_PACKS: dict[str, dict] = {
                                     "effect": "Built for hard vacuum shifts.",
                                     "passive_mod": {"skill": "zero_g_ops", "amount": 1}},
             "combat_stims": {"name": "Combat Stims", "kind": "active", "resolution_mod": 2,
+                             "cost": {"stamina": 2}, "cooldown_turns": 1,
                              "effect": "Burn a stim dose to push one physical action."}}},
     "cyberpunk": {
         "hide_skills": ["swordplay", "archery", "lore", "spellcraft"],
@@ -163,6 +164,7 @@ GENRE_PACKS: dict[str, dict] = {
                             "effect": "Your name opens back doors.",
                             "passive_mod": {"skill": "streetwise", "amount": 1}},
             "adrenal_booster": {"name": "Adrenal Booster", "kind": "active", "resolution_mod": 2,
+                                "cost": {"stamina": 2}, "cooldown_turns": 1,
                                 "effect": "Implant surge for one desperate physical action."}}},
     "post_apoc": {
         "hide_skills": ["swordplay", "archery", "lore", "spellcraft"],
@@ -248,7 +250,7 @@ def _split_name_desc(line: str) -> tuple[str, str]:
             head, _, tail = s.partition(sep)
             head, tail = head.strip(" -:—– "), tail.strip()
             if head:
-                return head[:80], tail[:400]
+                return head[:80], _s_soft(tail, 400)
     return s[:80], ""
 
 
@@ -300,6 +302,21 @@ def _s(v, n=_TXT) -> str:
     return str(v if v is not None else "").strip()[:n]
 
 
+def _s_soft(v, n=_TXT) -> str:
+    """Clamp like _s but never mid-word: an over-limit value backs up to the last word
+    boundary and drops a trailing separator orphan. Every prose-facing Creator field uses
+    this — the old hard cuts left 'hydrogel windo'-style stumps in the form boxes on every
+    AI auto-fill (Bean 2026-07-09: 'the boxes never complete'), and the mangled rows then
+    round-tripped into the ledger. Falls back to the hard cut when there is no usable
+    boundary (one giant token) so the clamp still always holds."""
+    s = str(v if v is not None else "").strip()
+    if len(s) <= n:
+        return s
+    cut = s[:n]
+    soft = cut.rsplit(" ", 1)[0].rstrip(" ,;:—–-")
+    return soft if len(soft) >= max(8, n // 3) else cut
+
+
 def _lst(v) -> list:
     return list(v) if isinstance(v, list) else []
 
@@ -329,21 +346,27 @@ def deterministic_world(doc: dict) -> dict:
     tpl = _GENRE_TEMPLATES[genre]
     aspects = _lst(doc.get("aspects")) or list(tpl["aspects"])
     return {
-        "name": _s(doc.get("name"), 80) or "Untitled World",
+        "name": _s_soft(doc.get("name"), 80) or "Untitled World",
         "genre": genre,
-        "setting": _s(doc.get("setting")) or tpl["setting"],
-        "date": _s(doc.get("date"), 80) or tpl["date"],
+        "setting": _s_soft(doc.get("setting")) or tpl["setting"],
+        "date": _s_soft(doc.get("date"), 160) or tpl["date"],
         "time": (_s(doc.get("time"), 20).lower() if _s(doc.get("time"), 20).lower() in TIMES
                  else tpl["time"]),
-        "tone": _s(doc.get("tone"), 60) or tpl["tone"],
-        "factions": [_s(x, 80) for x in (_lst(doc.get("factions")) or tpl["factions"])][:_MAX_LIST],
-        "locations": [_s(x, 80) for x in (_lst(doc.get("locations")) or tpl["locations"])][:_MAX_LIST],
+        "tone": _s_soft(doc.get("tone"), 160) or tpl["tone"],
+        # 'Name — description' composite rows: the old 80-char hard cut amputated every
+        # description mid-word on every auto-fill (500 = 80 name + 400 desc + separator)
+        "factions": [_s_soft(x, 500)
+                     for x in (_lst(doc.get("factions")) or tpl["factions"])][:_MAX_LIST],
+        "locations": [_s_soft(x, 500)
+                      for x in (_lst(doc.get("locations")) or tpl["locations"])][:_MAX_LIST],
         "npcs": _norm_npcs(doc.get("npcs")),
-        "aspects": [_s(x) for x in aspects][:_MAX_LIST],
-        "opening_scene": _s(doc.get("opening_scene")) or tpl["opening_scene"],
-        "opening_quest": _s(doc.get("opening_quest")) or tpl["opening_quest"],
+        "aspects": [_s_soft(x) for x in aspects][:_MAX_LIST],
+        "opening_scene": _s_soft(doc.get("opening_scene")) or tpl["opening_scene"],
+        "opening_quest": _s_soft(doc.get("opening_quest")) or tpl["opening_quest"],
         "extras": _norm_extras(doc.get("extras")),
         "loot": _norm_loot(doc.get("loot")),
+        "fronts": _norm_fronts(doc.get("fronts")),
+        "routes": _norm_routes(doc.get("routes")),
     }
 
 
@@ -377,6 +400,39 @@ def _norm_loot(loot) -> dict:
     return out
 
 
+def _norm_fronts(fronts) -> list:
+    """Phase 2 (plan doc 13): faction fronts — PbtA-style agenda clocks authored by the
+    assist model or typed by hand, clamped here and FROZEN into state via front_add ops at
+    save (pillar 18). Code advances them (world_ops); rumor reveals them."""
+    out: list = []
+    for f in (fronts if isinstance(fronts, list) else [])[:8]:
+        if isinstance(f, str) and f.strip():             # 'Name — consequence' shorthand
+            name, cons = _split_name_desc(f)
+            f = {"name": name, "consequence": cons}
+        if not isinstance(f, dict) or not _s(f.get("name"), 80):
+            continue
+        out.append({"name": _s_soft(f.get("name"), 120),
+                    "faction": _s(f.get("faction"), 64),
+                    "segments": _clampi(f.get("segments", 6), 3, 12),
+                    "pace": _clampi(f.get("pace", 1), 1, 3),
+                    "consequence": _s_soft(f.get("consequence"), 300)})
+    return out
+
+
+def _norm_routes(routes) -> list:
+    """Phase 2: travel-time edges between authored locations — {a, b, segments} rows,
+    clamped and FROZEN via route_set ops; every un-authored pair defaults to 1 segment."""
+    out: list = []
+    for r in (routes if isinstance(routes, list) else [])[:24]:
+        if not isinstance(r, dict):
+            continue
+        a, b = _s(r.get("a") or r.get("from"), 80), _s(r.get("b") or r.get("to"), 80)
+        if not a or not b or slug(a) == slug(b):
+            continue
+        out.append({"a": a, "b": b, "segments": _clampi(r.get("segments", 1), 1, 4)})
+    return out
+
+
 def _norm_extras(extras) -> list:
     """Free-form custom detail CATEGORIES (Bean 2026-07-07): [{label, text}] the player invents
     for the world or character — a magic system, a history, a code of honor, a backstory beat.
@@ -400,8 +456,8 @@ def _norm_npcs(npcs) -> list:
         if isinstance(n, dict):
             name = _s(n.get("name"), 80)
             if name:
-                out.append({"name": name, "role": _s(n.get("role"), 160),
-                            "desc": _s(n.get("desc"), 600),
+                out.append({"name": name, "role": _s_soft(n.get("role"), 160),
+                            "desc": _s_soft(n.get("desc"), 600),
                             "home": _s(n.get("home"), 80)})   # 0b: authored home anchor
         elif isinstance(n, str) and n.strip():
             out.append({"name": _s(n, 80), "role": "", "desc": "", "home": ""})
@@ -626,8 +682,14 @@ def _coerce_defs(custom, reg) -> dict:
                 entry["mechanic"] = "mod"
                 entry["passive_mod"] = {"skill": slug(skl),
                                         "amount": _clampi(pm.get("amount", 1), -5, 5)}
-        elif kind == "active":
+        elif kind == "active":                       # the flat-burst active (Combat-Stims
+            entry["mechanic"] = "mod"                # pattern): +N on ONE check when invoked —
             entry["resolution_mod"] = _clampi(ab.get("resolution_mod", 1), -5, 8)
+            entry["cooldown_turns"] = _clampi(ab.get("cooldown_turns", 1), 0, 10)
+            cost = ab.get("cost") if isinstance(ab.get("cost"), dict) else {"stamina": 2}
+            cc = {str(k).lower(): _clampi(v, 1, 10) for k, v in cost.items()
+                  if str(k).lower() in ("stamina", "mana", "hp")}
+            entry["cost"] = {k: v for k, v in cc.items() if v > 0} or {"stamina": 2}
         out.setdefault("abilities", {})[aid] = entry
     # Post-pass (2026-07-06, found live): resolve every cross-reference or drop it. GLM authored
     # a passive boosting 'vac_ops' while minting the skill as 'vacuum_operations' — the +1
@@ -723,6 +785,15 @@ def world_to_ops(world: dict) -> list[dict]:
     for tier, entries in (w.get("loot") or {}).items():    # Phase 1: world-flavored loot rows
         ops.append({"op": "loot_table", "tier": tier,      # FROZEN at save (pillar 18);
                     "entries": entries})                   # registry stays the absent-tier floor
+    for f in w.get("fronts") or []:                        # Phase 2: faction agenda clocks —
+        op = {"op": "front_add", "name": f["name"],        # authored HERE, frozen at save,
+              "segments": f["segments"], "pace": f["pace"],   # advanced only by code
+              "consequence": f["consequence"]}
+        if f.get("faction"):
+            op["faction"] = f["faction"]
+        ops.append(op)
+    for r in w.get("routes") or []:                        # Phase 2: travel-time edges
+        ops.append({"op": "route_set", "a": r["a"], "b": r["b"], "segments": r["segments"]})
     return ops
 
 
@@ -821,15 +892,22 @@ _WORLD_SYSTEM = (
     "\"tone\":str,\"factions\":[str],\"locations\":[str],\"npcs\":[{\"name\":str,\"role\":str,"
     "\"desc\":str,\"home\":str}],\"aspects\":[str],\"opening_scene\":str,\"opening_quest\":str,"
     "\"loot\":{\"minion\":[{\"name\":str,\"chance\":float}],\"standard\":[...],\"elite\":[...],"
-    "\"boss\":[...]}}. "
+    "\"boss\":[...]},\"fronts\":[{\"name\":str,\"faction\":str,\"segments\":int,"
+    "\"consequence\":str}],\"routes\":[{\"a\":str,\"b\":str,\"segments\":int}]}. "
     "Each npc's `home` names the ONE location they are usually found at — reuse a name from "
     "`locations` verbatim whenever one fits. `loot` gives 2-3 world-flavored drop rows per "
     "threat tier (what a defeated foe of that rank plausibly carries HERE — currency, kit, "
-    "consumables; chance 0..1); keep names concrete and reusable. "
+    "consumables; chance 0..1); keep names concrete and reusable. `fronts` gives 2-4 faction "
+    "agenda clocks (PbtA fronts): name the AGENDA (\"The Iron Pact rearms\"), tie it to one "
+    "of your `factions`, 4-8 segments, and a consequence — what becomes TRUE in the world "
+    "the day it completes. `routes` lists travel times in day-segments (1-4) between "
+    "`locations` pairs that are notably far apart or hard to cross; omit adjacent pairs. "
     "`time` must be one of: " + ", ".join(TIMES) + ". `setting` should be a substantial, "
     "vivid paragraph (or more) that captures what makes this world ITSELF. Give 4-6 factions "
     "with names that imply agendas, 5-8 locations, 4-8 npcs with sharp one-line hooks, 5-8 "
-    "aspects (laws of the world: magic, tech, cosmology, taboos). Be evocative and SPECIFIC — "
+    "aspects (laws of the world: magic, tech, cosmology, taboos). Write every `factions` and "
+    "`locations` entry as \"Name — one-line hook\" (an em-dash, then what it wants or hides — "
+    "a bare name is a wasted row); COMPLETE the sentence, never trail off. Be evocative and SPECIFIC — "
     "proper nouns, concrete images, no generic fantasy filler. If the player gives `notes`, "
     "treat them as creative direction and follow them faithfully — any genre blend, tone, "
     "power level, or wild premise the player asks for is allowed. Keep physical geography and "
@@ -970,13 +1048,17 @@ def _world_user(seed: dict, world_ctx: str = "") -> str:
     for k in ("factions", "locations", "aspects"):
         vals = [v for v in _lst(seed.get(k)) if _s(v)]
         if vals:
-            lines.append(f"- {k}: {'; '.join(_s(v, 200) for v in vals)}")
+            lines.append(f"- {k}: {'; '.join(_s(v, 520) for v in vals)}")
     npcs = _norm_npcs(seed.get("npcs"))
     if npcs:
         lines.append("- npcs: " + "; ".join(
             f"{n['name']}" + (f" ({n['role']})" if n['role'] else "")
             + (f" — {n['desc']}" if n['desc'] else "")
             + (f" [home: {n['home']}]" if n.get("home") else "") for n in npcs))
+        lines.append("- RE-LIST every npc above in your `npcs` output: keep their given "
+                     "fields verbatim and FILL each missing field (role, desc, and "
+                     "especially a `home` from `locations`) — no npc may come back with "
+                     "an empty home.")
     for k, label in (("opening_scene", "opening scene"), ("opening_quest", "opening quest")):
         if _s(seed.get(k)):
             lines.append(f"- {label}: {_s(seed.get(k))}")
@@ -1056,11 +1138,50 @@ def _row_head(row) -> str:
     return " ".join(w for w in str(head).lower().replace("-", " ").split() if w)[:60]
 
 
+def _row_fill(seed_row, model_row):
+    """Field-level completion of ONE row: every field the player filled passes VERBATIM;
+    fields they left blank fill from the model's version of the same row. 'Typed content
+    is canon' means never rewrite — it never meant never finish (Bean 2026-07-09: the
+    auto-fill could not fill a blank `home`/mechanic on an existing row, because the
+    model's completed row was discarded whole)."""
+    if isinstance(seed_row, dict) and isinstance(model_row, dict):
+        out = dict(model_row)              # the model contributes everything it authored…
+        for k, v in seed_row.items():      # …and every typed field wins verbatim
+            if v not in (None, "", [], {}):
+                out[k] = v
+        return out
+    if isinstance(seed_row, str):
+        head, tail = _split_name_desc(seed_row)
+        if tail:                           # the player wrote their own description — canon
+            return seed_row
+        if isinstance(model_row, str):
+            m = model_row
+        elif isinstance(model_row, dict):
+            m = str(model_row.get("name") or "")
+        else:
+            m = ""
+        mtail = _split_name_desc(m)[1]
+        if mtail:                          # bare 'Name' row: adopt the model's description
+            return f"{seed_row.strip()} — {mtail}"
+    return seed_row
+
+
 def _keep_seed_rows(seed_rows, model_rows, cap: int = 12) -> list:
-    """The player's typed rows pass through VERBATIM (they are canon — the model's echo may
-    be rewritten or truncated); the model contributes only rows whose name-head is new."""
-    out = [r for r in seed_rows if (isinstance(r, dict) and (r.get("name") or r.get("label")
-                                                             or r.get("text"))) or _s(r)]
+    """The player's typed rows stay canon — but a model row with the SAME name-head now
+    COMPLETES the seed row's blanks (_row_fill) instead of being discarded whole; model
+    rows with new name-heads append, up to cap."""
+    by_head: dict = {}
+    for r in model_rows:
+        h = _row_head(r)
+        if h and h not in by_head:
+            by_head[h] = r
+    out = []
+    for r in seed_rows:
+        if not ((isinstance(r, dict) and (r.get("name") or r.get("label") or r.get("text")))
+                or _s(r)):
+            continue
+        m = by_head.get(_row_head(r))
+        out.append(_row_fill(r, m) if m is not None else r)
     have = {_row_head(r) for r in out if _row_head(r)}
     for r in model_rows:
         h = _row_head(r)

@@ -62,6 +62,9 @@ class Tier0Result:
     proposal_ops: list[dict] = field(default_factory=list)   # R9: model-authored effect proposals
     #                                     (caller applies with source="extraction" — clamped,
     #                                     quarantined visibly, never privileged)
+    off_protocol: list[str] = field(default_factory=list)    # 2026-07-10: invented bracket-tag
+    #                                     heads in the DM's last reply ("[TAGS]", "[AWAIT]") —
+    #                                     compose turns them into a one-line corrective
 
 
 def _msg_text(content) -> str:
@@ -227,7 +230,7 @@ def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
             if gov is None:                       # an all-purpose ability names no skill by itself
                 continue
             d = detected.setdefault(gov, {"use": []})
-            if registry.ability_mechanic(entry) in registry.ACTIVE_MECHANICS and rid not in d["use"]:
+            if registry.ability_is_active(entry) and rid not in d["use"]:
                 d["use"].append(rid)
     for sid, d in detected.items():
         if sid.lower() in already:                # explicit check already covers it -> merge use
@@ -240,6 +243,45 @@ def _detect_nl_checks(text: str, state: dict, cfg, res: Tier0Result) -> None:
             continue
         res.checks.append({"skill": sid, "mod": 0, "dc": None, "scope": None,
                            "use": d["use"], "raw": sid, "nl": True})
+
+
+# 2026-07-10 (Eranmor dialect healer): a live GLM run showed the DM calling for rolls in
+# INVENTED grammar — "[CHECK] Aeliriel melee attack | target: baser Hollow (1) |
+# skill: Swordplay+2" + "[AWAIT]" — instead of ((aether.check swordplay)). The engine was
+# deaf to it, the player answered the call anyway, and the round smeared. When the DM's
+# reply carries no proper inline call, bracket-CHECK lines that NAME a skill are healed
+# into the same R8b arming path (code still resolves; the dialect is translated, not obeyed).
+_DM_BRACKET_CHECK_RE = re.compile(r"\[\s*check\b", re.IGNORECASE)
+_BRACKET_SKILL_RE = re.compile(r"\bskill\s*:?\s*([A-Za-z][A-Za-z' _-]{0,40}?)\s*(?:[+-]\d+)?"
+                               r"\s*(?:\||\]|$)", re.IGNORECASE)
+_BRACKET_TARGET_RE = re.compile(r"\btarget\s*:?\s*([^|\]]+)", re.IGNORECASE)
+
+
+def _healed_bracket_checks(reply: str) -> list[dict]:
+    """A `[CHECK] ...` line in the DM's reply -> R8b-style check declarations. GLM writes the
+    LABEL form `[CHECK] Aeliriel melee | target: X | skill: Swordplay+2` (the `]` closes right
+    after CHECK; the fields ride bare on the same line) as well as the enclosed
+    `[CHECK ... skill: X]` form — so scan the WHOLE line either way. The old bracket-body
+    capture saw an EMPTY group on the label form (and a stray later `]`, e.g. `[AWAIT]`, even
+    swallowed the match), healing nothing — that was the Eranmor 0-check bug."""
+    out = []
+    for line in (reply or "").splitlines():
+        if not _DM_BRACKET_CHECK_RE.search(line):
+            continue
+        sk = _BRACKET_SKILL_RE.search(line)
+        if not sk:
+            continue
+        sid = "_".join(_norm_phrase(sk.group(1)).split())
+        if not sid:
+            continue
+        tgt = _BRACKET_TARGET_RE.search(line)
+        target = None
+        if tgt:
+            target = re.sub(r"\s*\([^)]*\)\s*", " ", tgt.group(1)).strip() or None
+        out.append({"skill": sid, "mod": 0, "dc": None, "scope": None, "use": [],
+                    "target": target, "raw": line.strip()[:120], "dm_called": True,
+                    "healed": True})
+    return out[-2:]                                  # at most the two most recent calls
 
 
 def _parse_dm_called_checks(reply: str, state: dict, cfg, res: Tier0Result) -> None:
@@ -258,6 +300,13 @@ def _parse_dm_called_checks(reply: str, state: dict, cfg, res: Tier0Result) -> N
         cmd = m.group(1).strip()
         if cmd.lower().startswith("aether.check"):
             calls.append(cmd[len("aether.check"):].strip())
+    if not calls:                                    # dialect healer: proper syntax always wins
+        for h in _healed_bracket_checks(reply or ""):
+            sid = h["skill"]
+            if any(str(c.get("skill", "")).lower() == sid for c in res.checks):
+                continue
+            res.checks.append(h)
+        return
     for rest in calls[-2:]:                          # at most the two most recent calls
         toks = rest.split()
         phrase, mod, dc, scope, use, i = [], 0, None, None, [], 0
@@ -393,6 +442,90 @@ def _bind_targets(res: Tier0Result, state: dict, text: str) -> None:
         c["target"] = hit
 
 
+# 2026-07-10 (Eranmor): the DM emitted "[TAGS] scene_active | ..." / "[AWAIT]" lines —
+# invented grammar the engine silently ignored, and nothing ever corrected it. Bracket
+# lines whose head is neither a real channel nor an engine-block echo are collected so the
+# NEXT prompt carries a one-line protocol corrective (compose renders it; self-clearing).
+_KNOWN_TAG_HEADS = {"status", "condition", "valence", "scene", "item", "quest", "affinity",
+                    "hp", "foe", "clash", "time", "rumor", "check"}   # check heals (R8b)
+_ECHO_HEADS = {"directive", "player", "rules", "effects", "gear", "inventory", "factions",
+               "relations", "nearby", "world", "opposition", "war", "ally", "key",
+               "notice", "protocol", "start"}
+_BRACKET_HEAD_RE = re.compile(r"^\s*\[\s*([A-Za-z][A-Za-z _-]{0,24}?)\s*(?:\||\])",
+                              re.MULTILINE)
+
+
+def _scan_off_protocol(text: str) -> list[str]:
+    """Bracket-line heads in the DM's reply that match NO known grammar (nudge list)."""
+    seen: list[str] = []
+    for m in _BRACKET_HEAD_RE.finditer(text or ""):
+        head = m.group(1).strip()
+        first = head.split()[0].lower() if head.split() else ""
+        if not first or first in _ECHO_HEADS:
+            continue
+        if first in _KNOWN_TAG_HEADS and first != "check":
+            continue                          # a real channel (well-formed or not) — no nudge
+        if head.upper() not in seen:
+            seen.append(head.upper())
+    return seen[:4]
+
+
+# 2026-07-10 (Eranmor floor, pillar 6): the DM narrated a horde for three straight replies
+# and never emitted [foe] — combat.active stayed false and the whole War Room was
+# structurally unreachable. When the Player ATTACKS a target whose name the DM's OWN last
+# reply narrated (the fiction is the in-world basis, exactly the parse_foe_tags argument),
+# the engine stages that target itself. Conservative by design: attack verb required, every
+# name token must appear in the DM's prose, body parts / stopwords never become foes.
+_FLOOR_STOP = {"the", "and", "that", "this", "with", "from", "into", "onto", "them", "him",
+               "her", "its", "his", "your", "their", "one", "two", "few", "all", "any",
+               "closest", "nearest", "first", "last", "next", "other", "another"}
+_BODY_PARTS = {"head", "face", "neck", "throat", "chest", "arm", "arms", "leg", "legs",
+               "hand", "hands", "eye", "eyes", "back", "side", "body", "torso", "shoulder",
+               "shoulders", "knee", "knees", "foot", "feet", "skull", "heart", "gut",
+               "belly", "waist", "hip", "hips", "wrist", "ankle", "jaw", "chin", "brow",
+               "temple", "ribs", "spine", "flank", "wing", "tail", "maw", "mouth"}
+
+
+def _floor_stage_foe(res: Tier0Result, state: dict, user_text: str,
+                     dm_text: str) -> Optional[dict]:
+    """A grounded `combatant_spawn` for the target the Player is attacking, or None."""
+    if not _ATTACK_VERBS.search(user_text or "") or not (dm_text or "").strip():
+        return None
+    from .state import live_combatants, resolve_entity_ref
+    if live_combatants(state, "enemy"):
+        return None                                  # foes exist — binding handles it
+    peid, _p = _player_card(state)
+    pname_toks = set()
+    if peid:
+        ent = (state.get("entities") or {}).get(peid) or {}
+        pname_toks = {w for w in _norm_phrase(ent.get("name", "")).split() if len(w) >= 3}
+    dm_low = " " + _norm_phrase(dm_text) + " "
+    cands = [str(c["target"]) for c in res.checks if c.get("target")]
+    m = _ATTACK_VERBS.search(user_text)
+    cands.append(user_text[m.end():])                # the object of the attack verb
+    for cand in cands:
+        run: list[str] = []
+        for t in _norm_phrase(cand).split():
+            if len(t) >= 3 and t not in _FLOOR_STOP and t not in _BODY_PARTS \
+                    and t not in pname_toks and f" {t} " in dm_low:
+                run.append(t)
+            elif run:
+                break                                # keep the FIRST grounded run only
+        if not run:
+            continue
+        name = " ".join(run[:3]).title()
+        eid = resolve_entity_ref(state, name)
+        if eid and eid == peid:
+            continue
+        op: dict = {"op": "combatant_spawn", "name": name, "side": "enemy",
+                    "tier": "standard", "_floor": True}
+        if eid and (state.get("entities", {}).get(eid) or {}).get("kind") \
+                in ("character", "npc"):
+            op["char"] = eid                         # a KNOWN NPC fights as themselves
+        return op
+    return None
+
+
 def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> None:
     """R8 resolution: map each declared skill to a REGISTERED skill, pass the ELIGIBILITY
     GATE, roll real dice, compute the PbtA tier, and emit a `check` rule op (with the
@@ -453,6 +586,8 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
         for aid, adef in (reg.known_abilities(player).items() if player else ()):
             if not registry.ability_applies(adef, sid):
                 continue
+            if registry.ability_is_active(adef):    # an ACTIVE never auto-applies — it is
+                continue                            # invoked (`use`), paid for, and cooled
             mech = registry.ability_mechanic(adef)
             if mech == "edge":                      # passive advantage: +dice, keep best
                 edge_extra += max(1, registry.ability_magnitude(adef, 1))
@@ -460,24 +595,37 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
             elif mech == "ward":                    # passive guard: raise the failure floor
                 ward = max(ward, max(1, registry.ability_magnitude(adef, 1)))
                 shaped.append(str(adef.get("name", aid)))
-        surge_mod, surge_lift, onfail, pay_ability, cd_set = 0, 0, None, {}, {}
+        surge_mod, surge_lift, use_mod, onfail, pay_ability, cd_set = 0, 0, 0, None, {}, {}
+        blocked: list[dict] = []                    # 2026-07-10 (Eranmor): a DECLARED active
+        #                                             that didn't ride is baked onto the op so
+        #                                             the [DIRECTIVE] tells the narrator "plain
+        #                                             attempt, not the technique" (and the HUD
+        #                                             shows why) — silence here cost a live run
         for ref in c.get("use", []):                # active abilities the player invoked
             aid, adef = _find_active_ability(reg, player, ref) if player else (None, None)
             if adef is None:
                 res.notices.append(f"you don't know an activated ability '{ref}'")
+                blocked.append({"name": str(ref)[:60], "why": "unknown ability"})
                 continue
             mech, label = registry.ability_mechanic(adef), str(adef.get("name", aid))
-            if mech not in registry.ACTIVE_MECHANICS:
+            if mech == "basis":                     # a gate key has no dice effect to spend
+                res.notices.append(f"{label} grants your in-world basis — it already applies")
+                continue
+            if not registry.ability_is_active(adef):    # authored kind is the truth (2026-07-09)
                 res.notices.append(f"{label} is passive — it already applies, no need to use it")
                 continue
             if not registry.ability_applies(adef, sid):
                 res.notices.append(f"{label} does not apply to {reg.skill_label(sid, player)}")
+                blocked.append({"name": label, "why": "does not apply to this skill"})
                 continue
             if int(ability_cd.get(aid, 0)) > now:
                 res.notices.append(f"{label} is recharging (ready on turn {int(ability_cd[aid])})")
+                blocked.append({"name": label,
+                                "why": f"still recharging (ready turn {int(ability_cd[aid])})"})
                 continue
             if not _ability_affordable(player, registry.skill_cost(adef)):
                 res.notices.append(f"not enough resources to use {label} — recover first")
+                blocked.append({"name": label, "why": "not enough resources"})
                 continue
             if mech == "surge":                     # on use: big bonus + lift the scope ceiling
                 surge_mod += max(1, registry.ability_magnitude(adef, 2))
@@ -486,11 +634,24 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
                 if int(adef.get("cooldown_turns", 0)) > 0:
                     cd_set[aid] = now + int(adef["cooldown_turns"])
                 shaped.append(label)
-            elif onfail is None:                    # extra_die / reroll: applied ONLY on a miss
-                onfail = (aid, adef)
+            elif mech in registry.ON_FAIL_MECHANICS:    # extra_die / reroll: ONLY on a miss
+                if onfail is None:
+                    onfail = (aid, adef)
+            else:                                   # restored 2026-07-09: the flat-burst active
+                if mech == "edge":                  # (Combat-Stims pattern) + active-authored
+                    edge_extra += max(1, registry.ability_magnitude(adef, 1))   # dice-shapers —
+                elif mech == "ward":                # they spend on THIS check instead of
+                    ward = max(ward, max(1, registry.ability_magnitude(adef, 1)))   # always-on
+                else:                               # "mod": a +N burst on this one roll
+                    use_mod += max(1, registry.ability_magnitude(adef, 1))
+                _merge_cost(pay_ability, registry.skill_cost(adef))
+                if int(adef.get("cooldown_turns", 0)) > 0:
+                    cd_set[aid] = now + int(adef["cooldown_turns"])
+                shaped.append(label)
 
         kept, pool = registry.roll_keep(n_keep, edge_extra, sides, rng)
-        eff = (reg.effective_mod(player, sid) if player else 0) + int(c["mod"]) + flat + surge_mod
+        eff = (reg.effective_mod(player, sid) if player else 0) + int(c["mod"]) \
+            + flat + surge_mod + use_mod
         if player_eid:                # RPG-2/3: equipped-gear + active-effect mods flow in, baked
             eff += registry.gear_skill_mod(state, player_eid, sid)
             eff += registry.effect_skill_mod(state, player_eid, sid, now)
@@ -561,10 +722,13 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random) -> N
             op["dc"] = c["dc"]
         if scope is not None:
             op["scope"], op["_scope_over"] = scope, over
-        if shaped or fired or edge_extra or ward or surge_mod:   # audit for the HUD/roll log
+        if shaped or fired or edge_extra or ward or surge_mod or use_mod:   # audit (HUD/log)
             op["_shape"] = {"abilities": sorted(set(shaped)), "fired": fired,
                             "improved": improved, "pool": list(pool), "kept": list(kept),
-                            "edge": edge_extra, "ward": ward, "surge": surge_mod}
+                            "edge": edge_extra, "ward": ward, "surge": surge_mod,
+                            "burst": use_mod}
+        if blocked:
+            op["_ability_blocked"] = blocked[:3]    # baked: directive + HUD tell the truth
         pay: dict = {}                              # SKILL cost (half on a miss) + ABILITY costs
         if cost and player_eid:                     # (full) — tracked pools only; untracked waives
             for r, a in cost.items():
@@ -694,6 +858,13 @@ _FOE_TAG_RE = re.compile(
 _CLASH_TAG_RE = re.compile(
     r"\[\s*clash\s*\|\s*([^|\[\]]+?)\s+vs\.?\s+([^|\[\]]+?)\s*"
     r"(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
+# Phase 2 (plan doc 13): the living-world channels. [time] is the DM's clock ceiling —
+# a named segment or +N, CLAMPED to at most two segments at parse (the engine owns pace);
+# [rumor] surfaces a hidden faction front (reveal only — advancement stays code-side).
+_TIME_TAG_RE = re.compile(
+    r"\[\s*time\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
+_RUMOR_TAG_RE = re.compile(
+    r"\[\s*rumor\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
 _QUEST_NEW = {"new", "add", "added", "start", "started", "begin", "begins", "accepted",
               "offered"}
 _QUEST_STATUS_WORDS = {"complete": "complete", "completed": "complete", "done": "complete",
@@ -814,6 +985,46 @@ def _parse_world_tags(text: str, state: dict) -> list[dict]:
         if m.group(4):
             op["outcome"] = m.group(4).strip()
         ops.append(op)
+    from .state import TIMES
+    clock = state.get("clock") or {}
+    cur = str(clock.get("time_of_day", "evening"))
+    ci = TIMES.index(cur) if cur in TIMES else 4
+    for m in _TIME_TAG_RE.finditer(text):        # Phase 2: the DM's clock ceiling — clamped
+        ref = m.group(1).strip().lower().replace(" ", "_")
+        steps = None
+        if ref.startswith("+"):
+            try:
+                steps = int(ref[1:])
+            except ValueError:
+                continue
+        elif ref in ("next_day", "next_morning", "tomorrow"):
+            steps = (len(TIMES) - ci) if ci else len(TIMES)   # wrap to dawn (reducer day++)
+        elif ref in TIMES:
+            steps = (TIMES.index(ref) - ci) % len(TIMES)
+            if steps == 0:
+                continue                         # restating the current segment moves nothing
+        if steps is None or steps <= 0:
+            continue
+        if ref.startswith("+"):
+            steps = min(2, steps)                # +N is capped at two segments (engine owns
+        steps = min(len(TIMES), steps)           # pace); a NAMED segment is explicit intent
+        ops.append({"op": "time_advance", "to_time_of_day": TIMES[(ci + steps) % len(TIMES)]})
+        break                                    # at most ONE time move per reply
+    fronts = state.get("fronts") or {}
+    if fronts:
+        low = " " + " ".join(str(text).lower().replace("-", " ").split()) + " "
+        for m in _RUMOR_TAG_RE.finditer(text):   # [rumor | <front/faction> | whisper?]
+            ref = m.group(1).strip()
+            ops.append({"op": "front_reveal", "front": ref})
+            note = (m.group(2) or "").strip()
+            if note:
+                ops.append({"op": "memory_event", "text": f"Rumor — {ref}: {note}"[:300]})
+        for fid, f in sorted(fronts.items()):    # name-mention floor: speaking of an agenda
+            if not isinstance(f, dict) or f.get("revealed"):   # by name IS the rumor
+                continue
+            nm = " ".join(str(f.get("name", "")).lower().replace("-", " ").split())
+            if len(nm) >= 6 and f" {nm} " in low:
+                ops.append({"op": "front_reveal", "front": fid})
     return ops
 
 
@@ -997,9 +1208,23 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
                 and getattr(cfg.specialization, "auto_dm_checks", True):
             _parse_dm_called_checks(last_assistant, state, cfg, res)   # R8b: the DM's call arms
         if res.checks:
+            if getattr(cfg.specialization, "foe_floor", True) \
+                    and getattr(cfg.specialization, "war_room", True) \
+                    and not (state.get("combat") or {}).get("active"):
+                sp = _floor_stage_foe(res, state, last_user, last_assistant)
+                if sp is not None:               # Eranmor floor: the attacked, DM-narrated
+                    res.rule_ops.append(sp)      # target opens the War Room itself —
+                    res.notices.append(          # no [foe] tag required (pillar 6)
+                        f"combat floor: staged '{sp['name']}' as a foe — the Player "
+                        f"attacked it and the DM's prose grounds it")
             if _war_room(state, cfg):        # Phase 1: bind strikes to live enemy rows
                 _bind_targets(res, state, last_user)
             _resolve_checks(res, state, cfg, rng)
+
+    # 2026-07-10 (Eranmor): invented bracket grammar in the DM's last reply -> a one-line
+    # corrective on the next prompt (compose renders it; silent both-ways failure no more)
+    if is_new and last_assistant and rpg:
+        res.off_protocol = _scan_off_protocol(last_assistant)
 
     # R9 — effect tag protocol (RPG only, doc 05 §5.4) + R10 — world tag protocol (RPG-5:
     # scene / items / quests / affinity / HP). LEGACY lag-1 path only: the DM's LAST reply,

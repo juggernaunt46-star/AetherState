@@ -171,7 +171,9 @@ JSON: {"schema":"aetherstate/delta/1","turn_range":[19,19],"ops":[
 # non-negotiables (honor the [DIRECTIVE]; never invent mechanics). Droppable under budget
 # (rides its own component, not the never-dropped header) — the [DIRECTIVE] itself is what is
 # load-bearing per turn and rides the header.
-DM_CONTRACT_VERSION = "dm-rules/7"
+DM_CONTRACT_VERSION = "dm-rules/8"   # /8 (2026-07-10, Eranmor): a [DIRECTIVE] resolves the
+#                                      Player's NEWEST message (was "reaches you next turn" —
+#                                      GLM burned reasoning deciding if directives were stale)
 
 # Phase 1 combat / War Room (plan doc 13, ratified) — appended to the contract when
 # [specialization].war_room is on. Teaches the combat channels: the DM introduces foes by
@@ -207,7 +209,9 @@ DM_RULES_CONTRACT = (
     "Player, use the [OPPOSITION] die the [DIRECTIVE] hands you for whether it lands "
     "(never your own judgment) and emit its [hp] tag. "
     "if the Player answers in plain prose, that roll fires automatically and its "
-    "[DIRECTIVE] reaches you next turn, so never re-call it and never resolve it yourself. Let the shown skills, gear, and "
+    "[DIRECTIVE] arrives WITH their answer — a [DIRECTIVE] always resolves the Player's "
+    "NEWEST message, never an earlier one; never re-call it and never resolve it "
+    "yourself. Let the shown skills, gear, and "
     "conditions visibly matter. Use only the skills, abilities, and items in the state "
     "blocks; never invent mechanics, roll your own dice, or grant items/skills the engine "
     "has not. Speak the world and its NPCs; never the Player. Characters named in state "
@@ -227,7 +231,10 @@ DM_RULES_CONTRACT = (
 # the change inline, the ENGINE commits it to the ledger, and the [EFFECTS] block feeds the
 # committed truth back every turn. Re-sent with the contract each request (droppable under
 # budget), so even after a context rollover the model is re-anchored. ~120 tokens.
-EFFECTS_PROTOCOL_VERSION = "world-tags/4"
+EFFECTS_PROTOCOL_VERSION = "world-tags/6"   # /6 (2026-07-10, Eranmor): the protocol header
+#                                             is no longer the literal token "[TAGS]" — a
+#                                             live GLM run copied that header AS a tag format
+#                                             ("[TAGS] scene_active | ...") in 2 of 3 replies
 
 # Phase 1: the combat tag slice — appended to the [TAGS] protocol under war_room only.
 _WAR_TAGS = (
@@ -236,9 +243,17 @@ _WAR_TAGS = (
     "[hp | <combatant> | -N | <why>] lands harm on ANY tracked combatant, not just the "
     "Player · [clash | <A> vs <B> | <how> | <outcome>] when NPCs fight each other — "
     "record it, never roll for it.")
+# Phase 2: the living-world tag slice — appended under living_world only.
+_LIVING_TAGS = (
+    " World tags: [time | <segment>] or [time | +1] when real time passes in the fiction "
+    "(segments dawn|morning|midday|afternoon|evening|night|late_night; the engine also "
+    "moves the clock itself — travel and idle turns cost time) · "
+    "[rumor | <faction or agenda> | <what is whispered>] when word of a faction's designs "
+    "reaches the scene — a rumor SURFACES a hidden agenda; the engine advances it.")
 _EFFECTS_PROTOCOL = (
-    "\n[TAGS] When the fiction changes tracked truth, emit the matching tag on its own line "
-    "so the engine commits it to the ledger: "
+    "\nLEDGER TAGS — when the fiction changes tracked truth, emit the matching tag from "
+    "this list on its own line so the engine commits it to the ledger (these exact "
+    "formats; there is no '[TAGS]' tag): "
     "[status gained | <char> | <Name> | negative|neutral|positive] · "
     "[status lost | <char> | <Name>] · [condition gained/lost | <char> | <Name> | <valence>] · "
     "[valence shift | <char> | <Name> | <valence>] · "
@@ -278,14 +293,17 @@ DM_RULES_CONTRACT_COMPACT = (
     "in-fiction — no 'What will you do?'.")
 
 
-def rules_contract(cfg=None) -> str:
+def rules_contract(cfg=None, force_compact: bool = False) -> str:
     """The DM rules-contract + the RPG-3 effect tag protocol (with the preset slice pulled
     from the cached registry). Fail-open: any registry trouble returns the base contract.
-    RPG-4: [specialization].contract='compact' selects the degradation-ladder shrunk form."""
-    base = DM_RULES_CONTRACT
+    RPG-4: [specialization].contract='compact' selects the degradation-ladder shrunk form.
+    2026-07-10 (Eranmor): `force_compact` lets compose DEGRADE to the compact rung when the
+    full contract would not fit the injection budget — the contract never silently drops."""
+    base = DM_RULES_CONTRACT_COMPACT if force_compact else DM_RULES_CONTRACT
     try:
-        compact = cfg is not None and getattr(cfg, "specialization", None) is not None \
-            and getattr(cfg.specialization, "contract", "full") == "compact"
+        compact = force_compact or (
+            cfg is not None and getattr(cfg, "specialization", None) is not None
+            and getattr(cfg.specialization, "contract", "full") == "compact")
         if compact:
             base = DM_RULES_CONTRACT_COMPACT
         if cfg is None or getattr(getattr(cfg, "specialization", None),
@@ -304,7 +322,7 @@ def rules_contract(cfg=None) -> str:
                      "by reputation with faction F at standing t · ability tags: "
                      "adv=advantage, no-fumble=crit-fumble guard, xdie=extra die on a miss.")
     except Exception:
-        base = DM_RULES_CONTRACT
+        base = DM_RULES_CONTRACT_COMPACT if force_compact else DM_RULES_CONTRACT
     try:
         from . import registry as _registry
         eff = _registry.load(cfg).effects
@@ -317,6 +335,9 @@ def rules_contract(cfg=None) -> str:
             if cfg is None or getattr(getattr(cfg, "specialization", None),
                                       "war_room", True):
                 base += _WAR_TAGS                  # Phase 1: the combat tag slice
+            if cfg is None or getattr(getattr(cfg, "specialization", None),
+                                      "living_world", True):
+                base += _LIVING_TAGS               # Phase 2: the living-world tag slice
     except Exception:
         pass
     return base

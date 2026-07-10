@@ -21,7 +21,7 @@ from . import compose, director, discovery, genesis, linter, promptcache, tier0
 from .config import Config
 from .session_engine import SessionEngine
 from . import memory
-from .state import apply_delta, combat_ops, current_state, progression_ops
+from .state import apply_delta, combat_ops, current_state, progression_ops, world_ops
 from .stamps import Stamp
 from .store import Store
 
@@ -58,6 +58,10 @@ class Pipeline:
         self.cache = promptcache.CacheStats()
         self._last_docs: OrderedDict[str, dict] = OrderedDict()   # sid -> last enriched doc
         self._prewarm_at: dict[str, float] = {}                   # sid -> monotonic cooldown
+        # 2026-07-10 (Eranmor, pillar 17): tier0 notices used to die in the proxy log —
+        # "recharging"/non-move/unknown-skill were invisible to the player. A bounded
+        # in-memory ring per session feeds the HUD rolls lane (transient UX, not state).
+        self._notices: OrderedDict[str, list] = OrderedDict()
         if getattr(cfg.upstream, "cache_key", True) \
                 and cfg.injection.placement == "system_merge":
             log.info("prompt-cache: placement=system_merge splices volatile state into the "
@@ -88,34 +92,53 @@ class Pipeline:
             if t0.doc is not None:            # OOC spans stripped (03 R1)
                 doc = t0.doc
                 changed = True
-            applied_now: list = []
-            if t0.user_ops:                   # user source FIRST: freeze gates the rule batch
-                r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
-                                t0.user_ops, "user", self.cfg)
-                state = r.state
-                applied_now += r.applied
-                self._index_memories(res, r)
-            if t0.rule_ops:
-                r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
-                                t0.rule_ops, "rule", self.cfg)
-                state = r.state
-                applied_now += r.applied
-                self._index_memories(res, r)
-            if t0.proposal_ops:               # R9/R10: model-authored ledger tags apply
-                r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
-                                t0.proposal_ops, "extraction", self.cfg)   # proposals, clamped
-                state = r.state
-                applied_now += r.applied
-                self._index_memories(res, r)
-            state, evolutions = self._progress(res, state, applied_now)   # RPG-5 (doc 10)
-            # [DIRECTIVE] shows EXACTLY the checks resolved THIS request (not turn-matched):
-            # reliable delivery + no stale rolls from earlier turns confusing the model.
-            state["_fresh_checks"] = [o for o in applied_now
-                                      if isinstance(o, dict) and o.get("op") == "check"]
-            for n in t0.notices:
-                log.info("tier0 notice: %s", n)
-            self._capture_user_text(doc, res)
-            self._swipe_rollback_guard(res)
+            reserved = self._reserve_lost_turn(res, doc)
+            if reserved is not None:
+                # 2026-07-10 (Eranmor): the SAME action re-sent after a lost generation —
+                # its rolls/costs/cooldowns are already journaled at the previous turn. One
+                # player action = one resolution: re-serve the settled checks on THIS
+                # [DIRECTIVE] and apply nothing new (no re-roll, no double clock/cost).
+                state["_fresh_checks"] = reserved
+                if t0.off_protocol:
+                    state["_protocol_nudge"] = t0.off_protocol
+                log.info("re-serve: %d settled check(s) from the lost previous turn",
+                         len(reserved))
+                self._notice(res, [f"reply was lost — re-serving the settled "
+                                   f"{str(c.get('skill', 'check'))} roll ({c.get('tier')})"
+                                   for c in reserved])
+                self._capture_user_text(doc, res)
+            else:
+                applied_now: list = []
+                if t0.user_ops:               # user source FIRST: freeze gates the rule batch
+                    r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
+                                    t0.user_ops, "user", self.cfg)
+                    state = r.state
+                    applied_now += r.applied
+                    self._index_memories(res, r)
+                if t0.rule_ops:
+                    r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
+                                    t0.rule_ops, "rule", self.cfg)
+                    state = r.state
+                    applied_now += r.applied
+                    self._index_memories(res, r)
+                if t0.proposal_ops:           # R9/R10: model-authored ledger tags apply
+                    r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
+                                    t0.proposal_ops, "extraction", self.cfg)   # clamped
+                    state = r.state
+                    applied_now += r.applied
+                    self._index_memories(res, r)
+                state, evolutions = self._progress(res, state, applied_now)   # RPG-5 (doc 10)
+                # [DIRECTIVE] shows EXACTLY the checks resolved THIS request (not
+                # turn-matched): reliable delivery + no stale rolls confusing the model.
+                state["_fresh_checks"] = [o for o in applied_now
+                                          if isinstance(o, dict) and o.get("op") == "check"]
+                if t0.off_protocol:
+                    state["_protocol_nudge"] = t0.off_protocol
+                for n in t0.notices:
+                    log.info("tier0 notice: %s", n)
+                self._notice(res, t0.notices)
+                self._capture_user_text(doc, res)
+                self._swipe_rollback_guard(res)
 
         if self.jobs is not None and isinstance(doc.get("model"), str):
             self.jobs.models[res.session_id] = doc["model"]
@@ -196,8 +219,17 @@ class Pipeline:
             if pro:
                 r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
                                 pro, "rule", self.cfg)
+                state = r.state
+                applied = list(applied) + r.applied
                 self._index_memories(res, r)
-                return r.state, evolutions
+            if getattr(spec, "living_world", True):   # Phase 2: the world moves — travel
+                lw = world_ops(state, applied,        # time, the idle clock, faction fronts
+                               clock_turns=getattr(spec, "clock_turns", 6))
+                if lw:
+                    rl = apply_delta(self.store, res.session_id, res.branch_id,
+                                     res.turn_index, lw, "rule", self.cfg)
+                    state = rl.state
+                    self._index_memories(res, rl)
             return state, evolutions
         except Exception as exc:
             log.warning("progression pass failed open: %s", type(exc).__name__)
@@ -210,6 +242,70 @@ class Pipeline:
                                  r.applied, r.state)
         except Exception as exc:
             log.warning("memory index skipped: %s", type(exc).__name__)
+
+    def _reserve_lost_turn(self, res, doc: dict) -> Optional[list[dict]]:
+        """2026-07-10 (Eranmor): detect the retry of a LOST turn. A `new_turn` whose user
+        text is byte-identical to the PREVIOUS turn's, when that turn's reply settled
+        EMPTY (dead upstream stream / client abort), is the same player action re-sent —
+        its checks already rolled, paid, and cooled at the previous turn. Returns those
+        settled check ops (marked `lost_reply`) to re-serve on this turn's [DIRECTIVE],
+        or None for the normal path. Fail-open: any doubt -> None (today's behavior).
+        De-facto rpg-gated: only `check` ops re-serve, and checks exist only under rpg —
+        a `none` session always returns None (byte-identical wire)."""
+        try:
+            if not getattr(self.cfg.session, "reserve_lost_turns", True):
+                return None
+            if res.klass.value != "new_turn":
+                return None
+            prev = self.store.db.execute(
+                "SELECT MAX(turn_index) AS t FROM turns WHERE branch_id=? AND turn_index<?",
+                (res.branch_id, res.turn_index)).fetchone()
+            pt = prev["t"] if prev else None
+            if pt is None or pt < 0:
+                return None
+            rows = self.store.get_turn_texts(res.branch_id, pt, pt)
+            if not rows:
+                return None
+            prev_user = rows[0]["user_text"] or ""
+            if rows[0]["assistant_text"] not in (None, ""):
+                return None                    # the reply exists — a genuinely new turn
+            name = (self.cfg.user_guard.name
+                    or (res.stamp.user if res.stamp and res.stamp.user else "") or "User")
+            msgs = doc.get("messages", [])
+            text = next((tier0._msg_text(m.get("content")) for m in reversed(msgs)
+                         if isinstance(m, dict) and m.get("role") == "user"), "")
+            text = " ".join(text.split())
+            if not text or f"{name}: {text}" != prev_user:
+                return None
+            checks = [dict(o, lost_reply=True)
+                      for o in self.store.rule_ops_at(res.branch_id, pt)
+                      if o.get("op") == "check" and o.get("tier")]
+            return checks or None              # nothing to re-serve -> normal path
+        except Exception as exc:
+            log.warning("re-serve detection failed open: %s", type(exc).__name__)
+            return None
+
+    def _notice(self, res, msgs: list) -> None:
+        """Pillar 17: mirror tier0 notices into the per-session HUD ring (fail-open)."""
+        try:
+            if not msgs:
+                return
+            ring = self._notices.setdefault(res.session_id, [])
+            ring.extend({"turn": res.turn_index, "ts": time.time(),
+                         "text": str(m)[:200]} for m in msgs[:6])
+            del ring[:-12]
+            self._notices.move_to_end(res.session_id)
+            while len(self._notices) > 64:
+                self._notices.popitem(last=False)
+        except Exception:
+            pass
+
+    def recent_notices(self, session_id: str) -> list[dict]:
+        """The HUD's notice feed (newest last). Transient — a restart clears it."""
+        try:
+            return list(self._notices.get(session_id, ()))
+        except Exception:
+            return []
 
     def _capture_user_text(self, doc: dict, res) -> None:
         """Retain the NEW user message (post-OOC-strip) for extraction context (01 SS7)."""
@@ -314,7 +410,21 @@ class Pipeline:
                 if wr:                            # loot, combat_end — on the fresh reply's
                     r = apply_delta(self.store, ctx.session_id, ctx.branch_id,   # own turn
                                     ctx.turn_index, wr, "rule", self.cfg)
+                    state = r.state
+                    applied += r.applied
                     self._index_memories(ctx, r)
+            if applied and getattr(spec, "living_world", True):
+                # Phase 2 (2026-07-09 Cinderveil live): the living-world referee must read
+                # the FRESH reply's ops too — this path applied the player's move_entity,
+                # but only jobs/_progress ran world_ops, so travel time and the camera
+                # never followed a reply-committed move (the ladder later dedups it away).
+                lw = world_ops(state, applied,
+                               clock_turns=getattr(spec, "clock_turns", 6))
+                if lw:
+                    r = apply_delta(self.store, ctx.session_id, ctx.branch_id,
+                                    ctx.turn_index, lw, "rule", self.cfg)
+                    self._index_memories(ctx, r)
+                    log.info("living world (live path): %d op(s) applied", len(r.applied))
         except Exception as exc:
             log.warning("live tag ingest failed open: %s", type(exc).__name__)
 

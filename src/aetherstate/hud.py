@@ -152,6 +152,11 @@ def _ability_rows(reg, _registry, p: dict, turn: int) -> list[dict]:
             except Exception:
                 pass
         active = mech in ("extra_die", "reroll", "surge")
+        if _registry is not None:
+            try:                                    # authored kind is the truth (2026-07-09:
+                active = _registry.ability_is_active(d)   # custom actives were reading as
+            except Exception:                       # inert passives off the mechanic alone)
+                pass
         kind = str(d.get("kind", "")) or ("active" if active else "passive")
         at = d.get("applies_to", "all")
         applies_id = ""                                  # first SPECIFIC governing skill slug (for
@@ -485,6 +490,27 @@ def _relationships(state: dict) -> list[dict]:
     return out[:12]
 
 
+def _front_rows(state: dict, turn: int) -> list[dict]:
+    """Phase 2: REVEALED faction clocks only — rumor-gating applies to the HUD/briefing
+    (ratified); the Console reads state_summary and always sees every front. The
+    consequence text stays hidden until the clock actually fills (no spoilers)."""
+    rows = []
+    for fid, f in sorted((state.get("fronts") or {}).items()):
+        if not isinstance(f, dict) or not f.get("revealed"):
+            continue
+        rows.append({
+            "id": fid, "name": str(f.get("name", fid)),
+            "faction": str(f.get("faction") or "").replace("_", " "),
+            "filled": int(f.get("filled", 0)), "segments": int(f.get("segments", 6)),
+            "done": bool(f.get("done")),
+            "consequence": str(f.get("consequence", "")) if f.get("done") else "",
+            "fresh": bool(f.get("done"))
+            and turn - int(f.get("filled_turn", -10**9)) <= 1,
+        })
+    rows.sort(key=lambda r: (not r["fresh"], r["done"], r["name"]))
+    return rows
+
+
 def _quests(state: dict) -> list[dict]:
     out = []
     for qid, q in (state.get("quests") or {}).items():
@@ -628,6 +654,7 @@ def hud_view(state: dict, cfg=None) -> dict:
         "relationships": [], "relations": [], "factions": [], "world_flags": {},
         "memories": [], "consent": [], "rules": {},
         "war_room": {"active": False, "combatants": []},
+        "fronts": [], "clock": {},
     }
     for key, fn in (
         ("scene", lambda: _scene(state)),
@@ -640,6 +667,8 @@ def hud_view(state: dict, cfg=None) -> dict:
         ("relationships", lambda: _relationships(state)),
         ("memories", lambda: _memories(state)),
         ("consent", lambda: _consent(state)),
+        ("fronts", lambda: _front_rows(state, turn)),
+        ("clock", lambda: dict(state.get("clock") or {})),
     ):
         try:
             out[key] = fn()

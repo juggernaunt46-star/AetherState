@@ -271,6 +271,23 @@ class Store:
                 " VALUES(?,?,?,?,?,?)",
                 (branch_id, turn_lo, turn_hi, json.dumps(ops), source, time.time()))
 
+    def rule_ops_at(self, branch_id: str, turn_index: int) -> list[dict]:
+        """All rule/user-source ops journaled exactly at `turn_index` (flattened, journal
+        order). 2026-07-10 (Eranmor re-serve): the lost-turn path re-reads the settled
+        checks of a turn whose reply never arrived. Read-only; never raises past sqlite."""
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT ops FROM ops_journal WHERE branch_id=? AND turn_lo=? AND turn_hi=?"
+                " AND source IN ('rule','user') ORDER BY id",
+                (branch_id, turn_index, turn_index)).fetchall()
+        out: list[dict] = []
+        for r in rows:
+            try:
+                out.extend(o for o in json.loads(r["ops"]) if isinstance(o, dict))
+            except (ValueError, TypeError):
+                continue
+        return out
+
     def checkpoint(self, branch_id: str, turn_index: int, state: dict) -> None:
         with self._lock, self.db:
             self.db.execute(
