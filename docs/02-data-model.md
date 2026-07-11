@@ -515,6 +515,16 @@ Rpg-gated at the caller (`pipeline`), so `none` journals stay byte-identical.
 default `"full"`. The contract version is `dm-rules/2`: state-block NPCs are KNOWN not
 on-scene, and replies end in-fiction — never "What will you do?"-style prompts.
 
+**Auto-compact on calm turns (A1, 1.19.0).** Independent of the fixed `contract` size and of the
+budget-degrade fallback, `[specialization].auto_compact_contract` (opt-in, default off) makes
+`compose` flip to the compact contract on calm, ESTABLISHED turns — the model has internalized the
+full rules by then, so re-injecting all ~1,981 tokens every turn is the biggest avoidable per-turn
+token + reasoning cost. The FULL contract still rides the first `contract_full_turns` turns (warm-up,
+default 3) and EVERY combat turn (`compose._combat_turn`: tracked combatants active OR a
+climax/combat/battle/fight/ambush scene phase). The decision (`compose._auto_compact_contract`) is a
+pure read of `meta.turn` / `scene.phase` / `combat.active` on the hot path — no network, nothing
+journaled, replay-neutral — and a `none` (or knob-off) session is byte-identical.
+
 **Inspector feed.** `GET /aether/session/{sid}/journal?limit=N` (03 §2) serves the applied-op
 tail (turn · source · op · salient fields) + the last rolls; the Console Overview renders it
 as "Recent activity (RPG)" — visible roll/state-change feedback without touching the stream.

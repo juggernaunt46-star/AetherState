@@ -268,6 +268,38 @@ def _war_room_on(state: dict, cfg=None) -> bool:
     return bool((state.get("combat") or {}).get("active"))
 
 
+# A1 (2026-07-10): the contract-flip combat signal. Kept INDEPENDENT of the war_room knob
+# (a fight can still be a fight with war_room off) — this only picks which contract SIZE rides.
+_CONTRACT_COMBAT_PHASES = ("climax", "combat", "battle", "fight", "ambush")
+
+
+def _combat_turn(state: dict) -> bool:
+    """A1: a turn is 'in combat' when tracked combatants are on the field OR the scene phase is
+    a fight phase — the window where the FULL war-room contract must stay in the prompt."""
+    if bool((state.get("combat") or {}).get("active")):
+        return True
+    phase = str((state.get("scene") or {}).get("phase", "")).lower()
+    return phase in _CONTRACT_COMBAT_PHASES
+
+
+def _auto_compact_contract(state: dict, cfg=None) -> bool:
+    """A1 (2026-07-10, Bean): flip the DM rules-contract to its ~40-tok compact form on calm,
+    ESTABLISHED turns. Gated by [specialization].auto_compact_contract (default OFF, so an rpg
+    session is byte-identical until the table enables it). The FULL contract still rides the first
+    `contract_full_turns` turns (the model is still internalizing the rules) and EVERY combat turn.
+    Pure state read on the hot path — no network, no config-baked replay concern (compose recomputes
+    the briefing each turn; nothing here is journaled)."""
+    spec = getattr(cfg, "specialization", None)
+    if spec is None or not getattr(spec, "auto_compact_contract", False):
+        return False
+    if getattr(spec, "contract", "full") == "compact":
+        return False                       # already compact by config — nothing to flip
+    turn = (state.get("meta") or {}).get("turn", 0)
+    if not isinstance(turn, int) or turn <= getattr(spec, "contract_full_turns", 3):
+        return False                       # still in the warm-up window -> full contract
+    return not _combat_turn(state)         # calm & established -> compact; combat -> full
+
+
 def _ally_die(state: dict, cid: str) -> tuple[int, int]:
     """Phase 1 (ratified): ONE pre-rolled action die per ally per combat turn — the R8c
     pattern exactly: derived DETERMINISTICALLY from (turn, scene, ally row), no journal
@@ -1041,8 +1073,13 @@ def compose(doc: dict, state: dict, cfg, stamp, klass: str,
         if cfg.injection.assumed_ctx_tokens > 0:
             cap = min(cap, int(cfg.injection.max_fraction * cfg.injection.assumed_ctx_tokens))
         spent = sum(c.tokens for c in comps)
-        text = prompts.rules_contract(cfg)
-        if getattr(cfg.specialization, "contract", "full") != "compact" \
+        # A1 (2026-07-10, Bean): on calm, established turns flip to the compact contract (opt-in;
+        # the full contract still rides the warm-up turns and every combat turn). This is a
+        # DELIBERATE flip — distinct from the budget-degrade below, which only fires when the full
+        # contract will not fit. off (default) => force_compact=False => byte-identical to before.
+        auto_compact = _auto_compact_contract(state, cfg)
+        text = prompts.rules_contract(cfg, force_compact=auto_compact)
+        if not auto_compact and getattr(cfg.specialization, "contract", "full") != "compact" \
                 and spent + estimate_tokens(text) > cap:
             text = prompts.rules_contract(cfg, force_compact=True)   # D7: degrade, never drop
         comps.append(Component("rules_contract", text,

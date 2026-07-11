@@ -254,6 +254,16 @@ class SpecializationConfig(BaseModel):
     #                                  (negatives halved; 0 disables the cascade entirely)
     contract: str = "full"           # RPG-4 (05 §5.9/D7): DM rules-contract size — "full"
     #                                  for strong models, "compact" for weak/local budgets
+    auto_compact_contract: bool = False   # A1 (2026-07-10, Bean): on calm, ESTABLISHED turns
+    #                                  auto-flip the DM rules-contract to its ~40-tok compact form
+    #                                  (the model has internalized the full rules by then — the big
+    #                                  per-turn token + reasoning cut). The FULL contract still rides
+    #                                  the first `contract_full_turns` turns and EVERY combat turn.
+    #                                  Opt-in: off = the contract size is fixed by `contract` (an rpg
+    #                                  session stays byte-identical until the table enables this).
+    #                                  Ignored when `contract == "compact"` (already compact).
+    contract_full_turns: int = 3     # A1: keep the FULL contract for this many opening turns before
+    #                                  auto-compact may kick in (0 = compact-eligible from turn 1)
     enemy_rolls: bool = True         # R8c (2026-07-09, Bean): pre-roll ONE enemy-action die
     #                                  per turn and hand it to the DM via [OPPOSITION] — foes
     #                                  attack on real dice, resolved BEFORE the reply streams

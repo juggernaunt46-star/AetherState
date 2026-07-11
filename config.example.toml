@@ -142,6 +142,11 @@ name = "none"         # none | rpg
 # faction_cascade = 0.1     # RPG-3b: NPC->faction affinity ripple (negatives halved; 0 = off)
 # contract = "full"         # RPG-4: DM rules-contract size — "compact" for weak/local models
 #                           # (same non-negotiables in ~40 tokens; part of the degradation ladder)
+# auto_compact_contract = false  # A1 (1.19.0): auto-flip the contract to its compact form on
+#                           # calm, established turns (full stays for the first contract_full_turns
+#                           # turns and every combat turn). The big per-turn token + reasoning cut;
+#                           # opt-in, so an rpg session is byte-identical until you enable it.
+# contract_full_turns = 3   # A1: keep the FULL contract for this many opening turns (0 = from turn 1)
 # auto_dm_checks = true     # R8b (1.9.0): a check the DM itself calls for ARMS — answering in
 #                           # plain prose rolls it automatically (your own checks always win)
 # enemy_rolls = true        # R8c (1.9.0): combat turns pre-roll ONE enemy-action die and hand

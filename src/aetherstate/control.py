@@ -531,7 +531,8 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
 
     # the RPG knobs a human flips live from the Console / ST panel (bools + the contract enum).
     _SPEC_BOOL_KNOBS = ("intent_floor", "war_room", "enemy_rolls", "auto_dm_checks", "foe_floor",
-                        "stealth_kills", "living_world", "hardcore", "dm_guard")
+                        "stealth_kills", "living_world", "hardcore", "dm_guard",
+                        "auto_compact_contract")
 
     def _spec_view() -> dict:
         s = cfg.specialization
@@ -991,12 +992,26 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
                      ] if header else []
             rpg = getattr(cfg, "specialization", None) is not None \
                 and cfg.specialization.name == "rpg"
+            # the next request composes at last-committed-turn + 1. Derive it from the REPLAYED
+            # state (meta.turn is authoritative), not the branches.head_turn cache — they agree
+            # live, but only meta.turn is set when state is reconstructed from the journal.
+            upcoming = int((state.get("meta") or {}).get("turn", -1)) + 1
+            contract_variant = "full"
             if rpg:
+                # A1: mirror compose.compose's per-turn contract choice so /briefing reports the
+                # REAL size the NEXT request will carry. The next request composes at head+1, so
+                # evaluate the calm/established + combat decision at that upcoming turn (not the
+                # committed head) — otherwise the inspector under-reports a compact flip.
+                dstate = dict(state)
+                dstate["meta"] = {**(state.get("meta") or {}), "turn": upcoming}
+                auto = _compose._auto_compact_contract(dstate, cfg)
+                contract_variant = "compact" if auto else "full"
                 comps.append(_compose.Component(
-                    "rules_contract", _prompts.rules_contract(cfg),
+                    "rules_contract", _prompts.rules_contract(cfg, force_compact=auto),
                     cfg.injection.priorities.get("rules_contract", 30)))
             kept = _compose.govern(list(comps), cfg)
             return {"session_id": row["session_id"], "turn": _head(store, row["active_branch"]),
+                    "upcoming_turn": upcoming, "contract_variant": contract_variant,
                     "spec": cfg.specialization.name if rpg else "none",
                     "components": [{"cls": c.cls, "tokens": c.tokens, "text": c.text}
                                    for c in comps],

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.19.0 — 2026-07-10
+
+A leaner rules-contract on calm turns — the biggest per-turn token cut yet — plus a truthful briefing
+inspector and a one-click toggle.
+
+- **Auto-compact rules-contract (opt-in).** The standing DM rulebook is ~2,000 tokens injected every
+  turn. Once a session is a few turns in, the model has internalized it — so with the new
+  `auto_compact_contract` on, the engine flips to the ~40%-smaller **compact** contract on calm,
+  established turns, while keeping the **full** contract for the opening turns and every combat turn.
+  A live A/B on GLM-5.2 measured the token cut with **no loss of coherence** (checks still called,
+  ledger tags still emitted, narration still in-voice). Off by default; enable it per session.
+- **Toggle it anywhere, live.** New "auto-compact contract" checkbox in the SillyTavern panel (next
+  to "semantic intent floor"), and `POST /aether/specialization` accepts it too — flips with no
+  restart. `contract_full_turns` (default 3) sets how many opening turns stay on the full contract.
+- **The briefing inspector tells the truth.** `GET /aether/session/{id}/briefing` now reports the
+  REAL contract the next turn will carry (`contract_variant` + `upcoming_turn`) instead of always
+  showing the full one.
+- `none` (non-RPG) sessions and default RPG sessions stay byte-identical. Suite 702 passed + 1 skip;
+  ruff clean.
+
 ## 1.18.0 — 2026-07-10
 
 The natural-language layer of the RPG engine gets smarter — and your character's identity is now

@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — Eranmor fix-pack build (2026-07-10)");
+  console.log("[AetherState] Companion loaded — auto-compact toggle build (2026-07-10)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -340,6 +340,11 @@
                 <input type="checkbox" id="aes_intent_floor"> semantic intent floor</label>
               <span class="aes-opt">grounds rolls &amp; targets by meaning</span>
             </div>
+            <div class="aes-row" id="aes_compact_row" style="display:none">
+              <label class="aes-check" title="On calm, established turns, inject the SHORTER DM rules-contract instead of the full one (the model has learned the rules by then) — saves ~800 tokens every calm turn. The full contract still rides the first few turns and every combat turn. Opt-in; off = the full contract every turn.">
+                <input type="checkbox" id="aes_compact_contract"> auto-compact contract</label>
+              <span class="aes-opt">terser rules on calm turns (saves tokens)</span>
+            </div>
             <div class="aes-field">
               <label class="aes-label" for="aes_proxy">Proxy URL</label>
               <input id="aes_proxy" class="text_pole aes-input" placeholder="http://127.0.0.1:9130" />
@@ -378,11 +383,18 @@
         el.innerHTML = name === "rpg"
           ? "<b>RPG (DM mode):</b> the card runs the world as your Dungeon Master. Full engine — dice &amp; skill checks, a Player sheet, gear &amp; inventory, statuses, quests, XP &amp; mastery. Use the 🎛 player HUD and the Creator."
           : "<b>Chat RP:</b> casual roleplay with silent state-tracking only — no dice, no DM framing, no Player sheet. Byte-identical to plain AetherState 1.0."; };
-      const applyIntent = (sp) => {            // reflex-floor toggle: only meaningful under rpg
+      const applyIntent = (sp) => {            // rpg-gated toggles: reflex floor + auto-compact contract
+        if (!sp) return;
         const row = $("aes_intent_row"), box = $("aes_intent_floor");
-        if (!row || !box || !sp) return;
-        row.style.display = (sp.name === "rpg") ? "" : "none";
-        if (typeof sp.intent_floor === "boolean") box.checked = sp.intent_floor;
+        if (row && box) {
+          row.style.display = (sp.name === "rpg") ? "" : "none";
+          if (typeof sp.intent_floor === "boolean") box.checked = sp.intent_floor;
+        }
+        const crow = $("aes_compact_row"), cbox = $("aes_compact_contract");
+        if (crow && cbox) {
+          crow.style.display = (sp.name === "rpg") ? "" : "none";
+          if (typeof sp.auto_compact_contract === "boolean") cbox.checked = sp.auto_compact_contract;
+        }
       };
       try {                                    // narrative mode: show it + let the user switch it
         const sp = await api("/aether/specialization");
@@ -400,6 +412,11 @@
         await api("/aether/specialization", { method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ intent_floor: e.target.checked }) }).catch(() => null);
+      };
+      $("aes_compact_contract").onchange = async (e) => {   // A1: auto-compact contract, flipped live
+        await api("/aether/specialization", { method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ auto_compact_contract: e.target.checked }) }).catch(() => null);
       };
       $("aes_enabled").onchange = (e) => { settings.enabled = e.target.checked; save(); };
       $("aes_proxy").onchange = (e) => {

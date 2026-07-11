@@ -40,7 +40,7 @@ _MARKERS = (
     "window.aetherHudExpand",          # the minimized strip's one-tap way home
     "aes-expand",                      # the strip's self-label (a minimized HUD must SAY so)
     "HUD render error",                # visible fail-open inside the renderers
-    "Eranmor fix-pack build",          # build tag — bump it when the extension changes
+    "auto-compact toggle build",       # build tag — bump it when the extension changes
 )
 
 
