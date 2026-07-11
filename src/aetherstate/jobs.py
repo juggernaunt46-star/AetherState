@@ -28,7 +28,8 @@ from typing import Optional
 
 from . import assist, compose, director, discovery, linter, memory
 from .extraction import Endpoint, Ladder
-from .state import (apply_delta, combat_ops, current_state, faction_cascade_ops, is_empty,
+from .state import (apply_delta, battle_ops, combat_ops, current_state, faction_cascade_ops,
+                    is_empty,
                     progression_ops, reduce_state, world_ops)
 
 log = logging.getLogger("aetherstate.jobs")
@@ -251,6 +252,14 @@ class JobRunner:
                     res.state = rw.state
                     res.applied = list(res.applied) + rw.applied
                     log.info("combat pass: %d op(s) applied", len(rw.applied))
+                if getattr(spec, "large_battle", True):    # §F: large-scale battle referee —
+                    bw = battle_ops(res.state, res.applied)   # waves / settle, after the defeats
+                    if bw:
+                        rb = apply_delta(self.store, b.session_id, b.branch_id, b.hi, bw,
+                                         "rule", self.cfg)
+                        res.state = rb.state
+                        res.applied = list(res.applied) + rb.applied
+                        log.info("battle pass: %d op(s) applied", len(rb.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("combat pass skipped: %s", type(exc).__name__)
         try:                                   # RPG-5 (doc 10): code-awarded progression —

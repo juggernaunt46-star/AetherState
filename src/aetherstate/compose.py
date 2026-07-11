@@ -403,6 +403,31 @@ def _initiative_order(state: dict, cfg=None) -> list:
     return order
 
 
+def _render_battle(state: dict, cfg=None) -> str:
+    """§F: the [BATTLE] line — the macro battle's TIDE (the code-owned momentum's sign) + the
+    wave count, plus the standing directive: fight the micro slice on the dice, narrate the WIDER
+    battle in prose, report shifts with [tide|...], and expect fresh waves while it isn't won.
+    Rides the volatile tail (0a-safe). Gated on [specialization].large_battle."""
+    if cfg is not None and not getattr(getattr(cfg, "specialization", None),
+                                       "large_battle", True):
+        return ""
+    b = state.get("battle") or {}
+    if not b.get("active"):
+        return ""
+    from .state import battle_tide
+    tide = battle_tide(b.get("momentum", 0))
+    name = str(b.get("name") or "the battle")
+    waves = int(b.get("waves", 0))
+    tail = {"winning": "the tide is turning YOUR way — hold and the field is won",
+            "holding": "the line holds — the outcome is still open",
+            "losing": "you are being pushed back — fresh waves keep coming until it turns"}[tide]
+    return (f"[BATTLE] {name}: the wider fight is {tide.upper()} for you"
+            + (f" (wave {waves})" if waves else "")
+            + f". {tail}. Your War Room slice is the dice; the rest of the field is yours to "
+              "NARRATE in prose — report any shift with [tide | winning|holding|losing | why]; "
+              "the engine sends the waves and decides when it ends.")
+
+
 def _render_directive(state: dict, cfg=None) -> str:
     """[DIRECTIVE] — the pre-decided outcome(s) of THIS turn's check(s) (doc 05 §4/§5.2). Reads
     every `check` record for the current turn (checks reuse the rolls buffer, doc 07 §7.1), so a
@@ -539,6 +564,9 @@ def _render_directive(state: dict, cfg=None) -> str:
             wl = _render_war(state)
             if wl:
                 out += ("\n" if out else "") + wl
+            bl = _render_battle(state, cfg)      # §F: the macro battle's tide + waves
+            if bl:
+                out += ("\n" if out else "") + bl
             io = _initiative_order(state, cfg)   # explicit turn order (2026-07-10, Bean)
             if len(io) > 1:
                 seq = " → ".join(nm for _s, nm, _sd in io)
@@ -557,7 +585,8 @@ def _render_directive(state: dict, cfg=None) -> str:
                   "[item gained/lost | <char> | <Item> | <qty>] · "
                   "[quest | <Name> | new/update/complete] · [affinity | <target> | +/-N | <why>] "
                   "· [hp | <char> | -N | <why>] · [foe | <name> | minion/standard/elite/boss | "
-                  "<weapon>] · [clash | A vs B | how | outcome]. To call for a roll write "
+                  "<weapon>] · [ally | <name> | <tier?> | <weapon?>] · "
+                  "[clash | A vs B | how | outcome]. To call for a roll write "
                   "((aether.check <skill>)) inline — never a [CHECK] line.")
     return out
 

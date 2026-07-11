@@ -752,6 +752,50 @@ def _floor_stage_foe(res: Tier0Result, state: dict, user_text: str,
     return None
 
 
+_GROUP_COUNTS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "couple": 2,
+                 "pair": 2, "trio": 3, "several": 3, "few": 3, "many": 4, "handful": 4,
+                 "band": 3, "pack": 3, "gang": 3, "group": 3, "squad": 3, "horde": 4,
+                 "swarm": 4, "cluster": 3, "knot": 3, "both": 2}
+
+
+def _floor_group_extras(state: dict, dm_text: str, primary: dict) -> list[dict]:
+    """2026-07-10 (Bean, "3v3 is missing"): when the DM's prose names a GROUP ("three
+    cutthroats", "a pack of ghouls") the floor stages the whole band, not just the one the
+    Player struck — capped within the 3v3 enemy side. Only for an EXTRA foe (a named
+    individual is not a crowd); grounded in the fiction's own count word next to the foe's
+    noun; deterministic pure token math so the journaled spawns replay clean."""
+    from .state import COMBAT_SIDE_CAP
+    if not dm_text or primary.get("char"):            # a specific person isn't a group
+        return []
+    name = str(primary.get("name") or "").strip()
+    toks = _norm_phrase(name).split()
+    if not toks:
+        return []
+    head = toks[-1]
+    heads = {head, head + "s", head[:-1] if head.endswith("s") and len(head) > 3 else head}
+    words = _norm_phrase(dm_text).split()
+    count = 0
+    for i, w in enumerate(words):                     # a count word within 3 tokens BEFORE the
+        if w in heads:                                # foe's noun ("three ... cutthroats")
+            for back in words[max(0, i - 3):i]:
+                if back in _GROUP_COUNTS:
+                    count = max(count, _GROUP_COUNTS[back])
+    if count < 2:
+        return []
+    rows = (state.get("combat") or {}).get("combatants") or {}
+    taken = set(rows) | {primary.get("_cid")}
+    base = slug(name)[:32] or "foe"
+    out: list[dict] = []
+    for _ in range(min(count, COMBAT_SIDE_CAP) - 1):  # primary is already one of the band
+        cid, n = base, 2
+        while cid in taken:
+            cid, n = f"{base}#{n}", n + 1
+        taken.add(cid)
+        out.append({"op": "combatant_spawn", "name": name, "side": "enemy",
+                    "tier": primary.get("tier") or "standard", "_floor": True, "_cid": cid})
+    return out
+
+
 def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
                     pending_foe: Optional[dict] = None) -> None:
     """R8 resolution: map each declared skill to a REGISTERED skill, pass the ELIGIBILITY
@@ -1199,6 +1243,19 @@ _HP_TAG_RE = re.compile(
 _FOE_TAG_RE = re.compile(
     r"\[\s*foe\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]",
     re.IGNORECASE)
+# the symmetric ally channel (2026-07-10, Bean: "3v3 is missing") — the DM brings a present
+# companion onto the player's side, same grammar/authority path as [foe].
+_ALLY_TAG_RE = re.compile(
+    r"\[\s*ally\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]",
+    re.IGNORECASE)
+# §F large-scale battle: the DM OPENS a battle ([battle | name | foe? | tier?]) and REPORTS the
+# macro tide ([tide | winning|holding|losing | why]). Both re-sourced as rule (the R8b pattern);
+# the engine owns momentum + waves. Gated by [specialization].large_battle in the pipeline.
+_BATTLE_TAG_RE = re.compile(
+    r"\[\s*battle\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]",
+    re.IGNORECASE)
+_TIDE_TAG_RE = re.compile(
+    r"\[\s*tide\s*\|\s*(winning|holding|losing)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
 _CLASH_TAG_RE = re.compile(
     r"\[\s*clash\s*\|\s*([^|\[\]]+?)\s+vs\.?\s+([^|\[\]]+?)\s*"
     r"(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
@@ -1373,36 +1430,72 @@ def _parse_world_tags(text: str, state: dict) -> list[dict]:
 
 
 def parse_foe_tags(text: str, state: dict) -> list[dict]:
-    """Phase 1: `[foe | <name> | <tier?> | <armament?>]` in the DM's settled reply ->
-    combatant_spawn ops. Spawning is PRIVILEGED, so these are NOT extraction proposals —
-    the caller (pipeline) applies them source='rule' after this validation, exactly like
-    R8b arms the DM's own check call: the DM narrated the foe into the fiction (the
-    in-world basis); the ENGINE mints the instance with curated HP. A name that matches
-    a known entity spawns TRACKED (wounds persist); order/caps enforced by the reducer."""
+    """Phase 1: the DM's combat-spawn tags in a settled reply -> combatant_spawn ops.
+    `[foe | <name> | <tier?> | <armament?>]` stages the ENEMY side; `[ally | <name> |
+    <tier?> | <armament?>]` (2026-07-10, Bean: "3v3 is missing") brings a present COMPANION
+    onto the player's side — the symmetric channel the DM never had. Spawning is PRIVILEGED,
+    so these are NOT extraction proposals — the caller (pipeline) applies them source='rule'
+    after this validation, exactly like R8b arms the DM's own check call: the DM narrated the
+    combatant into the fiction (the in-world basis); the ENGINE mints the instance with curated
+    HP. A name that matches a known entity spawns TRACKED (wounds persist); order/caps enforced
+    by the reducer (each side is parser-capped at 3; the player holds one ally slot)."""
     ops: list[dict] = []
     peid, _ = _player_card(state)
     from .state import THREAT_TIERS, resolve_entity_ref
-    for m in _FOE_TAG_RE.finditer(text or ""):
+    for side, rx in (("enemy", _FOE_TAG_RE), ("ally", _ALLY_TAG_RE)):
+        n = 0
+        for m in rx.finditer(text or ""):
+            name = m.group(1).strip()
+            if not name or _tag_char(name, state) == peid:
+                continue                         # never spawn the Player as their own combatant
+            op: dict = {"op": "combatant_spawn", "name": name, "side": side}
+            for seg in (m.group(2), m.group(3)):
+                if not seg:
+                    continue
+                seg = seg.strip()
+                if seg.lower() in THREAT_TIERS:
+                    op["tier"] = seg.lower()
+                elif len(seg) <= 60:
+                    op["armament"] = re.sub(r"^(?:uses|wields|carries|armed with)\s+", "", seg,
+                                            flags=re.IGNORECASE)
+            eid = resolve_entity_ref(state, name)
+            if eid and (state.get("entities", {}).get(eid) or {}).get("kind") \
+                    in ("character", "npc"):
+                op["char"] = eid                 # a KNOWN cast member fights as themselves
+            ops.append(op)
+            n += 1
+            if n >= 3:                           # the 3v3 cap starts at the parser (per side)
+                break
+    return ops
+
+
+def parse_battle_tags(text: str, state: dict) -> list[dict]:
+    """§F: the DM's large-scale-battle tags in a settled reply -> privileged ops (re-sourced as
+    rule by the pipeline, gated on [specialization].large_battle). `[battle | <name> | <foe?> |
+    <tier?>]` OPENS the battle (name + the label/tier of the waves it sends); `[tide |
+    winning|holding|losing | <why>]` REPORTS how the wider fight goes (clamped +/-1 step per turn
+    at apply — the engine owns the pace). The engine owns momentum and sends the waves; the DM
+    only narrates the macro and reports the tide."""
+    from .state import THREAT_TIERS
+    ops: list[dict] = []
+    for m in _BATTLE_TAG_RE.finditer(text or ""):
         name = m.group(1).strip()
-        if not name or _tag_char(name, state) == peid:
+        if not name:
             continue
-        op: dict = {"op": "combatant_spawn", "name": name, "side": "enemy"}
+        op: dict = {"op": "battle_start", "name": name}
         for seg in (m.group(2), m.group(3)):
             if not seg:
                 continue
             seg = seg.strip()
             if seg.lower() in THREAT_TIERS:
-                op["tier"] = seg.lower()
+                op["threat"] = seg.lower()
             elif len(seg) <= 60:
-                op["armament"] = re.sub(r"^(?:uses|wields|carries|armed with)\s+", "", seg,
-                                        flags=re.IGNORECASE)
-        eid = resolve_entity_ref(state, name)
-        if eid and (state.get("entities", {}).get(eid) or {}).get("kind") \
-                in ("character", "npc"):
-            op["char"] = eid                     # a KNOWN cast member fights as themselves
+                op["foe"] = seg
         ops.append(op)
-        if len(ops) >= 3:                        # the 3v3 cap starts at the parser
-            break
+        break                                    # one battle at a time
+    for m in _TIDE_TAG_RE.finditer(text or ""):
+        ops.append({"op": "tide_set", "tide": m.group(1).lower(),
+                    "why": (m.group(2) or "").strip()[:80]})
     return ops
 
 
@@ -1480,6 +1573,25 @@ def _commands(text: str, rng: random.Random, res: Tier0Result, rpg: bool = False
                 res.user_ops.append({"op": "combat_end", "outcome": "called"})
             else:
                 res.notices.append("usage: ((aether.combat end))")
+        elif rpg and low.startswith("aether.battle"):   # §F: ((aether.battle <name> | tide <t> | end))
+            from .state import BATTLE_TIDES
+            rest2 = cmd.split(None, 1)[1].strip() if " " in cmd else ""
+            low2 = rest2.lower()
+            if low2 in ("end", "over", "stop"):
+                res.user_ops.append({"op": "battle_end", "outcome": "called"})
+            elif low2.startswith("tide"):
+                t = rest2.split(None, 1)[1].strip().lower() if " " in rest2 else ""
+                if t in BATTLE_TIDES:
+                    res.user_ops.append({"op": "tide_set", "tide": t})
+                else:
+                    res.notices.append("usage: ((aether.battle tide winning|holding|losing))")
+            else:
+                name = rest2.split(None, 1)[1].strip() if low2.startswith("start") \
+                    and " " in rest2 else rest2
+                if name:
+                    res.user_ops.append({"op": "battle_start", "name": name})
+                else:
+                    res.notices.append("usage: ((aether.battle <name> | tide <t> | end))")
         elif rpg and low.startswith("aether.equip "):   # manual re-slot failsafe (2026-07-10,
             rest2 = cmd.split(None, 1)[1].strip()        # Bean): ((aether.equip <item> <slot>))
             m2 = re.match(r"^(.*?)[\s,]+(?:to\s+|in\s+|->\s*)?([a-z0-9_]+)\s*$", rest2, re.I)
@@ -1573,9 +1685,12 @@ def run(doc: dict, klass: str, duplicate: bool, state: dict, cfg,
                                       entity_aware=entity_aware)
                 if sp is not None:               # Eranmor floor: the attacked, DM-narrated
                     res.rule_ops.append(sp)      # target opens the War Room itself —
+                    band = _floor_group_extras(state, last_assistant, sp)   # the whole named
+                    res.rule_ops.extend(band)    # band, not just the one struck (Bean 2026-07-10)
                     res.notices.append(          # no [foe] tag required (pillar 6)
-                        f"combat floor: staged '{sp['name']}' as a foe — the Player "
-                        f"attacked it and the DM's prose grounds it")
+                        f"combat floor: staged '{sp['name']}' as a foe"
+                        + (f" (+{len(band)} more of the band)" if band else "")
+                        + " — the Player attacked it and the DM's prose grounds it")
                     # fix C: bind the attacking check(s) to the just-staged foe so the opening
                     # strike LANDS this turn (spawn applies before the strike in the batch), and
                     # raise the scene to a combat phase so the fight reads as begun (not 'setup').

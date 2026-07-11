@@ -631,7 +631,7 @@ entries}` — Creator/assist-authored rows clamped + FROZEN (pillar 18). PROPOSA
 quarantine; commits a bounded clash entry + a fact — record, never resolve).
 
 **Tier-0 / dice.** `((aether.check <skill> at <target>))` (or prose naming a live foe, or
-the lone-foe + attack-verb floor) binds a check to an enemy row: damage = STRIKE_FACTOR
+the lone-foe (or a fiction-numbered band, "three cutthroats") + attack-verb floor) binds a check to an enemy row: damage = STRIKE_FACTOR
 (crit 3 / success 2 / partial 1) × the equipped weapon's `damage` mod (floor 1, +1 on a
 surge), emitted as a rule `combatant_hp` alongside the check and shown on the [DIRECTIVE]
 ("the blow lands on X for N — narrate that exact toll"). Every live ally gets ONE
@@ -639,14 +639,16 @@ pre-decided `[ALLY]` die per combat turn (`compose._ally_die`, md5(turn·scene·
 R8c pattern: deterministic, no journal row); enemy→player harm stays R8c `[OPPOSITION]` +
 `[hp]` (the opposition die now also arms whenever live enemy rows exist, so extras with no
 affinity ledger still fight). The `[WAR]` board (exact HP, ratified) rides the volatile
-directive tail (0a-safe). The DM's channels: `[foe | <name> | <tier?> | <weapon?>]`
+directive tail (0a-safe). The DM's channels: `[foe | <name> | <tier?> | <weapon?>]` (enemy side) and
+`[ally | <name> | <tier?> | <weapon?>]` (2026-07-10: the symmetric party channel — a present
+companion onto the Player's side; a whole enemy group is several `[foe]` tags)
 (validated → re-sourced as rule by the pipeline, the R8b pattern; a known cast name spawns
 TRACKED) and `[hp | <combatant> | -N | why]`; the user's: `((aether.foe/ally/combat end))`.
 
 **The referee (`state.combat_ops`)** — pure, journaled, on BOTH apply paths (pipeline
 `_progress` + `_ingest_reply_tags` + the jobs batch, before the progression pass so defeat
 XP feeds level-ups): floor auto-spawn (combat phase/flag ⇒ present Cold-or-worse hostiles
-enlist as foes, Ally-tier friends + the soulmate as allies, caps honored), HP-0 defeats +
+enlist as foes, present COMPANIONS as allies (2026-07-10 — grounded on a BOND: soulmate, Ally-tier standing, a companion-class role/label, or a close relationship dim; OR the COMMON-ENEMY read `_shares_the_fight` — an escort/guard/martial role or an allied faction, not hostile to the Player, in an active fight; OR a player SUMMON/creation `_is_player_summon` — an ownership attribute pointing at the Player, or a summon-typed non-hostile entity), caps honored; the enlist block now runs on `gate OR active` so a live fight enlists even when the DM never tagged the phase), HP-0 defeats +
 XP, and self-ending fights (last foe down = victory; player `defeat_resolve` = defeat;
 scene phase moving on = resolved).
 
@@ -659,7 +661,29 @@ HUD's combat lane; `state_summary` carries `combat`/`clashes`/`loot` raw.
 
 A `none` session remains byte-identical: `empty_state()` gained no keys, every parser,
 pass, block, and wire row is rpg-gated (+ the `war_room` knob), welded by
-`test_p12_combat.py` (23 green, incl. none-leak + deterministic replay).
+`test_p12_combat.py` (46 green, incl. the 3v3 party pass — bond / common-enemy / summon bases — none-leak + deterministic replay).
+
+### §F — large-scale battle (1.21.0)
+
+The player fights their MICRO slice in the War Room while the MACRO battle lives in PROSE; only the
+outcome for the player is tracked. `state["battle"]` (lazy, so `none`/pre-1.21 checkpoints are
+byte-identical): `{active, name, momentum, waves, threat, foe, wave_size, log}`. **Ops:**
+`battle_start{name, momentum?, foe?, threat?, wave_size?}`, `battle_wave{}`, `battle_end{outcome?}`
+are PRIVILEGED (rule/user/genesis); `tide_set{tide, why?}` is PROPOSABLE (`tide ∈ losing|holding|
+winning`). The tide is DERIVED from a code-owned `momentum` (`state.battle_tide`: ≥1 winning / 0
+holding / ≤−1 losing — never stored); `tide_set` steps momentum **one toward the reported tide per
+turn** (baked `_delta` at `_enrich`, clamped ±3 — the engine owns the pace). **The referee
+(`state.battle_ops`)** runs AFTER `combat_ops` on all three combat apply paths (so the turn's
+defeats have landed): when a battle is active and the player's enemy rows have CLEARED but momentum
+≤ 0 and `waves < BATTLE_WAVE_CAP` (8) → a fresh wave (`_battle_wave_ops`: a band of `wave_size`
+foes + `battle_wave`, which nudges momentum +1); once momentum ≥ 1 → `battle_end` victory +
+`combat_end`. `combat_ops` defers its victory `combat_end` to `battle_ops` while a battle is live.
+**Channels:** the DM's `[battle | <name> | <foe?> | <tier?>]` opens it and `[tide | winning|holding|
+losing | <why>]` reports the macro (both parsed by `tier0.parse_battle_tags`, re-sourced as rule
+under the `large_battle` knob); OOC `((aether.battle <name> | tide <t> | end))`. The `[BATTLE]`
+directive (`compose._render_battle`) rides the volatile tail; the HUD `war_room.battle` chip
+(name/tide/waves) surfaces it. Gated by `[specialization].large_battle`; a `none`/knob-off session
+carries no battle fingerprint. Welded by `test_p18_large_battle.py` (11, incl. none-leak + replay).
 
 ### 7.12 Phase 2 — the living world (1.14.0, plan doc 13 ratified)
 

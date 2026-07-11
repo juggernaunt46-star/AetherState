@@ -277,6 +277,35 @@ COMBAT_SIDE_CAP = 3              # per side; the player occupies one ally slot (
 COMBAT_HISTORY_CAP = 10          # settled fights kept for the War Room / Console record
 CLASH_CAP = 20                   # recorded NPC-vs-NPC clashes kept (prose fights, no dice)
 _COMBAT_PHASES = ("climax", "combat", "battle", "fight", "ambush")   # shares R8c's gate
+# Ally-enlistment basis (2026-07-10, Bean: "3v3 is missing"). The floor used to enlist a present
+# friend ONLY at affinity >= ALLY_STANDING — but affinity rarely climbs that high in play, so the
+# party side never formed. The real in-world basis for a comrade-in-arms is a BOND, not a rarely-
+# moved number (pillars 4/6): a soulmate, an authored companion-class role/label, or a genuinely
+# close relationship dim all ground a companion who'd fight beside you. Curated, never model-typed.
+ALLY_STANDING = 40               # deep standing (the Ally affinity tier) — still a valid basis
+HOSTILE_STANDING = -10           # an enemy is never an ally (and the present-hostile enlist bar)
+_ALLY_ROLE_WORDS = ("companion", "ally", "comrade", "partner", "lover", "beloved", "spouse",
+                    "husband", "wife", "sworn", "retainer", "bodyguard", "guardian", "protector",
+                    "squire", "familiar", "confidant", "friend", "sidekick", "second")
+# Common-enemy basis (2026-07-10, Bean's caravan example): a present NPC on the PLAYER's side of
+# an active fight — an escort / hired blade / caravan guard who fights the ambushers to survive —
+# even with NO personal bond, so long as they aren't hostile to the Player. Grounded in a
+# protective/martial role or an allied faction (the enemy-of-my-enemy read), never a bare presence.
+_GUARD_ROLE_WORDS = ("guard", "guardian", "escort", "mercenary", "merc", "sellsword", "soldier",
+                     "hireling", "protector", "bodyguard", "retainer", "knight", "warrior",
+                     "defender", "sentinel", "watchman", "watchmen", "guardsman", "champion",
+                     "fighter", "warden", "ranger", "veteran", "enforcer", "outrider",
+                     "caravaneer", "arms", "guardsmen", "sworn", "vanguard", "companion", "ally")
+# Player summon/conjuration/creation (2026-07-10, Bean: "VERY important"): a thing the Player
+# CALLED INTO BEING fights on their side by construction — its existence is owed to them. Grounded
+# on an ownership attribute pointing at the Player, or a summon-typed non-hostile entity.
+_SUMMONER_KEYS = ("summoner", "conjurer", "creator", "master", "owner", "summoned_by",
+                  "controller", "caster")
+_SUMMON_WORDS = ("summon", "summoned", "conjured", "conjuration", "conjure", "familiar",
+                 "construct", "elemental", "golem", "thrall", "homunculus", "servitor",
+                 "automaton", "turret", "drone", "sentry", "specter", "spectre", "apparition",
+                 "wisp", "totem", "creation", "simulacrum", "duplicate", "manifestation",
+                 "avatar", "companion")
 # curated fallback loot rows (registry/loot.toml overrides; a Creator-frozen state["loot"]
 # table wins over both). Baked into combatant_defeat at _enrich -> replay never re-rolls.
 _LOOT_FALLBACK = {
@@ -288,6 +317,40 @@ _LOOT_FALLBACK = {
     "boss": [{"name": "trove of coin", "qty_min": 1, "qty_max": 1, "chance": 1.0},
              {"name": "signature relic", "qty_min": 1, "qty_max": 1, "chance": 0.9}],
 }
+
+
+# ---- Large-scale battle (plan doc 13 §F, Bean 2026-07-10) ----------------------------
+# The player fights their MICRO slice on the dice (the War Room bubble); the MACRO battle —
+# army-on-army, the rest of the field — lives in PROSE, the DM reporting how it goes. Only the
+# OUTCOME is tracked: a momentum (code-owned, clamped) whose sign is the TIDE for the player
+# (losing / holding / winning). A battle that isn't yet won keeps sending fresh WAVES into the
+# War Room until it turns. All numbers curated — never model-typed (the DM only proposes tide).
+BATTLE_TIDES = ("losing", "holding", "winning")            # negative / neutral / positive
+BATTLE_MOMENTUM_CLAMP = (-3, 3)
+BATTLE_WAVE_CAP = 8                # a runaway guard: a battle self-resolves after this many waves
+BATTLE_WAVE_DEFAULT = 2            # foes per wave (never past the 3v3 enemy side)
+
+
+def battle_tide(momentum) -> str:
+    """Derive the player-facing tide from the code-owned momentum (never stored — like the
+    affinity tier, it cannot drift)."""
+    try:
+        m = int(momentum)
+    except (TypeError, ValueError):
+        m = 0
+    return "winning" if m >= 1 else "losing" if m <= -1 else "holding"
+
+
+def _battle(state: dict) -> dict:
+    """The large-scale-battle ledger (created lazily so a pre-1.20 checkpoint replays untouched)."""
+    return state.setdefault("battle", {"active": False, "name": "", "momentum": 0, "waves": 0,
+                                       "threat": "standard", "foe": "reinforcements",
+                                       "wave_size": BATTLE_WAVE_DEFAULT, "started_turn": None,
+                                       "log": []})
+
+
+def battle_active(state: dict) -> bool:
+    return bool((state.get("battle") or {}).get("active"))
 
 
 def _combat(state: dict) -> dict:
@@ -413,6 +476,14 @@ _SPEC: dict[str, set[str]] = {
     "combat_end": set(),
     "clash_record": {"a", "b"},                # NPC-vs-NPC: record, never resolve (no dice)
     "loot_table": {"tier", "entries"},         # Creator/assist-frozen loot rows (pillar 18)
+    # Large-scale battle (plan doc 13 §F, Bean 2026-07-10). battle_start / battle_wave /
+    # battle_end are PRIVILEGED (rule/user/genesis — the DM's [battle] tag opens it and the
+    # code referee sends waves); tide_set is PROPOSABLE (the DM's [tide] tag reports the macro,
+    # clamped +/-1 step per turn — code owns the pace).
+    "battle_start": {"name"},
+    "tide_set": {"tide"},
+    "battle_wave": set(),
+    "battle_end": set(),
     # Phase 2 living world (plan doc 13, ratified). front_add / front_tick / route_set are
     # PRIVILEGED (fronts are authored frozen and advanced by CODE — the world_ops referee);
     # front_reveal is PROPOSABLE (a rumor heard in the fiction is witnessed truth — the
@@ -433,6 +504,8 @@ _ORDER = {"freeze": -1, "unfreeze": 0, "entity_add": 0, "presence": 1, "move_ent
           "defeat_resolve": 9,
           "loot_table": 1, "combatant_spawn": 2, "combatant_hp": 6,   # Phase 1: spawn before
           "combatant_defeat": 8, "combat_end": 9,                     # harm; settle last
+          "battle_start": 1, "tide_set": 6, "battle_wave": 2,         # §F: open early, wave with
+          "battle_end": 9,                                            # the spawns, settle last
           "front_add": 1, "route_set": 1, "front_reveal": 5, "front_tick": 8}   # Phase 2
 _DEFAULT_ORDER = 7
 
@@ -466,6 +539,8 @@ _FAMILY = {
     "combatant_spawn": "scene", "combatant_hp": "scene",              # Phase 1 combat: the
     "combatant_defeat": "scene", "combat_end": "scene",               # fight is scene truth;
     "clash_record": "facts", "loot_table": "facts",                   # records are facts
+    "battle_start": "scene", "battle_wave": "scene", "battle_end": "scene",   # §F: the battle
+    "tide_set": "scene",                                              # is scene/combat truth
     "front_add": "facts", "front_tick": "facts",                      # Phase 2: the living
     "front_reveal": "facts", "route_set": "facts",                    # world is world truth
 }
@@ -506,7 +581,8 @@ _NONLIVE_SUPPRESSED = {"clothing", "position", "contact", "arousal", "consent_si
                        "effect_add", "effect_remove", "effect_update",   # ...or live effects
                        "item_gain", "item_lose", "hp_adj", "defeat_resolve",   # RPG-5: nor
                        "combatant_spawn", "combatant_hp", "combatant_defeat",  # grant items /
-                       "combat_end"}   # deal harm — a dream can't rob, wound, or start a war
+                       "combat_end",   # deal harm — a dream can't rob, wound, or start a war
+                       "battle_start", "battle_wave", "battle_end", "tide_set"}   # §F: nor a war
 
 
 def slug(name: str) -> str:
@@ -694,6 +770,10 @@ def validate_op(op: Any) -> Optional[dict]:
         if kind == "loot_table":
             if op["tier"] not in THREAT_TIERS or not isinstance(op["entries"], list):
                 return None
+        if kind == "battle_start" and not str(op.get("name", "")).strip():   # §F: named at door
+            return None
+        if kind == "tide_set" and op.get("tide") not in BATTLE_TIDES:         # losing/holding/win
+            return None
         if kind == "front_add":                    # Phase 2: an authored clock, typed at the door
             if not str(op.get("name", "")).strip():
                 return None
@@ -901,6 +981,14 @@ def authority_violation(op: dict, source: str, state: dict, cfg) -> Optional[str
             "combat instances are engine-owned: spawn/defeat/end and loot tables are " \
             "privileged — the DM introduces foes via the [foe] tag (validated, re-sourced), " \
             "never by writing state (plan doc 13)"   # Phase 1: code resolves, the model narrates
+
+    if kind in ("battle_start", "battle_wave", "battle_end"):   # §F: the macro battle is engine-
+        return None if source in ("user", "genesis", "rule") else \
+            "the large-scale battle is engine-owned: it opens by the [battle] tag (validated, " \
+            "re-sourced) and the referee sends the waves — a model narrates the macro and " \
+            "reports the tide with [tide], but never writes the battle (plan doc 13 §F)"
+    # tide_set is PROPOSABLE (the DM's [tide] report) — clamped +/-1 step/turn at apply; it
+    # falls through to the default proposable path (no privileged guard here).
 
     if kind == "fact_retire":                  # compression item 3: only code or the user may
         return None if source in ("user", "genesis", "rule") else \
@@ -2136,6 +2224,39 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                             "chance": min(1.0, max(0.0, float(e.get("chance", 1.0))))})
         if entries:
             state.setdefault("loot", {})[op["tier"]] = entries
+    elif kind == "battle_start":                # §F: open (or re-open) the large-scale battle
+        b = _battle(state)
+        if not b.get("active"):                 # seed-once while live; a settled battle re-opens
+            b.update({"active": True, "name": str(op["name"]).strip()[:80] or "the battle",
+                      "momentum": _clamp(int(op.get("momentum", 0)), *BATTLE_MOMENTUM_CLAMP),
+                      "waves": 0,
+                      "threat": op["threat"] if op.get("threat") in THREAT_TIERS else "standard",
+                      "foe": (str(op.get("foe") or "").strip()[:60] or "reinforcements"),
+                      "wave_size": _clamp(int(op.get("wave_size", BATTLE_WAVE_DEFAULT)),
+                                          1, COMBAT_SIDE_CAP),
+                      "started_turn": turn, "log": [], "outcome": None})
+    elif kind == "tide_set":                    # §F: the DM's macro report -> one clamped step
+        b = state.get("battle")
+        if not (isinstance(b, dict) and b.get("active")):
+            raise OpReject("no active battle — there is no tide to turn")
+        b["momentum"] = _clamp(int(b.get("momentum", 0)) + int(op.get("_delta", 0)),
+                               *BATTLE_MOMENTUM_CLAMP)
+        b["log"] = (b.get("log") or [])[-19:] + [[turn, "tide", str(op.get("why", ""))[:80]]]
+    elif kind == "battle_wave":                 # §F: the referee sent a fresh wave (record + nudge)
+        b = state.get("battle")
+        if not (isinstance(b, dict) and b.get("active")):
+            raise OpReject("no active battle for a wave")
+        b["waves"] = int(b.get("waves", 0)) + 1
+        b["momentum"] = _clamp(int(b.get("momentum", 0)) + int(op.get("_delta", 1)),
+                               *BATTLE_MOMENTUM_CLAMP)
+        b["log"] = (b.get("log") or [])[-19:] + [[turn, "wave", int(b["waves"])]]
+    elif kind == "battle_end":                  # §F: the macro battle settles
+        b = state.get("battle")
+        if not (isinstance(b, dict) and b.get("active")):
+            raise OpReject("no active battle to end")
+        b["active"], b["outcome"], b["ended_turn"] = \
+            False, str(op.get("outcome") or "resolved"), turn
+        b["log"] = (b.get("log") or [])[-19:] + [[turn, "end", b["outcome"]]]
     elif kind == "front_add":                   # Phase 2: an authored clock, frozen at creation
         fid = str(op.get("_fid") or slug(str(op.get("name", "")))[:64])
         fronts = state.setdefault("fronts", {})
@@ -2401,6 +2522,73 @@ def combat_gate(state: dict) -> bool:
     return False
 
 
+def _companion_basis(peid: str, eid: str, pl: dict, aff: dict,
+                     rels: dict, attrs: dict) -> bool:
+    """Is this present NPC grounded as a comrade who'd enlist beside the player? An in-world
+    basis, never a bare number (pillars 4/6): a soulmate bond, deep standing (Ally tier), a
+    close relationship dim, or an authored companion-class role/label. A current enemy (standing
+    at or below the hostile bar) is never an ally, whatever a stray label says."""
+    if eid and eid == pl.get("soulmate"):
+        return True
+    rec = aff.get(f"{peid}->{eid}") if isinstance(aff, dict) else None
+    val = int(rec.get("value", 0)) if isinstance(rec, dict) else 0
+    if val <= HOSTILE_STANDING:                     # an enemy is never an ally
+        return False
+    if val >= ALLY_STANDING:                        # deep standing (kept)
+        return True
+    rel = (rels.get(f"{peid}->{eid}") or {}) if isinstance(rels, dict) else {}
+    dims = rel.get("dims") or {}
+    if int(dims.get("trust", 0)) >= 40 or int(dims.get("affection", 0)) >= 40 \
+            or int(dims.get("desire", 0)) >= 50:    # a genuinely close bond (not a stranger)
+        return True
+    role = str((attrs.get(eid) or {}).get("role", "")).lower() if isinstance(attrs, dict) else ""
+    labels = " ".join(str(x).lower() for x in (rec.get("labels") or [])) \
+        if isinstance(rec, dict) else ""
+    rlabels = " ".join(str(x).lower() for x in (rel.get("labels") or []))
+    toks = set(re.findall(r"[a-z]+", f"{role} {labels} {rlabels}"))   # authored comrade role/label
+    return any(w in toks for w in _ALLY_ROLE_WORDS)
+
+
+def _shares_the_fight(peid: str, eid: str, aff: dict, attrs: dict) -> bool:
+    """Common-enemy basis (Bean 2026-07-10): a present NPC who fights the SAME foes as the Player
+    and is NOT hostile to them enlists on the Player's side even with no personal bond — the
+    caravan escort surviving an ambush. Grounded, not bare presence: a protective/martial role,
+    or an allied/shared faction (a neutral bystander with neither is not conscripted). Called
+    only when an active enemy threat is already on the field (the shared enemy is the basis)."""
+    rec = aff.get(f"{peid}->{eid}") if isinstance(aff, dict) else None
+    if isinstance(rec, dict) and int(rec.get("value", 0)) <= HOSTILE_STANDING:
+        return False                                # mutually hostile -> never an ally
+    role = str((attrs.get(eid) or {}).get("role", "")).lower() if isinstance(attrs, dict) else ""
+    if any(w in set(re.findall(r"[a-z]+", role)) for w in _GUARD_ROLE_WORDS):
+        return True                                 # here to fight/protect (escort, guard, merc)
+    pfac = (attrs.get(peid) or {}).get("faction") if isinstance(attrs, dict) else None
+    nfac = (attrs.get(eid) or {}).get("faction") if isinstance(attrs, dict) else None
+    if nfac and pfac and nfac == pfac:
+        return True                                 # same faction as the Player
+    if nfac:                                        # the Player stands with their faction
+        frec = aff.get(f"{peid}->{nfac}") if isinstance(aff, dict) else None
+        if isinstance(frec, dict) and int(frec.get("value", 0)) >= ALLY_STANDING:
+            return True
+    return False
+
+
+def _is_player_summon(peid: str, eid: str, aff: dict, attrs: dict) -> bool:
+    """A Player summon / conjuration / creation fights on the Player's side (Bean 2026-07-10) —
+    it exists because the Player called it into being, so it is an ally by construction. Grounded:
+    an ownership attribute (summoner/conjurer/creator/owner/…) pointing at the Player, or a
+    summon-typed entity that is not hostile to them (its caster stands with the Player)."""
+    a = (attrs.get(eid) or {}) if isinstance(attrs, dict) else {}
+    for k in _SUMMONER_KEYS:                         # explicit ownership -> definitionally yours
+        v = str(a.get(k, "")).strip().lower()
+        if v and v in (peid, "player", "you", "self", "{{user}}", "{{char}}"):
+            return True
+    rec = aff.get(f"{peid}->{eid}") if isinstance(aff, dict) else None
+    if isinstance(rec, dict) and int(rec.get("value", 0)) <= HOSTILE_STANDING:
+        return False                                 # a hostile 'elemental' is a foe, not a summon
+    typ = " ".join(str(a.get(k, "")) for k in ("role", "type", "species", "class", "descriptor"))
+    return bool(set(re.findall(r"[a-z]+", typ.lower())) & set(_SUMMON_WORDS))
+
+
 def combat_ops(state: dict, applied: list[dict]) -> list[dict]:
     """Phase 1 (ratified doc 13): the code-side combat referee. Pure reader over
     (state, this batch's applied ops); returns PRIVILEGED rule ops for the caller to
@@ -2420,6 +2608,8 @@ def combat_ops(state: dict, applied: list[dict]) -> list[dict]:
     active = bool(cb.get("active"))
     ents = state.get("entities") or {}
     aff = state.get("affinity") or {}
+    rels = state.get("relationships") or {}
+    attrs = state.get("attributes") or {}
     pl = (state.get("player") or {}).get(peid) or {}
 
     def _standing(eid: str) -> int:
@@ -2432,10 +2622,11 @@ def combat_ops(state: dict, applied: list[dict]) -> list[dict]:
     on_field = {r.get("eid") for r in (cb.get("combatants") or {}).values()
                 if isinstance(r, dict) and not r.get("defeated") and r.get("eid")}
     gate = combat_gate(state)
-    if gate:
-        want_foes = 0
+    if gate or active:                      # a tagged combat phase OR live foes already on the
+        want_foes = 0                       # field is a fight — enlist without needing the phase
+
         if not active:                          # open the war room: present hostiles enlist
-            hostiles = sorted([e for e in present if _standing(e) <= -10],
+            hostiles = sorted([e for e in present if _standing(e) <= HOSTILE_STANDING],
                               key=lambda e: (_standing(e), e))[:COMBAT_SIDE_CAP]
             for eid in hostiles:
                 out.append({"op": "combatant_spawn", "name": ents[eid].get("name", eid),
@@ -2447,9 +2638,10 @@ def combat_ops(state: dict, applied: list[dict]) -> list[dict]:
                                                  if isinstance(r, dict)
                                                  and not r.get("defeated")
                                                  and r.get("side") == "ally"])
-            mates = {pl.get("soulmate")}
             friends = sorted([e for e in present if e not in on_field
-                              and (_standing(e) >= 40 or e in mates)],
+                              and (_companion_basis(peid, e, pl, aff, rels, attrs)
+                                   or _shares_the_fight(peid, e, aff, attrs)
+                                   or _is_player_summon(peid, e, aff, attrs))],
                              key=lambda e: (-_standing(e), e))
             for eid in friends[:max(0, slots)]:
                 out.append({"op": "combatant_spawn", "name": ents[eid].get("name", eid),
@@ -2479,13 +2671,61 @@ def combat_ops(state: dict, applied: list[dict]) -> list[dict]:
                      and o.get("phase") is not None
                      and str(o.get("phase")).lower() not in _COMBAT_PHASES
                      for o in (applied or []))
+    battle_on = bool((state.get("battle") or {}).get("active"))
     if live_enemies == 0:
-        out.append({"op": "combat_end", "outcome": "victory"})
+        if battle_on and not player_fell and not phase_left:
+            pass    # §F: a large battle is running -> battle_ops decides wave vs. win AFTER these
+                    # defeats apply (so a fresh wave never collides with the just-cleared foes)
+        else:
+            out.append({"op": "combat_end", "outcome": "victory"})
     elif player_fell:
+        if battle_on:
+            out.append({"op": "battle_end", "outcome": "defeat"})
         out.append({"op": "combat_end", "outcome": "defeat"})
     elif phase_left:
+        if battle_on:
+            out.append({"op": "battle_end", "outcome": "resolved"})
         out.append({"op": "combat_end", "outcome": "resolved"})
     return out
+
+
+def _battle_wave_ops(state: dict) -> list[dict]:
+    """§F: the next wave of the large-scale battle presses into the War Room — a small band of
+    foes matching the battle's threat + the wave record. Curated size/tier/name (never
+    model-typed); the reducer suffixes duplicate cids so a wave of like-named foes coexists."""
+    b = state.get("battle") or {}
+    size = _clamp(int(b.get("wave_size", BATTLE_WAVE_DEFAULT)), 1, COMBAT_SIDE_CAP)
+    tier = b.get("threat") if b.get("threat") in THREAT_TIERS else "standard"
+    foe = str(b.get("foe") or "reinforcements").strip() or "reinforcements"
+    out: list[dict] = [{"op": "combatant_spawn", "name": foe, "side": "enemy", "tier": tier}
+                       for _ in range(size)]
+    out.append({"op": "battle_wave"})
+    return out
+
+
+def battle_ops(state: dict, applied: list[dict]) -> list[dict]:
+    """§F large-scale-battle referee — runs AFTER combat_ops (so the turn's defeats are already
+    applied). Pure reader; returns PRIVILEGED rule ops. When a battle is active and the Player's
+    War Room slice has CLEARED (no live enemy rows) but the macro tide is not yet won, the next
+    wave presses in (Bean: 'more waves until it gets better'); once the tide is winning (or a
+    runaway guard trips), the battle — and the fight — settle. Inert without an active battle."""
+    b = state.get("battle") or {}
+    if not b.get("active"):
+        return []
+    cb = state.get("combat") or {}
+    if not cb.get("active"):
+        return []                                   # combat already settled (non-battle path)
+    live_enemies = [r for r in (cb.get("combatants") or {}).values()
+                    if isinstance(r, dict) and not r.get("defeated")
+                    and r.get("side") == "enemy"
+                    and int((r.get("hp") or {}).get("cur", 1)) > 0]
+    if live_enemies:
+        return []                                   # the Player's slice is still contested — wait
+    mom = int(b.get("momentum", 0))
+    if mom <= 0 and int(b.get("waves", 0)) < BATTLE_WAVE_CAP:   # the wider battle isn't won yet
+        return _battle_wave_ops(state)              # -> another wave into the War Room
+    return [{"op": "battle_end", "outcome": "victory" if mom >= 1 else "resolved"},
+            {"op": "combat_end", "outcome": "victory"}]
 
 
 # ---- Phase 2 living-world pass (plan doc 13, ratified) — pure, deterministic, journaled ----
@@ -2715,6 +2955,13 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None) -> dict:
     if op["op"] == "affinity_adj":             # RPG-3b (doc 07 §6): the per-turn clamp is baked
         out["_delta"] = _clamp(op.get("delta", 0), *AFFINITY_DELTA_CLAMP)   # so history is
                                                # stable even if the constant is tuned later
+    if op["op"] == "tide_set":                 # §F: the DM's macro report -> a single clamped
+        cur = int(((state or {}).get("battle") or {}).get("momentum", 0))   # step toward the tide
+        target = {"winning": BATTLE_MOMENTUM_CLAMP[1], "losing": BATTLE_MOMENTUM_CLAMP[0],
+                  "holding": 0}.get(op.get("tide"), 0)
+        out["_delta"] = 1 if target > cur else -1 if target < cur else 0   # engine owns the pace:
+    if op["op"] == "battle_wave":              # at most one step/turn. a cleared wave nudges the
+        out["_delta"] = int(op.get("_delta", 1))   # tide toward the player (their slice won)
     if op["op"] == "item_gain":                # RPG-5 (G2): template-snapshot floor — a name
         from . import registry as _registry    # matching a curated template grounds its
         tid = None                             # mechanics; anything else commits MECHANICS-FREE

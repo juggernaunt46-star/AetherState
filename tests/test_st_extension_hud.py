@@ -40,7 +40,8 @@ _MARKERS = (
     "window.aetherHudExpand",          # the minimized strip's one-tap way home
     "aes-expand",                      # the strip's self-label (a minimized HUD must SAY so)
     "HUD render error",                # visible fail-open inside the renderers
-    "auto-compact toggle build",       # build tag — bump it when the extension changes
+    "large-scale-battle build",        # build tag — bump it when the extension changes
+    "recruit an ally",                 # Phase 1 party: the war-room recruit hint (2026-07-10)
 )
 
 

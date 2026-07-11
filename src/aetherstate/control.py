@@ -532,7 +532,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
     # the RPG knobs a human flips live from the Console / ST panel (bools + the contract enum).
     _SPEC_BOOL_KNOBS = ("intent_floor", "war_room", "enemy_rolls", "auto_dm_checks", "foe_floor",
                         "stealth_kills", "living_world", "hardcore", "dm_guard",
-                        "auto_compact_contract")
+                        "auto_compact_contract", "large_battle")
 
     def _spec_view() -> dict:
         s = cfg.specialization

@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — auto-compact toggle build (2026-07-10)");
+  console.log("[AetherState] Companion loaded — large-scale-battle build (2026-07-10)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -737,6 +737,10 @@
     const foes = (w.combatants || []).filter((c) => c.side === "enemy");
     const allies = (w.combatants || []).filter((c) => c.side !== "enemy");
     let h = `<div class="aes-war"><div class="aes-war-h">⚔ WAR ROOM <span class="m">round ${esc(w.round)}</span></div>`;
+    if (w.battle) {                                  // §F: the macro large-scale-battle chip
+      const t = w.battle.tide, cls = t === "winning" ? "ok" : t === "losing" ? "bad" : "warn";
+      h += `<div class="aes-kv" style="margin:2px 0" title="the wider battle — the engine sends fresh waves while you aren't winning; the rest of the field is narrated in prose">⚑ <b>${esc(w.battle.name || "battle")}</b> <span class="aes-tag ${cls}">${esc(t)}</span>${w.battle.waves ? ` <span class="aes-dim">wave ${esc(w.battle.waves)}</span>` : ""}</div>`;
+    }
     if ((w.order || []).length > 1) {                // explicit initiative order (2026-07-10)
       h += `<div class="aes-war-init"><span class="aes-dim">initiative</span> ` +
         w.order.map((o, i) => `<span class="aes-init ${o.side === "player" ? "me" : esc(o.side)}">` +
@@ -744,6 +748,7 @@
     }
     if (foes.length) h += `<div class="aes-war-side">${foes.map(card).join("")}</div>`;
     if (allies.length) h += `<div class="aes-war-side">${allies.map(card).join("")}</div>`;
+    h += `<div class="aes-kv aes-dim" style="margin-top:4px" title="type in chat to bring a present companion onto your side (3v3)">🛡 recruit an ally: <code>((aether.ally &lt;name&gt;))</code></div>`;
     return h + `</div>`;
   }
   function renderRules(rules) {

@@ -278,6 +278,11 @@ class SpecializationConfig(BaseModel):
     #                                  defeat -> XP + frozen loot, the [WAR] board, the
     #                                  [foe]/[clash] tag channels, and the War Room HUD lane.
     #                                  off = 1.12 combat behavior (R8c/[hp] only)
+    large_battle: bool = True        # §F (2026-07-10, Bean): large-scale battle — the Player
+    #                                  fights their MICRO 3v3 slice on the dice while the MACRO
+    #                                  battle lives in PROSE; a code-owned tide (losing/holding/
+    #                                  winning) the DM reports via [tide], and fresh WAVES press
+    #                                  the War Room until it turns. off = no [BATTLE]/waves.
     foe_floor: bool = True           # 2026-07-10 (Eranmor floor): the Player ATTACKING a
     #                                  target the DM's own last reply narrated (but never
     #                                  tagged [foe]) stages it as an enemy combatant — the

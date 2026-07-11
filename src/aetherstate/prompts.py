@@ -184,7 +184,13 @@ _WAR_ROOM_RULES = (
     " WAR ROOM: when real combat starts, fighters become tracked combatants with exact HP — "
     "the [WAR] line is the board; trust its numbers. Introduce a NEW opponent with "
     "[foe | <name> | minion|standard|elite|boss | <weapon>] on its own line (at most 3 foes "
-    "on the field; a known NPC's name fights as themselves, wounds and all). The Player's "
+    "on the field; a known NPC's name fights as themselves, wounds and all). Populate BOTH "
+    "sides: a whole group of enemies is several [foe] tags. Bring the Player's PRESENT "
+    "companions into the fight with [ally | <name> | <tier?> | <weapon?>] (the mirror of "
+    "[foe], for the Player's side) - a known ally fights as themselves; up to two stand with "
+    "the Player (3v3). Present escorts, hired blades, faction allies, and the Player's own "
+    "summons or creations who share the fight stand with the Player automatically (the engine "
+    "enlists them) - narrate them fighting the common foe, never turning on the Player. The Player's "
     "strike damage arrives ALREADY APPLIED on the [DIRECTIVE] — narrate that exact toll. "
     "Enemy harm to the Player uses the [OPPOSITION] die's [hp] tag; each ally acts on their "
     "[ALLY] die — on a hit, emit [hp | <foe> | -N | why] for the foe they struck; your own "
@@ -194,7 +200,12 @@ _WAR_ROOM_RULES = (
     "gives the turn order (highest initiative first) — resolve the round in that sequence, "
     "weaving the pre-rolled dice into one flowing beat but honoring who acts before whom. "
     "Fights between NPCs use no dice — narrate them freely, then record the outcome with "
-    "[clash | <A> vs <B> | <how> | <what changed>].")
+    "[clash | <A> vs <B> | <how> | <what changed>]. LARGE BATTLES: in a big engagement the "
+    "Player fights their own slice in the War Room while the WIDER battle is yours to narrate "
+    "in prose. Open one with [battle | <name> | <foe?> | <tier?>]; report how the macro fight "
+    "goes with [tide | winning|holding|losing | why]; while it isn't won the engine sends fresh "
+    "WAVES of foes into the War Room, so keep the pressure on and narrate the rest of the field "
+    "(other units winning/losing) freely — only the outcome for the Player is tracked.")
 DM_RULES_CONTRACT = (
     "[RULES] You are the Game Master of a mechanical RPG — a GAME with dice and stakes, not "
     "free chat. The engine, not you, resolves dice, checks, damage, loot, and stats; you only "
@@ -241,10 +252,15 @@ EFFECTS_PROTOCOL_VERSION = "world-tags/6"   # /6 (2026-07-10, Eranmor): the prot
 # Phase 1: the combat tag slice — appended to the [TAGS] protocol under war_room only.
 _WAR_TAGS = (
     " Combat tags: [foe | <name> | <tier?> | <weapon?>] when a NEW opponent squares up "
+    "(or several tags for a group), [ally | <name> | <tier?> | <weapon?>] to bring a present "
+    "companion onto the Player's side "
     "(the engine spawns it with real HP — tiers minion|standard|elite|boss) · "
     "[hp | <combatant> | -N | <why>] lands harm on ANY tracked combatant, not just the "
     "Player · [clash | <A> vs <B> | <how> | <outcome>] when NPCs fight each other — "
-    "record it, never roll for it.")
+    "record it, never roll for it."
+    " · [battle | <name> | <foe?> | <tier?>] opens a LARGE battle and "
+    "[tide | winning|holding|losing | <why>] reports how the wider fight goes (the engine "
+    "sends waves while you aren't winning; narrate the rest of the field in prose).")
 # Phase 2: the living-world tag slice — appended under living_world only.
 _LIVING_TAGS = (
     " World tags: [time | <segment>] or [time | +1] when real time passes in the fiction "
@@ -311,10 +327,16 @@ def rules_contract(cfg=None, force_compact: bool = False) -> str:
         if cfg is None or getattr(getattr(cfg, "specialization", None),
                                   "war_room", True):    # Phase 1 (byte-stable per cfg — 0a)
             base += (" WAR ROOM: combat uses tracked HP ([WAR] board); new foes via "
-                     "[foe | <name> | <tier> | <weapon>]; harm via [hp | <combatant> | -N]; "
+                     "[foe | <name> | <tier> | <weapon>], present companions via "
+                     "[ally | <name>]; harm via [hp | <combatant> | -N]; "
                      "allies act on their [ALLY] die; death ONLY at ledger 0 HP; NPC-vs-NPC "
                      "fights are prose — record with [clash | A vs B | how | outcome]."
                      if compact else _WAR_ROOM_RULES)
+        if compact and (cfg is None or getattr(getattr(cfg, "specialization", None),
+                                               "large_battle", True)):
+            base += (" LARGE BATTLE: [battle | <name>] opens it, [tide | winning|holding|losing] "
+                     "reports the macro (narrate the wider field in prose); the engine sends "
+                     "fresh waves into the War Room while you aren't winning.")
         if cfg is not None and getattr(getattr(cfg, "injection", None),
                                        "briefing_style", "verbose") == "compact":
             # compression item 2: the one-time legend for the dense briefing notation —

@@ -578,3 +578,298 @@ def test_p12_journal_replays_deterministically():
     assert s1["combat"]["history"][-1]["defeated"] == ["Bandit"]
     assert any(it["name"] == "coin" for it in s1["items"].values())
     assert s1["player"]["kael"]["xp"] == THREAT_XP["standard"]
+
+
+
+# ---------------- 3v3 party formation (2026-07-10, Bean: "3v3 is missing") --------------
+def test_companion_role_enlists_without_high_affinity():
+    """The floor used to enlist a present friend ONLY at affinity >= 40 (the Ally tier), which
+    rarely climbs that high in play, so the party side never formed. Now an authored companion-
+    class role (or a soulmate / close relationship dim) grounds a comrade at near-zero affinity:
+    Mira has a 'loyal companion' role and no accrued standing, yet still stands with the Player
+    when violence breaks out — the bond IS the basis (pillars 4/6)."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "presence", "entity": "Mira", "present": True},
+        {"op": "set_attribute", "entity": "Mira", "key": "role", "value": "loyal companion"},
+        {"op": "scene_set", "location": "alley", "phase": "ambush"}], "user", cfg)
+    _spawn(store, sid, bid, 1, cfg, name="Bandit", tier="standard")   # a fight is underway
+    st = current_state(store, bid)
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Mira", "ally") in spawns                     # companion role -> ally, affinity ~0
+    assert ("Suki", "ally") not in spawns                 # present but no bond: not conscripted
+
+
+def test_soulmate_enlists_and_a_stranger_does_not():
+    """Two edges of the grounded floor: a soulmate always stands with the Player; a merely
+    present neutral stranger has no in-world basis and does NOT get conscripted."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "presence", "entity": "Mira", "present": True},
+        {"op": "set_soulmate", "target": "Suki"},         # Suki: bonded (Suki is present)
+        {"op": "scene_set", "location": "alley", "phase": "ambush"}], "user", cfg)
+    _spawn(store, sid, bid, 1, cfg, name="Bandit", tier="standard")   # a fight is underway
+    st = current_state(store, bid)
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Suki", "ally") in spawns                     # the soulmate fights beside you
+    assert ("Mira", "ally") not in spawns                 # neutral stranger: no basis, no slot
+
+
+def test_dm_ally_tag_spawns_tracked_and_extra():
+    """The symmetric channel the DM never had: [ally | name | tier? | weapon?] brings a present
+    companion onto the Player's side, exactly like [foe] does for the enemy side. A known cast
+    member is TRACKED (wounds persist); an unknown name is a procedural extra ally."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    st = current_state(store, bid)
+    ops = tier0.parse_foe_tags(
+        "You are not alone. [ally | Suki | standard | twin daggers]\n"
+        "[ally | Hired Blade | minion]", st)
+    a = {o["name"]: o for o in ops}
+    assert a["Suki"]["side"] == "ally" and a["Suki"]["char"] == "suki"     # known -> tracked
+    assert a["Suki"]["armament"] == "twin daggers" and a["Suki"]["tier"] == "standard"
+    assert a["Hired Blade"]["side"] == "ally" and "char" not in a["Hired Blade"]   # -> extra
+    r = apply_delta(store, sid, bid, 1, ops, "rule", cfg)
+    assert r.applied
+    sides = {row["name"]: row["side"]
+             for row in current_state(store, bid)["combat"]["combatants"].values()}
+    assert sides["Suki"] == "ally" and sides["Hired Blade"] == "ally"
+
+
+def test_foe_and_ally_tags_coexist_in_one_reply():
+    """A single DM reply can stand both sides up: some [foe] tags and an [ally] tag parse into
+    combatant_spawns on the correct sides, and the [foe] path stays byte-identical to before."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    st = current_state(store, bid)
+    ops = tier0.parse_foe_tags(
+        "[foe | Dock Thug | minion | pipe]\n[ally | Suki]\n[foe | Vex | elite]", st)
+    by_side = {}
+    for o in ops:
+        by_side.setdefault(o["side"], []).append(o["name"])
+    assert by_side["enemy"] == ["Dock Thug", "Vex"]       # foe order preserved, enemy side
+    assert by_side["ally"] == ["Suki"]                    # the ally rides the same parser
+    assert next(o for o in ops if o["name"] == "Vex")["char"] == "vex"   # known -> tracked
+
+
+def test_floor_stages_the_named_band():
+    """Attacking into a group the DM's prose NUMBERS ('three cutthroats') stages the whole band,
+    capped at the 3v3 enemy side, not just the one the Player struck (Bean 2026-07-10)."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    st = current_state(store, bid)
+    doc = {"messages": [
+        {"role": "assistant",
+         "content": "Three Dockside cutthroats fan out across the wharf, blades held low."},
+        {"role": "user", "content": "((aether.check melee)) I cut into the nearest cutthroat."}]}
+    res = tier0.run(doc, "new_turn", False, st, cfg, _Rig(5))
+    spawns = [o for o in res.rule_ops if o.get("op") == "combatant_spawn"]
+    assert len(spawns) == 3 and all(s["side"] == "enemy" for s in spawns)   # the whole band
+    assert len({s["_cid"] for s in spawns}) == 3          # three distinct rows
+    r = apply_delta(store, sid, bid, 1, res.rule_ops, "rule", cfg)
+    foes = [row for row in r.state["combat"]["combatants"].values() if row["side"] == "enemy"]
+    assert len(foes) == 3
+
+
+def test_lone_foe_prose_stages_exactly_one():
+    """No count word -> the floor still stages exactly one foe (the group path is opt-in on an
+    explicit number in the fiction; a solo enemy never balloons into a phantom crowd)."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    st = current_state(store, bid)
+    doc = {"messages": [
+        {"role": "assistant", "content": "A lone Dockside cutthroat steps from the shadow."},
+        {"role": "user", "content": "((aether.check melee)) I cut into the cutthroat."}]}
+    res = tier0.run(doc, "new_turn", False, st, cfg, _Rig(5))
+    spawns = [o for o in res.rule_ops if o.get("op") == "combatant_spawn"]
+    assert len(spawns) == 1
+
+
+def test_contract_teaches_the_ally_channel():
+    """The DM rules-contract now teaches the [ally] channel (full and compact), gated with the
+    rest of the War Room — a knob-off / none contract never mentions it (invariant 1)."""
+    cfg = _rpg_cfg()
+    assert "[ally" in rules_contract(cfg)                 # full contract teaches the party
+    cfg.specialization.contract = "compact"
+    assert "[ally" in rules_contract(cfg)                 # compact contract too
+    cfg.specialization.contract = "full"
+    cfg.specialization.war_room = False
+    assert "[ally" not in rules_contract(cfg)             # gated with the board
+
+
+def test_ooc_ally_recruit_resolves_a_present_companion():
+    """The player's own recruit path, surfaced in the HUD: ((aether.ally <name>)) stages a
+    present companion on the Player's side, name resolved to the known entity."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    st = current_state(store, bid)
+    doc = {"messages": [{"role": "user", "content": "((aether.ally Suki)) to me!"}]}
+    res = tier0.run(doc, "new_turn", False, st, cfg)
+    ally = [o for o in res.user_ops if o["op"] == "combatant_spawn"]
+    assert ally and ally[0]["side"] == "ally" and ally[0]["char"] == "suki"
+
+
+def test_none_session_ignores_the_ally_tag_and_channel():
+    """RPG invariant 1: an [ally] tag leaves no fingerprint under `none` — no spawn, and the
+    channel never rides a non-rpg wire."""
+    cfg = Config()
+    store = Store(":memory:")
+    sid, bid = store.create_session(external_id="none-ally")
+    apply_delta(store, sid, bid, 0, [{"op": "entity_add", "name": "Tam"}], "user", cfg)
+    st = current_state(store, bid)
+    doc = {"messages": [{"role": "user", "content": "[ally | Tam] ((aether.ally Tam)) fight!"}]}
+    res = tier0.run(doc, "new_turn", False, st, cfg)
+    assert all(o.get("op") != "combatant_spawn" for o in (res.user_ops + res.rule_ops))
+    assert "[ally" not in system_prompt(4, rpg=False)     # rpg-only, like [foe]
+
+
+def test_party_spawns_replay_deterministically():
+    """Both sides staged via the DM's tags replay to the identical ledger (baked at apply)."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    st = current_state(store, bid)
+    ops = tier0.parse_foe_tags("[foe | Bandit | standard]\n[ally | Suki | standard]", st)
+    apply_delta(store, sid, bid, 1, ops, "rule", cfg)
+    s1 = current_state(store, bid)
+    s2 = current_state(store, bid)                         # fresh replay of the journal
+    assert s1 == s2
+    sides = sorted((r["name"], r["side"]) for r in s1["combat"]["combatants"].values())
+    assert ("Bandit", "enemy") in sides and ("Suki", "ally") in sides
+
+
+
+# --------- common-enemy allies (2026-07-10, Bean's caravan-ambush example) -------------
+def test_escort_enlists_on_common_enemy_without_bond():
+    """Bean's caravan: hired escorts with NO personal bond (neutral affinity) fight the
+    ambushers beside the Player because they share the enemy and are not hostile to each other.
+    A guard/mercenary/escort role is the grounded 'on your side of this fight' basis."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "presence", "entity": "Mira", "present": True},
+        {"op": "set_attribute", "entity": "Mira", "key": "role", "value": "hired caravan guard"}],
+        "user", cfg)
+    _spawn(store, sid, bid, 1, cfg, name="Bandit", tier="standard")   # ambush: a foe is up
+    st = current_state(store, bid)
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Mira", "ally") in spawns                     # the escort fights the common enemy
+    assert ("Suki", "ally") not in spawns                 # present but no tie: not conscripted
+
+
+def test_hostile_guard_never_enlists_as_ally():
+    """Bean's second question ('are they hostile to each other?'): a guard who is HOSTILE to the
+    Player is a foe, not an ally — a shared battlefield never overrides enmity."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "presence", "entity": "Mira", "present": True},
+        {"op": "set_attribute", "entity": "Mira", "key": "role", "value": "turncoat guard"}],
+        "user", cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "affinity_adj", "target": "Mira", "delta": -15, "reason": "she turned on us"}],
+        "extraction", cfg)
+    _spawn(store, sid, bid, 2, cfg, name="Bandit", tier="standard")
+    st = current_state(store, bid)
+    assert st["affinity"]["kael->mira"]["value"] <= -10
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Mira", "ally") not in spawns                 # enmity wins over the shared fight
+
+
+def test_neutral_bystander_without_tie_is_not_conscripted():
+    """Grounding (pillar 4): a present neutral NPC with no bond, no martial/escort role, and no
+    allied faction is NOT dragged into the fight — presence alone is never a basis."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "presence", "entity": "Mira", "present": True},
+        {"op": "set_attribute", "entity": "Mira", "key": "role", "value": "fruit vendor"}],
+        "user", cfg)
+    _spawn(store, sid, bid, 1, cfg, name="Bandit", tier="standard")
+    st = current_state(store, bid)
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Mira", "ally") not in spawns
+
+
+def test_shared_faction_enlists_against_the_common_enemy():
+    """An NPC in the Player's own faction stands with them when the shared enemy attacks — the
+    enemy-of-my-enemy read, grounded on the faction ledger rather than a personal bond."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "presence", "entity": "Mira", "present": True},
+        {"op": "set_attribute", "entity": "Kael", "key": "faction", "value": "Wardens"},
+        {"op": "set_attribute", "entity": "Mira", "key": "faction", "value": "Wardens"}],
+        "user", cfg)
+    _spawn(store, sid, bid, 1, cfg, name="Bandit", tier="standard")
+    st = current_state(store, bid)
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Mira", "ally") in spawns
+
+
+def test_common_enemy_enlist_needs_an_active_fight():
+    """The shared enemy IS the basis: with no foe on the field, an escort standing around is not
+    auto-spawned into a phantom combat (the referee only enlists when a fight is real)."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "presence", "entity": "Mira", "present": True},
+        {"op": "set_attribute", "entity": "Mira", "key": "role", "value": "caravan escort"}],
+        "user", cfg)
+    st = current_state(store, bid)                        # no foe, no combat
+    spawns = [o for o in combat_ops(st, []) if o["op"] == "combatant_spawn"]
+    assert spawns == []                                   # nobody enlists without a fight
+
+
+
+# --------- player summons / conjurations / creations (2026-07-10, Bean: "VERY important") ----
+def test_player_summon_enlists_as_ally():
+    """A thing the Player summons/conjures/creates fights on their side by construction. A summon
+    whose 'summoner' attribute is the Player enlists automatically when the fight is on."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "entity_add", "name": "Spectral Wolf"},
+        {"op": "presence", "entity": "Spectral Wolf", "present": True},
+        {"op": "set_attribute", "entity": "Spectral Wolf", "key": "summoner", "value": "Kael"}],
+        "user", cfg)
+    _spawn(store, sid, bid, 1, cfg, name="Bandit", tier="standard")
+    st = current_state(store, bid)
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Spectral Wolf", "ally") in spawns
+
+
+def test_summon_typed_creature_enlists_when_not_hostile():
+    """A summon-TYPED non-hostile creature near the Player reads as a friendly conjuration and
+    stands with them (weak-model floor: no explicit ownership needed if it isn't your enemy)."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "entity_add", "name": "Flame Wisp"},
+        {"op": "presence", "entity": "Flame Wisp", "present": True},
+        {"op": "set_attribute", "entity": "Flame Wisp", "key": "type", "value": "conjured elemental"}],
+        "user", cfg)
+    _spawn(store, sid, bid, 1, cfg, name="Bandit", tier="standard")
+    st = current_state(store, bid)
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Flame Wisp", "ally") in spawns
+
+
+def test_wild_hostile_summon_is_not_your_ally():
+    """A summon-typed entity HOSTILE to the Player (an enemy caster's construct) is a foe, not
+    your ally — the non-hostile gate holds for the summon basis too."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "entity_add", "name": "Bone Golem"},
+        {"op": "presence", "entity": "Bone Golem", "present": True},
+        {"op": "set_attribute", "entity": "Bone Golem", "key": "type", "value": "construct"}],
+        "user", cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "affinity_adj", "target": "Bone Golem", "delta": -15, "reason": "it lunges at us"}],
+        "extraction", cfg)
+    _spawn(store, sid, bid, 2, cfg, name="Bandit", tier="standard")
+    st = current_state(store, bid)
+    spawns = {(o["name"], o["side"]) for o in combat_ops(st, []) if o["op"] == "combatant_spawn"}
+    assert ("Bone Golem", "ally") not in spawns

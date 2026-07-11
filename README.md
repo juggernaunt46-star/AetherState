@@ -205,14 +205,25 @@ scene.
 
 Fights run on engine-owned combatant **instances with exact HP**. The DM summons foes with a
 `[foe | name | tier | weapon]` tag (or you do, with `((aether.foe …))`); known NPCs fight as
-themselves and **keep their wounds** after the battle; up to 3v3 with allies who act on their own
-pre-rolled **[ALLY]** dice. Your strike damage is code-decided (outcome tier × weapon) and applied to
+themselves and **keep their wounds** after the battle. Your side forms a **3v3 party**: present
+companions enlist on a real bond (a soulmate, a companion or escort role, a close relationship),
+battlefield allies who share your enemy join even without one (the hired guard who fights the
+ambushers beside you), and your own **summons or conjurations** fight by construction — the DM can
+also bring one in with `[ally | name]`, and you with `((aether.ally name))`. Each ally acts on its
+own pre-rolled **[ALLY]** die. Your strike damage is code-decided (outcome tier × weapon) and applied to
 the ledger before the DM writes a word; enemy blows land through the pre-rolled **[OPPOSITION]** die.
 Drop a foe to 0 HP and the *engine* declares the defeat, pays XP by threat tier, and rolls loot from a
 table frozen at spawn. NPC-vs-NPC fights stay pure prose but their outcomes are recorded
 (`[clash | A vs B | how | outcome]`), and a lint catches any narration that kills a fighter the ledger
 says is still standing. Declared kills outside a fight are gated too — a stealth approach or a grand
 working can earn one; a bare declaration cannot.
+
+Large engagements scale up without pretending the model tracks every soldier: you fight your own
+slice in the War Room while the **wider battle** — army-on-army, the rest of the field — is narrated
+in prose. The DM opens one with `[battle | name]` and reports how it goes with
+`[tide | winning | holding | losing]`; a code-owned tide is tracked, and while the battle isn't won,
+clearing the foes in front of you brings a fresh **wave** — more waves when it's going badly, easing
+off as the tide turns your way. Only the outcome for you is tracked; the rest of the field is story.
 
 ### Progression
 

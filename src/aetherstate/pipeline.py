@@ -21,7 +21,8 @@ from . import compose, director, discovery, genesis, linter, promptcache, tier0
 from .config import Config
 from .session_engine import SessionEngine
 from . import memory
-from .state import apply_delta, combat_ops, current_state, progression_ops, world_ops
+from .state import (apply_delta, battle_ops, combat_ops, current_state, progression_ops,
+                    world_ops)
 from .stamps import Stamp
 from .store import Store
 
@@ -216,6 +217,14 @@ class Pipeline:
                     state = r0.state
                     applied = list(applied) + r0.applied
                     self._index_memories(res, r0)
+                if getattr(spec, "large_battle", True):   # §F: waves / battle settle, after the
+                    bw = battle_ops(state, applied)       # defeats above have landed
+                    if bw:
+                        r0 = apply_delta(self.store, res.session_id, res.branch_id,
+                                         res.turn_index, bw, "rule", self.cfg)
+                        state = r0.state
+                        applied = list(applied) + r0.applied
+                        self._index_memories(res, r0)
             pro = progression_ops(state, applied,
                                   hardcore=getattr(spec, "hardcore", False))
             if pro:
@@ -408,6 +417,14 @@ class Pipeline:
                     state = r.state                                              # pattern
                     applied += r.applied
                     self._index_memories(ctx, r)
+                if getattr(spec, "large_battle", True):   # §F: the DM's [battle]/[tide] tags
+                    bt = tier0.parse_battle_tags(text, state)   # open the battle / report the
+                    if bt:                                      # macro tide, re-sourced as rule
+                        r = apply_delta(self.store, ctx.session_id, ctx.branch_id,
+                                        ctx.turn_index, bt, "rule", self.cfg)
+                        state = r.state
+                        applied += r.applied
+                        self._index_memories(ctx, r)
                 wr = combat_ops(state, applied)   # the referee: enlistment, HP-0 defeats +
                 if wr:                            # loot, combat_end — on the fresh reply's
                     r = apply_delta(self.store, ctx.session_id, ctx.branch_id,   # own turn
@@ -415,6 +432,14 @@ class Pipeline:
                     state = r.state
                     applied += r.applied
                     self._index_memories(ctx, r)
+                if getattr(spec, "large_battle", True):   # §F: waves-when-losing / battle settle,
+                    bw = battle_ops(state, applied)       # AFTER combat_ops so defeats have landed
+                    if bw:
+                        r = apply_delta(self.store, ctx.session_id, ctx.branch_id,
+                                        ctx.turn_index, bw, "rule", self.cfg)
+                        state = r.state
+                        applied += r.applied
+                        self._index_memories(ctx, r)
             if applied and getattr(spec, "living_world", True):
                 # Phase 2 (2026-07-09 Cinderveil live): the living-world referee must read
                 # the FRESH reply's ops too — this path applied the player's move_entity,

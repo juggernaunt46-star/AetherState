@@ -169,6 +169,14 @@ name = "none"         # none | rpg
 #                           # code-detected defeat -> XP + frozen loot, the [WAR] board, the
 #                           # [clash | A vs B | how | outcome] NPC-fight record, and the War
 #                           # Room HUD lane. Off = pre-1.13 combat (R8c + [hp] tags only)
+# large_battle = true       # §F (1.21.0): large-scale battle — the Player fights their MICRO
+#                           # 3v3 slice on the dice while the MACRO battle (army-on-army, the
+#                           # rest of the field) lives in PROSE. The DM opens one with
+#                           # [battle | <name> | <foe?> | <tier?>] and reports how it goes with
+#                           # [tide | winning|holding|losing | why] (clamped one step/turn); a
+#                           # code-owned momentum is the tide, and fresh WAVES press the War
+#                           # Room until it turns. The [BATTLE] line + a HUD chip surface it.
+#                           # Off = no [battle]/[tide]/waves. (needs war_room)
 # foe_floor = true          # 1.15.0 (Eranmor floor): the Player ATTACKING a target the DM's
 #                           # own last reply narrated (but never tagged [foe]) stages it as an
 #                           # enemy combatant and opens combat — the engine no longer needs the

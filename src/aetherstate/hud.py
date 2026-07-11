@@ -640,6 +640,12 @@ def _war_room(state: dict, cfg=None) -> dict:
     out["combatants"].sort(key=lambda r: (r["side"] != "enemy", r["defeated"], r["name"]))
     out["order"] = [{"name": nm, "side": sd, "init": sc}          # explicit initiative order
                     for sc, nm, sd in _initiative_order(state, cfg)]   # (2026-07-10, Bean)
+    b = state.get("battle") or {}
+    if b.get("active"):                                          # §F: the macro-battle chip
+        from .state import battle_tide
+        out["battle"] = {"name": str(b.get("name", "")),
+                         "tide": battle_tide(b.get("momentum", 0)),
+                         "waves": int(b.get("waves", 0))}
     return out
 
 

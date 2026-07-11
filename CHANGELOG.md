@@ -1,5 +1,68 @@
 # Changelog
 
+## 1.21.0 — 2026-07-11
+
+Large-scale battle — you fight your corner of it on the dice while the whole battle rages in prose,
+and the fight keeps coming until the tide turns. Bean's macro-battle vision, built on the War Room.
+
+- **Your slice is the dice; the war is the story.** In a big engagement the DM opens a battle
+  (`[battle | <name> | <foe?> | <tier?>]`) and reports how the WIDER fight is going with
+  `[tide | winning | holding | losing | why]`. You fight whoever's in front of you in the War Room
+  3v3; the rest of the field — other units winning or losing, the line holding or breaking — is
+  narrated in prose. Only the outcome for you is tracked.
+- **It keeps coming until it turns.** While the battle isn't won, clearing the enemies in front of
+  you doesn't end the fight — a fresh WAVE presses in. A battle going badly elsewhere means more
+  waves; as you cut through them the tide shifts, and once it's turning your way the field is won.
+  The engine owns the tide (a clamped momentum, one step per turn) and decides when reinforcements
+  arrive — the model narrates, it never fudges the outcome.
+- **See it live.** A `[BATTLE]` line rides the prompt (tide + wave count + the standing directive),
+  and the War Room HUD shows a battle chip (⚑ name · tide · wave N). New knob
+  `[specialization].large_battle` (default on, live-toggle); OOC `((aether.battle <name> | tide <t>
+  | end))`.
+- **Live-verified (Chrome + SillyTavern + GLM-5.2):** a losing "Siege of Dunmoor" — the player cut
+  down the lead raider, a wave of two more surged into the gap, the tide ticked losing → holding,
+  and the DM narrated the wider siege ("the rampart holds. Barely") entirely in prose.
+- `none` (non-RPG) and knob-off sessions stay byte-identical. Suite 731 passed + 1 skip; ruff clean.
+  New `tests/test_p18_large_battle.py` (11): the clamped tide, waves-when-losing, win-when-turned,
+  the `[battle]`/`[tide]` tags + OOC, the `[BATTLE]` directive, none-leak, replay.
+
+## 1.20.0 — 2026-07-10
+
+The War Room becomes a real 3v3 — your companions actually fight beside you, and a crowd shows up as
+a crowd. Closes Bean's "3v3 is missing" gap.
+
+- **Your side of the fight finally forms.** Companions used to join only at a very high friendship
+  score that campaigns almost never reached, so party battles never happened. Now a present ally
+  enlists on a real BOND — your soulmate, a companion/lover/comrade role, or a genuinely close
+  relationship — not a number that rarely moves. Deep standing still counts; a mere stranger still
+  doesn't get conscripted.
+- **Battlefield allies — enemy of my enemy.** In an ambush, whoever is fighting the same foes and
+  isn't hostile to you stands with you, even with no personal bond: hired escorts, caravan guards,
+  faction allies. Bean's example — a merchant caravan's sellswords all fight the bandits to survive —
+  now works automatically. Grounded on a protective/martial role or an allied faction, so a random
+  bystander isn't conscripted, and a guard who's turned on you is still a foe.
+- **Your summons fight for you.** A creature the Player conjures, summons, or creates — a spectral
+  wolf, an animated construct, a familiar — enlists on your side by construction (it exists because
+  you called it). A hostile caster's construct is still an enemy.
+- **The referee no longer needs the scene tagged.** Allies enlist whenever a fight is genuinely
+  live (foes on the field), not only when the DM remembers to mark the scene as combat — a
+  weak-model-floor fix so the party forms reliably.
+- **The DM can now bring in allies, not just enemies.** New `[ally | name | tier? | weapon?]` tag,
+  the mirror of `[foe]`: the narrator calls a present companion onto your side and the engine spawns
+  them with real HP (a known character fights as themselves, wounds and all). The rules-contract now
+  teaches the DM to populate BOTH sides.
+- **A group arrives as a group.** When the story numbers the enemy — "three cutthroats", "a pack of
+  ghouls" — the combat floor stages the whole band (capped at 3), not just the one you struck. A lone
+  foe still stages exactly one.
+- **Recruit hint in the HUD.** The War Room lane now shows the one-tap way to call a companion in:
+  `((aether.ally <name>))`.
+- `none` (non-RPG) sessions and knob-off RPG sessions stay byte-identical. Suite 720 passed + 1 skip;
+  ruff clean. `test_p12_combat.py` +18 (party formation, the `[ally]` tag, the named-band floor,
+  common-enemy escorts, player summons, contract teaching, none-leak, replay).
+- **Live-verified on the bench (Chrome + SillyTavern + GLM-5.2):** a hired caravan guard (no bond,
+  neutral affinity) auto-enlisted against ambushing bandits — the War Room HUD showed him as an ally
+  with his own action die and both-side initiative, and the DM narrated him fighting the common foe.
+
 ## 1.19.0 — 2026-07-10
 
 A leaner rules-contract on calm turns — the biggest per-turn token cut yet — plus a truthful briefing
