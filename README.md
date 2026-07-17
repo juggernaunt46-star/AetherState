@@ -80,14 +80,6 @@ Open a new SillyTavern chat while AetherState is running. AetherState reads the 
 
 The new chat begins with the selected world, opening situation, and Player sheet already attached.
 
-## Screenshots
-
-<img width="482" height="579" alt="AetherState SillyTavern panel" src="https://github.com/user-attachments/assets/57a81503-76dc-4390-9c28-813c377bb226" />
-
-<img width="1296" height="865" alt="AetherState Console" src="https://github.com/user-attachments/assets/e18cc7be-10e4-482b-8695-e3bfc06e781f" />
-
-<img width="1396" height="748" alt="AetherState RPG interface" src="https://github.com/user-attachments/assets/54f6ff1f-236c-4a87-9fab-6b27992f8ac5" />
-
 ## What AetherState remembers
 
 AetherState can track ordinary continuity such as:
