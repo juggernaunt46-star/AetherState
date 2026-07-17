@@ -238,13 +238,31 @@ class SessionEngine:
     def _exact_forward_window(self, stamp: Stamp, branch_id: str,
                               canon: list[CanonMsg]) -> bool:
         """Accept one bounded stamped window only for the exact next normal Player turn."""
-        if stamp.gen_type != "normal" or stamp.turn is None or not canon:
+        if stamp.gen_type != "normal" or not canon:
             return False
         if canon[-1].role not in ("user", "text"):
             return False
         head = self._head(branch_id)
-        return head >= 0 and not self._has_reserved_semantic_head(branch_id) \
-            and stamp.turn == head + 1
+        if head < 0 or self._has_reserved_semantic_head(branch_id):
+            return False
+        if stamp.turn == head + 1:
+            return True
+
+        # SillyTavern can build the prompt before GENERATION_STARTED advances the
+        # extension counter.  A sliding context window then looks divergent at
+        # position zero even though it proves forward motion by beginning with a
+        # non-empty suffix of our stored transcript and continuing to a new Player
+        # tip.  Trust that transcript proof rather than a stale/debug-only counter.
+        view = self.index.branches.get(branch_id)
+        if view is None:
+            return False
+        for overlap in range(min(len(view.msgs), len(canon) - 1), 0, -1):
+            if all(
+                left.role == right.role and left.content_hash == right.content_hash
+                for left, right in zip(view.msgs[-overlap:], canon[:overlap])
+            ):
+                return True
+        return False
 
     def _has_reserved_semantic_head(self, branch_id: str) -> bool:
         """True only when the branch tip is fenced but has no terminal artifact yet."""

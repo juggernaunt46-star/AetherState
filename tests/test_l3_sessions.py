@@ -552,6 +552,23 @@ def test_stamped_suffix_window_appends_only_its_unseen_tail():
     assert [msg.text for msg in view.msgs] == full
 
 
+def test_stamped_suffix_window_accepts_stale_frontend_turn_counter():
+    e = eng()
+    first = _build_stamped(e, "same-chat", "g", "u1", turn=1)
+    e.store.write_turn_hashes(first.branch_id, first.turn_index, user_hash="first-action")
+
+    # The prompt window slid past the greeting while ST's generation counter still
+    # carries the prior turn.  The stored user tip anchors this as forward history.
+    allowed = e.observe(
+        Stamp(session="same-chat", turn=1),
+        msgs(("user", "u1"), ("assistant", "a1"), ("user", "u2")),
+    )
+
+    assert allowed is not None and allowed.turn_index == 2
+    view = e.index.branches[allowed.branch_id]
+    assert [msg.text for msg in view.msgs] == ["g", "u1", "a1", "u2"]
+
+
 def test_exact_forward_window_may_reuse_first_message_without_rewriting_history():
     e = eng()
     first = _build_stamped(e, "same-chat", "same assistant", "first action", turn=1)
