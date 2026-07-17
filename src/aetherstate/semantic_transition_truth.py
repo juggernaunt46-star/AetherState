@@ -61,7 +61,7 @@ SEMANTIC_EVIDENCE_OPS = frozenset(
         "semantic_frame_commit",
     }
 )
-SILENT_BOOKKEEPING_OPS = frozenset({"clock_tick", "stagnation"})
+SILENT_BOOKKEEPING_OPS = frozenset({"clock_tick", "stagnation", "creator_world_seed"})
 SILENT_OPS = SEMANTIC_EVIDENCE_OPS | SILENT_BOOKKEEPING_OPS
 # Cold indexing remains deliberately unavailable until the caller can supply the exact persisted
 # terminal artifact, complete delivery proof, accepted visible graph, and a code-derived index plan.
@@ -94,11 +94,12 @@ JOURNAL_SOURCES = frozenset({"user", "genesis", "bootstrap", "rule", "extraction
 EXPECTED_REDUCER_OPS = frozenset(
     {
         "ability_grant", "affinity_adj", "arousal", "award_exp", "battle_end",
-        "battle_start", "battle_wave", "capability_assign", "check", "clash_record",
+        "battle_start", "battle_wave", "belief_acquire", "capability_assign", "check", "claim_record", "clash_record",
         "clock_tick", "clothing", "combat_end", "combatant_defeat", "combatant_hp",
         "combatant_spawn", "consent_set", "consent_signal", "contact", "craving",
+        "creator_world_seed",
         "defeat_resolve", "effect_add", "effect_remove", "effect_update", "enemy_intent_set",
-        "entity_add", "evolve_def", "fact_retire", "freeze", "front_add", "front_reveal",
+        "entity_add", "evolve_def", "fact_admit", "fact_retire", "freeze", "front_add", "front_reveal",
         "front_tick", "goal", "hp_adj", "item_consume", "item_equip", "item_gain",
         "item_lose", "item_mint", "item_move", "item_transfer", "item_unequip", "level_up",
         "loot_table", "master_tick", "mechanic_settlement_commit", "memory_event", "mood",
@@ -107,7 +108,7 @@ EXPECTED_REDUCER_OPS = frozenset(
         "route_set", "scene_dial", "scene_mode", "scene_set", "semantic_binding_commit",
         "semantic_frame_commit", "semantic_meaning_commit", "semantic_world_alignment_commit",
         "set_attribute", "set_nemesis", "set_soulmate", "stagnation", "stat_spend",
-        "tide_set", "time_advance", "unfreeze", "world_flag", "world_identity_set",
+        "tide_set", "time_advance", "unfreeze", "world_event_admit", "world_flag", "world_identity_set",
     }
 )
 
@@ -160,6 +161,8 @@ POLICY_FAMILIES: dict[str, frozenset[str]] = {
     "semantic_evidence": SEMANTIC_EVIDENCE_OPS,
     "atomic_settlement": frozenset({"mechanic_settlement_commit"}),
     "world_capability_authoring": frozenset({"world_identity_set", "capability_assign"}),
+    "creator_lore_authoring": frozenset({"creator_world_seed"}),
+    "world_event_authoring": frozenset({"world_event_admit"}),
     "scene_identity_placement": frozenset(
         {"set_attribute", "move_entity", "presence", "entity_add", "scene_set", "scene_mode"}
     ),
@@ -170,7 +173,10 @@ POLICY_FAMILIES: dict[str, frozenset[str]] = {
         }
     ),
     "consent_safety": frozenset({"consent_signal", "consent_set", "freeze", "unfreeze"}),
-    "fact_memory_goal": frozenset({"reveal_fact", "fact_retire", "memory_event", "goal"}),
+    "fact_memory_goal": frozenset({
+        "reveal_fact", "fact_admit", "belief_acquire", "fact_retire", "memory_event", "goal"
+    }),
+    "claim_evidence": frozenset({"claim_record"}),
     "time_dice_bookkeeping": frozenset({"time_advance", "clock_tick", "roll", "stagnation"}),
     "player_operational": frozenset(
         {
@@ -222,7 +228,9 @@ def _allowed_roots(kind: str) -> frozenset[str]:
             "battle", "meta",
         })),
         (frozenset({"world_identity_set"}), frozenset({"world_identity", "meta"})),
+        (frozenset({"creator_world_seed"}), frozenset({"creator_world", "meta"})),
         (frozenset({"capability_assign"}), frozenset({"capability_assignments", "meta"})),
+        (frozenset({"world_event_admit"}), frozenset({"world_events", "world_overlay", "meta"})),
         (frozenset({"entity_add", "move_entity", "presence"}), frozenset({"entities", "meta"})),
         (frozenset({"set_attribute"}), frozenset({"attributes", "meta"})),
         (frozenset({"scene_set"}), frozenset({"scene", "entities", "player", "meta"})),
@@ -242,6 +250,9 @@ def _allowed_roots(kind: str) -> frozenset[str]:
         })),
         (frozenset({"relationship_adj"}), frozenset({"relationships", "meta"})),
         (frozenset({"reveal_fact"}), frozenset({"facts", "beliefs", "meta"})),
+        (frozenset({"fact_admit"}), frozenset({"facts", "propositions", "meta"})),
+        (frozenset({"belief_acquire"}), frozenset({"beliefs", "meta"})),
+        (frozenset({"claim_record"}), frozenset({"claims", "meta"})),
         (frozenset({"fact_retire"}), frozenset({"facts", "meta"})),
         (frozenset({"memory_event"}), frozenset({"memories", "meta"})),
         (frozenset({"time_advance"}), frozenset({"clock", "player", "chars", "effects", "meta"})),

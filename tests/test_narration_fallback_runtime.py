@@ -43,7 +43,7 @@ def _fp(value: object) -> str:
 def _meaning(*, target_id: str, seed: str) -> dict:
     return {
         "meaning_ref": _fp({"meaning": seed}),
-        "actor_id": "player.arinvale",
+        "actor_id": "player.eranmor",
         "capability_id": "weapon_attack",
         "invoked_capability_ids": [],
         "action_class": "weapon_attack",
@@ -113,7 +113,7 @@ def _contract(*, populated: bool) -> tuple[dict, str, str]:
     opposition = []
     outcomes = []
     known = [
-        {"entity_id": "player.arinvale", "label": "Arinvale", "scope": "current"},
+        {"entity_id": "player.eranmor", "label": "Éranmor", "scope": "current"},
         {"entity_id": "guard", "label": "Ash Guard", "scope": "current"},
     ]
     if populated:
@@ -125,8 +125,8 @@ def _contract(*, populated: bool) -> tuple[dict, str, str]:
                 "construction_ref": _fp({"construction": "guard-hit"}),
                 "actor_id": "guard",
                 "actor_label": "Ash Guard",
-                "target_id": "player.arinvale",
-                "target_label": "Arinvale",
+                "target_id": "player.eranmor",
+                "target_label": "Éranmor",
                 "move_id": "heavy_commitment",
                 "move_label": "Heavy Commitment",
                 "outcome": "hit",
@@ -221,13 +221,13 @@ def test_exact_player_harm_and_autonomous_opposition_keep_separate_causes():
     story = decode_chat_story(artifact.fallback_bytes, envelope["output"]["content_type"])
     claims = envelope["delivery_proof"]["observed_graph"]["claims"]
 
-    assert "Heavy Commitment hits Arinvale" in story
-    assert "deals 1 HP of harm to Arinvale" in story
+    assert "Heavy Commitment hits Éranmor" in story
+    assert "deals 1 HP of harm to Éranmor" in story
     assert "deals 2 HP of harm to Ash Guard" in story
     opposition = [row for row in claims if row["kind"] == "opposition_action"]
     harms = [row for row in claims if row["kind"] == "harm"]
     assert len(opposition) == 1
-    assert {row["actor_id"] for row in harms} == {"guard", "player.arinvale"}
+    assert {row["actor_id"] for row in harms} == {"guard", "player.eranmor"}
     assert {row["cause_ref"] for row in harms} == {
         "opposition.guard.hit",
         "settlement.player.hit",
@@ -335,7 +335,7 @@ def test_code_templates_reobserve_every_supported_non_aoe_claim_kind():
         "The guard is not\u200bdead.",
         "The guard is not dead.::before { content: ' alive'; }",
         "The guard is not\r\ndead.",
-        unicodedata.normalize("NFD", "Árinvale remains standing."),
+        unicodedata.normalize("NFD", "Éranmor remains standing."),
     ],
 )
 def test_renderer_entity_bidi_invisible_and_normalization_surfaces_fail_closed(unsafe: str):
@@ -344,7 +344,7 @@ def test_renderer_entity_bidi_invisible_and_normalization_surfaces_fail_closed(u
 
 
 def test_safe_nfc_unicode_plain_text_is_an_exact_positive_control():
-    text = "Arinvale remains at Vael’Cora."
+    text = "Éranmor remains at Vael’Cora."
     assert validate_canonical_visible_text(text) == text
 
 

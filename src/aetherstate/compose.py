@@ -184,8 +184,23 @@ def ensure_narrator_envelope(doc: dict) -> tuple[dict, bool]:
 
 def _compact(cfg) -> bool:
     """Compression item 2 (2026-07-09): [injection].briefing_style == 'compact'. Verbose
-    (default) renders byte-identically to 1.11 — the knob is opt-in by verified decision."""
+    (default) renders byte-identically to 1.11 — the knob is opt-in by ratified decision."""
     return getattr(getattr(cfg, "injection", None), "briefing_style", "verbose") == "compact"
+
+
+def _prose_excerpt(value, limit: int = 1200) -> str:
+    """Bound descriptive briefing prose without presenting a manufactured sentence stump."""
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    endings = [m.end() for m in re.finditer(r"[.!?](?:[\"'\)\]\}]+)?(?=\s|$)", cut)]
+    if endings and endings[-1] >= max(8, limit // 3):
+        return cut[:endings[-1]].rstrip()
+    boundary = cut.rfind(" ")
+    if boundary >= max(8, limit // 3):
+        cut = cut[:boundary]
+    return cut.rstrip(" ,;:—–-") + "…"
 
 
 def estimate_tokens(text: str) -> int:
@@ -207,9 +222,62 @@ def _name(state: dict, eid: str) -> str:
     return state.get("entities", {}).get(eid, {}).get("name") or eid
 
 
-# ---- RPG specialization blocks (the public contract; rendered only when specialization=rpg) -----
+def _overlay_effective(state: dict) -> dict:
+    try:
+        from .world_events import project_state_overlay
+
+        value = (project_state_overlay(state) or {}).get("effective") or {}
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
+
+
+def _overlay_modifier(effective: dict, domain: str, subject_keys: tuple[str, ...]) -> float:
+    rows = effective.get(domain) or {}
+    for key in subject_keys:
+        fields = rows.get(key) if isinstance(rows, dict) else None
+        row = fields.get("modifier") if isinstance(fields, dict) else None
+        value = row.get("value") if isinstance(row, dict) else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return 0.0
+
+
+def _relationship_overlay_modifier(effective: dict, source: str, target: str) -> float:
+    return _overlay_modifier(
+        effective,
+        "relationship",
+        (f"relationship:{source}:{target}", f"relationship:{source}.{target}"),
+    )
+
+
+def _reputation_overlay_modifier(effective: dict, subject_id: str) -> float:
+    return _overlay_modifier(
+        effective,
+        "reputation",
+        (
+            f"faction:{subject_id}", f"actor:{subject_id}",
+            f"reputation:{subject_id}",
+        ),
+    )
+
+
+def _capability_available(state: dict, capability_id: str, name: str = "") -> bool:
+    try:
+        from .world_events import capability_eligible
+
+        return capability_eligible(state, {
+            "id": str(capability_id),
+            "capability_id": str(capability_id),
+            "name": str(name or capability_id),
+        })
+    except Exception:
+        return not bool(state.get("world_events"))
+
+
+# ---- RPG specialization blocks (doc 05 §6; rendered only when specialization=rpg) -----
 def _render_player(state: dict, cfg=None) -> str:
-    """[PLAYER] — compact hot-field projection of the Player Card(s) (the public contract). Skills
+    """[PLAYER] — compact hot-field projection of the Player Card(s) (doc 06 §2.3). Skills
     render as EFFECTIVE check mods (registry-derived, snapshot-first — the narrator never does
     math); stored raw ranks are the fail-open fallback. Cached registry load: hot-path-legal."""
     players = state.get("player") or {}
@@ -238,6 +306,9 @@ def _render_player(state: dict, cfg=None) -> str:
         if int(p.get("stat_points", 0) or 0) > 0:
             head += f' · {p["stat_points"]} stat pt unspent'
         block = [head]
+        appearance = ((state.get("attributes") or {}).get(eid) or {}).get("appearance")
+        if appearance:
+            block.append("Appearance: " + _prose_excerpt(appearance, 800))
         c2 = _compact(cfg)
         st_lbl, sk_lbl, ab_lbl = ("St: ", "Sk: ", "Ab: ") if c2 \
             else ("Stats: ", "Skills: ", "Abilities: ")
@@ -251,16 +322,50 @@ def _render_player(state: dict, cfg=None) -> str:
                 defs_sk = p.get("defs") if isinstance(p.get("defs"), dict) else {}
                 defs_sk = defs_sk.get("skills") if isinstance(defs_sk.get("skills"), dict) else {}
                 sk_ids = list(skills) + [k for k in defs_sk if k not in skills]
-                line = " ".join(                     # + equipped-gear mods (the public contract, RPG-2)
-                    f"{reg.skill_label(sid, p)}"
-                    f"{reg.effective_mod(p, sid) + _registry.gear_skill_mod(state, eid, sid):+d}"
-                    for sid in sk_ids)
+                rendered_skills = []
+                for sid in sk_ids:
+                    label = reg.skill_label(sid, p)
+                    item = (
+                        f"{label}"
+                        f"{reg.effective_mod(p, sid) + _registry.gear_skill_mod(state, eid, sid):+d}"
+                    )
+                    if not _capability_available(state, str(sid), label):
+                        item += " [unavailable]"
+                    rendered_skills.append(item)
+                line = " ".join(rendered_skills)
             except Exception:
                 line = ""
         if not line and skills:              # fallback: stored ranks (pre-RPG-1 shape)
-            line = " ".join(f"{str(k).capitalize()} {v}" for k, v in skills.items())
+            line = " ".join(
+                f"{str(k).capitalize()} {v}"
+                + (" [unavailable]" if not _capability_available(state, str(k)) else "")
+                for k, v in skills.items()
+            )
         if line:
             block.append(sk_lbl + line)
+        defs = p.get("defs") if isinstance(p.get("defs"), dict) else {}
+        defs_skills = defs.get("skills") if isinstance(defs.get("skills"), dict) else {}
+        skill_details = []
+        ranked_custom = sorted(
+            defs_skills.items(),
+            key=lambda item: int(skills.get(str(item[0]), 0) or 0),
+            reverse=True,
+        )[:2]
+        for sid, definition in ranked_custom:
+            if not isinstance(definition, dict):
+                continue
+            desc = _prose_excerpt(definition.get("desc"), 800)
+            governs = [
+                str(x) for x in (definition.get("governs") or [])[:6] if str(x).strip()
+            ]
+            detail = str(definition.get("name") or sid)
+            if desc:
+                detail += " — " + desc
+            if governs:
+                detail += " (governs: " + ", ".join(governs) + ")"
+            skill_details.append(detail)
+        if skill_details:
+            block.append("Skill definitions: " + " · ".join(skill_details))
         abil = p.get("abilities") or []
         if abil:
             mab = {}
@@ -276,6 +381,9 @@ def _render_player(state: dict, cfg=None) -> str:
                    "surge": "active: big swing + higher ceiling", "basis": "grants a basis",
                    "mod_active": "active: +N burst on use"}
             bits = []
+            custom_abilities = defs.get("abilities") \
+                if isinstance(defs.get("abilities"), dict) else {}
+            detailed_custom = 0
             for a in abil:
                 d = mab.get(str(a)) or {}
                 nm = str(d.get("name", a))
@@ -285,7 +393,20 @@ def _render_player(state: dict, cfg=None) -> str:
                         mech = "mod_active"          # flat-burst active — invoked, not always-on
                 except Exception:
                     mech = "mod"
-                bits.append(f"{nm} [{tag[mech]}]" if mech in tag else nm)
+                rendered = f"{nm} [{tag[mech]}]" if mech in tag else nm
+                if str(a) in custom_abilities and detailed_custom < 2:
+                    prose_parts = []
+                    for field in ("effect", "desc"):
+                        prose = str(d.get(field) or "").strip()
+                        if prose and prose not in prose_parts:
+                            prose_parts.append(prose)
+                    prose = _prose_excerpt(" ".join(prose_parts), 1400)
+                    if prose:
+                        rendered += " — " + prose
+                        detailed_custom += 1
+                if not _capability_available(state, str(a), nm):
+                    rendered += " [unavailable]"
+                bits.append(rendered)
             block.append(ab_lbl + ", ".join(bits))
         cards.append("\n".join(block))
     return "[PLAYER] " + "\n".join(cards) if cards else ""
@@ -303,6 +424,7 @@ def _render_gear(state: dict, cfg=None) -> str:
         order = [s for s in GEAR_SLOT_ORDER if s in slots] + \
                 [s for s in sorted(slots) if s not in GEAR_SLOTS]
         bits = []
+        aura_budget = 1600
         for slot in order:
             iid = slots.get(slot)
             it = items.get(iid) if iid else None
@@ -320,7 +442,11 @@ def _render_gear(state: dict, cfg=None) -> str:
             if it.get("capacity"):
                 txt += f"[{it['capacity']}]"
             if it.get("aura"):                  # 2026-07-10 (Bean): a gear piece's PROSE effect —
-                txt += f" — {str(it['aura'])[:140]}"   # appearance/glamour/lore the DM must honor
+                if aura_budget > 0:
+                    aura = _prose_excerpt(it["aura"], min(500, aura_budget))
+                    if aura:
+                        txt += " — " + aura
+                        aura_budget -= len(aura)
             bits.append(f"{slot}={txt}")
         stowed = []                             # carried GEAR-class items (not in a body slot)
         for lst in ((state.get("inventory") or {}).get(eid) or {}).values():
@@ -342,7 +468,7 @@ def _render_gear(state: dict, cfg=None) -> str:
 
 def _render_inventory(state: dict) -> str:
     """[INVENTORY] — carried INVENTORY-class instances (consumables, materials, devices…)
-    grouped by container; `loose` renders last (the public contract). GEAR-class carried items render
+    grouped by container; `loose` renders last (doc 06 §2.3). GEAR-class carried items render
     under [GEAR] instead (Bean 2026-07-07). Depleted (qty 0 / gone) instances never render."""
     players = state.get("player") or {}
     items = state.get("items") or {}
@@ -372,7 +498,7 @@ _VALENCE_GLYPH = {"negative": "-", "neutral": "~", "positive": "+"}
 
 def _render_effects(state: dict) -> str:
     """[EFFECTS] — the ledger of active Statuses & Conditions, player first, then every
-    tracked character carrying one (the public contract). Fed back every turn so the narrator can't
+    tracked character carrying one (doc 05 §5.4). Fed back every turn so the narrator can't
     drift or forget; expired records (derived, never mutated) simply stop rendering. Pure
     state + a cached-registry-free path — µs."""
     effs = state.get("effects") or {}
@@ -413,7 +539,7 @@ _DIRECTIVE_PHRASE = {
     "crit_success": "critical success",
 }
 
-# RPG-5 (the public contract): defeat outcome classes — code picks the class, the narrator flavors it.
+# RPG-5 (doc 10 §7): defeat outcome classes — code picks the class, the narrator flavors it.
 _DEFEAT_PHRASE = {
     "captured": "overcome and taken by the victors; narrate the capture, not a rescue",
     "wake_safe": "knocked out of the fight; they come to somewhere safe, time having passed",
@@ -488,7 +614,7 @@ def _auto_compact_contract(state: dict, cfg=None) -> bool:
 
 
 def _ally_die(state: dict, cid: str) -> tuple[int, int]:
-    """Phase 1 (verified): ONE pre-rolled action die per ally per combat turn — the R8c
+    """Phase 1 (ratified): ONE pre-rolled action die per ally per combat turn — the R8c
     pattern exactly: derived DETERMINISTICALLY from (turn, scene, ally row), no journal
     row, the same turn always re-renders the same dice. Returns (2d6 total, damage die)."""
     import hashlib
@@ -1061,8 +1187,8 @@ def _semantic_action_for_receipt(state: dict, ref: object) -> str:
 
 
 def _render_directive(state: dict, cfg=None) -> str:
-    """[DIRECTIVE] — the pre-decided outcome(s) of THIS turn's check(s) (the public contract/§5.2). Reads
-    every `check` record for the current turn (checks reuse the rolls buffer, the public contract), so a
+    """[DIRECTIVE] — the pre-decided outcome(s) of THIS turn's check(s) (doc 05 §4/§5.2). Reads
+    every `check` record for the current turn (checks reuse the rolls buffer, doc 07 §7.1), so a
     multi-check turn directs each result — no silently unnarrated resolution. Rides the
     never-dropped header so the resolve-then-narrate contract can't be budget-cut."""
     turn = state.get("meta", {}).get("turn", -1)
@@ -1109,7 +1235,7 @@ def _render_directive(state: dict, cfg=None) -> str:
                    "the Player regenerated narration for the same settled turn")
             clause += (f" (ALREADY SETTLED: {why} — this is that roll re-served, not a new "
                        "or repeated one; answer the Player's message with it now)")
-        bl = c.get("_ability_blocked")         # Arinvale: a declared active that didn't ride
+        bl = c.get("_ability_blocked")         # Eranmor: a declared active that didn't ride
         if isinstance(bl, list) and bl:
             why = "; ".join(f"{b.get('name', '?')} did NOT ride this roll ({b.get('why', '')})"
                             for b in bl if isinstance(b, dict))
@@ -1141,7 +1267,7 @@ def _render_directive(state: dict, cfg=None) -> str:
             else:
                 clause += f" — the attempt on {tgt} draws no blood"
         clauses.append(clause)
-    for eid, p in (state.get("player") or {}).items():   # RPG-5 (the public contract): a defeat this
+    for eid, p in (state.get("player") or {}).items():   # RPG-5 (doc 10 §7): a defeat this
         d = p.get("defeated") if isinstance(p, dict) else None   # turn is a code-decided
         if isinstance(d, dict) and d.get("turn") == turn:        # outcome CLASS to narrate
             phrase = _DEFEAT_PHRASE.get(str(d.get("outcome")), "defeated")
@@ -1263,7 +1389,7 @@ def _render_directive(state: dict, cfg=None) -> str:
                                   or {}).values()
                       if isinstance(r, dict) and not r.get("defeated")
                       and r.get("side") == "ally"]
-            for r in allies:                           # verified: ally dice VISIBLE, the R8c
+            for r in allies:                           # ratified: ally dice VISIBLE, the R8c
                 total, dmg = _ally_die(state, str(r.get("id")))   # pattern (no journal row)
                 tier = _die_tier(total)
                 act = {"CRITS": f"they strike true — emit [hp | <their foe> | -{dmg + 2} | <why>]",
@@ -1295,7 +1421,7 @@ def _render_directive(state: dict, cfg=None) -> str:
             if pending_line:
                 out += ("\n" if out else "") + pending_line
     nud = state.get("_protocol_nudge")
-    if nud:                                    # 2026-07-10 (Arinvale): correct bracket grammar
+    if nud:                                    # 2026-07-10 (Eranmor): correct bracket grammar
         reserved_names = {"DIRECTIVE", "ENEMY INTENT", "ENEMY ACTION", "WAR", "INIT",
                           "PLAYER", "RULES", "OPPOSITION", "PROTOCOL", "CONTEXT PRIORITY",
                           "AETHER P0", "AETHER P1", "AETHER P2", "AETHER P3"}
@@ -1323,7 +1449,8 @@ def _render_directive(state: dict, cfg=None) -> str:
                       "[affinity | <target> | +/-N | <why>] · "
                       "[hp | <char> | -2 | <why>] (shape example; replace every field and use "
                       "the actual signed integer) · "
-                      "[foe | <name> | minion/standard/elite/boss | <weapon>] · "
+                      "[foe | <name> | minion/standard/elite/boss | <weapon> | "
+                      "faction:<exact known faction>?] · "
                       "[ally | <name> | <tier?> | <weapon?>] · "
                       "[battle | <name> | <foe?> | <tier?>] · "
                       "[tide | winning|holding|losing | <why>] · "
@@ -1340,10 +1467,18 @@ def _render_quest(state: dict, cfg=None) -> str:
     only the 3 most-recently-touched active quests carry stakes/notes — older actives ride
     name-only (still true, just lean) until the story touches them again."""
     qs = state.get("quests") or {}
+    effective_quests = _overlay_effective(state).get("quest") or {}
+
+    def available(qid: str) -> bool:
+        fields = effective_quests.get(f"quest:{qid}") if isinstance(effective_quests, dict) else None
+        row = fields.get("available") if isinstance(fields, dict) else None
+        return not (isinstance(row, dict) and row.get("value") is False)
+
     turn = state.get("meta", {}).get("turn", -1)
     note_cap = 40 if (cfg is not None and _compact(cfg)) else 80
     actives = [(qid, q) for qid, q in qs.items()
-               if isinstance(q, dict) and q.get("status", "active") == "active"]
+               if isinstance(q, dict) and q.get("status", "active") == "active"
+               and available(qid)]
     detail = {qid for qid, q in sorted(
         actives, key=lambda kv: int(kv[1].get("updated_turn",
                                               kv[1].get("created_turn", 0)) or 0),
@@ -1351,6 +1486,8 @@ def _render_quest(state: dict, cfg=None) -> str:
     bits: list[str] = []
     for qid, q in qs.items():
         if not isinstance(q, dict):
+            continue
+        if not available(qid):
             continue
         st = q.get("status", "active")
         if st == "active":
@@ -1388,8 +1525,8 @@ def _flag_str(v) -> str:
 
 
 def _render_relations(state: dict, cfg=None) -> str:
-    """[RELATIONS] — present NPCs' affinity TIER (label, never the integer — the public contract)
-    plus the bond pointers, flagged (the public contract). A bond renders even for an absent
+    """[RELATIONS] — present NPCs' affinity TIER (label, never the integer — doc 05 §5.4)
+    plus the bond pointers, flagged (doc 06 §2.4). A bond renders even for an absent
     character (a soulmate matters off-screen). Pure state, µs."""
     players = state.get("player") or {}
     peid = next(iter(players), None)
@@ -1398,6 +1535,7 @@ def _render_relations(state: dict, cfg=None) -> str:
     pl = players.get(peid) or {}
     bonds = {pl[ptr]: ptr for ptr in ("soulmate", "nemesis") if pl.get(ptr)}
     ents = state.get("entities", {})
+    effective = _overlay_effective(state)
     bits: list[str] = []
     seen: set = set()
     for key, rec in (state.get("affinity") or {}).items():
@@ -1405,8 +1543,11 @@ def _render_relations(state: dict, cfg=None) -> str:
         if a != peid or not isinstance(rec, dict) or rec.get("kind") == "faction":
             continue
         if not (ents.get(b, {}).get("present") or b in bonds):
-            continue                             # present NPCs + bonded ones (the public contract)
-        t = f"{_name(state, b)}: {affinity_tier(rec.get('value', 0))}"
+            continue                             # present NPCs + bonded ones (doc 05 §6)
+        value = float(rec.get("value", 0)) + _relationship_overlay_modifier(
+            effective, peid, b,
+        )
+        t = f"{_name(state, b)}: {affinity_tier(value)}"
         labels = [x for x in (rec.get("labels") or []) if x]
         if b in bonds:
             t += f" {_BOND_GLYPH[bonds[b]]}"
@@ -1425,7 +1566,9 @@ def _render_relations(state: dict, cfg=None) -> str:
         if not e.get("present") or eid == peid or eid in seen \
                 or e.get("kind") not in ("character", "npc"):
             continue
-        bits.append(f"{_name(state, eid)}: {_knows_player(state, peid, eid)}")
+        modifier = _relationship_overlay_modifier(effective, peid, eid)
+        relation = affinity_tier(modifier) if modifier else _knows_player(state, peid, eid)
+        bits.append(f"{_name(state, eid)}: {relation}")
     if not bits:
         return ""
     out = "[RELATIONS] " + " · ".join(bits)
@@ -1435,14 +1578,20 @@ def _render_relations(state: dict, cfg=None) -> str:
 
 
 def _knows_player(state: dict, peid: str, eid: str) -> str:
-    """0b (anti-main-character, the mechanics contract): how an NPC knows the Player, read from the
+    """0b (anti-main-character, plan doc 13): how an NPC knows the Player, read from the
     LEDGER — structural, not contract prose. Direct player->npc affinity row = its tier
     label; npc `faction` attribute + a player->faction row = by reputation (that faction's
     standing, and only that); nothing = a stranger. Pure state reads, µs."""
     aff = state.get("affinity") or {}
+    effective = _overlay_effective(state)
     rec = aff.get(f"{peid}->{eid}")
     if isinstance(rec, dict):
-        return affinity_tier(rec.get("value", 0))
+        value = float(rec.get("value", 0)) \
+            + _relationship_overlay_modifier(effective, peid, eid)
+        return affinity_tier(value)
+    direct_reputation = _reputation_overlay_modifier(effective, eid)
+    if direct_reputation:
+        return f"by reputation ({affinity_tier(direct_reputation)})"
     fac = str(((state.get("attributes") or {}).get(eid) or {}).get("faction") or "")
     if fac:
         fid = fac
@@ -1455,7 +1604,11 @@ def _knows_player(state: dict, peid: str, eid: str) -> str:
                     fid, frec = b, r
                     break
         if isinstance(frec, dict):
-            return f"by reputation ({_name(state, fid)}: {affinity_tier(frec.get('value', 0))})"
+            value = float(frec.get("value", 0)) + _reputation_overlay_modifier(effective, fid)
+            return f"by reputation ({_name(state, fid)}: {affinity_tier(value)})"
+        reputation = _reputation_overlay_modifier(effective, fid)
+        if reputation:
+            return f"by reputation ({_name(state, fid)}: {affinity_tier(reputation)})"
     return "stranger"
 
 
@@ -1485,8 +1638,11 @@ def _render_nearby(state: dict, cfg=None) -> str:
         home = ((attrs.get(eid) or {}).get("home") or "")
         if not home or _norm_loc(str(home)) not in keys:
             continue
-        role = (attrs.get(eid) or {}).get("role")
-        t = _name(state, eid) + (f" ({role})" if role else "")
+        row_attrs = attrs.get(eid) or {}
+        role = row_attrs.get("role")
+        desc = _prose_excerpt(row_attrs.get("description"), 360)
+        detail = " — ".join(str(x) for x in (role, desc) if x)
+        t = _name(state, eid) + (f" ({detail})" if detail else "")
         if peid:
             t += f" — {_knows_player(state, peid, eid)}"
         bits.append(t)
@@ -1501,22 +1657,38 @@ def _render_nearby(state: dict, cfg=None) -> str:
 
 
 def _render_factions(state: dict) -> str:
-    """[FACTIONS] — faction -> affinity tier LABEL + standing circumstances (the public contract).
+    """[FACTIONS] — faction -> affinity tier LABEL + standing circumstances (doc 05 §6).
     A faction with neither an affinity ledger nor circumstances spends no tokens."""
     players = state.get("player") or {}
     peid = next(iter(players), None)
     aff = state.get("affinity") or {}
     ents = state.get("entities", {})
     facs = state.get("factions") or {}
+    effective = _overlay_effective(state)
+    from .world_events import front_identity_visible_to_player
+
     fids = [fid for fid, e in ents.items() if (e or {}).get("kind") == "faction"]
     fids += [fid for fid in facs if fid not in fids]
     bits: list[str] = []
     for fid in fids:
         rec = aff.get(f"{peid}->{fid}") if peid else None
-        circ = (facs.get(fid) or {}).get("circumstances") or {}
-        if not isinstance(rec, dict) and not circ:
+        reputation = _reputation_overlay_modifier(effective, fid)
+        circ = dict((facs.get(fid) or {}).get("circumstances") or {})
+        for front_id in state.get("fronts") or {}:
+            if not front_identity_visible_to_player(state, str(front_id)):
+                circ.pop(front_id, None)
+        overlay_row = ((effective.get("faction") or {}).get(f"faction:{fid}") or {}).get("circumstance")
+        if isinstance(overlay_row, dict):
+            circ["event_overlay"] = overlay_row.get("value")
+        if not isinstance(rec, dict) and not circ and not reputation:
             continue
-        t = f"{_name(state, fid)}: {affinity_tier((rec or {}).get('value', 0))}"
+        value = float((rec or {}).get("value", 0)) + reputation
+        t = f"{_name(state, fid)}: {affinity_tier(value)}"
+        description = _prose_excerpt(
+            ((state.get("attributes") or {}).get(fid) or {}).get("description"), 360,
+        )
+        if description:
+            t += f" — {description}"
         if circ:
             t += " (" + ", ".join(f"{k}={_flag_str(v)}" for k, v in circ.items()) + ")"
         bits.append(t)
@@ -1524,15 +1696,126 @@ def _render_factions(state: dict) -> str:
 
 
 def _render_world(state: dict) -> str:
-    """[WORLD] — active global flags/circumstances (world_flag ops; the public contract)."""
-    w = state.get("world") or {}
+    """[WORLD] — active global flags/circumstances (world_flag ops; doc 05 §5.6)."""
+    w = dict(state.get("world") or {})
+    try:
+        from .world_events import front_identity_visible_to_player, project_state_overlay
+
+        for front_id in state.get("fronts") or {}:
+            if not front_identity_visible_to_player(state, str(front_id)):
+                w.pop(front_id, None)
+        effective = (project_state_overlay(state) or {}).get("effective") or {}
+        for subject in (effective.get("world") or {}).values():
+            row = (subject or {}).get("circumstance") if isinstance(subject, dict) else None
+            if isinstance(row, dict):
+                w["event_overlay"] = row.get("value")
+    except Exception:
+        pass
     if not isinstance(w, dict) or not w:
         return ""
     return "[WORLD] " + " · ".join(f"{k}={_flag_str(v)}" for k, v in w.items())
 
 
+def _render_knowledge(state: dict) -> str:
+    """Small actor/scene-aware knowledge view for narration; hidden truth stays out."""
+    from .knowledge import render_knowledge_context
+
+    player_id = next(iter(state.get("player") or {}), "player")
+    scene = state.get("scene") or {}
+    query_parts = [str(scene.get("location_id") or ""), str(scene.get("phase") or "")]
+    query_parts.extend(
+        str(eid) for eid, row in (state.get("entities") or {}).items()
+        if isinstance(row, dict) and row.get("present")
+    )
+    block = render_knowledge_context(
+        state,
+        audience="narrator",
+        actor_id=player_id,
+        query=" ".join(query_parts),
+        limit=10,
+        char_cap=2200,
+    )
+    try:
+        from .world_events import (
+            effective_domain,
+            future_subject_effects,
+            project_state_overlay,
+        )
+
+        overlay = project_state_overlay(state)
+        entities = state.get("entities") or {}
+        present_ids = {
+            str(eid) for eid, row in entities.items()
+            if isinstance(row, dict) and row.get("present")
+        }
+        location_id = str(scene.get("location_id") or "")
+        allowed_subjects = {
+            "world", "briefing:world", "narration:world",
+            f"briefing:{location_id}", f"narration:{location_id}",
+            f"location:{location_id}",
+        }
+        for eid in present_ids | {player_id}:
+            allowed_subjects.update({
+                f"actor:{eid}", f"npc:{eid}", f"enemy:{eid}",
+                f"briefing:{eid}", f"narration:{eid}",
+            })
+        contexts: list[str] = []
+        for domain in ("briefing", "narration", "actor"):
+            for subject_key, fields in effective_domain(overlay, domain).items():
+                if not isinstance(fields, dict) or subject_key not in allowed_subjects:
+                    continue
+                for row in fields.values():
+                    if isinstance(row, dict) and isinstance(row.get("value"), str):
+                        contexts.append(f"{domain}:{subject_key}={row['value']}")
+        if contexts:
+            suffix = "[WORLD OVERLAY CONTEXT] " + " · ".join(dict.fromkeys(contexts))
+            block = block + ("\n" if block else "") + suffix[:1200]
+        private_contexts: list[str] = []
+        for eid in sorted(present_ids - {player_id}):
+            entity = entities.get(eid) or {}
+            if entity.get("kind") not in {"character", "npc"}:
+                continue
+            attributes = ((state.get("attributes") or {}).get(eid) or {})
+            candidate = {
+                "kind": "npc",
+                "id": eid,
+                "name": entity.get("name"),
+                "faction": attributes.get("faction"),
+                "role": attributes.get("role"),
+                "location": entity.get("location_id"),
+                "tags": attributes.get("tags") or [],
+            }
+            future = future_subject_effects(
+                state, candidate, domains=("npc_knowledge", "npc_behavior"),
+            )
+            for domain in ("npc_knowledge", "npc_behavior"):
+                exact = effective_domain(overlay, domain)
+                values: list[dict] = []
+                for subject_key in (f"npc:{eid}", f"actor:{eid}"):
+                    fields = exact.get(subject_key)
+                    if isinstance(fields, dict):
+                        values.extend(row for row in fields.values() if isinstance(row, dict))
+                values.extend(
+                    row for row in (future.get(domain) or {}).values() if isinstance(row, dict)
+                )
+                for row in values:
+                    if isinstance(row.get("value"), str):
+                        private_contexts.append(
+                            f"{domain}:{_name(state, eid)}={row['value']}"
+                        )
+        if private_contexts:
+            private = (
+                "[PRIVATE NPC STATE — do not reveal directly; use only to choose that NPC's "
+                "behavior or speech] " + " · ".join(dict.fromkeys(private_contexts))
+            )
+            block = block + ("\n" if block else "") + private[:1200]
+    except Exception:
+        pass
+    return block
+
+
 def _render_living_tail(state: dict, cfg=None) -> str:
-    """Phase 2 (the mechanics contract, verified): the living-world lines — volatile, so they ride
+    """Phase 2 (plan doc 13, ratified): the living-world lines — volatile, so they ride
     the injected TAIL after the directive (the 0a KV-cache constraint). Renders ONLY
     committed truth: a fresh travel move (with a deterministic en-route cue — md5 of the
     committed route + day, the R8c pattern: same state, same bytes, no journal row), a
@@ -1544,6 +1827,8 @@ def _render_living_tail(state: dict, cfg=None) -> str:
             or not state.get("player"):
         return ""
     import hashlib
+    from .world_events import front_identity_visible_to_player
+
     out: list[str] = []
     turn = int((state.get("meta") or {}).get("turn", -1))
     day = int((state.get("clock") or {}).get("day", 1))
@@ -1561,6 +1846,8 @@ def _render_living_tail(state: dict, cfg=None) -> str:
     fresh, standing = [], []
     for fid, f in sorted((state.get("fronts") or {}).items()):
         if not isinstance(f, dict) or not f.get("revealed"):
+            continue
+        if f.get("done") and not front_identity_visible_to_player(state, str(fid)):
             continue
         nm = str(f.get("name", fid))
         if f.get("done") and turn - int(f.get("filled_turn", -10**9)) <= 1:
@@ -1608,6 +1895,19 @@ def render_header(state: dict, cfg) -> str:
 
     present = [_name(state, eid) for eid, e in state.get("entities", {}).items()
                if e.get("present")]
+    actor_conditions: list[str] = []
+    effective_actor = _overlay_effective(state).get("actor") or {}
+    for eid, entity in (state.get("entities") or {}).items():
+        if not isinstance(entity, dict) or not entity.get("present"):
+            continue
+        kind = str(entity.get("kind") or "actor")
+        keys = (f"{kind}:{eid}", f"actor:{eid}", f"npc:{eid}", f"enemy:{eid}")
+        for key in dict.fromkeys(keys):
+            fields = effective_actor.get(key) if isinstance(effective_actor, dict) else None
+            row = fields.get("condition") if isinstance(fields, dict) else None
+            if isinstance(row, dict) and isinstance(row.get("value"), str):
+                actor_conditions.append(f"{_name(state, eid)} condition: {row['value']}")
+                break
     scene_bits = []
     if sc.get("location_id"):
         scene_bits.append(str(sc["location_id"]))
@@ -1616,11 +1916,48 @@ def render_header(state: dict, cfg) -> str:
         scene_bits.append(f'phase {sc["phase"]}')
     if sc.get("mode") in ("flashback", "dream"):
         scene_bits.append(f'{sc["mode"].upper()} SCENE')
+    if sc.get("location_id"):
+        try:
+            from .world_events import effective_value, project_state_overlay
+
+            location_id = str(sc["location_id"])
+            circumstance = effective_value(
+                project_state_overlay(state), "location", f"location:{location_id}",
+                "circumstance",
+            )
+            if circumstance is not None:
+                scene_bits.append(f"location circumstance: {circumstance}")
+        except Exception:
+            pass
     if present:
         scene_bits.append(("here: " if _compact(cfg) else "present: ")
                           + ", ".join(sorted(present)))
+    scene_bits.extend(actor_conditions)
     if sc or present:
         lines.append("[SCENE] " + " · ".join(scene_bits))
+        scene_lore: list[str] = []
+        attrs = state.get("attributes") or {}
+        location_id = str(sc.get("location_id") or "")
+        if location_id:
+            location_desc = _prose_excerpt(
+                (attrs.get(location_id) or {}).get("description"), 600,
+            )
+            if location_desc:
+                scene_lore.append(f"{_name(state, location_id)} — {location_desc}")
+        player_ids = set((state.get("player") or {}).keys())
+        for eid, entity in sorted((state.get("entities") or {}).items()):
+            if eid in player_ids or not isinstance(entity, dict) or not entity.get("present"):
+                continue
+            actor_attrs = attrs.get(eid) or {}
+            role = str(actor_attrs.get("role") or "").strip()
+            desc = _prose_excerpt(actor_attrs.get("description"), 360)
+            detail = " — ".join(x for x in (role, desc) if x)
+            if detail:
+                scene_lore.append(f"{_name(state, eid)} — {detail}")
+            if len(scene_lore) >= 5:  # current location + at most four present actors
+                break
+        if scene_lore:
+            lines.append("[SCENE LORE] " + " · ".join(scene_lore))
 
     # [PHYSICAL] pose; worn items; derived exposure (02 SS5.2 — derived, never stored).
     # Item 5 scoping (2026-07-09): an EXPLICITLY-absent entity spends no tokens here — its
@@ -1717,7 +2054,7 @@ def render_header(state: dict, cfg) -> str:
             rendered.append(line)
         lines.append("[ROLL] " + "; ".join(rendered))
 
-    # RPG specialization blocks (the public contract) — gated by the profile's `blocks` list and the
+    # RPG specialization blocks (doc 05 §6) — gated by the profile's `blocks` list and the
     # active specialization; omitted when their data is absent (same pattern as [CONSENT]).
     if rpg:
         blocks = cfg.specialization.blocks
@@ -1744,7 +2081,7 @@ def render_header(state: dict, cfg) -> str:
             iblock = _render_inventory(state)
             if iblock:
                 lines.append(iblock)
-        if "FACTIONS" in blocks:                 # RPG-3b social plane (the public contract)
+        if "FACTIONS" in blocks:                 # RPG-3b social plane (doc 05 §6)
             fblock = _render_factions(state)
             if fblock:
                 lines.append(fblock)
@@ -1752,7 +2089,7 @@ def render_header(state: dict, cfg) -> str:
             rblock = _render_relations(state, cfg)
             if rblock:
                 lines.append(rblock)
-        if "NEARBY" in blocks:                   # 0b home anchors (the mechanics contract)
+        if "NEARBY" in blocks:                   # 0b home anchors (plan doc 13)
             nblock = _render_nearby(state, cfg)
             if nblock:
                 lines.append(nblock)
@@ -1764,6 +2101,9 @@ def render_header(state: dict, cfg) -> str:
             wblock = _render_world(state)
             if wblock:
                 lines.append(wblock)
+        kblock = _render_knowledge(state)
+        if kblock:
+            lines.append(kblock)
 
     return "\n".join(lines)
 
@@ -1784,7 +2124,7 @@ def render_guard(cfg, stamp, klass: str, evidence: Optional[str] = None) -> str:
         return (f'[CONTROL] VIOLATION last turn: you wrote for {who}{name} ("{evidence}"). '
                 f"{name} is played by the user ONLY. Never write {name}'s dialogue, "
                 f"actions, or thoughts. Stop where {name} must act.")
-    if dm:   # DM/Game-Master framing of the guard (the public contract) — text selection, not new logic
+    if dm:   # DM/Game-Master framing of the guard (doc 05 §3.2) — text selection, not new logic
         return (f"[CONTROL] You are the Game Master. Narrate the world, its NPCs, factions, "
                 f"and the outcomes the engine resolves — never the Player. {name} is the "
                 f"Player, played by the user ONLY. Never write {name}'s dialogue, actions, "
@@ -2133,8 +2473,8 @@ def compose(doc: dict, state: dict, cfg, stamp, klass: str,
                                cfg.injection.priorities.get("director_note", 80)))
     lesson_component_ids: tuple[str, ...] = ()
     if getattr(cfg, "specialization", None) is not None and cfg.specialization.name == "rpg":
-        from . import prompts                               # DM rules-contract (the public contract)
-        # 2026-07-10 (Arinvale): the contract used to be a droppable component — on a rich
+        from . import prompts                               # DM rules-contract (doc 05 §5.2)
+        # 2026-07-10 (Eranmor): the contract used to be a droppable component — on a rich
         # sheet the WHOLE protocol ([TAGS] grammar, [foe], and dm-rules) silently vanished
         # mid-campaign and the DM invented its own grammar, unheard and uncorrected. The
         # contract is what MAKES rpg an RPG (Bean 07-07): degrade full -> compact when the

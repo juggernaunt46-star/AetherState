@@ -1,4 +1,4 @@
-# Curated abilities (the public contract). REDESIGNED 2026-07-07 (Bean's directive): an ability is
+# Curated abilities (doc 06 §3.4). REDESIGNED 2026-07-07 (Bean's directive): an ability is
 # NOT a flat stat buff — buffing a number is a SKILL's job (rank + mastery). An ability
 # SHAPES THE DICE or LIFTS A LIMIT. That is the whole distinction: a skill says how good you
 # are; an ability changes HOW THE DICE FALL. Each ability carries a curated `mechanic`

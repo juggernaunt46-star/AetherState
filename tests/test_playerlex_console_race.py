@@ -34,12 +34,14 @@ const $ = selector => {{
 let tab = "PlayerLex";
 let S = null;
 let RENDER_SEQ = 0;
+const PRIVILEGED_STATE_TABS = new Set(["Overview", "Edit"]);
+const loadCalls = [];
 let releasePlayerLex;
 const pendingPlayerLex = new Promise(resolve => {{ releasePlayerLex = resolve; }});
 async function playerLexTab() {{ return await pendingPlayerLex; }}
 function playerLexReset() {{}}
 function nav() {{}}
-async function load() {{}}
+async function load(privileged) {{ loadCalls.push(privileged); }}
 function headerRefresh() {{}}
 function playerView() {{ return "PLAYER"; }}
 function overview() {{ return "OVERVIEW"; }}
@@ -57,6 +59,7 @@ const staleRender = render();
 await Promise.resolve();
 await go("Overview");
 assert.equal(view.innerHTML, "OVERVIEW");
+assert.deepEqual(loadCalls, [true]);
 
 releasePlayerLex("STALE PLAYERLEX");
 await staleRender;

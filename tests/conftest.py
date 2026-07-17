@@ -41,4 +41,7 @@ async def client(proxy_app):
     """AetherState proxy wired to MockUpstream — fully in-process, no sockets (11 SS1)."""
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=proxy_app),
                                  base_url="http://proxy") as c:
+        # Control-route tests act as the local owner Console. Player clients do not receive
+        # this same-origin HttpOnly inspection capability and are tested explicitly without it.
+        await c.get("/aether/console")
         yield c

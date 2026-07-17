@@ -49,6 +49,19 @@ diagnostic companion.
 | include_usage | `false` | opt-in: set `stream_options.include_usage` on enriched streaming requests so the upstream reports `usage` (cache hits become measurable). Adds one spec-standard SSE chunk the frontend sees |
 | prewarm | `false` | opt-in: on the extension's `chat_changed` hint, re-send the session's last enriched prompt once (`max_tokens=1`, non-streaming) so the first real message hits a warm prefix. One full-price prefill per warm; ≥240 s per-session cooldown; in-memory only (a fresh proxy has nothing to prewarm until one request flows). Cache-friendliness note: `[injection].placement="depth"` (default) keeps volatile state at the prompt tail; `"system_merge"` invalidates the provider prefix cache every turn (the proxy logs a notice) |
 
+### `[creator]` — `CreatorConfig` (cold-path MAIN-model authoring)
+| key | default | meaning |
+|---|---|---|
+| max_tokens | `32768` | output budget for one complete World or Character document; the former hard-coded 9000 ceiling cut large documents mid-field |
+| timeout_s | `600` | per-request timeout for this cold path; ordinary narration and mechanics do not inherit it |
+| validation_retries | `1` | one clean full-document retry after an empty, truncated, invalid, incomplete, or mechanically checkable direction-breaking response |
+
+Creator always calls the configured **MAIN** base URL and API key. Extraction/assist routing never
+redirects it to a helper endpoint. Strict parsing accepts one complete JSON object (optionally inside
+one complete JSON fence); it never repairs a fragment, reads reasoning text as output, or loads a
+partial document. Both Creator notes boxes are sent as controlling instructions in the system and
+user messages, remain unchanged on the retry, and remain visible in the editable draft after success.
+
 ### `[stamp]` — `StampConfig`
 | key | default | meaning |
 |---|---|---|
@@ -235,7 +248,7 @@ JSON (502 `not_configured` / `upstream_unreachable`).
 | `GET /aether/creator` | serves the World & Character creator window (`static/creator.html`) |
 | `GET /aether/registry` | curated stats/skills/abilities + genres/times for the creator sheet, plus `genre_packs` (genre-true preset floor: per-genre skills/abilities that hide fantasy-flavored entries and freeze into per-character defs at save) and `concept_hints` |
 | `GET /aether/playerlex` | list explicit local PlayerLex approvals with current, stale, missing-concept, or sanitized corrupt status; reads no session/chat data |
-| `GET /aether/playerlex/concepts?query=&lex_id=&limit=&cursor=` | search/page the bounded non-authoritative 311-meaning Semantic Atlas; supports Lex filtering and exact `lex_id` + `concept_id` lookup, maximum page size 100 |
+| `GET /aether/playerlex/concepts?query=&lex_id=&limit=&cursor=` | search/page the bounded non-authoritative 327-meaning Semantic Atlas; supports Lex filtering and exact `lex_id` + `concept_id` lookup, maximum page size 100 |
 | `POST /aether/playerlex` | explicitly approve one local `name`, `alias`, or anchored `authoring_pattern` against the server-resolved current `lex_id`, concept ID, and meaning fingerprint |
 | `PATCH /aether/playerlex/{entry_id}` | correct and explicitly reapprove one complete local mapping; requires `kind`, `surface`, `lex_id`, `concept_id` and exactly one displayed proof form: expected approved fingerprint plus revision, or opaque corrupt-row version; incomplete, mixed, or raced requests refuse |
 | `DELETE /aether/playerlex/{entry_id}` | idempotently delete and securely scrub one learned surface/provenance from the active SQLite database/WAL; refuses an outer transaction and marks checkpoint contention retryable |
@@ -248,9 +261,9 @@ JSON (502 `not_configured` / `upstream_unreachable`).
 | `PATCH /aether/player-lessons/{lesson_id}` | replace one complete same-effect definition using required `expected_revision` + `expected_fingerprint`; effect type cannot change and a stale edit returns 409 |
 | `POST /aether/player-lessons/{lesson_id}/enabled` | enable/disable using `enabled` plus the same complete optimistic version proof |
 | `DELETE /aether/player-lessons/{lesson_id}` | idempotently remove lesson content, narration/intent items and intent applications from the active database/WAL, then purge process-local packet copies; a blocked secure checkpoint returns retryable 503 |
-| `GET /aether/creator/models` | model ids detected at the configured endpoints (feeds the Creator's model menu; fail-open to `[]`) |
+| `GET /aether/creator/models` | model ids detected at the configured MAIN endpoint only (feeds the Creator menu; helper/assist models are excluded; fail-open to `[]`) |
 | `GET /aether/session/{sid}/creator` | prefill: current Player Card + `player_name`, committed `world` doc (best-effort reverse of the seed ops), `world_seeded`, spec, persona |
-| `POST /aether/session/{sid}/author` | assist-LLM fill-the-blanks (body: mode `world\|player`, doc, world, optional `model`, optional `offline:1` for an explicit template fill); works session-less from config; auto-detects a model via `GET /models` when none is known; an LLM failure returns `source:"error"` + `detail` (the window keeps the form untouched — templates only on request) |
+| `POST /aether/session/{sid}/author` | MAIN-LLM complete World/Character authoring (body: mode `world\|player`, doc, world, optional MAIN `model`, optional `offline:1` for an explicit template fill); works session-less from config; resolves explicit pick → session's last MAIN model → `[upstream].model` → MAIN `GET /models`; empty/truncated/invalid/incomplete output receives one full retry, then returns `source:"error"` + `detail` with no `doc` (the form stays untouched) |
 | `GET /aether/presets` · `POST /aether/presets` | list / upsert named creator presets (kind `world\|player`, name, doc) |
 | `GET /aether/presets/{id}` · `DELETE /aether/presets/{id}` | fetch / delete one preset |
 | `GET /aether/session/{sid}/briefing` | 1.9.0 transparency inspector: EXACTLY what the engine would inject into the next request — the composed state header, the DM rules-contract under rpg, per-component token counts after the budget governor, and the injection budget. Read-only ("the console shouldn't hide anything raw") |
@@ -270,7 +283,7 @@ JSON (502 `not_configured` / `upstream_unreachable`).
 
 The **player HUD** (2026-07-07, `hud.py` + the ST extension window + the Console "Player" tab) closes the "AetherState hides everything from the human" gap. AetherState computes a rich player state and injects it into the MODEL as bracketed blocks — the HUD surfaces that same truth to the PLAYER. `hud.hud_view(state, cfg)` is the single resolved projection; `GET .../hud` serves it; the SillyTavern extension renders it in a movable, themeable (`neutral`/`fantasy`/`scifi`/`modern`) window (launcher tab, `/aether-hud`, or the panel link), and the Console renders the identical payload in its **Player** tab (now the default) — so nothing player-facing lives only in ST or only in `raw`. The active specialization (`rpg`/`none`) is shown in the HUD header, the panel chip, and the status chip, and the panel has a narrative-mode selector. **Player appearance/description** is a new field (Creator form → `set_attribute appearance` on the player entity → HUD/Console/Narrator card); it did not exist before (only NPCs had descriptions). The HUD and the Console "Player" tab are also EDITABLE (HUD via an ✎ edit-mode toggle): HP ±  (`hp_adj`), spend a banked stat point (the new privileged `stat_spend {char, stat}` op — +1 to a stat clamped to the registry max, −1 point), equip/unequip (`item_equip`/`item_unequip`), use (`item_consume`), remove a status (`effect_remove`), and sate/± drives (`craving`/`obsession`, override-gated like all organic edits). All buttons build ops and go through the privileged `PATCH /state` path. The HUD also has a **▁ compact/minimize** mode. `/hud` carries the ids these controls need (item `iid`, effect `key`, obsession `target_kind`, item `slot`/`consumable`). The payload is COMPREHENSIVE — not just the player: effect rows carry `kind`/`kind_label` (**Status / Condition / Disease**) + `note` + `mods`; a **`cast`** array surfaces every tracked non-player entity (presence, location, mood, their statuses/conditions/diseases, drives, goals, worn/exposed, relationship tier + dims to the player); plus player `mood` + skill `mastery`, `relationships` (dims), `memories` (recent events), `consent`, and world flags/factions/affinity. Both the HUD and the Console "Player" tab render all of it (statuses shown even when empty), so nothing tracked stays hidden.
 
-The **world Narrator card** (2026-07-07, `narrator.py`) closes the "hard to see which world I'm in" gap: the card is NAMED after the world, its first message opens on the committed opening scene, its description carries the setting/laws/factions/places/cast + the Player, and its avatar is genre-tinted. The Creator's "🎭 Generate Narrator card" button (Session review tab / Character tab) POSTs the install route then downloads the PNG. It projects `world_from_state`, so a session that has accumulated more than one world's lore will surface all of it — generate from a single-world (or fresh) session.
+The **world Narrator card** (2026-07-07, `narrator.py`) closes the "hard to see which world I'm in" gap: the card is NAMED after the world, its first message opens on the committed opening scene, its description carries the setting/laws/factions/places/cast + the Player, and its avatar is genre-tinted. The Creator's "🎭 Generate Narrator card" button (Session review tab / Character tab) POSTs the install route then downloads the PNG. It projects `world_from_state`, so a session that has accumulated more than one world's lore will surface all of it — generate from a single-world (or fresh) session. This is additive to the world-agnostic `build_narrator_card.py` at the repo root (still the floor card for "no world yet").
 
 Config-mutating routes persist to `config.toml` (`_persist_config`). State-mutating routes go through
 `state.apply_delta` / `translate_path` — never write state directly.
@@ -371,12 +384,12 @@ the character card into a Dungeon Master and tracks the user's persona as a Play
 | `auto_compact_contract` | `false` | A1 (1.19.0): on calm, ESTABLISHED turns auto-flip the contract to its `"compact"` form (the model has internalized the full rules by then — the biggest per-turn token + reasoning cut). The FULL contract still rides the first `contract_full_turns` turns and EVERY combat turn (tracked combatants on the field OR a climax/combat/battle/fight/ambush scene phase). Opt-in: off = the size is fixed by `contract`, so an rpg session is byte-identical until enabled. Ignored when `contract == "compact"`. Pure state read on the hot path — no network, replay-neutral |
 | `contract_full_turns` | `3` | A1 (1.19.0): keep the FULL contract for this many opening turns before `auto_compact_contract` may kick in (`0` = compact-eligible from turn 1) |
 | `combat_opening_primer` | `true` | Experimental private combat-opening primer. On the opening combat window only, the narrator receives non-canonical worked examples with multiple settled rolls and increasingly complex ideal prose. The examples are input-only, must never be mentioned or reused in the story, and add a temporary request budget equal to their own size rather than enlarging every RPG turn. Live-disable it for an A/B comparison without changing combat state. |
-| `hardcore` | `false` | RPG-5 (the public contract): `defeat_resolve` routes to DEATH (permadeath) instead of the contextual non-lethal outcomes (captured / wake safe / robbed / rescued) |
+| `hardcore` | `false` | RPG-5 (doc 10 §7): `defeat_resolve` routes to DEATH (permadeath) instead of the contextual non-lethal outcomes (captured / wake safe / robbed / rescued) |
 | `enemy_rolls` | `true` | Enables code-owned enemy actions. War Room foes freeze a small grounded kit, visibly commit one coming intent, then resolve only that intent on the Player's next distinct action. Swipes and qualifying `reserve_lost_turns` retries re-serve the settled receipt; exact transport duplicates reuse their cached enriched packet. With `war_room=false`, the legacy generic opposition fallback remains. Off hides/prevents enemy actions and does not prepare a hidden attack for later re-enable. |
-| `war_room` | `true` | Phase 1 (1.13.0, the mechanics contract verified): the full combat loop — combatant INSTANCES (extras via the DM's `[foe \| name \| tier \| weapon]` tag / `((aether.foe …))`; known NPCs fight tracked and KEEP their wounds via `attributes.hp` + a `Wounded`/`Battered` condition), 3v3 cap with auto-enlisted companions (1.20.0: grounded on a BOND - soulmate / companion role/label / close relationship dim, not just the rarely-reached Ally-tier affinity) plus the DM's `[ally \| name \| tier? \| weapon?]` tag and the player's `((aether.ally name))`, each fighting on a per-ally pre-rolled `[ALLY]` die, code-derived player strike damage (outcome tier × weapon `damage` mod, applied to the ledger, handed to the DM on the [DIRECTIVE]), the clamped `[hp \| <combatant> \| -N]` chip-damage channel, code-detected defeat → XP by threat tier + a loot roll frozen at spawn (`state["loot"]` via `loot_table` ops > `registry/loot.toml`), self-ending fights, the exact-HP `[WAR]` board, the `[clash \| A vs B \| how \| outcome]` NPC-fight record, the `combatant_alive` linter rule, and the War Room HUD lane. Off = pre-1.13 combat (R8c + `[hp]` only) |
+| `war_room` | `true` | Phase 1 (1.13.0, plan doc 13 ratified): the full combat loop — combatant INSTANCES (extras via the DM's `[foe \| name \| tier \| weapon]` tag / `((aether.foe …))`; known NPCs fight tracked and KEEP their wounds via `attributes.hp` + a `Wounded`/`Battered` condition), 3v3 cap with auto-enlisted companions (1.20.0: grounded on a BOND - soulmate / companion role/label / close relationship dim, not just the rarely-reached Ally-tier affinity) plus the DM's `[ally \| name \| tier? \| weapon?]` tag and the player's `((aether.ally name))`, each fighting on a per-ally pre-rolled `[ALLY]` die, code-derived player strike damage (outcome tier × weapon `damage` mod, applied to the ledger, handed to the DM on the [DIRECTIVE]), the clamped `[hp \| <combatant> \| -N]` chip-damage channel, code-detected defeat → XP by threat tier + a loot roll frozen at spawn (`state["loot"]` via `loot_table` ops > `registry/loot.toml`), self-ending fights, the exact-HP `[WAR]` board, the `[clash \| A vs B \| how \| outcome]` NPC-fight record, the `combatant_alive` linter rule, and the War Room HUD lane. Off = pre-1.13 combat (R8c + `[hp]` only) |
 
 | `large_battle` | `true` | §F (1.21.0): large-scale battle — the Player fights their MICRO 3v3 slice while the MACRO field lives in prose. `[battle \| name \| foe? \| tier?]` is strictly positional and `[tide \| winning\|holding\|losing \| why]` steps code-owned momentum. A same-reply new battle plus exactly one terminal `[foe \| base xN \| tier? \| weapon?]` (`2 <= N <= 27`) opens a finite counted cohort: N independent ordinary enemies, at most three active, exact queued replacements, one committed enemy intent, no pooled damage or inferred mass casualties, and a hard end after N. Battles without a cohort keep the prior capped momentum-wave behavior, and old journals replay unchanged. `[BATTLE]` plus the HUD chip surface tide/waves and active/defeated/queued/total; OOC `((aether.battle <name> \| tide <t> \| end))`. Off = no `[battle]`/`[tide]`/waves/cohorts (needs `war_room`) |
-| `living_world` | `true` | Phase 2 (1.14.0, the mechanics contract verified): the living world — travel between canon locations consumes day-segments (`route_set` edges override the 1-segment default), an idle clock floor (`clock_turns`), the DM's `[time \| <segment>/+N]` ceiling (clamped), authored faction FRONTS (`front_add`, 3-12 segments) advanced deterministically by `state.world_ops` on both apply paths, FILL → `world_flag` + world-event memory + the `[FRONT]` tail directive + the `front_fallout` beat, and rumor-gated visibility (`front_reveal` via `[rumor]` tag / name-mention; HUD/briefing hide unrumored clocks, `state_summary.fronts`/`routes` always raw). Off = 1.13 behavior |
+| `living_world` | `true` | Phase 2 (1.14.0, plan doc 13 ratified): the living world — travel between canon locations consumes day-segments (`route_set` edges override the 1-segment default), an idle clock floor (`clock_turns`), the DM's `[time \| <segment>/+N]` ceiling (clamped), authored faction FRONTS (`front_add`, 3-12 segments) advanced deterministically by `state.world_ops` on both apply paths, FILL → `world_flag` + world-event memory + the `[FRONT]` tail directive + the `front_fallout` beat, and rumor-gated visibility (`front_reveal` via `[rumor]` tag / name-mention; HUD/briefing hide unrumored clocks, `state_summary.fronts`/`routes` always raw). Off = 1.13 behavior |
 | `clock_turns` | `6` | Phase 2: idle auto-tick — advance one time segment after this many turns with no real time passing (0 disables the idle floor; travel and `[time]` tags still move the clock) |
 
 **Overlay resolver (`config._apply_specialization`).** When `name == "rpg"` the built-in
@@ -429,32 +442,35 @@ priority 46). Both gated by `specialization=rpg`; `[DIRECTIVE]` also needs `DIRE
 and `rules_off`.
 
 
-### 4.5 World Generator & Character Creator (the public contract; `creator.py` + `static/creator.html`)
+### 4.5 World Generator & Character Creator (doc 09; `creator.py` + `static/creator.html`)
 
 A standalone window served same-origin by the proxy — opened from the ST panel (`open Creator`) or
-`/aether-creator`. **World-first ordering** (the public contract): author the World, then the Character against
+`/aether-creator`. **World-first ordering** (doc 09 §5): author the World, then the Character against
 it. Two authoring paths, always available together:
 
 - **Deterministic backbone** — genre templates + point-buy + the curated registry fill every blank
   and clamp every value. Consistent + calculable; runs with no model.
-- **Assist-LLM fill-the-blanks** (`POST .../author`, cold-path, creation-time) — the player supplies
-  the details they care about; a capable assist model authors the rest (world nations/NPCs/lore, or a
-  character's stats/skills/class), which is then parsed, validated + clamped, and FROZEN. Freestyle
+- **MAIN-LLM complete authoring** (`POST .../author`, cold-path, creation-time) — the player supplies
+  the details they care about; the configured story model authors the complete World or Character
+  document, which is then strictly parsed, validated + clamped, and FROZEN. Freestyle
   skills/abilities land as per-character `defs` snapshots (fixed numbers) via `player_seed`, so nothing
-  is freestyle at resolution (registry invariant). Fail-open: no assist endpoint ⇒ deterministic fill.
-  **Model resolution (2026-07-06):** the route takes an optional `model` (the Creator's header menu,
-  populated from `GET /aether/creator/models`); with no pick it uses the session's last-seen model,
-  and on a fresh session it detects one at the endpoint via `GET /models` — the Creator no longer
-  needs a chat message to have flowed before AI fill works, and no session row is required (it
-  builds the endpoint from `[assist]`/`[upstream]` config). Both tabs carry a free-form
-  **creative direction / notes** field passed to the authoring prompts as high-priority direction.
+  is freestyle at resolution (registry invariant). The AI path never borrows an extraction/helper
+  endpoint and never silently substitutes templates; the template/default button remains explicit.
+  **Model resolution:** the optional Creator-menu pick is used only at the MAIN base URL; otherwise
+  the route uses the session's last MAIN model, `[upstream].model`, then MAIN `GET /models`. No session
+  row or prior chat message is required. Both tabs carry a free-form **creative direction / notes**
+  field. Its exact text is a controlling instruction in both the system and user prompt, survives
+  the validation retry unchanged, and remains in the visible box after a successful fill. It is not
+  promoted into runtime lore merely because it was an instruction.
   Authoring clamps are roomy rails, not straitjackets: 2000-char prose fields, 20-item lists,
   custom passive mods ±5 / resolution mods −5..+8 (still clamped, still frozen at creation).
-  **Quality pass (2026-07-06):** authoring calls run at temperature 0.9 with a 150 s timeout and a
-  4000-token budget (the shared 25 s mechanics timeout used to expire mid-generation and silently
-  fall back to templates); EVERY filled field — setting of any length, NPCs, opening scene/quest,
-  the world's aspects/locations for character fill — rides along as canon context; an LLM failure
-  is reported (`source:"error"`) instead of silently substituting templates. The window also gained
+  **Completion contract (2026-07-17):** authoring runs at temperature 0.9 with a configurable
+  32,768-token budget, 600 s timeout, and one full restart. Empty content, provider truncation,
+  malformed/trailing JSON, missing required sections, dangling prose, invalid cross-references, and
+  explicit count directions such as "exactly three fronts" reject the proposal. No brace-closing,
+  quote-healing, partial-object salvage, or reasoning-content fallback is allowed. After two failed
+  proposals the route returns no document and the browser leaves every field untouched. EVERY filled
+  field — including structured loot/fronts/routes — rides as canon context. The window also has
   a **session switcher** (apply a world/char to any session), named **presets** (save/load/delete
   world + character docs across sessions), and a **📋 Session review tab** that renders the
   committed Player Card + world (via the prefill route's `world`/`player_name`) with
@@ -502,7 +518,7 @@ per-entry `name/kind/valence/mods/duration/requires/desc`. `GET /aether/registry
 returns `effects`.
 
 **OOC / R8.** `((aether.check <skill> [+N|-N] [vs DC] [scope minor|standard|major|epic|mythic]))`
-— `scope` engages scope-gated power (the public contract): −2 per scope step past the skill's rank + a tier
+— `scope` engages scope-gated power (doc 10): −2 per scope step past the skill's rank + a tier
 ceiling (floor: partial). A skill with `requires_ability` (e.g. the shipped `spellcraft` →
 `arcane_gift`) is a NON-MOVE without the ability: visible notice, no roll.
 

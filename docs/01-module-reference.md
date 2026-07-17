@@ -367,7 +367,7 @@ pattern against one exact Lex-qualified Semantic Atlas snapshot and meaning fing
 four Lexes. Compute current/stale/missing/corrupt status, verify current detached meaning against the
 server, correct and reapprove with normal or opaque-corrupt version concurrency, securely remove
 approved text from the active database/WAL, and return source-bounded recognition-only proposals
-without storing tested text. `semantic_atlas.py` provides bounded 311-meaning discovery;
+without storing tested text. `semantic_atlas.py` provides bounded 327-meaning discovery;
 `playerlex_recognition.py` revalidates and merges current matches into the live compiled receipt once
 on an actual new RPG Player turn.
 

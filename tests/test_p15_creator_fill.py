@@ -26,10 +26,10 @@ def test_long_composite_row_survives_intact():
 
 
 def test_overlong_row_cuts_word_safe_never_mid_word():
-    monster = "The Ledger Boys — " + "waterline barter cartel enforcing the truce " * 20
+    monster = "The Ledger Boys — " + "waterline barter cartel enforcing the truce " * 80
     w = creator.deterministic_world({"factions": [monster]})
     row = w["factions"][0]
-    assert len(row) <= 500
+    assert len(row) <= 2000
     assert monster.startswith(row)               # a clean prefix…
     assert monster[len(row)] == " "              # …ending exactly at a word boundary
     assert not row.endswith((" ", ",", ";", ":", "—", "–", "-"))
@@ -43,10 +43,10 @@ def test_tone_and_date_no_longer_amputated():
 
 
 def test_split_name_desc_tail_word_safe():
-    src = "very long detail " * 40
+    src = "very long detail " * 160
     head, tail = creator._split_name_desc("Name — " + src)
     assert head == "Name"
-    assert len(tail) <= 400
+    assert len(tail) <= 2000
     assert src.startswith(tail)                   # a clean prefix…
     assert src[len(tail)] == " "                  # …ending exactly at a word boundary
 

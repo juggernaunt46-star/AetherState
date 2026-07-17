@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .capability_glossary import content_fingerprint
+from .claim_frame import build_claim_frames
 from .playerlex_recognition import merge_playerlex_proposal
 from .semantic_fabric import CompiledMeaning, SemanticFabric
 from .worldlex import ContextFrame
@@ -396,6 +397,7 @@ class SemanticTurn:
     frames: list[ActionFrame] = field(default_factory=list)
     compiled_meaning: CompiledMeaning | None = None
     occurrence_graph: dict[str, Any] | None = None
+    claim_frames: list[dict[str, Any]] = field(default_factory=list)
     # Content-free, transient Player Lesson choices selected after recognition.  They are never
     # copied into meaning receipts or frame snapshots; Tier-0 may use them only to choose among
     # options the current turn already contains.
@@ -425,6 +427,13 @@ class SemanticTurn:
             raise ValueError("semantic turn meaning belongs to a different fabric")
         elif self.compiled_meaning.genre_ids != tuple(dict.fromkeys(genre_ids)):
             raise ValueError("semantic turn meaning belongs to a different genre context")
+        if not self.claim_frames:
+            self.claim_frames = build_claim_frames(
+                self.source_text,
+                self.compiled_meaning,
+                ingress="player",
+                source_id="player",
+            )
         return self.compiled_meaning
 
     def add_candidate(self, cand: CapabilityCandidate) -> None:

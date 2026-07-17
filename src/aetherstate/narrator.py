@@ -1,5 +1,11 @@
 """World-specific Narrator card generation (RPG / DM mode).
 
+The generic "Narrator" card (build_narrator_card.py at the repo root) is world-agnostic by
+design — one card for every world. In play that made a real problem visible: when you open a
+chat in SillyTavern you cannot SEE which world you are traversing. The card, its name, its
+first message are all generic, so the world you carefully built in the Creator is invisible
+until the model happens to mention it.
+
 This module projects a COMMITTED world (creator.world_from_state) + the Player Card into a
 V2 SillyTavern character card, so the world you built is the world you see the moment the
 chat opens: its name in the header, its setting/factions/cast inside the card, its opening
@@ -181,7 +187,7 @@ def _scenario(world: dict) -> str:
     return base + "Play begins where the world's opening scene places the Player."
 
 
-def _trim(v, s_cap: int = 4000, l_cap: int = 48):
+def _trim(v, s_cap: int = 8000, l_cap: int = 48):
     """Cap string lengths and list sizes so a pathologically long doc can't bloat the embedded
     PNG — structure and values are otherwise preserved verbatim (fidelity kept, Bean 10 §10)."""
     if isinstance(v, str):
@@ -212,9 +218,15 @@ def seed_payload(world: Optional[dict], player: Optional[dict]) -> dict:
     LLM. Same doc shapes the Creator posts to /world and /player — the ST extension reads this
     seed on chat-open and replays it through /aether/session/{sid}/seed. Read-only projection;
     never a resolution channel (the world_to_ops/player_to_ops apply path validates it)."""
-    seed: dict = {"world": _trim(world) if isinstance(world, dict) else {}}
+    # Creative-direction notes control one authoring request; they are not world truth, Player
+    # state, or a reason to expose private instructions inside a portable PNG card.
+    clean_world = dict(world) if isinstance(world, dict) else {}
+    clean_world.pop("notes", None)
+    seed: dict = {"world": _trim(clean_world)}
     if _player_meaningful(player):
-        seed["player"] = _trim(player)
+        clean_player = dict(player)
+        clean_player.pop("notes", None)
+        seed["player"] = _trim(clean_player)
     return seed
 
 

@@ -1,4 +1,4 @@
-# Curated Status & Condition presets (RPG-3, the public contract). The guaranteed grounding FLOOR:
+# Curated Status & Condition presets (RPG-3, doc 05 §5.4). The guaranteed grounding FLOOR:
 # these fire even when the narrating model never thinks to tag them, because extraction and
 # the tag protocol both resolve names against this table first (open vocabulary is layered on
 # top — an unknown name still commits, it just carries no engine-side mechanics).

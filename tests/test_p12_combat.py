@@ -1,4 +1,4 @@
-"""Phase 1 — full combat loop + 3v3 party / War Room (the mechanics contract, verified 2026-07-09).
+"""Phase 1 — full combat loop + 3v3 party / War Room (plan doc 13, ratified 2026-07-09).
 
 Covers: combatant instances (snapshot-frozen HP by threat tier, extras vs tracked),
 the 3v3 cap, the clamped combatant_hp channel + the [hp] tag reroute, code-derived
@@ -280,7 +280,7 @@ def test_floor_world_target_bridge_rejects_negated_and_quoted_attacks():
 
 
 def test_floor_names_the_target_not_the_weapon_or_a_location():
-    """Irongate live (2026-07-10): "lunge FROM THE PINES and stab MY SHORTSWORD into the nearest
+    """Redgate live (2026-07-10): "lunge FROM THE PINES and stab MY SHORTSWORD into the nearest
     cutthroat" must stage the CUTTHROAT — not the movement-verb's location object, not the
     Player's weapon. The targeting-preposition object ("into <foe>") wins; weapon/location words
     are skipped."""
@@ -289,9 +289,9 @@ def test_floor_names_the_target_not_the_weapon_or_a_location():
     st = current_state(store, bid)
     doc = {"messages": [
         {"role": "assistant",
-         "content": "Three Irongate cutthroats dice by the fire in the pines of the overlook."},
+         "content": "Three Redgate cutthroats dice by the fire in the pines of the overlook."},
         {"role": "user", "content": ("((aether.check melee)) I lunge from the pines and stab my "
-                                     "shortsword into the nearest Irongate cutthroat.")}]}
+                                     "shortsword into the nearest Redgate cutthroat.")}]}
     res = tier0.run(doc, "new_turn", False, st, cfg, _Rig(5))
     spawn = next((o for o in res.rule_ops if o.get("op") == "combatant_spawn"), None)
     assert spawn is not None, "the floor should still stage a foe"
@@ -300,7 +300,7 @@ def test_floor_names_the_target_not_the_weapon_or_a_location():
 
 
 def test_peaceful_scene_never_stages_a_phantom_foe():
-    """Briarhold live ROOT-CAUSE regression (2026-07-10): a PEACEFUL message ('slip out to the
+    """Thornhale live ROOT-CAUSE regression (2026-07-10): a PEACEFUL message ('slip out to the
     STABLE and scry Fenn') fired Stealth + Hexcraft checks, but the old attack-verb regex matched
     "stab"le and 'slip OUT' staged a foe named 'Out' — the phantom [WAR]/[DIRECTIVE] then wrecked
     the scene. Now: the fixed regex ignores 'stable', and only a COMBAT skill can arm the floor,
@@ -441,7 +441,7 @@ def test_referee_ends_combat_when_the_scene_moves_on():
     assert ops[-1]["outcome"] == "resolved"
 
 
-# ------------------------------ wound persistence (verified: FULL) ---------------------
+# ------------------------------ wound persistence (ratified: FULL) ---------------------
 def test_tracked_wounds_persist_and_reload_on_respawn():
     cfg = _rpg_cfg()
     store, sid, bid = _seeded(cfg)

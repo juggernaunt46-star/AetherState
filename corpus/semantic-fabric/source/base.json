@@ -930,6 +930,262 @@
         }
       ],
       "ambiguities": []
+    },
+    "claim": {
+      "description": "What a source asserted, denied, reported, believed, remembered, observed, inferred, predicted, planned, promised, hypothesized, questioned, quoted, accused, or explicitly described as deceptive without establishing truth.",
+      "entries": [
+        {
+          "concept_id": "claim.assertion.direct",
+          "label": "Direct assertion",
+          "kind": "assertion",
+          "terms": ["assert", "asserts", "asserted", "state", "states", "stated", "declare", "declares", "declared"],
+          "genres": ["*"],
+          "required_roles": ["source", "proposition"],
+          "optional_roles": ["addressee", "topic", "evidence", "time"],
+          "completion": "source_and_proposition_required",
+          "features": {"claim_class": "assertion", "speech_act_polarity": "positive", "establishes_truth": false},
+          "false_friends": ["state machine", "state of matter", "declare a variable"],
+          "source_ids": ["web.propbank", "web.framenet"]
+        },
+        {
+          "concept_id": "claim.assertion.denial",
+          "label": "Denial or rejection",
+          "kind": "denial",
+          "terms": ["deny", "denies", "denied", "dispute", "disputes", "disputed", "reject the claim", "refute", "refutes", "refuted"],
+          "genres": ["*"],
+          "required_roles": ["source", "proposition"],
+          "optional_roles": ["addressee", "topic", "evidence", "time"],
+          "completion": "source_and_denied_proposition_required",
+          "features": {"claim_class": "denial", "speech_act_polarity": "negative", "proposition_polarity_separate": true, "establishes_truth": false},
+          "false_friends": ["deny access", "reject the offer", "refute an equation"],
+          "source_ids": ["web.propbank", "web.framenet"]
+        },
+        {
+          "concept_id": "claim.report.testimony",
+          "label": "Report or testimony",
+          "kind": "report",
+          "terms": ["report", "reports", "reported", "testify", "testifies", "testified", "according to", "tell", "tells", "told"],
+          "genres": ["*"],
+          "required_roles": ["source", "proposition"],
+          "optional_roles": ["speaker", "addressee", "topic", "evidential_source", "time"],
+          "completion": "reporting_source_and_proposition_required",
+          "features": {"claim_class": "report", "evidentiality": "attributed", "establishes_truth": false},
+          "false_friends": ["report for duty", "tell time", "according to plan"],
+          "source_ids": ["web.propbank", "web.verbnet"]
+        },
+        {
+          "concept_id": "claim.report.hearsay",
+          "label": "Rumor or hearsay",
+          "kind": "hearsay",
+          "terms": ["rumor has it", "rumour has it", "word is", "it is said", "it was said", "heard that", "hearsay"],
+          "genres": ["*"],
+          "required_roles": ["proposition"],
+          "optional_roles": ["source", "speaker", "evidential_source", "transmission_chain", "time"],
+          "completion": "proposition_and_attribution_state_required",
+          "features": {"claim_class": "hearsay", "evidentiality": "indirect", "source_may_be_unresolved": true, "establishes_truth": false},
+          "false_friends": ["word is a token", "heard that song"],
+          "source_ids": ["web.framenet", "web.propbank"]
+        },
+        {
+          "concept_id": "claim.cognition.belief",
+          "label": "Belief or opinion",
+          "kind": "belief",
+          "terms": ["believe", "believes", "believed", "think", "thinks", "thought", "suspect", "suspects", "suspected", "in my opinion", "in their opinion"],
+          "genres": ["*"],
+          "required_roles": ["holder", "proposition"],
+          "optional_roles": ["evidence", "confidence", "time"],
+          "completion": "holder_and_proposition_required",
+          "features": {"claim_class": "belief", "knowledge_state": "actor_relative", "establishes_truth": false},
+          "false_friends": ["think tank", "belief system setting"],
+          "source_ids": ["web.verbnet", "web.framenet"]
+        },
+        {
+          "concept_id": "claim.cognition.memory",
+          "label": "Memory or recollection",
+          "kind": "memory",
+          "terms": ["remember", "remembers", "remembered", "recall", "recalls", "recalled", "recollect", "recollects", "recollected"],
+          "genres": ["*"],
+          "required_roles": ["rememberer", "proposition"],
+          "optional_roles": ["evidential_source", "time", "confidence"],
+          "completion": "rememberer_and_proposition_required",
+          "features": {"claim_class": "memory", "knowledge_state": "actor_relative", "establishes_truth": false},
+          "false_friends": ["memory address", "recall the product"],
+          "source_ids": ["web.verbnet", "web.framenet"]
+        },
+        {
+          "concept_id": "claim.evidence.observation",
+          "label": "Observation claim",
+          "kind": "observation",
+          "terms": ["observe", "observes", "observed", "witness", "witnesses", "witnessed", "saw that", "see that", "noticed that", "notice that"],
+          "genres": ["*"],
+          "required_roles": ["observer", "proposition"],
+          "optional_roles": ["sense", "instrument", "location", "time"],
+          "completion": "observer_and_proposition_required",
+          "features": {"claim_class": "observation", "evidentiality": "direct_claimed", "proves_hidden_truth": false, "establishes_truth": false},
+          "false_friends": ["observe the rule", "witness signature"],
+          "source_ids": ["web.verbnet", "web.framenet"]
+        },
+        {
+          "concept_id": "claim.reasoning.inference",
+          "label": "Inference or conclusion",
+          "kind": "inference",
+          "terms": ["infer", "infers", "inferred", "conclude", "concludes", "concluded", "deduce", "deduces", "deduced", "therefore", "apparently"],
+          "genres": ["*"],
+          "required_roles": ["reasoner", "proposition"],
+          "optional_roles": ["evidence", "premise", "confidence", "time"],
+          "completion": "proposition_and_inference_basis_required",
+          "features": {"claim_class": "inference", "evidentiality": "derived", "establishes_truth": false},
+          "false_friends": ["conclude the meeting", "therefore symbol"],
+          "source_ids": ["web.framenet", "web.propbank"]
+        },
+        {
+          "concept_id": "claim.future.prediction",
+          "label": "Prediction or forecast",
+          "kind": "prediction",
+          "terms": ["predict", "predicts", "predicted", "forecast", "forecasts", "foretold", "will probably", "is likely to", "are likely to"],
+          "genres": ["*"],
+          "required_roles": ["source", "proposition"],
+          "optional_roles": ["evidence", "confidence", "time", "condition"],
+          "completion": "source_and_future_proposition_required",
+          "features": {"claim_class": "prediction", "modality": "epistemic_future", "occurrence_not_implied": true, "establishes_truth": false},
+          "false_friends": ["forecast field", "likely type"],
+          "source_ids": ["web.framenet", "web.propbank"]
+        },
+        {
+          "concept_id": "claim.future.plan",
+          "label": "Plan or intention claim",
+          "kind": "plan",
+          "terms": ["plan to", "plans to", "planned to", "intend to", "intends to", "intended to", "aim to", "aims to", "meant to"],
+          "genres": ["*"],
+          "required_roles": ["planner", "proposition"],
+          "optional_roles": ["beneficiary", "condition", "time", "reason"],
+          "completion": "planner_and_intended_proposition_required",
+          "features": {"claim_class": "plan", "modality": "intentional", "fulfillment_not_implied": true, "establishes_truth": false},
+          "false_friends": ["floor plan", "intended recipient"],
+          "source_ids": ["web.verbnet", "web.framenet"]
+        },
+        {
+          "concept_id": "claim.commitment.promise",
+          "label": "Promise or commitment claim",
+          "kind": "promise",
+          "terms": ["promise", "promises", "promised", "swear to", "swears to", "swore to", "vow to", "vows to", "vowed to", "pledge to", "pledges to", "pledged to"],
+          "genres": ["*"],
+          "required_roles": ["promisor", "proposition"],
+          "optional_roles": ["promisee", "condition", "time", "witness"],
+          "completion": "promisor_and_committed_proposition_required",
+          "features": {"claim_class": "promise", "modality": "commissive", "fulfillment_not_implied": true, "establishes_truth": false},
+          "false_friends": ["promise object", "swear word"],
+          "source_ids": ["web.framenet", "web.propbank"]
+        },
+        {
+          "concept_id": "claim.modality.hypothesis",
+          "label": "Hypothesis or counterfactual",
+          "kind": "hypothesis",
+          "terms": ["hypothesize", "hypothesizes", "hypothesized", "suppose that", "assuming that", "if it were", "if there were", "what if"],
+          "genres": ["*"],
+          "required_roles": ["proposition"],
+          "optional_roles": ["source", "condition", "evidence", "consequence"],
+          "completion": "hypothetical_scope_and_proposition_required",
+          "features": {"claim_class": "hypothesis", "modality": "hypothetical", "occurrence_not_implied": true, "establishes_truth": false},
+          "false_friends": ["suppose operator", "if statement"],
+          "source_ids": ["web.framenet", "web.universal_dependencies"]
+        },
+        {
+          "concept_id": "claim.question.inquiry",
+          "label": "Questioned proposition",
+          "kind": "question",
+          "terms": ["ask whether", "asks whether", "asked whether", "wonder whether", "wonders whether", "wondered whether", "is it true that", "could it be that"],
+          "genres": ["*"],
+          "required_roles": ["questioner", "proposition"],
+          "optional_roles": ["addressee", "topic", "time"],
+          "completion": "question_scope_and_proposition_required",
+          "features": {"claim_class": "question", "speech_act_polarity": "open", "assertion_not_implied": true, "establishes_truth": false},
+          "false_friends": ["question mark field", "ask price"],
+          "source_ids": ["web.propbank", "web.universal_dependencies"]
+        },
+        {
+          "concept_id": "claim.quotation.attributed",
+          "label": "Quotation or reported speech",
+          "kind": "quotation",
+          "terms": ["quote", "quotes", "quoted", "in the words of", "as she put it", "as he put it", "as they put it"],
+          "genres": ["*"],
+          "required_roles": ["quoted_source", "proposition"],
+          "optional_roles": ["speaker", "addressee", "quotation", "time"],
+          "completion": "quotation_and_attributed_source_required",
+          "features": {"claim_class": "quotation", "nested_attribution_supported": true, "establishes_truth": false},
+          "false_friends": ["quote price", "quotation mark setting"],
+          "source_ids": ["web.propbank", "web.framenet"]
+        },
+        {
+          "concept_id": "claim.accusation.allegation",
+          "label": "Accusation or allegation",
+          "kind": "accusation",
+          "terms": ["accuse", "accuses", "accused", "allege", "alleges", "alleged", "charge that", "charges that", "charged that"],
+          "genres": ["*"],
+          "required_roles": ["accuser", "accused_party", "proposition"],
+          "optional_roles": ["addressee", "evidence", "time"],
+          "completion": "accuser_accused_and_proposition_required",
+          "features": {"claim_class": "accusation", "wrongdoing_not_established": true, "establishes_truth": false},
+          "false_friends": ["charge a battery", "accused parameter"],
+          "source_ids": ["web.verbnet", "web.framenet"]
+        },
+        {
+          "concept_id": "claim.deception.explicit",
+          "label": "Explicit deception description",
+          "kind": "deception",
+          "terms": ["lie", "lies", "lied", "lying about", "deceive about", "deceived about", "falsely claimed", "fabricated the claim", "made up the story"],
+          "genres": ["*"],
+          "required_roles": ["attributing_source", "accused_source", "proposition"],
+          "optional_roles": ["evidence", "intent_basis", "knowledge_basis", "time"],
+          "completion": "explicit_deception_attribution_required",
+          "features": {"claim_class": "deception_description", "speaker_knowledge_required_for_truth": true, "intent_required_for_deliberate_lying": true, "establishes_truth": false},
+          "false_friends": ["lie down", "lying position", "deceive sheet"],
+          "source_ids": ["web.verbnet", "web.framenet"]
+        }
+      ],
+      "constructions": [
+        {
+          "construction_id": "claim.frame.content_clause",
+          "kind": "content_clause",
+          "markers": ["that", "whether"],
+          "required_roles": ["governor", "proposition"],
+          "optional_roles": ["source", "addressee", "condition", "time"],
+          "completion": "claim_governor_and_bounded_content_required",
+          "features": {"preserve_governor_span": true, "preserve_proposition_span": true, "nested_attribution_supported": true},
+          "source_ids": ["web.propbank", "web.universal_dependencies"]
+        },
+        {
+          "construction_id": "claim.frame.direct_quotation",
+          "kind": "quotation_frame",
+          "markers": ["quoted", "wrote", "said verbatim"],
+          "required_roles": ["quotation", "source"],
+          "optional_roles": ["speaker", "addressee", "governor"],
+          "completion": "quote_boundaries_and_attribution_required",
+          "features": {"quotation_is_proposition_evidence": true, "quotation_is_not_world_truth": true},
+          "source_ids": ["web.propbank", "web.universal_dependencies"]
+        },
+        {
+          "construction_id": "claim.frame.nested_attribution",
+          "kind": "attribution_chain",
+          "markers": ["according to", "said that", "reported that", "claimed that"],
+          "required_roles": ["source", "proposition"],
+          "optional_roles": ["outer_source", "inner_source", "addressee", "quotation"],
+          "completion": "each_attribution_layer_bounded_separately",
+          "features": {"nested_attribution_supported": true, "outer_claim_does_not_promote_inner_truth": true},
+          "source_ids": ["web.propbank", "web.framenet"]
+        },
+        {
+          "construction_id": "claim.frame.conditional",
+          "kind": "conditional_scope",
+          "markers": ["if", "unless", "provided that", "as long as"],
+          "required_roles": ["condition", "proposition"],
+          "optional_roles": ["source", "consequence"],
+          "completion": "condition_and_scoped_proposition_required",
+          "features": {"condition_does_not_assert_occurrence": true},
+          "source_ids": ["web.universal_dependencies", "web.framenet"]
+        }
+      ],
+      "ambiguities": []
     }
   }
 }

@@ -1,4 +1,4 @@
-"""RPG-4 (the public contract): persistence, location registry + canonicalization, degradation
+"""RPG-4 (doc 05 §9): persistence, location registry + canonicalization, degradation
 ladder, inspectors. Exit criteria covered here:
   - generation persists (no regeneration): a discovered place is created once, ever;
   - location-revisit canonicalization: any name variant resolves to the SAME row,
@@ -60,7 +60,7 @@ def test_wrong_merge_guard_ambiguity_mints_new():
                                                        "aliases": [], "present": False}
     loc_id, _, new = canonical_location(st, "Gate")     # subset of BOTH -> never a guess
     assert new and loc_id == "gate"
-    # unique PARENT resolves (changed 2026-07-09, Emberfall live: "Ashen Maw rim"-style
+    # unique PARENT resolves (changed 2026-07-09, Cinderveil live: "Ashen Maw rim"-style
     # sub-area strings were minting twin locations every session — a unique ≥2-token
     # name-head containment is the parent, while true ambiguity still mints new above)
     loc_id2, _, new2 = canonical_location(st, "North Gate Plaza")

@@ -99,8 +99,10 @@ def test_console_exposes_separate_player_lesson_verticals():
     assert 'else if(renderTab==="Player Lessons")h=await playerLessonsTab()' in html
     assert "if(seq===RENDER_SEQ&&tab===renderTab)v.innerHTML=h" in html
     navigation = html.split("async function go(t){", 1)[1].split("async function render()", 1)[0]
-    assert navigation.index('if(t==="Player Lessons"){headerRefresh();render();return}') < navigation.index(
-        'if(t!=="PlayerLex")await load()'
+    assert 'if(t==="Player Lessons"||t==="PlayerLex"){S=null;J=null' in navigation
+    assert "await load(PRIVILEGED_STATE_TABS.has(t))" in navigation
+    assert navigation.index('if(t==="Player Lessons"||t==="PlayerLex")') < navigation.index(
+        "await load(PRIVILEGED_STATE_TABS.has(t))"
     )
     lessons_tab = html.split("async function playerLessonsTab(){", 1)[1].split(
         "function playerLessonLatest", 1
@@ -341,6 +343,8 @@ const $ = selector => {{
 let tab = "Player Lessons";
 let S = null;
 let RENDER_SEQ = 0;
+const PRIVILEGED_STATE_TABS = new Set(["Overview", "Edit"]);
+const loadCalls = [];
 let releaseLessons;
 const pendingLessons = new Promise(resolve => {{ releaseLessons = resolve; }});
 async function playerLessonsTab() {{ return await pendingLessons; }}
@@ -348,7 +352,7 @@ async function playerLexTab() {{ return "PLAYERLEX"; }}
 function playerLexReset() {{}}
 function playerLessonReset() {{}}
 function nav() {{}}
-async function load() {{}}
+async function load(privileged) {{ loadCalls.push(privileged); }}
 function headerRefresh() {{}}
 function playerView() {{ return "PLAYER"; }}
 function overview() {{ return "OVERVIEW"; }}
@@ -366,6 +370,7 @@ const staleRender = render();
 await Promise.resolve();
 await go("Overview");
 assert.equal(view.innerHTML, "OVERVIEW");
+assert.deepEqual(loadCalls, [true]);
 
 releaseLessons("STALE PLAYER LESSONS");
 await staleRender;

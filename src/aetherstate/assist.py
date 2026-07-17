@@ -280,23 +280,30 @@ async def synthesize(store, cfg, get_client, ep: Endpoint, session_id: str,
                      branch_id: str, limit: int = 3) -> int:
     """Upgrade rules-mode digest summaries to LLM prose + episodic->semantic facts.
     Any failure leaves the digest standing (honest rules product). Returns upgrades."""
+    from .memory import player_safe_memory_text
+    from .state import current_state
+
+    state = current_state(store, branch_id)
     done = 0
     for s in store.summaries_unsynthesized(branch_id, limit):
         members = store.memories_members(s["memory_id"])
         if not members:
             continue
-        events = "\n".join(f"- {m['text']}" for m in members[:12])
+        events = "\n".join(
+            f"- {player_safe_memory_text(m['text'], state)}" for m in members[:12]
+        )
         raw = await _chat(get_client, cfg, ep, _SYNTH_SYSTEM,
                           f"Events, oldest first:\n{events}")
         doc = _json_or_none(raw)
         if not isinstance(doc, dict) or not str(doc.get("summary", "")).strip():
             continue
-        store.memories_update_text(s["memory_id"], str(doc["summary"]).strip()[:600],
-                                   add_tag="synthesized")
+        summary = player_safe_memory_text(str(doc["summary"]).strip(), state)[:600]
+        store.memories_update_text(s["memory_id"], summary, add_tag="synthesized")
         for fact in list(doc.get("facts") or [])[:3]:
             if isinstance(fact, str) and fact.strip():
+                safe_fact = player_safe_memory_text(fact.strip(), state)[:300]
                 store.memories_add(
-                    session_id, branch_id, tier="semantic", text=fact.strip()[:300],
+                    session_id, branch_id, tier="semantic", text=safe_fact,
                     participants=json.loads(s["participants"] or "[]"),
                     location_id=s["location_id"],
                     tags=["semantic", "reflection"],

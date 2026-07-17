@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import secrets
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -166,7 +167,7 @@ def _persist_config(cfg) -> bool:
     supplied via env (AETHERSTATE_UPSTREAM__API_KEY) it is authoritative and is NOT written to
     disk (and is actively dropped from the file), keeping the secret off disk entirely."""
     if not bool(getattr(cfg, "persistence_enabled", True)):
-        # isolated integration tests may borrow external connection settings read-only.  Returning before
+        # Isolated live tests may borrow personal connection settings read-only.  Returning before
         # target selection is the fail-safe boundary: no source, fallback, temp, or secret-bearing
         # config file can be created by a Console POST in that process.
         return False
@@ -217,6 +218,14 @@ def _persist_config(cfg) -> bool:
             up.pop("api_key", None)  # env is authoritative -> keep the secret off disk
         else:
             up["api_key"] = cfg.upstream.api_key
+
+        # [creator]: cold-path main-model authoring limits are independent from extraction.
+        # Re-emit the live values so a Console save cannot silently return Creator to an old
+        # short ceiling, while read-only launches still return before this write boundary.
+        cr = _sec("creator")
+        cr["max_tokens"] = int(cfg.creator.max_tokens)
+        cr["timeout_s"] = float(cfg.creator.timeout_s)
+        cr["validation_retries"] = int(cfg.creator.validation_retries)
 
         # [[assist.endpoints]] + [assist.groups] (Console fully owns these)
         assist = _sec("assist")
@@ -313,8 +322,20 @@ def _persist_config(cfg) -> bool:
 
 def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
     router = APIRouter(prefix="/aether")
+    owner_inspection_cookie = "aetherstate_owner_inspection"
+    owner_inspection_token = secrets.token_urlsafe(32)
     playerlex_service: PlayerLex | None = None
     player_lessons_service: PlayerLessons | None = None
+
+    def _owner_inspection_allowed(request: Request) -> bool:
+        supplied = request.cookies.get(owner_inspection_cookie, "")
+        return bool(supplied) and secrets.compare_digest(supplied, owner_inspection_token)
+
+    def _owner_inspection_denied() -> JSONResponse:
+        return JSONResponse(
+            {"error": "owner/debug inspection requires a fresh same-origin Console session"},
+            status_code=403,
+        )
 
     def _share_recovered_playerlex(service: PlayerLex) -> None:
         """Publish lazy PlayerLex recovery to the live pipeline and lesson dependency."""
@@ -514,11 +535,24 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
     @router.get("/console")
     async def console():
         """The AetherState Console (Q11 addendum 2; P5 UI base) — same-origin, no CORS."""
-        return FileResponse(Path(__file__).parent / "static" / "console.html", media_type="text/html")
+        response = FileResponse(
+            Path(__file__).parent / "static" / "console.html", media_type="text/html",
+        )
+        # A short-lived process-local capability separates explicit owner/debug inspection
+        # from Player endpoints. HttpOnly + strict same-site keeps it out of Console JS and
+        # cross-origin SillyTavern requests; a service restart requires re-opening Console.
+        response.set_cookie(
+            owner_inspection_cookie,
+            owner_inspection_token,
+            httponly=True,
+            samesite="strict",
+            path="/aether",
+        )
+        return response
 
     @router.get("/creator")
     async def creator_page():
-        """The World Generator + Character Creator window (the public contract). Same-origin, no CORS."""
+        """The World Generator + Character Creator window (doc 09). Same-origin, no CORS."""
         return FileResponse(Path(__file__).parent / "static" / "creator.html", media_type="text/html")
 
     @router.get("/registry")
@@ -804,29 +838,22 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
 
     @router.get("/creator/models")
     async def creator_models():
-        """Models detected at the configured endpoints — feeds the Creator's model menu.
-        Server-side (no CORS), fail-open: a dead endpoint just contributes an empty list."""
+        """MAIN-endpoint models only, for the Creator's explicit model menu."""
         get_client = jobs.ladder.get_client if jobs is not None else None
-        eps = []
-        if cfg.upstream.base_url:
-            eps.append(
-                {
-                    "target": "main",
-                    "base_url": cfg.upstream.base_url,
-                    "default": "",
-                    "models": await _list_models(get_client, cfg.upstream.base_url, cfg.upstream.api_key),
-                }
-            )
-        for e in cfg.assist.endpoints:
-            eps.append(
-                {
-                    "target": f"assist:{e.name}",
-                    "base_url": e.base_url,
-                    "default": e.model,
-                    "models": await _list_models(get_client, e.base_url, e.api_key or cfg.upstream.api_key),
-                }
-            )
-        return {"endpoints": eps}
+        base_url = str(cfg.upstream.base_url or "").strip()
+        if not base_url:
+            return {"endpoints": []}
+        configured = str(cfg.upstream.model or "").strip()
+        detected = await _list_models(get_client, base_url, cfg.upstream.api_key)
+        models = ([configured] if configured else []) + [
+            model for model in detected if model != configured
+        ]
+        return {"endpoints": [{
+            "target": "main",
+            "base_url": base_url,
+            "default": configured,
+            "models": models,
+        }]}
 
     @router.get("/override")
     async def override_get():
@@ -1197,7 +1224,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
 
     @router.post("/specialization")
     async def specialization_set(request: Request):
-        """Q27 / the public contract: switch narrative specialization (none|rpg) AND its knobs at runtime. Live
+        """Q27 / doc 05: switch narrative specialization (none|rpg) AND its knobs at runtime. Live
         for rendering + the DM guard immediately (compose/tier0 read cfg per request); persisted so
         the profile overlay fully re-applies on next load. `name` is optional now — a knob-only
         POST (e.g. {"intent_floor": false}) flips just that switch and leaves the mode alone."""
@@ -1386,7 +1413,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         return {"deleted": row["session_id"]}
 
     @router.get("/session/{sid}/state")
-    async def now_view(sid: str):
+    async def now_view(sid: str, request: Request):
+        if not _owner_inspection_allowed(request):
+            return _owner_inspection_denied()
         row = _session(store, sid)
         if not row:
             return JSONResponse({"error": "unknown session"}, status_code=404)
@@ -1402,11 +1431,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
 
     @router.get("/session/{sid}/hud")
     async def hud_now(sid: str):
-        """The resolved player-facing HUD payload (registry math done server-side): scene,
-        player card(s) with effective skill mods + resolved abilities, statuses/conditions,
-        drives, gear (worn) + inventory (carried), quests, dice rolls/checks, relations/
-        factions. The ONE source both the SillyTavern HUD and the Console render, so they
-        never diverge. Read-only, fail-open."""
+        """The audience-filtered Player HUD; raw state and journal have separate owner gates."""
         row = _session(store, sid)
         if not row:
             return {
@@ -1425,7 +1450,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         view["session_id"] = row["session_id"]
         view["external_id"] = row["external_id"]
         view["head_turn"] = _head(store, row["active_branch"])
-        try:  # 2026-07-10 (Arinvale, pillar 17): tier0 notices — "recharging", non-moves,
+        try:  # 2026-07-10 (Eranmor, pillar 17): tier0 notices — "recharging", non-moves,
             #   unknown skills, re-served rolls — used to die in the proxy log; the HUD
             #   rolls lane now shows them. Transient ring (a restart clears it), fail-open.
             view["notices"] = pipeline.recent_notices(row["session_id"]) if pipeline is not None else []
@@ -1470,11 +1495,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         players = state.get("player") or {}
         pkey = next(iter(players), None)
         seeded = _world_seeded(state)
-        pcard = players.get(pkey) if pkey else None
-        if pcard is not None:  # appearance lives in attributes, not the card —
-            attrs = (state.get("attributes", {}) or {}).get(pkey, {}) or {}
-            if attrs.get("appearance") and "appearance" not in pcard:
-                pcard = {**pcard, "appearance": attrs.get("appearance")}
+        pcard = _creator.player_from_state(state) if pkey else None
         return {
             "session_id": row["session_id"],
             "specialization": spec,
@@ -1533,9 +1554,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
 
     @router.post("/session/{sid}/author")
     async def creator_author(sid: str, request: Request):
-        """Assist-LLM 'fill the blanks' authoring (the public contract). Cold-path, creation-time; returns
-        the completed doc for the window to review (NOT yet persisted). Fail-open: with no assist
-        endpoint it returns the deterministic fill, so the creator always works."""
+        """MAIN-LLM complete-document authoring; never persists or loads a partial reply."""
         try:
             payload = await request.json()
         except Exception:
@@ -1570,49 +1589,35 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
                 "doc": doc,
                 "detail": "template fill (offline, by request)",
             }
+        get_client = jobs.ladder.get_client if jobs is not None else None
+        base_url = str(cfg.upstream.base_url or "").strip()
+        requested_model = str(payload.get("model") or "").strip()
+        session_model = ""
         row = _session(store, sid)
-        ep = None
         if jobs is not None and row is not None:
-            try:
-                ep, _, _ = jobs.endpoint_for(row["session_id"])
-            except Exception:
-                ep = None
-        if ep is None and jobs is not None:
-            # creator-first flow: no session yet — build from config so the AI fill works
-            # before the first chat message ever flows through the proxy
-            if cfg.assist.endpoints:
-                e = cfg.assist.endpoints[0]
-                ep = Endpoint(
-                    base_url=e.base_url,
-                    model=e.model,
-                    api_key=e.api_key,
-                    assist_tier=e.tier in ("nano", "small"),
-                )
-            elif cfg.upstream.base_url:
-                ep = Endpoint(base_url=cfg.upstream.base_url, model="")
-        want = str(payload.get("model") or "").strip()
-        if ep is not None and want:
-            ep.model = want  # explicit pick from the Creator's model menu
-        if ep is not None and jobs is not None and not ep.model:
-            # nothing proxied yet on this session -> resolve a real model (assist pick >
-            # upstream.model default > GET /models detection), same ladder genesis uses
-            from .assist import resolve_endpoint
-
-            ep = await resolve_endpoint(jobs.ladder.get_client, cfg, ep)
-        if ep is None or jobs is None or not ep.model:
-            # No model to call: honest error — the window offers templates as an explicit
-            # button instead of silently swapping them in (2026-07-06).
+            session_model = str(jobs.models.get(row["session_id"], "") or "").strip()
+        model = requested_model or session_model or str(cfg.upstream.model or "").strip()
+        if base_url and not model:
+            detected = await _list_models(get_client, base_url, cfg.upstream.api_key)
+            model = detected[0] if detected else ""
+        ep = Endpoint(
+            base_url=base_url,
+            model=model,
+            api_key=cfg.upstream.api_key,
+        )
+        if not ep.base_url or not ep.model:
+            # No MAIN model to call: honest error. Templates remain an explicit separate button.
             return {
                 "source": "error",
                 "mode": mode,
-                "detail": "no model reachable — pick one in the Creator menu or "
-                "configure an endpoint in Console → Connection",
+                "detail": "no MAIN model is reachable — pick one in the Creator menu or "
+                "configure the main endpoint in Console → Connection",
             }
         try:
             if mode in ("player", "character"):
-                out = await _creator.author_player(jobs.ladder.get_client, cfg, ep, seed, world)
+                out = await _creator.author_player(get_client, cfg, ep, seed, world)
             else:
-                out = await _creator.author_world(jobs.ladder.get_client, cfg, ep, seed)
+                out = await _creator.author_world(get_client, cfg, ep, seed)
         except Exception as exc:
             out = {"source": "error", "detail": f"authoring failed: {type(exc).__name__}"}
         out["mode"] = mode
@@ -1929,10 +1934,12 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
             return JSONResponse({"error": f"briefing render failed: {type(exc).__name__}"}, status_code=500)
 
     @router.get("/session/{sid}/journal")
-    async def session_journal(sid: str, limit: int = 40):
-        """RPG-4 inspector feed (the public contract: visible state-change feedback): the tail of the
+    async def session_journal(sid: str, request: Request, limit: int = 40):
+        """RPG-4 inspector feed (doc 05 §9: visible state-change feedback): the tail of the
         ops journal, newest first, one row per applied op — turn, source, op kind and its
         salient fields. Read-only; never rewrites anything."""
+        if not _owner_inspection_allowed(request):
+            return _owner_inspection_denied()
         row = _session(store, sid)
         if not row:
             return JSONResponse({"error": "unknown session"}, status_code=404)
@@ -2006,7 +2013,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
     @router.get("/session/{sid}/search")
     async def session_search(sid: str, q: str = "", limit: int = 8):
         """RPG-5: search over the session's memory/summary ledger (the deferred
-        AI-search-over-summaries hook, the public contract). Uses the same composite scorer recall
+        AI-search-over-summaries hook, doc 10). Uses the same composite scorer recall
         uses (lexical BM25-ish + importance + recency; embeddings when the assist tier
         has them staged). Read-only, cold-path, fail-open to []."""
         row = _session(store, sid)
@@ -2054,15 +2061,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
             world = {}
         players = state.get("player") or {}
         pkey = next(iter(players), None)
-        player = None
-        if pkey:
-            card = dict(players.get(pkey) or {})
-            nm = (state.get("entities", {}).get(pkey, {}) or {}).get("name") or pkey
-            card.setdefault("name", nm)
-            attrs = (state.get("attributes", {}) or {}).get(pkey, {}) or {}
-            if attrs.get("appearance"):
-                card.setdefault("appearance", attrs.get("appearance"))
-            player = card
+        player = _creator.player_from_state(state) if pkey else None
         return world, player
 
     def _card_filename(name: str) -> str:
@@ -2098,9 +2097,8 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         world = payload.get("world") if isinstance(payload.get("world"), dict) else {}
         player = payload.get("player") if isinstance(payload.get("player"), dict) else None
         try:
-            world = _creator.ensure_world_identity(world)
-            if player is not None:
-                _creator.deterministic_player(player, cfg)
+            world = _creator.deterministic_world(_creator.ensure_world_identity(world))
+            player = _creator.deterministic_player(player, cfg) if player is not None else None
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         card = _narrator.build_card(world, player)

@@ -8,6 +8,7 @@ from copy import deepcopy
 import pytest
 
 from aetherstate.config import Config
+from aetherstate.claim_ingress import claim_ops_from_text
 from aetherstate.extraction import Endpoint, StateDelta
 from aetherstate.jobs import Batch, JobRunner
 from aetherstate.pipeline import Pipeline
@@ -237,6 +238,70 @@ class _BlockingLadder:
             "turn_range": [1, 1],
             "ops": _live_extraction_candidate(),
         })
+
+
+class _BeliefLadder:
+    def __init__(self) -> None:
+        self.get_client = lambda: None
+
+    async def extract(self, _ep, _snapshot, _characters, t0, t1, _exchange, *, context=""):
+        assert (t0, t1) == (1, 1) and isinstance(context, str)
+        return StateDelta.model_validate({
+            "schema": "aetherstate/delta/2",
+            "turn_range": [1, 1],
+            "ops": [{
+                "op": "belief_acquire",
+                "holder": "Mara Fen",
+                "statement": "the eastern gate is shut",
+                "stance": "believes",
+                "evidence_source": "told",
+                "teller": "Hoel",
+            }],
+        })
+
+
+@pytest.mark.asyncio
+async def test_cold_extraction_links_belief_to_existing_claim_without_minting_another() -> None:
+    cfg = _cfg()
+    store, sid, branch = _seeded(cfg, "extraction-claim-link")
+    store.record_turn(branch, 1, "new_turn", "normal")
+    claim_result = apply_delta(
+        store,
+        sid,
+        branch,
+        1,
+        claim_ops_from_text(
+            "Hoel asserted that the eastern gate is shut.",
+            ingress="narrator",
+            source_id="narrator",
+        ),
+        "rule",
+        cfg,
+    )
+    assert claim_result.applied and not claim_result.quarantined
+    claims_before = store.claim_records(branch)
+    assert len(claims_before) == 1
+    store.write_turn_text(
+        branch,
+        1,
+        user_text="Mara Fen: I listen.",
+        assistant_text="Narrator: Hoel asserted that the eastern gate is shut.",
+    )
+    assert store.settle_head(branch) is True
+
+    runner = JobRunner(store, cfg, _BeliefLadder())
+    await runner._run_batch(
+        Batch(sid, branch, 1, 1, 1),
+        Endpoint(base_url="http://example.test", model="m"),
+    )
+
+    state = current_state(store, branch)
+    belief = next(iter(state["beliefs"].values()))
+    assert belief["claim_id"] == claims_before[0]["claim_id"]
+    assert belief["ingress"] == "extraction"
+    assert belief["authority_ceiling"] == "actor_epistemic_only"
+    assert belief["establishes_truth"] is False
+    assert store.claim_records(branch) == claims_before
 
 
 @pytest.mark.asyncio

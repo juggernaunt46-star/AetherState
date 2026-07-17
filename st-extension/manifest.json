@@ -3,7 +3,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "Bean",
-  "version": "1.22.0",
+  "version": "1.23.0",
   "loading_order": 100,
   "generate_interceptor": "aetherstateInterceptor",
   "minimum_client_version": "1.12.0",

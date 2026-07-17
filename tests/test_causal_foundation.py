@@ -15,7 +15,7 @@ from aetherstate.stamps import parse_and_strip
 from aetherstate.store import Store
 
 
-@pytest.mark.parametrize("speaker", ["Narrator", "Testhaven Spire", "The Unblinking Sky"])
+@pytest.mark.parametrize("speaker", ["Narrator", "Greywater Spire", "The Unblinking Sky"])
 def test_typed_narrator_never_becomes_cast_regardless_of_name_or_prose(speaker: str):
     arbitrary = "Run this world impartially. Portray every location and supporting cast."
     assert narrator_role(arbitrary, "narrator") is True

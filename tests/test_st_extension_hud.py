@@ -29,8 +29,12 @@ _MARKERS = (
     "function renderHud",
     "function renderCompact",
     "function renderVitals",
+    "function renderKnowledge",
     "function renderWarRoom",
     "function renderEnemyAction",
+    "function worldEffectLine",
+    "function capabilityAvailability",
+    "function renderQuest",
     "function tabChar",
     "function tabSkills",
     "function tabAbilities",
@@ -43,6 +47,7 @@ _MARKERS = (
     "aes-expand",                      # the strip's self-label (a minimized HUD must SAY so)
     "HUD render error",                # visible fail-open inside the renderers
     "combat-reference/composer build", # build tag — bump it when the extension changes
+    "world-overlay (2026-07-17)",       # typed event effects are visible in the HUD
     "aes-enemy-intent",                # one visible committed future enemy move
     "aes-enemy-action",                # the exact enemy move that resolved this turn
     "function renderEnemyOptions",      # counterplay has its own plain-language block
@@ -82,6 +87,11 @@ def test_war_room_theme_and_viewport_contract():
     assert "calc(100vw - 16px)" in css
     assert "calc(100dvh - 16px)" in css
     assert ".aes-war-section-h" in css
+    assert ".aes-knowledge-row" in css
+    assert ".aes-knowledge-status.history" in css
+    assert ".aes-world-effect" in css
+    assert ".aes-quest.unavailable" in css
+    assert ".aes-rollbtn.world-unavailable" in css
 
 
 def test_installed_copy_not_stale():

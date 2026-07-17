@@ -1,4 +1,4 @@
-"""RPG per-character snapshot overlay (Q27 assist-authored -> snapshot, the public contract).
+"""RPG per-character snapshot overlay (Q27 assist-authored -> snapshot, doc 09 §1).
 
 The scalability foundation for freestyle + mastery-evolved mechanics: a player may own FROZEN
 per-character definitions under `player["defs"]["skills"|"abilities"|"stats"]`. They WIN over the
@@ -151,7 +151,7 @@ def test_freestyle_skill_inert_under_none():
 
 
 def test_player_block_renders_effective_mods_snapshot_first():
-    """[PLAYER] shows precomputed effective check mods (the public contract — the narrator never does
+    """[PLAYER] shows precomputed effective check mods (doc 06 §2.3 — the narrator never does
     math), resolved snapshot-first: the per-character stealth override and the freestyle skill
     both render with their true mods (INT16+base2+rank3=+8; CHA14+base1+rank2+passive2=+7)."""
     from aetherstate.compose import render_header

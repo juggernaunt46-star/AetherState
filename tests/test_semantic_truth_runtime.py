@@ -23,7 +23,7 @@ def _base_state() -> dict:
     return {
         "meta": {"turn": TURN},
         "entities": {
-            "player.arinvale": {"name": "Arinvale", "present": True},
+            "player.eranmor": {"name": "Eranmor", "present": True},
             "guard": {"name": "Guard", "present": True},
             "iven": {"name": "Iven", "present": True},
         },
@@ -39,8 +39,8 @@ def _opposition(*, damage: int = 2, immediate_hp: int = 8) -> dict:
         "actor_name": "Guard",
         "move_id": "driving_slash",
         "move_name": "Driving Slash",
-        "target": "player.arinvale",
-        "target_name": "Arinvale",
+        "target": "player.eranmor",
+        "target_name": "Eranmor",
         "tier": "HITS" if damage else "MISSES",
         "damage": damage,
         "damage_before": damage,
@@ -57,7 +57,7 @@ def _opposition(*, damage: int = 2, immediate_hp: int = 8) -> dict:
 def _state_with_opposition(*, damage: int = 2, immediate_hp: int = 8) -> dict:
     state = _base_state()
     state["player"] = {
-        "player.arinvale": {
+        "player.eranmor": {
             "hp": {"cur": immediate_hp, "max": 10},
             "_hp_adj_last": {
                 "turn": TURN,
@@ -75,7 +75,7 @@ def _state_with_opposition(*, damage: int = 2, immediate_hp: int = 8) -> dict:
 def _event_meaning() -> dict:
     return {
         "meaning_ref": content_fingerprint({"meaning": "player attack"}),
-        "actor_id": "player.arinvale",
+        "actor_id": "player.eranmor",
         "capability_id": "weapon_attack",
         "invoked_capability_ids": [],
         "action_class": "weapon_attack",
@@ -149,7 +149,7 @@ def _weapon_receipt(
         applied_changes.append(
             {
                 "kind": "cost",
-                "subject_id": "player.arinvale",
+                "subject_id": "player.eranmor",
                 "resource_id": "stamina",
                 "delta": -1,
                 "post": 4,
@@ -295,7 +295,7 @@ def test_current_opposition_keeps_intent_action_and_exact_hp_as_separate_truth()
     action = contract["opposition_actions"][0]
     assert action["intent_ref"] == "intent.guard.3"
     assert action["actor_id"] == "guard"
-    assert action["target_id"] == "player.arinvale"
+    assert action["target_id"] == "player.eranmor"
     assert action["move_id"] == "driving_slash"
     assert action["outcome"] == "hit"
     assert action["effects"] == [{"kind": "harm", "detail": "hp", "amount": -2}]
@@ -311,7 +311,7 @@ def test_exact_opposition_journal_operation_is_covered_by_its_own_truth():
     state = _state_with_opposition()
     opposition_op = {
         "op": "hp_adj",
-        "char": "player.arinvale",
+        "char": "player.eranmor",
         "delta": -2,
         "_delta": -2,
         "_effect_id": "dmg.opp.guard.3",
@@ -319,7 +319,7 @@ def test_exact_opposition_journal_operation_is_covered_by_its_own_truth():
             "intent_id": "intent.guard.3",
             "actor": "guard",
             "move_id": "driving_slash",
-            "target": "player.arinvale",
+            "target": "player.eranmor",
         },
     }
 
@@ -338,7 +338,7 @@ def test_exact_opposition_journal_operation_is_covered_by_its_own_truth():
     "op",
     [
         {"op": "effect_add", "char": "guard", "effect": "burning"},
-        {"op": "resource_change", "char": "player.arinvale", "delta": -1},
+        {"op": "resource_change", "char": "player.eranmor", "delta": -1},
         {"op": "time_advance", "minutes": 5},
         {"op": "move_entity", "char": "guard", "destination": "gate"},
         {"op": "world_flag", "key": "gate_open", "value": True},
@@ -357,8 +357,8 @@ def test_unprojected_standalone_state_changes_fail_closed(op):
 
 def test_lethal_opposition_projects_immediate_harm_defeat_and_combat_end_fallout():
     state = _state_with_opposition(damage=2, immediate_hp=0)
-    state["player"]["player.arinvale"]["hp"] = {"cur": 1, "max": 10}
-    state["player"]["player.arinvale"]["defeated"] = {
+    state["player"]["player.eranmor"]["hp"] = {"cur": 1, "max": 10}
+    state["player"]["player.eranmor"]["defeated"] = {
         "turn": TURN,
         "outcome": "wake_safe",
     }
@@ -383,8 +383,8 @@ def test_lethal_opposition_projects_immediate_harm_defeat_and_combat_end_fallout
 
     action = contract["opposition_actions"][0]
     facts = {row["subject_id"]: row for row in contract["fallout_facts"]}
-    assert facts["player.arinvale"]["cause_ref"] == action["occurrence_ref"]
-    assert facts["player.arinvale"]["effects"] == [
+    assert facts["player.eranmor"]["cause_ref"] == action["occurrence_ref"]
+    assert facts["player.eranmor"]["effects"] == [
         {"kind": "defeat", "detail": "wake safe", "amount": None}
     ]
     assert facts["world"]["effects"] == [
@@ -435,7 +435,7 @@ def test_player_weapon_receipt_projects_exact_hp_and_defeat_target_outcome(monke
     ]
     claims = {(row["kind"], row["amount"]): row for row in contract["expected_claims"]}
     assert claims[("harm", -3)]["occurrence_ref"] == event_ref
-    assert claims[("defeat", None)]["actor_id"] == "player.arinvale"
+    assert claims[("defeat", None)]["actor_id"] == "player.eranmor"
 
 
 def test_settlement_cost_is_separate_fallout_without_inflating_target_multiplicity(
@@ -488,7 +488,7 @@ def test_settlement_cost_is_separate_fallout_without_inflating_target_multiplici
     assert contract["settled_target_outcomes"][0]["target_id"] == "iven"
     fallout = contract["fallout_facts"][0]
     assert fallout["cause_ref"] == event_ref
-    assert fallout["subject_id"] == "player.arinvale"
+    assert fallout["subject_id"] == "player.eranmor"
     assert fallout["effects"] == [
         {"kind": "resource", "detail": "stamina", "amount": -1}
     ]
@@ -509,7 +509,7 @@ def test_lethal_player_settlement_projects_tracked_cid_xp_and_combat_end_cascade
     _install_admitted_frame(state, frame_ref)
     state["mechanic_settlements"] = [{"turn": TURN, "receipt": receipt}]
     state["player"] = {
-        "player.arinvale": {"name": "Arinvale", "xp": 50}
+        "player.eranmor": {"name": "Eranmor", "xp": 50}
     }
     state["combat"] = {
         "active": False,
@@ -541,7 +541,7 @@ def test_lethal_player_settlement_projects_tracked_cid_xp_and_combat_end_cascade
         },
         {
             "op": "award_exp",
-            "char": "player.arinvale",
+            "char": "player.eranmor",
             "amount": 50,
             "reason": "defeated Iven",
             "_semantic_frame_ref": frame_ref,
@@ -576,7 +576,7 @@ def test_lethal_player_settlement_projects_tracked_cid_xp_and_combat_end_cascade
 def test_current_player_hp_change_without_exact_opposition_fails_closed():
     state = _base_state()
     state["player"] = {
-        "player.arinvale": {
+        "player.eranmor": {
             "hp": {"cur": 8, "max": 10},
             "_hp_adj_last": {"turn": TURN, "delta": -2, "toks": ["wound"]},
         }
@@ -590,7 +590,7 @@ def test_current_player_hp_change_without_exact_opposition_fails_closed():
 
 def test_malformed_opposition_arithmetic_fails_before_contract_construction():
     state = _state_with_opposition()
-    state["player"]["player.arinvale"]["_opposition_last"]["damage"] = 7
+    state["player"]["player.eranmor"]["_opposition_last"]["damage"] = 7
 
     with pytest.raises(SemanticTruthRuntimeError, match="damage and committed HP delta"):
         build_runtime_truth_contract(
@@ -600,7 +600,7 @@ def test_malformed_opposition_arithmetic_fails_before_contract_construction():
 
 def test_current_opposition_requires_a_same_turn_hp_receipt():
     state = _state_with_opposition()
-    state["player"]["player.arinvale"]["_hp_adj_last"]["turn"] = TURN - 1
+    state["player"]["player.eranmor"]["_hp_adj_last"]["turn"] = TURN - 1
 
     with pytest.raises(SemanticTruthRuntimeError, match="committed Player HP receipt"):
         build_runtime_truth_contract(
@@ -611,7 +611,7 @@ def test_current_opposition_requires_a_same_turn_hp_receipt():
 def test_current_player_defeat_without_autonomous_cause_fails_closed():
     state = _base_state()
     state["player"] = {
-        "player.arinvale": {
+        "player.eranmor": {
             "hp": {"cur": 1, "max": 10},
             "defeated": {"turn": TURN, "outcome": "wake_safe"},
         }

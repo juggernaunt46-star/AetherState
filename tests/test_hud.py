@@ -10,8 +10,9 @@ from __future__ import annotations
 from aetherstate import creator, hud
 from aetherstate.compose import render_header
 from aetherstate.config import Config
-from aetherstate.state import apply_delta, current_state
+from aetherstate.state import apply_delta, current_state, empty_state
 from aetherstate.store import Store
+from aetherstate.world_events import build_world_event_record
 
 _WORLD = {"name": "Gallowmere", "genre": "dark_fantasy", "time": "night",
           "opening_scene": "Fog on the causeway.", "opening_quest": "Find the tithe collector.",
@@ -20,6 +21,199 @@ _PLAYER = {"name": "Kestrel", "concept": "memory-thief", "sex": "female",
            "appearance": "Wiry, hooded, ink-stained fingers and a scar through one brow.",
            "skills": {"stealth": 2, "persuasion": 1},
            "gear": ["worn oilskin coat", "set of lockpicks"]}
+
+
+def test_hud_plainly_separates_said_believed_fact_and_world_event():
+    cfg = Config()
+    cfg.specialization.name = "rpg"
+    world_id = "world_" + "a" * 32
+    state = empty_state()
+    state["player"] = {"player": {"name": "Player"}}
+    state["world_identity"] = {"world_id": world_id}
+    state["claims"] = [{
+        "fingerprint": "sha256:" + "1" * 64, "proposition_id": "prop:gate",
+        "proposition": "the gate is open", "speaker": "Mara", "source": "npc:mara",
+        "claim_class": "report", "proposition_polarity": "positive", "modality": "asserted",
+    }]
+    state["beliefs"] = {"player|prop:gate": {
+        "holder": "player", "proposition_id": "prop:gate", "stance": "doubts", "source": "claim:mara",
+    }}
+    state["facts"] = {"fact_gate": {
+        "proposition_id": "prop:bell", "statement": "the bell rang", "authority": "rule",
+        "cause": "settlement:bell", "status": "accepted",
+    }}
+    state["world_events"] = [build_world_event_record(
+        event_id="event.gate", world_id=world_id, session_id="session-one", branch_id="branch-one",
+        turn=1, game_time=0, cause_id="hidden-cause", cause_authority="rule",
+        cause_visibility="hidden", affected_domains=["world", "hud"], description="the gate opened",
+        effects=[{"adapter": "world.circumstance/1", "domain": "world", "subject": "gate",
+                  "field": "circumstance", "value": "open", "supported": True, "lore": ""}],
+    )]
+    knowledge = hud.hud_view(state, cfg)["knowledge"]
+    assert knowledge["claims"][0]["proposition"] == "the gate is open"
+    assert knowledge["epistemics"][0]["stance"] == "doubts"
+    assert knowledge["facts"][0]["statement"] == "the bell rang"
+    assert knowledge["events"][0]["cause"] == "cause not known"
+
+
+def test_player_hud_applies_typed_overlay_and_excludes_private_or_untyped_state():
+    """One adversarial projection proves both supported UI effects and the privacy floor."""
+    import json
+
+    cfg = Config()
+    cfg.specialization.name = "rpg"
+    world_id = "world_" + "b" * 32
+    state = empty_state()
+    state.update({
+        "meta": {"turn": 6},
+        "world_identity": {"world_id": world_id},
+        "world_event_branch_id": "branch-ui",
+        "scene": {"location_id": "harbor", "phase": "rising"},
+        "clock": {"day": 2, "time_of_day": "night", "minutes": 6},
+        "entities": {
+            "player": {"name": "Player", "kind": "actor", "present": True},
+            "mara": {"name": "Mara", "kind": "npc", "present": True},
+            "hidden_npc": {"name": "Hidden NPC", "kind": "npc", "present": True},
+            "other_a": {"name": "Other A", "kind": "npc"},
+            "other_b": {"name": "Other B", "kind": "npc"},
+            "guild": {"name": "Harbor Guild", "kind": "faction"},
+        },
+        "player": {"player": {
+            "level": 1, "hp": {"cur": 10, "max": 10}, "stats": {"CUN": 12},
+            "skills": {"persuasion": 2}, "abilities": [],
+        }},
+        "chars": {
+            "hidden_npc": {
+                "arousal": {"arousal": 77},
+                "obsessions": {"secret": {"intensity": 90, "target_kind": "concept"}},
+                "goals": [{"text": "PRIVATE_NPC_GOAL_SENTINEL"}],
+            },
+        },
+        "quests": {
+            "closed": {"name": "Closed Road", "status": "active"},
+            "console_hidden": {"name": "Console Secret", "status": "active"},
+        },
+        "relationships": {
+            "player->mara": {"dims": {"trust": 25}},
+            "other_a->other_b": {"dims": {"trust": 90}},
+        },
+        "affinity": {
+            "player->mara": {"value": 20},
+            "player->guild": {"value": 10},
+        },
+        "factions": {"guild": {"circumstances": {"PRIVATE_FACTION_SENTINEL": True}}},
+        "consent": {
+            "player|mara|romance": {"level": "granted"},
+            "other_a|other_b|secret": {"level": "hard_limit"},
+        },
+        "memories": [{"turn": 5, "text": "RAW_MEMORY_PROSE_SENTINEL"}],
+        "world": {"HIDDEN_OBJECTIVE_FLAG_SENTINEL": True},
+        "fronts": {
+            "hidden_front": {"name": "HIDDEN_FRONT_SENTINEL", "revealed": False},
+        },
+        "claims": [{
+            "claim_id": "claim.safe", "proposition_id": "prop:safe",
+            "proposition": "The bell rang.", "speaker": "Mara", "visibility": "public",
+            "claim_class": "report", "proposition_polarity": "positive",
+            "raw_prose": "RAW_CLAIM_PROSE_SENTINEL",
+        }],
+        "beliefs": {"hidden_npc|prop:private": {
+            "belief_id": "belief.private", "holder": "hidden_npc",
+            "proposition_id": "prop:private", "statement": "PRIVATE_NPC_BELIEF_SENTINEL",
+            "stance": "knows", "visibility": "actor_scoped",
+            "scoped_actors": ["hidden_npc"],
+        }},
+        "facts": {"hidden": {
+            "proposition_id": "prop:hidden", "statement": "HIDDEN_FACT_SENTINEL",
+            "status": "accepted", "visibility": "hidden",
+        }},
+    })
+    effects = [
+        {"adapter": "world.circumstance/1", "domain": "world", "subject": "world",
+         "field": "circumstance", "value": "A storm blocks the bay.", "supported": True},
+        {"adapter": "location.circumstance/1", "domain": "location", "subject": "harbor",
+         "field": "circumstance", "value": "The piers are flooded.", "supported": True},
+        {"adapter": "actor.condition/1", "domain": "actor", "subject": "mara",
+         "field": "condition", "value": "Mara is soaked.", "supported": True},
+        {"adapter": "faction.circumstance/1", "domain": "faction", "subject": "guild",
+         "field": "circumstance", "value": "The guild hall is closed.", "supported": True},
+        {"adapter": "quest.availability/1", "domain": "quest", "subject": "closed",
+         "field": "available", "value": False, "supported": True},
+        {"adapter": "capability.eligibility/1", "domain": "capability_eligibility",
+         "subject": "capability:persuasion", "field": "eligible", "value": False,
+         "supported": True},
+        {"adapter": "relationship.modifier/1", "domain": "relationship",
+         "subject": "relationship:player:mara", "field": "modifier", "value": -12,
+         "supported": True},
+        {"adapter": "reputation.modifier/1", "domain": "reputation", "subject": "guild",
+         "field": "modifier", "value": 15, "supported": True},
+        {"adapter": "hud.visibility/1", "domain": "hud", "subject": "hud:actor:hidden_npc",
+         "field": "visible", "value": False, "supported": True},
+        {"adapter": "console.visibility/1", "domain": "console",
+         "subject": "console:quest:console_hidden", "field": "visible", "value": False,
+         "supported": True},
+    ]
+    for effect in effects:
+        effect["lore"] = ""
+    state["world_events"] = [build_world_event_record(
+        event_id="event.ui", world_id=world_id, session_id="session-ui",
+        branch_id="branch-ui", turn=4, game_time=4, cause_id="HIDDEN_CAUSE_SENTINEL",
+        cause_authority="rule", cause_visibility="hidden",
+        affected_domains=[effect["domain"] for effect in effects],
+        description="The storm changed the harbor.", effects=effects,
+    )]
+
+    view = hud.hud_view(state, cfg)
+    assert view["scene"]["world_circumstance"] == "A storm blocks the bay."
+    assert view["scene"]["location_circumstance"] == "The piers are flooded."
+    assert next(row for row in view["cast"] if row["eid"] == "mara")["world_condition"] \
+        == "Mara is soaked."
+    assert all(row["eid"] != "hidden_npc" for row in view["cast"])
+    assert "Hidden NPC" not in view["scene"]["present"]
+    assert next(row for row in view["quests"] if row["id"] == "closed")["available"] is False
+    assert next(row for row in view["players"][0]["skills"] if row["id"] == "persuasion")[
+        "eligible"
+    ] is False
+    assert view["relationships"][0]["world_modifier"] == -12
+    faction = next(row for row in view["factions"] if row["id"] == "guild")
+    assert faction["world_circumstance"] == "The guild hall is closed."
+    assert faction["reputation_modifier"] == 15
+    assert all(row.get("a_id") == "player" or row.get("b_id") == "player"
+               for row in view["relationships"])
+    assert all(row.get("a_id") == "player" or row.get("b_id") == "player"
+               for row in view["consent"])
+    assert view["memories"] == []
+    assert view["world_flags"] == {"world_circumstance": "A storm blocks the bay."}
+    assert view["surface_visibility"]["hud"] == {"actor:hidden_npc": False}
+    assert view["surface_visibility"]["console"] == {"quest:console_hidden": False}
+
+    raw = view["player_safe_raw"]
+    assert raw["schema"] == "aetherstate-player-inspection/1"
+    assert all(row["id"] != "console_hidden" for row in raw["quests"])
+    serialized = json.dumps(view)
+    for sentinel in (
+        "PRIVATE_NPC_GOAL_SENTINEL", "PRIVATE_NPC_BELIEF_SENTINEL",
+        "RAW_MEMORY_PROSE_SENTINEL", "RAW_CLAIM_PROSE_SENTINEL", "HIDDEN_FACT_SENTINEL",
+        "HIDDEN_OBJECTIVE_FLAG_SENTINEL", "PRIVATE_FACTION_SENTINEL", "HIDDEN_FRONT_SENTINEL",
+        "HIDDEN_CAUSE_SENTINEL",
+    ):
+        assert sentinel not in serialized
+
+
+def test_shared_hud_fails_closed_on_actor_scoped_knowledge_with_multiple_players():
+    import json
+
+    state = empty_state()
+    state["player"] = {"p1": {"name": "One"}, "p2": {"name": "Two"}}
+    state["beliefs"] = {"p1|prop:secret": {
+        "belief_id": "belief.p1", "holder": "p1", "proposition_id": "prop:secret",
+        "statement": "PLAYER_ONE_PRIVATE_SENTINEL", "stance": "knows",
+        "visibility": "actor_scoped", "scoped_actors": ["p1"],
+    }}
+
+    view = hud.hud_view(state, Config())
+    assert view["knowledge"]["epistemics"] == []
+    assert "PLAYER_ONE_PRIVATE_SENTINEL" not in json.dumps(view)
 
 
 def _rpg_session():
@@ -75,7 +269,9 @@ def test_hud_labels_custom_resources_and_their_skill_costs():
             "defs": {
                 "skills": {"ruin_echo_mapping": {
                     "name": "Ruin Echo Mapping", "keyed_stat": "CUN", "base_mod": 0,
-                    "governs": ["map"], "cost": {"ash_focus": 2},
+                    "governs": ["map", "compare echoes"],
+                    "desc": "Separates a ruin's recent echoes from its older history.",
+                    "cost": {"ash_focus": 2},
                 }},
                 "abilities": {"hookstep_surge": {
                     "name": "Hookstep Surge", "kind": "active", "mechanic": "surge",
@@ -90,11 +286,71 @@ def test_hud_labels_custom_resources_and_their_skill_costs():
         "name": "Ash Focus", "cur": 4, "max": 8, "color": "#b56cff",
     }
     assert "color" not in p["resources"]["unsafe"]
-    assert next(s for s in p["skills"] if s["id"] == "ruin_echo_mapping")["cost"] == \
-        "Ash Focus 2"
+    custom_skill = next(s for s in p["skills"] if s["id"] == "ruin_echo_mapping")
+    assert custom_skill["cost"] == "Ash Focus 2"
+    assert custom_skill["desc"] == \
+        "Separates a ruin's recent echoes from its older history."
+    assert custom_skill["governs"] == ["map", "compare echoes"]
     assert next(a for a in p["abilities"] if a["id"] == "hookstep_surge")["cost"] == \
         "Ash Focus 3"
     assert "Ash Focus 4/8" in render_header(state, cfg)
+
+
+def test_hud_bounds_player_definition_and_gear_prose_without_reading_private_actor_state():
+    cfg = Config()
+    cfg.specialization.name = "rpg"
+    private = "PRIVATE_NPC_GOAL_MUST_NOT_REACH_PLAYER_PRESENTATION"
+    long_prose = "D" * 5000
+    state = {
+        "meta": {"turn": 1},
+        "entities": {
+            "player": {"name": "Player", "kind": "actor"},
+            "npc": {"name": "NPC", "kind": "npc"},
+        },
+        "player": {"player": {
+            "stats": {"CUN": 10},
+            "skills": {"witness_craft": 1},
+            "abilities": ["measured_recall"],
+            "defs": {
+                "skills": {"witness_craft": {
+                    "name": "Witness Craft", "keyed_stat": "CUN",
+                    "desc": long_prose,
+                    "governs": [f"verb-{i}-" + "x" * 100 for i in range(20)] + [private, 7],
+                }},
+                "abilities": {"measured_recall": {
+                    "name": "Measured Recall", "kind": "passive",
+                    "effect": long_prose, "desc": long_prose,
+                }},
+            },
+        }},
+        "chars": {"npc": {"goals": [{"text": private}]}},
+        "items": {
+            "seal": {
+                "name": "Witness Seal", "owner": "player", "loc": "gear:accessory1",
+                "slot": "accessory1", "type": "accessory", "aura": long_prose,
+            },
+            "kit": {
+                "name": "Field Kit", "owner": "player", "loc": "inventory:loose",
+                "type": "tool", "aura": long_prose,
+            },
+        },
+        "gear": {"player": {"accessory1": "seal"}},
+        "inventory": {"player": {"loose": ["kit"]}},
+    }
+
+    view = hud.hud_view(state, cfg)
+    skill = view["players"][0]["skills"][0]
+    ability = view["players"][0]["abilities"][0]
+    gear = view["players"][0]["gear"][0]
+    stowed = view["players"][0]["stowed_gear"][0]["items"][0]
+
+    assert len(skill["desc"]) == 4000 and skill["desc"].endswith("…")
+    assert len(skill["governs"]) == 12
+    assert all(isinstance(value, str) and len(value) <= 80 for value in skill["governs"])
+    assert len(ability["effect"]) == 4000 and len(ability["desc"]) == 4000
+    assert len(gear["aura"]) == 4000
+    assert len(stowed["aura"]) == 4000
+    assert private not in str(view)
 
 
 def test_appearance_persists_as_attribute():

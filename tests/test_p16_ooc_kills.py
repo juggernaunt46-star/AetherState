@@ -73,13 +73,20 @@ def test_stealth_kill_success_slays_awards_xp_and_removes_from_scene():
     assert "effect_add" in kinds and "award_exp" in kinds and "presence" in kinds
     frame = next(o["frame"] for o in res.rule_ops if o["op"] == "semantic_frame_commit")
     lethal_ops = [o for o in res.rule_ops
-                  if o["op"] in ("effect_add", "award_exp", "presence", "reveal_fact")]
+                  if o["op"] in ("effect_add", "award_exp", "presence", "fact_admit")]
     assert lethal_ops
     assert all(o.get("_semantic_frame_ref") == frame["fingerprint"] for o in lethal_ops)
+    fact = next(o for o in res.rule_ops if o["op"] == "fact_admit")
+    assert "proposition_id" not in fact  # state derives proposition identity from the statement
+    assert fact["statement"] == "Ash killed Sentry (stealth kill)"
+    assert fact["cause"].startswith(f"tier0-kill:{frame['fingerprint']}:")
+    assert fact["authority"] == "rule"
     slain = next(o for o in res.rule_ops if o["op"] == "effect_add")
     assert slain["effect"] == "Slain" and slain["char"] == "sentry"
     assert next(o for o in res.rule_ops if o["op"] == "award_exp")["amount"] >= 40
     r = apply_delta(store, sid, bid, 1, res.rule_ops, "rule", cfg)
+    assert any(o["op"] == "fact_admit" for o in r.applied)
+    assert not any((q.get("op") or {}).get("op") == "fact_admit" for q in r.quarantined)
     assert r.state["entities"]["sentry"].get("present") is False   # gone from the scene
     d = _render_directive({**r.state, "_kill_note": res.kill_note}, cfg)
     assert "STEALTH KILL" in d                                     # rides the [DIRECTIVE]

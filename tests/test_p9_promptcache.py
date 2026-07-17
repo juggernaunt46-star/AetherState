@@ -1,4 +1,4 @@
-"""Phase 0a — KV-cache / prompt-caching enablement (the mechanics contract, verified 2026-07-09).
+"""Phase 0a — KV-cache / prompt-caching enablement (plan doc 13, RATIFIED 2026-07-09).
 
 Covers: the prompt_cache_key gate (enriched requests ONLY — untouched wires stay
 byte-identical), the client-key override, the include_usage probe knob (default off),

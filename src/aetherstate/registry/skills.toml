@@ -1,4 +1,4 @@
-# Curated skills (the public contract). Effective check mod (baked into the check op at resolve):
+# Curated skills (doc 06 §3.3). Effective check mod (baked into the check op at resolve):
 #   stat_mod(keyed_stat) + base_mod + player.skills[id] + passive-ability mods naming the skill.
 # `governs` verbs help the linter bind a narrated result to this check (outcome_match subject).
 [stealth]
@@ -65,7 +65,7 @@ max_rank = 5
 governs = ["climb", "jump", "swim", "vault", "grapple", "run"]
 desc = "Feats of body and motion."
 
-# RPG-3: a BASIS-GATED skill (the eligibility gate, the public contract). Anyone may TRY to sneak or
+# RPG-3: a BASIS-GATED skill (the eligibility gate, doc 10). Anyone may TRY to sneak or
 # persuade — but spellcraft has no in-world basis without the granting ability. A check
 # declared without it is a NON-MOVE (visible notice, no roll); the ability is acquired
 # in-world (quest/ritual/user grant via ability_grant), never asserted into existence.

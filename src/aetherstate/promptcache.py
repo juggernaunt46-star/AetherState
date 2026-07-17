@@ -1,4 +1,4 @@
-"""Phase 0a — KV-cache / prompt-caching enablement (the mechanics contract, verified 2026-07-09).
+"""Phase 0a — KV-cache / prompt-caching enablement (plan doc 13, RATIFIED 2026-07-09).
 
 Venice (and most OpenAI-compatible providers) cache prompts by TOKEN PREFIX,
 byte-exact: one changed early byte re-prefills everything after it. RP prompts

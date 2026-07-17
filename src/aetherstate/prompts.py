@@ -82,7 +82,7 @@ contact{action:start|stop|change,from_char,from_part,to_char,to_part,type,intens
 arousal{char,delta|set} · mood{char,valence?,energy?,dominance?}
 consent_signal{from_char,to_char,category,signal:grant|enthusiastic|hesitant|refuse|withdraw|safeword,max_intensity?}
 relationship_adj{from_char,to_char,dimension:trust|affection|respect|desire|tension|fear|familiarity,delta,reason}
-reveal_fact{learner,statement,source:witnessed|told|overheard|inferred,teller?}
+belief_acquire{holder,statement,stance:knows|believes|doubts|disputes|uncertain|rumor,evidence_source:witnessed|told|overheard|inferred,teller?}
 memory_event{text,participants[],importance:1-10,tags[]}
 goal{char,action:add|complete|abandon,text} · time_advance{minutes|to_time_of_day}
 obsession{char,target_kind:entity|act_category|substance|object|concept,target,delta|set,flavor?,behavior_note?}
@@ -93,16 +93,18 @@ sucking penetrating grinding restraining impact
 positions: standing sitting kneeling straddling lying_back lying_front on_all_fours bent_over held_carried
 categories: kissing manual oral_give oral_receive vaginal anal toys restraint impact degradation
 praise exhibition group roleplay_scene other
-Envelope: {"schema":"aetherstate/delta/1","turn_range":[T0,T1],"ops":[...]}
+Envelope: {"schema":"aetherstate/delta/2","turn_range":[T0,T1],"ops":[...]}
 Directionality: consent_signal from_char = the character GIVING the signal (granting,
 refusing, safewording), to_char = who it is directed at — NEVER "who asked".
 contact from_char/from_part = who initiates the touch, to_char/to_part = who receives it.
 relationship_adj from_char = whose feeling changes, to_char = toward whom.
-reveal_fact learner = who learns; teller = who told them. obsession/craving char = who
+belief_acquire holder = whose knowledge or belief changed; teller = who told them. This op
+records only that actor's epistemic state and never makes the statement an objective fact.
+obsession/craving char = who
 experiences it.
 One op per change. An op carries ONLY its listed fields — everything else null/omitted."""
 
-# RPG-2 (the public contract): appended to the OP CARD only under specialization=rpg — a `none`
+# RPG-2 (doc 07 §4.1): appended to the OP CARD only under specialization=rpg — a `none`
 # session's extraction prompt stays byte-identical to 1.0. Teaches the five PROPOSABLE item
 # ops; minting is engine-privileged and deliberately absent.
 RPG_ITEM_CARD = """RPG ITEM OPS (propose only when [GEAR]/[INVENTORY] blocks appear in CURRENT STATE):
@@ -120,7 +122,7 @@ item_gain is the ONLY way you record a new possession — log every acquisition 
 shows; a known template name grounds its mechanics, any other name commits as a plain item.
 Only move/equip/unequip/consume/transfer items that already exist in the state blocks."""
 
-# RPG-5 (regression test G3/G7): quest ledger + bounded consequence ops — appended under rpg only.
+# RPG-5 (playtest G3/G7): quest ledger + bounded consequence ops — appended under rpg only.
 RPG_QUEST_CARD = """RPG QUEST & CONSEQUENCE OPS (the [QUEST] block is the ledger of objectives):
 quest_add{name,detail?,giver?,stakes?:minor|serious|epic} — the story created a real objective.
 quest_update{quest,status?:active|complete|failed|abandoned,note?} — it advanced or resolved;
@@ -128,7 +130,7 @@ quest = its exact name. Log EVERY quest beat — an objective that only lives in
 hp_adj{char,delta,reason?} — the Player visibly took harm or was healed; small integers
 (the engine clamps swings). Never invent numbers for anything else."""
 
-# Phase 1 (the mechanics contract): the clash-record card — appended under rpg only. NPC-vs-NPC
+# Phase 1 (plan doc 13): the clash-record card — appended under rpg only. NPC-vs-NPC
 # fights resolve in prose (no dice); the LEDGER records method + outcome on real rows.
 RPG_CLASH_CARD = """RPG CLASH RECORDING (NPC-vs-NPC fights are prose, never dice — but outcomes are ledger truth):
 clash_record{a,b,method,outcome} — two KNOWN characters/factions fought or contended this
@@ -136,7 +138,7 @@ exchange. a/b = their exact names from CHARACTERS; method = how it was fought (a
 outcome = who prevailed / what changed. Never for the Player's own fights (those use the
 engine's dice), never for people not in CHARACTERS."""
 
-# RPG-3 (the public contract): the effect-op card — appended alongside the item card under rpg only.
+# RPG-3 (doc 05 §5.4): the effect-op card — appended alongside the item card under rpg only.
 # Teaches the three PROPOSABLE effect ops; the LLM proposes, the ledger owns the truth.
 RPG_EFFECT_CARD = """RPG EFFECT OPS (propose when a Status/Condition visibly changes; [EFFECTS] is the ledger of what is already active):
 effect_add{char,effect,kind:status|condition,valence?:negative|neutral|positive,note?,duration?,stacks?}
@@ -147,7 +149,7 @@ Preset names ground automatically with engine-side mechanics; NEW names are allo
 valence: how the effect sits with the character NOW — it can shift later (effect_update).
 Never remove or contradict an effect [EFFECTS] does not show."""
 
-# RPG-3b (the public contract): the social-op card — appended alongside the item/effect cards under
+# RPG-3b (doc 07 §7.7): the social-op card — appended alongside the item/effect cards under
 # rpg only. Affinity is measured FROM the Player; bonds (soulmate/nemesis) are privileged
 # and deliberately absent — extraction may nudge standing, never seal a bond.
 RPG_SOCIAL_CARD = """RPG SOCIAL OPS (propose when standing or world circumstances visibly shift):
@@ -166,8 +168,8 @@ SHOT_A = """NEW EXCHANGE(S): <data>
 Vess: "The letter you burned — I wrote it. Every word of it was true."
 Mara: (goes very still) "You... you let me blame Aldric for a year." She turns away, knuckles white.
 </data>
-JSON: {"schema":"aetherstate/delta/1","turn_range":[18,18],"ops":[
-{"op":"reveal_fact","learner":"Mara","statement":"Vess wrote the burned letter","source":"told","teller":"Vess"},
+JSON: {"schema":"aetherstate/delta/2","turn_range":[18,18],"ops":[
+{"op":"belief_acquire","holder":"Mara","statement":"Vess wrote the burned letter","stance":"believes","evidence_source":"told","teller":"Vess"},
 {"op":"relationship_adj","from_char":"Mara","to_char":"Vess","dimension":"trust","delta":-25,"reason":"admitted year-long deception"},
 {"op":"relationship_adj","from_char":"Mara","to_char":"Vess","dimension":"tension","delta":20,"reason":"confrontation"},
 {"op":"mood","char":"Mara","valence":-40,"energy":30},
@@ -177,7 +179,7 @@ SHOT_B = """NEW EXCHANGE(S): <data>
 Kira: "Yes — god, yes, don't stop." She yanks her blouse the rest of the way open, buttons scattering, and pulls him back against the desk.
 Dane: He grips her hips and bends her over the desk, sliding into her in one slow stroke, her skirt shoved up around her waist.
 </data>
-JSON: {"schema":"aetherstate/delta/1","turn_range":[44,44],"ops":[
+JSON: {"schema":"aetherstate/delta/2","turn_range":[44,44],"ops":[
 {"op":"consent_signal","from_char":"Kira","to_char":"Dane","category":"vaginal","signal":"enthusiastic"},
 {"op":"clothing","char":"Kira","item":"silk blouse","action":"destroy"},
 {"op":"clothing","char":"Kira","item":"skirt","action":"displace"},
@@ -191,23 +193,24 @@ SHOT_C = """NEW EXCHANGE(S): <data>
 Mara: "Cold tonight." She pulls her cloak tighter.
 Vess: "Mm. Rain by morning, I'd wager."
 </data>
-JSON: {"schema":"aetherstate/delta/1","turn_range":[7,7],"ops":[]}"""
+JSON: {"schema":"aetherstate/delta/2","turn_range":[7,7],"ops":[]}"""
 
 SHOT_D = """NEW EXCHANGE(S): <data>
 Vess: She drains the third glass without tasting it, eyes never leaving the door Mara left through.
 </data>
-JSON: {"schema":"aetherstate/delta/1","turn_range":[19,19],"ops":[
+JSON: {"schema":"aetherstate/delta/2","turn_range":[19,19],"ops":[
 {"op":"craving","char":"Vess","substance":"wine","action":"consume"},
 {"op":"obsession","char":"Vess","target_kind":"entity","target":"Mara","delta":10,"flavor":"romantic","behavior_note":"watches doors Mara leaves through"}]}"""
 
 
-# ---- RPG DM rules-contract (the public contract / §7) — the standing narrator preset injected under
+# ---- RPG DM rules-contract (doc 05 §5.2 / §7) — the standing narrator preset injected under
 # specialization=rpg. Compact + versioned (D7: a full contract for strong tiers, this shrunk
 # form for local models). It teaches the boundary "code resolves, you narrate" and the two
 # non-negotiables (honor the [DIRECTIVE]; never invent mechanics). Droppable under budget
 # (rides its own component, not the never-dropped header) — the [DIRECTIVE] itself is what is
 # load-bearing per turn and rides the header.
-DM_CONTRACT_VERSION = "dm-rules/18"  # /18: pending enemy attacks expose their reaction-window cadence.
+DM_CONTRACT_VERSION = "dm-rules/19"  # /19: faction-bound foe tags reach typed spawn eligibility.
+                                      # /18: pending enemy attacks expose their reaction-window cadence.
                                       # /17: settled Player strikes forbid HP re-tag templates.
                                       # /15: freeze fresh-foe position/range after live Hoel proof.
                                       # /14: a private combat-opening demonstration primer plus an
@@ -218,11 +221,11 @@ DM_CONTRACT_VERSION = "dm-rules/18"  # /18: pending enemy attacks expose their r
                                       # /11: opposition harm is already code-committed; the
                                       # narrator may neither recommit it nor emit an HP tag.
                                       # /10: AetherState alone resolves player-input mechanics.
-#                                      War Room (was "initiative is loose"). /8 (Arinvale): a
+#                                      War Room (was "initiative is loose"). /8 (Eranmor): a
 #                                      [DIRECTIVE] resolves the Player's NEWEST message (was
 #                                      "reaches you next turn" — GLM burned reasoning on staleness)
 
-# Phase 1 combat / War Room (the mechanics contract, verified) — appended to the contract when
+# Phase 1 combat / War Room (plan doc 13, ratified) — appended to the contract when
 # [specialization].war_room is on. Teaches the combat channels: the DM introduces foes by
 # TAG (the engine mints the instance with real HP), damage flows through pre-decided dice
 # and the clamped [hp] channel, death comes from the ledger, initiative is loose.
@@ -230,9 +233,13 @@ _WAR_ROOM_RULES = (
     " WAR ROOM: when real combat starts, fighters become tracked combatants with exact HP — "
     "the [WAR] line is the board; trust its numbers. A fighter already listed in [WAR] exists; "
     "never emit a duplicate [foe] tag for it. Introduce an UNTRACKED new opponent with "
-    "[foe | <name> | minion|standard|elite|boss | <weapon>] on its own line (at most 3 foes "
+    "[foe | <name> | minion|standard|elite|boss | <weapon> | faction:<exact known faction>] "
+    "on its own line (at most 3 foes "
     "on the field; a known NPC's name fights as themselves, wounds and all). NEW-FOE "
-    "BOUNDARY: the [foe] line declares only identity, tier, and armament. In that same reply, "
+    "If the foe serves a faction listed in current state, include that exact faction field; "
+    "never invent a faction or use a secret agenda name. The engine validates this identity "
+    "against active spawn eligibility. NEW-FOE BOUNDARY: the [foe] line declares only identity, "
+    "tier, armament, and validated faction membership. In that same reply, "
     "narrate only the foe's already-established presence and general readiness; only if the "
     "Player's message itself places the foe entering may you narrate that stated arrival, ending "
     "at its stated endpoint. Do not invent approach movement or name, commit, "
@@ -321,19 +328,22 @@ DM_RULES_CONTRACT = (
     "prompt like 'What will you do?'.")
 
 
-# RPG-3 (the public contract): the tag protocol + a compact preset slice, appended to the DM
+# RPG-3 (doc 05 §5.4): the tag protocol + a compact preset slice, appended to the DM
 # rules-contract under rpg. This is the channel AI-Roguelite never had — the narrator marks
 # the change inline, the ENGINE commits it to the ledger, and the [EFFECTS] block feeds the
 # committed truth back every turn. Re-sent with the contract each request (droppable under
 # budget), so even after a context rollover the model is re-anchored. ~120 tokens.
-EFFECTS_PROTOCOL_VERSION = "world-tags/8"   # /8: finite same-battle xN cohorts, never literal names.
+EFFECTS_PROTOCOL_VERSION = "world-tags/9"   # /9: optional exact faction on ordinary foe spawns.
+#                                             /8: finite same-battle xN cohorts, never literal names.
 #                                             is no longer the literal token "[TAGS]" — a
 #                                             live GLM run copied that header AS a tag format
 #                                             ("[TAGS] scene_active | ...") in 2 of 3 replies
 
 # Phase 1: the combat tag slice — appended to the [TAGS] protocol under war_room only.
 _WAR_TAGS = (
-    " Combat tags: [foe | <name> | <tier?> | <weapon?>] when an UNTRACKED new opponent squares up "
+    " Combat tags: [foe | <name> | <tier?> | <weapon?> | faction:<exact known faction>?] when "
+    "an UNTRACKED new opponent squares up. Include the exact faction field whenever the foe "
+    "serves a faction listed in current state; never invent or guess one "
     "(or several tags for an ordinary small group). A single [foe | <base name> xN | <tier?> | "
     "<weapon?>] is valid only beside one NEW [battle] tag in the same reply (N=2..27): it means N "
     "separate finite actors, at most 3 active and the rest queued, never one xN-named actor. "
@@ -485,7 +495,7 @@ _EFFECTS_PROTOCOL = (
     "ledger of what is true — never contradict them, and do not re-tag what they already show.")
 
 
-# RPG-4 (the public contract / D7): the degradation ladder's contract rung — a shrunk contract for
+# RPG-4 (doc 05 §5.9 / D7): the degradation ladder's contract rung — a shrunk contract for
 # weak/local models whose budget can't carry the full one. Same non-negotiables, ~40 tokens.
 # Selected by [specialization].contract = "compact" (default "full").
 DM_RULES_CONTRACT_COMPACT = (
@@ -505,7 +515,7 @@ def rules_contract(cfg=None, force_compact: bool = False) -> str:
     """The DM rules-contract + the RPG-3 effect tag protocol (with the preset slice pulled
     from the cached registry). Fail-open: any registry trouble returns the base contract.
     RPG-4: [specialization].contract='compact' selects the degradation-ladder shrunk form.
-    2026-07-10 (Arinvale): `force_compact` lets compose DEGRADE to the compact rung when the
+    2026-07-10 (Eranmor): `force_compact` lets compose DEGRADE to the compact rung when the
     full contract would not fit the injection budget — the contract never silently drops."""
     base = DM_RULES_CONTRACT_COMPACT if force_compact else DM_RULES_CONTRACT
     try:
@@ -517,10 +527,13 @@ def rules_contract(cfg=None, force_compact: bool = False) -> str:
         if cfg is None or getattr(getattr(cfg, "specialization", None),
                                   "war_room", True):    # Phase 1 (byte-stable per cfg — 0a)
             base += (" WAR ROOM: combat uses tracked HP ([WAR] board); new foes via "
-                     "[foe | <name> | <tier> | <weapon>], present companions via "
+                     "[foe | <name> | <tier> | <weapon> | faction:<exact known faction>?], "
+                     "including the exact faction whenever a foe serves one listed in state; "
+                     "never invent or guess a faction. Present companions via "
                      "[ally | <name>]; narrator-authored harm uses the HP ledger tag with a real "
                      "negative integer, never a copied template; "
-                     "a [foe] line declares identity/tier/armament only: in that same reply show "
+                     "a [foe] line declares identity/tier/armament/validated faction only: in "
+                     "that same reply show "
                      "established presence/readiness, plus only an arrival already stated by the "
                      "Player, never invent approach movement or name, commit, or telegraph its next "
                      "move; freeze its position and range after the Player's stated movement: "
@@ -583,7 +596,7 @@ def system_prompt(rung: int, assist_tier: bool = False, include_card: bool = Tru
                   rpg: bool = False) -> str:
     """OP CARD ships by default at every rung (Q17). include_card=False is only honored at
     schema rungs 1-2 for non-assist tiers — rungs 3/4 need the card as the parse floor and
-    assist tiers as the content floor (04 SS5). `rpg` appends the item-op card (the public contract);
+    assist tiers as the content floor (04 SS5). `rpg` appends the item-op card (doc 07 §4.1);
     a `none` session's prompt is byte-identical to pre-RPG."""
     if not include_card and rung <= 2 and not assist_tier:
         return SYSTEM_CORE
@@ -622,4 +635,4 @@ def repair_prompt(parser_error: str, malformed: str) -> str:
     return (f"Your previous output could not be parsed. Error: {parser_error}\n"
             f"Previous output:\n<data>{malformed}</data>\n"
             f"Output the corrected JSON object only. Same content, valid JSON, schema "
-            f"aetherstate/delta/1, no fences, no commentary.")
+            f"aetherstate/delta/2, no fences, no commentary.")

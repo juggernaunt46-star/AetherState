@@ -55,6 +55,21 @@ def test_first_save_with_no_file_writes_host_port(tmp_path):
     assert (r.server.host, r.server.port) == ("1.2.3.4", 8080)
 
 
+def test_console_save_persists_creator_completion_budget(tmp_path):
+    cfg = Config()
+    cfg.server.data_dir = str(tmp_path)
+    cfg.creator.max_tokens = 49152
+    cfg.creator.timeout_s = 720.0
+    cfg.creator.validation_retries = 1
+
+    assert _persist_config(cfg) is True
+    reloaded = load_config(tmp_path / "config.toml")
+
+    assert reloaded.creator.max_tokens == 49152
+    assert reloaded.creator.timeout_s == 720.0
+    assert reloaded.creator.validation_retries == 1
+
+
 def test_console_specialization_knobs_survive_restart(tmp_path):
     cfg = Config()
     cfg.server.data_dir = str(tmp_path)

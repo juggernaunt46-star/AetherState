@@ -37,8 +37,8 @@ def mk(groups=None):
 
 
 def seed_fact(store, cfg, sid, bid, statement, turn=1):
-    apply_delta(store, sid, bid, turn, [{"op": "reveal_fact", "learner": "kira",
-                "statement": statement, "source": "told"}], "user", cfg)
+    apply_delta(store, sid, bid, turn, [{"op": "fact_admit", "statement": statement,
+                "cause": f"creator:test:nli:{turn}", "authority": "creator"}], "user", cfg)
 
 
 # ------------------------------ premise / hypothesis construction ------------------------------
@@ -50,7 +50,9 @@ def test_split_sentences_drops_fragments():
 
 def test_premise_serializer_covers_facts():
     cfg, _mock, _gc, store, sid, bid = mk()
-    seed_fact(store, cfg, sid, bid, "The vault code is 4412")
+    apply_delta(store, sid, bid, 1, [{"op": "fact_admit",
+                "statement": "The vault code is 4412",
+                "cause": "creator:test:vault-code", "authority": "creator"}], "user", cfg)
     prem = linter._ledger_premises(current_state(store, bid))
     assert any("vault code is 4412" in s for _, s in prem)
 
@@ -58,7 +60,9 @@ def test_premise_serializer_covers_facts():
 # ------------------------------ contradiction -> L10 -> next-turn note --------------------------
 async def test_contradiction_fires_l10_and_stages_note():
     cfg, mock, get_client, store, sid, bid = mk({"linter_nli": "assist"})
-    seed_fact(store, cfg, sid, bid, "The vault code is 4412")
+    apply_delta(store, sid, bid, 1, [{"op": "fact_admit",
+                "statement": "The vault code is 4412",
+                "cause": "creator:test:vault-code", "authority": "creator"}], "user", cfg)
     state = current_state(store, bid)
     prem = linter._ledger_premises(state)
     idx = next(i for i, (_, s) in enumerate(prem) if "4412" in s)
@@ -116,7 +120,9 @@ async def test_off_switches_short_circuit_before_model():
 # ------------------------------ replay purity: L10 journals no state ----------------------------
 async def test_pass_is_replay_pure():
     cfg, mock, get_client, store, sid, bid = mk({"linter_nli": "assist"})
-    seed_fact(store, cfg, sid, bid, "The gate is locked")
+    apply_delta(store, sid, bid, 1, [{"op": "fact_admit",
+                "statement": "The gate is locked",
+                "cause": "creator:test:locked-gate", "authority": "creator"}], "user", cfg)
     state = current_state(store, bid)
     before = store.state_at(bid, 99, reduce_state)
     prem = linter._ledger_premises(state)

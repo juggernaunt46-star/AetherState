@@ -1,4 +1,4 @@
-"""Creator (the public contract): World Generator + Character Creator.
+"""Creator (doc 09): World Generator + Character Creator.
 
 Deterministic backbone + assist-LLM fill-the-blanks, persisted as SHIPPED ops (entities /
 memory-lore / scene / player_seed) — no new op vocabulary, no new storage families. Coverage:
@@ -16,10 +16,92 @@ import pytest
 
 from aetherstate import creator
 from aetherstate.compose import render_header
-from aetherstate.config import Config
+from aetherstate.config import AssistEndpointConfig, Config
 from aetherstate.state import (_SPEC, apply_delta, current_state, empty_state,
                                reduce_state, validate_op)
 from aetherstate.store import Store
+
+
+def _complete_world_document(*, name: str = "Rustline", genre: str = "cyberpunk") -> dict:
+    """One complete Creator world response; individual tests mutate the failure under test."""
+    return {
+        "name": name,
+        "genre": genre,
+        "setting": "Rain-polished towers crowd a harbor where debts are traded as identity.",
+        "date": "2088-04-17",
+        "time": "night",
+        "tone": "tense neon noir",
+        "factions": [
+            "Glass Choir — brokers stolen voices through the floodlit transit shrines.",
+            "Rust Union — keeps the lower docks alive while planning a general strike.",
+            "Vanta Court — purchases public offices and quietly erases its rivals.",
+            "Lantern Mesh — shelters escaped constructs inside abandoned civic networks.",
+        ],
+        "locations": [
+            "Mirror Quay — cargo cranes cast moving bars of light across black water.",
+            "Saint Voltage — a transit shrine built around an outlawed memory archive.",
+            "Copper Ward — union tenements surround the city’s last independent foundry.",
+            "Vanta Spire — mirrored offices conceal a private courthouse above the clouds.",
+            "Floodline Market — traders barter medicine and identities beneath the seawall.",
+        ],
+        "npcs": [
+            {"name": "Mara Venn", "role": "union courier",
+             "desc": "She delivers strike plans inside obsolete prosthetic parts.",
+             "home": "Copper Ward"},
+            {"name": "Ilex Nine", "role": "memory cantor",
+             "desc": "They can identify a stolen voice from a single broken syllable.",
+             "home": "Saint Voltage"},
+            {"name": "Cass Orin", "role": "corporate magistrate",
+             "desc": "He sells legal absolution while recording every buyer’s weakness.",
+             "home": "Vanta Spire"},
+            {"name": "Dena Coil", "role": "flood-market surgeon",
+             "desc": "She repairs bodies for anyone who pays in verifiable secrets.",
+             "home": "Floodline Market"},
+        ],
+        "aspects": [
+            "A copied voice is accepted as a legal signature unless challenged in person.",
+            "The seawall pumps are controlled by three mutually hostile factions.",
+            "Constructs may own property but cannot testify against their registered maker.",
+            "Public transit records every passenger but forgets them after seven days.",
+            "Rain carries conductive dust that makes exposed implants glow blue.",
+        ],
+        "opening_scene": "At Mirror Quay, Mara Venn presses a warm prosthetic hand into yours.",
+        "opening_quest": "Deliver Mara’s hidden strike plan before Vanta Court closes the docks.",
+        "loot": {
+            tier: [
+                {"name": f"{tier} transit chit", "chance": 0.75},
+                {"name": f"{tier} sealed medpatch", "chance": 0.35},
+            ]
+            for tier in ("minion", "standard", "elite", "boss")
+        },
+        "fronts": [
+            {"name": "The Rust Union strikes", "faction": "Rust Union", "segments": 4,
+             "consequence": "The lower docks close and union patrols control every crane.",
+             "event_duration_turns": 8, "spawn_eligibility": False},
+            {"name": "Vanta Court seizes the seawall", "faction": "Vanta Court", "segments": 6,
+             "consequence": "Corporate wardens occupy the pumps and ration dry ground.",
+             "event_duration_turns": None, "spawn_eligibility": True},
+        ],
+        "routes": [
+            {"a": "Mirror Quay", "b": "Vanta Spire", "segments": 2},
+        ],
+    }
+
+
+def _complete_player_document(*, name: str = "Vex") -> dict:
+    return {
+        "name": name,
+        "sex": "female",
+        "pronouns": "she/her",
+        "species": "human",
+        "appearance": "A lean courier in a rain-dark coat, with copper light under one eye.",
+        "concept": "Harbor memory runner",
+        "stats": {"STR": 10, "DEX": 13, "INT": 12, "CHA": 10, "CUN": 11, "CON": 10},
+        "skills": {"stealth": 3, "perception": 2, "athletics": 1},
+        "abilities": ["keen_senses"],
+        "gear": ["weatherproof courier coat", "sealed memory spindle"],
+        "defs": {"skills": [], "abilities": []},
+    }
 
 
 # ------------------------------ deterministic backbone -----------------------------
@@ -187,15 +269,19 @@ def test_creator_rejects_invalid_resource_contracts(doc, message):
 
 
 async def test_author_player_preserves_typed_custom_rank_across_model_defs(monkeypatch):
-    async def fake_chat(*_args, **_kwargs):
-        return json.dumps({
-            "name": "Model Rewrite", "skills": {"spearline_bind": 0, "swordplay": 3},
-            "abilities": [], "defs": {"skills": [{
+    authored = _complete_player_document(name="Model Rewrite")
+    authored.update({
+            "skills": {"spearline_bind": 0, "swordplay": 3},
+            "abilities": ["keen_senses"], "defs": {"skills": [{
                 "id": "spearline_bind", "name": "Spearline Bind", "keyed_stat": "STR",
-                "base_mod": 1, "max_rank": 5, "governs": ["strike"],
-                "desc": "Model rewrite", "group": "Model Group"}], "abilities": []}})
+                "base_mod": 1, "max_rank": 5,
+                "governs": ["strike", "bind", "redirect"],
+                "desc": "Model rewrite.", "group": "Model Group"}], "abilities": []}})
 
-    monkeypatch.setattr(creator, "_chat", fake_chat)
+    async def fake_chat(*_args, **_kwargs):
+        return creator._CreatorReply(json.dumps(authored), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
     seed = {
         "name": "Iria Vale", "skills": {"spearline_bind": 2},
         "abilities": ["power_strike"],
@@ -221,17 +307,160 @@ async def test_author_player_preserves_typed_custom_rank_across_model_defs(monke
     assert p["defs"]["skills"]["spearline_bind"]["cost"] == {"resolve": 2}
 
 
+def test_deterministic_creator_docs_preserve_instruction_notes_without_runtime_promotion():
+    world = creator.deterministic_world({"notes": "Use exactly three named fronts."})
+    player = creator.deterministic_player({"notes": "Write her as cautious, never comic relief."})
+    assert world["notes"] == "Use exactly three named fronts."
+    assert player["notes"] == "Write her as cautious, never comic relief."
+    assert all("exactly three named fronts" not in str(op) for op in creator.world_to_ops(world))
+    assert all("never comic relief" not in str(op) for op in creator.player_to_ops(player))
+
+
+async def test_world_authoring_retries_direction_breaking_front_count(monkeypatch):
+    direction_breaking = _complete_world_document()  # structurally complete, but only two fronts
+    complete = _complete_world_document()
+    complete["fronts"].append({
+        "name": "The Lantern Mesh frees the constructs",
+        "faction": "Lantern Mesh",
+        "segments": 5,
+        "consequence": "Escaped constructs gain sanctuary and openly patrol Saint Voltage.",
+        "event_duration_turns": None,
+        "spawn_eligibility": True,
+    })
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        doc = direction_breaking if len(calls) == 1 else complete
+        return creator._CreatorReply(json.dumps(doc), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    cfg = Config()
+    out = await creator.author_world(
+        None,
+        cfg,
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {"notes": (
+            "Use exactly three named fronts. Give at least one a duration and at least one "
+            "a spawn eligibility effect."
+        )},
+    )
+
+    assert out["source"] == "llm"
+    assert len(out["doc"]["fronts"]) == 3
+    assert out["doc"]["notes"].startswith("Use exactly three named fronts.")
+    assert len(calls) == 2
+    assert {call["max_tokens"] for call in calls} == {32768}
+    assert {call["timeout_s"] for call in calls} == {600.0}
+    assert all("CREATIVE DIRECTION — CONTROLLING INSTRUCTIONS" in call["user"]
+               for call in calls)
+    assert all("Use exactly three named fronts." in call["user"] for call in calls)
+    assert "CONTROLLING CREATIVE-DIRECTION INSTRUCTIONS" in calls[0]["system"]
+    assert "previous response was rejected" in calls[1]["system"].lower()
+    assert "requires exactly 3 fronts" in calls[1]["system"].lower()
+
+
+async def test_world_authoring_never_applies_empty_truncated_or_dangling_prose(monkeypatch):
+    cut = _complete_world_document()
+    cut["setting"] = "The harbor survives because the"
+    replies = [
+        creator._CreatorReply("", "stop"),
+        creator._CreatorReply(json.dumps(cut), "stop"),
+    ]
+
+    async def fake_chat(*_args, **_kwargs):
+        return replies.pop(0)
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {},
+    )
+
+    assert out["source"] == "error"
+    assert "doc" not in out
+    assert "nothing was loaded" in out["detail"].lower()
+
+
+async def test_world_authoring_retries_provider_length_stop_as_a_fresh_document(monkeypatch):
+    first = _complete_world_document(name="Cut But Parseable")
+    second = _complete_world_document(name="Complete Replacement")
+    replies = [
+        creator._CreatorReply(json.dumps(first), "length"),
+        creator._CreatorReply(json.dumps(second), "stop"),
+    ]
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return replies.pop(0)
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {},
+    )
+
+    assert out["source"] == "llm"
+    assert out["doc"]["name"] == "Complete Replacement"
+    assert len(calls) == 2
+    assert "finish_reason=length" in calls[1]["system"]
+    assert "Start over" in calls[1]["system"]
+
+
+def test_creator_json_parser_rejects_partial_repair_and_trailing_text():
+    with pytest.raises(ValueError, match="invalid or truncated JSON"):
+        creator._strict_creator_json_object('{"name":"half"')
+    with pytest.raises(ValueError, match="text appeared after"):
+        creator._strict_creator_json_object('{"name":"whole"} continue below')
+
+
+async def test_player_authoring_retries_structurally_incomplete_reply(monkeypatch):
+    incomplete = _complete_player_document()
+    incomplete.pop("gear")
+    replies = [incomplete, _complete_player_document()]
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(replies.pop(0)), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    out = await creator.author_player(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {"notes": "Keep the character severe and practical."},
+    )
+
+    assert out["source"] == "llm"
+    assert len(out["doc"]["gear"]) == 2
+    assert out["doc"]["notes"] == "Keep the character severe and practical."
+    assert len(calls) == 2
+    assert all("CREATIVE DIRECTION — CONTROLLING INSTRUCTIONS" in call["user"]
+               for call in calls)
+    assert all("Keep the character severe and practical." in call["user"] for call in calls)
+    assert "CONTROLLING CREATIVE-DIRECTION INSTRUCTIONS" in calls[0]["system"]
+    assert "previous response was rejected" in calls[1]["system"].lower()
+
+
 def test_world_ops_use_only_shipped_vocab_and_validate():
     ops = creator.world_to_ops({"genre": "high_fantasy", "name": "Aldering"})
     assert ops and all(validate_op(o) is not None for o in ops)
     kinds = {o["op"] for o in ops}
     assert kinds <= set(_SPEC)                                 # every authoring op is validated
-    assert kinds <= {"world_identity_set", "memory_event", "entity_add", "set_attribute", "scene_set",
-                     "time_advance", "quest_add"}     # RPG-5: the opening quest is ledger truth
+    assert kinds <= {
+        "world_identity_set", "creator_world_seed", "memory_event", "entity_add",
+        "set_attribute", "scene_set", "time_advance", "quest_add",
+    }  # Creator source is durable lore metadata; the opening quest remains ledger truth.
 
 
 def test_player_ops_shape_and_validate():
-    ops = creator.player_to_ops({"name": "Rowan", "class": "Knight", "species": "Human", "sex": "F"})
+    ops = creator.player_to_ops({"name": "Kara", "class": "Knight", "species": "Human", "sex": "F"})
     assert [o["op"] for o in ops][:2] == ["entity_add", "player_seed"]
     assert all(validate_op(o) is not None for o in ops)
     card = ops[1]["card"]
@@ -349,6 +578,11 @@ async def test_creator_page_served(client):
     assert "readCustomResources());" in r.text
     assert "addCustomResource(rid,spec)" in r.text
     assert 'chipRow("resources"' in r.text
+    assert 'title="Main story model used for every AI auto-fill"' in r.text
+    assert "const draft=worldDoc();" in r.text
+    assert "applyWorld(Object.assign({},r.doc,{notes:draft.notes}))" in r.text
+    assert "const draft=playerDoc();" in r.text
+    assert "applyPlayer(Object.assign({},r.doc,{notes:draft.notes}))" in r.text
 
 
 async def test_world_and_player_routes_persist(client):
@@ -475,9 +709,10 @@ async def test_author_route_offline_fills_templates_on_request(client):
 
 
 # ------------------------------ model detection (menu + author route) ---------------
-def _chat_reply(content: str) -> bytes:
+def _chat_reply(content: str, *, finish_reason: str = "stop") -> bytes:
     import json
-    return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
+    return json.dumps({"choices": [{"message": {"content": content},
+                                     "finish_reason": finish_reason}]}).encode()
 
 
 async def test_creator_models_route_lists_and_fails_open(client, mock_upstream):
@@ -498,15 +733,31 @@ async def test_author_uses_requested_model_without_session(client, mock_upstream
     """Creator-first flow: no session row yet, but an explicit model pick still AI-authors."""
     import json
     from tests.mock_upstream import Reply
-    mock_upstream.enqueue(Reply(body=_chat_reply(
-        '{"name":"Rustline","genre":"cyberpunk","setting":"Neon.","factions":["A","B","C"]}')))
+    authored = _complete_world_document()
+    authored["fronts"].append({
+        "name": "The Lantern Mesh frees the constructs",
+        "faction": "Lantern Mesh",
+        "segments": 5,
+        "consequence": "Escaped constructs gain sanctuary and openly patrol Saint Voltage.",
+        "event_duration_turns": None,
+        "spawn_eligibility": True,
+    })
+    mock_upstream.enqueue(Reply(body=_chat_reply(json.dumps(authored))))
     r = await client.post("/aether/session/no-such-session/author",
-                          json={"mode": "world", "doc": {"genre": "cyberpunk"},
+                          json={"mode": "world", "doc": {
+                              "genre": "cyberpunk",
+                              "notes": "Use exactly three named fronts and make each consequential.",
+                          },
                                 "model": "picked-model"})
     j = r.json()
     assert j["source"] == "llm" and j["model"] == "picked-model"
     assert j["doc"]["name"] == "Rustline"
-    assert json.loads(mock_upstream.requests[-1].body)["model"] == "picked-model"
+    assert len(j["doc"]["fronts"]) == 3
+    request_body = json.loads(mock_upstream.requests[-1].body)
+    assert request_body["model"] == "picked-model"
+    assert request_body["max_tokens"] == 32768
+    assert "Use exactly three named fronts" in request_body["messages"][1]["content"]
+    assert j["doc"]["notes"] == "Use exactly three named fronts and make each consequential."
 
 
 async def test_author_autodetects_model_from_endpoint(client, mock_upstream):
@@ -515,13 +766,65 @@ async def test_author_autodetects_model_from_endpoint(client, mock_upstream):
     import json
     from tests.mock_upstream import Reply
     mock_upstream.enqueue(Reply(body=json.dumps({"data": [{"id": "auto-m"}]}).encode()))
-    mock_upstream.enqueue(Reply(body=_chat_reply('{"name":"Verge","genre":"sci_fi"}')))
+    mock_upstream.enqueue(Reply(body=_chat_reply(json.dumps(
+        _complete_world_document(name="Verge", genre="sci_fi")))))
     r = await client.post("/aether/session/still-no-session/author",
                           json={"mode": "world", "doc": {}})
     j = r.json()
     assert j["source"] == "llm" and j["model"] == "auto-m"
     chat = [q for q in mock_upstream.requests if q.path.endswith("/chat/completions")]
     assert json.loads(chat[-1].body)["model"] == "auto-m"
+
+
+async def test_creator_world_and_character_always_use_main_endpoint_and_large_budget(
+        client, mock_upstream, cfg):
+    """Creator authoring is independent of extraction=assist and never borrows the small model."""
+    from tests.mock_upstream import Reply
+
+    cfg.upstream.model = "main-creator"
+    cfg.extraction.mode = "assist"
+    cfg.assist.endpoints = [AssistEndpointConfig(
+        name="small-helper", base_url="http://assist.invalid/v1", model="tiny-assist",
+    )]
+    mock_upstream.enqueue(Reply(body=_chat_reply(json.dumps(_complete_world_document()))))
+    mock_upstream.enqueue(Reply(body=_chat_reply(json.dumps(_complete_player_document()))))
+
+    world = await client.post("/aether/session/main-only/author", json={
+        "mode": "world",
+        "doc": {"notes": "Make the fronts permanent, temporary, and superseding."},
+    })
+    player = await client.post("/aether/session/main-only/author", json={
+        "mode": "player",
+        "doc": {"notes": "Write a guarded investigator with no comic relief."},
+        "world": _complete_world_document(),
+    })
+
+    assert world.json()["source"] == player.json()["source"] == "llm"
+    chats = [json.loads(req.body) for req in mock_upstream.requests
+             if req.path.endswith("/chat/completions")]
+    assert [body["model"] for body in chats] == ["main-creator", "main-creator"]
+    assert [body["max_tokens"] for body in chats] == [32768, 32768]
+    assert "Make the fronts permanent" in chats[0]["messages"][1]["content"]
+    assert "guarded investigator" in chats[1]["messages"][1]["content"]
+    assert cfg.upstream.model == "main-creator"
+
+
+async def test_creator_model_menu_exposes_main_models_only(client, mock_upstream, cfg):
+    from tests.mock_upstream import Reply
+
+    cfg.upstream.model = "configured-main"
+    cfg.assist.endpoints = [AssistEndpointConfig(
+        name="small-helper", base_url="http://assist.invalid/v1", model="tiny-assist",
+    )]
+    mock_upstream.enqueue(Reply(body=json.dumps({"data": [{"id": "detected-main"}]}).encode()))
+
+    payload = (await client.get("/aether/creator/models")).json()
+    assert payload["endpoints"] == [{
+        "target": "main",
+        "base_url": cfg.upstream.base_url,
+        "default": "configured-main",
+        "models": ["configured-main", "detected-main"],
+    }]
 
 
 # ------------------------------ filled boxes ride as context (2026-07-06) -----------
@@ -605,9 +908,9 @@ async def test_connection_persists_upstream_default_model(client):
 
 # ------------------------------ roomier authoring clamps ---------------------------
 def test_wider_authoring_clamps_still_clamp():
-    w = creator.deterministic_world({"genre": "modern", "setting": "x" * 5000,
+    w = creator.deterministic_world({"genre": "modern", "setting": "x" * 10000,
                                      "factions": [f"f{i}" for i in range(40)]})
-    assert len(w["setting"]) == 2000                     # roomier prose clamp, still a clamp
+    assert len(w["setting"]) == 8000                     # much roomier, still bounded
     assert len(w["factions"]) == 20                      # roomier list cap, still a cap
     p = creator.deterministic_player({
         "name": "Vex",
@@ -619,7 +922,7 @@ def test_wider_authoring_clamps_still_clamp():
     # (2026-07-06: the target must EXIST now — a dead reference no longer freezes as real)
 
 
-# ------------------------------ 2026-07-06 regression test fixes ------------------------------
+# ------------------------------ 2026-07-06 live-playtest fixes ------------------------------
 def test_split_name_desc_mints_clean_entity_ids():
     """'Name — description' faction/location lines: the NAME is the entity, the description
     becomes an attribute — no more 80-char slug ids (Creator cousin of the vael_cora bug)."""

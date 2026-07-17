@@ -52,6 +52,21 @@ CREATE TABLE IF NOT EXISTS semantic_bootstrap_proofs(
   session_id TEXT PRIMARY KEY, branch_id TEXT UNIQUE, turn_index INTEGER,
   proof_fingerprint TEXT, post_ledger_hash TEXT, journal_high_water_after INTEGER,
   proof_json TEXT, committed_at REAL);
+CREATE TABLE IF NOT EXISTS claim_records(
+  branch_id TEXT, claim_id TEXT, origin_branch TEXT, session_id TEXT, world_id TEXT,
+  turn_index INTEGER, source TEXT, fingerprint TEXT, record_json TEXT,
+  status TEXT DEFAULT 'committed', ts REAL,
+  PRIMARY KEY(branch_id, claim_id));
+CREATE INDEX IF NOT EXISTS idx_claim_records_turn
+  ON claim_records(branch_id, turn_index, source);
+CREATE TABLE IF NOT EXISTS world_event_records(
+  branch_id TEXT, event_id TEXT, origin_branch TEXT, session_id TEXT, world_id TEXT,
+  turn_index INTEGER, kind TEXT, relation_target TEXT, source TEXT,
+  fingerprint TEXT, record_json TEXT,
+  status TEXT DEFAULT 'committed', ts REAL,
+  PRIMARY KEY(branch_id, event_id));
+CREATE INDEX IF NOT EXISTS idx_world_event_records_turn
+  ON world_event_records(branch_id, turn_index, kind);
 CREATE TABLE IF NOT EXISTS checkpoints(
   branch_id TEXT, turn_index INTEGER, state TEXT, PRIMARY KEY(branch_id, turn_index));
 CREATE TABLE IF NOT EXISTS branch_msgs(
@@ -103,7 +118,9 @@ _MIGRATIONS = [("caps", "native", "TEXT DEFAULT ''"),
                ("sessions", "genesis", "TEXT DEFAULT ''"),  # ''|rules|llm|done|skipped
                ("sessions", "mode", "TEXT DEFAULT 'enriched'"),  # 05 SS7: enriched|passthrough
                ("sessions", "label", "TEXT DEFAULT ''"),  # user-facing friendly name (rename)
-               ("sessions", "narrator_speaker", "TEXT DEFAULT ''")]
+               ("sessions", "narrator_speaker", "TEXT DEFAULT ''"),
+               # Typed event ownership is needed for extraction-only retraction on old DBs.
+               ("world_event_records", "source", "TEXT DEFAULT ''")]
 
 
 def _ulid() -> str:
@@ -441,6 +458,22 @@ class Store:
                 " WHERE branch_id=? AND turn_index<=?",
                 (bid, source_branch, fork_turn))
             self.db.execute(
+                "INSERT INTO claim_records(branch_id, claim_id, origin_branch, session_id,"
+                " world_id, turn_index, source, fingerprint, record_json, status, ts)"
+                " SELECT ?, claim_id, origin_branch, session_id, world_id, turn_index, source,"
+                " fingerprint, record_json, status, ts FROM claim_records"
+                " WHERE branch_id=? AND turn_index<=?",
+                (bid, source_branch, fork_turn))
+            self.db.execute(
+                "INSERT INTO world_event_records(branch_id, event_id, origin_branch, session_id,"
+                " world_id, turn_index, kind, relation_target, source, fingerprint, record_json,"
+                " status, ts)"
+                " SELECT ?, event_id, origin_branch, session_id, world_id, turn_index, kind,"
+                " relation_target, source, fingerprint, record_json, status, ts"
+                " FROM world_event_records"
+                " WHERE branch_id=? AND turn_index<=?",
+                (bid, source_branch, fork_turn))
+            self.db.execute(
                 "INSERT INTO checkpoints(branch_id, turn_index, state)"
                 " SELECT ?, turn_index, state FROM checkpoints"
                 " WHERE branch_id=? AND turn_index<=?", (bid, source_branch, fork_turn))
@@ -468,7 +501,8 @@ class Store:
                     "SELECT session_id, head_turn FROM branches WHERE branch_id=?",
                     (discard_empty_branch,)).fetchone()
                 branch_tables = ("branch_msgs", "turns", "ops_journal", "effect_receipts",
-                                 "mechanic_settlement_receipts", "checkpoints", "turn_texts",
+                                 "mechanic_settlement_receipts", "claim_records",
+                                 "world_event_records", "checkpoints", "turn_texts",
                                  "memories", "discovery", "lint", "director",
                                  "semantic_turn_lifecycles")
                 occupied = empty is None or any(
@@ -492,14 +526,15 @@ class Store:
                     " ORDER BY b.forked_at DESC", (row["session_id"],)).fetchall()
                 for d in dead[prune_keep:]:   # prune K oldest-dead (03 SS2.3, Q3)
                     self.turn_lifecycle.delete_branch(d["branch_id"])
-                    self.db.execute("DELETE FROM branch_msgs WHERE branch_id=?",
-                                    (d["branch_id"],))
-                    self.db.execute("DELETE FROM turns WHERE branch_id=?", (d["branch_id"],))
-                    self.db.execute("DELETE FROM effect_receipts WHERE branch_id=?",
-                                    (d["branch_id"],))
-                    self.db.execute(
-                        "DELETE FROM mechanic_settlement_receipts WHERE branch_id=?",
-                        (d["branch_id"],))
+                    for table in (
+                        "branch_msgs", "turns", "ops_journal", "effect_receipts",
+                        "mechanic_settlement_receipts", "claim_records",
+                        "world_event_records", "checkpoints", "turn_texts", "memories",
+                        "discovery", "lint", "director",
+                    ):
+                        self.db.execute(
+                            f"DELETE FROM {table} WHERE branch_id=?", (d["branch_id"],)
+                        )
                     self.db.execute("DELETE FROM branches WHERE branch_id=?", (d["branch_id"],))
             return bid
 
@@ -552,12 +587,246 @@ class Store:
 
     # -- versioning spine (03 SS3.3) --------------------------------------------
     def journal(self, branch_id: str, turn_lo: int, turn_hi: int,
-                ops: list[dict], source: str) -> None:
+                ops: list[dict], source: str, *,
+                claim_records: Optional[list[dict]] = None,
+                world_event_records: Optional[list[dict]] = None) -> None:
         with self.transaction():
+            self._assert_typed_record_ownership(
+                branch_id, turn_lo, turn_hi, ops,
+                claim_records or [], world_event_records or [],
+            )
             self.db.execute(
                 "INSERT INTO ops_journal(branch_id, turn_lo, turn_hi, ops, source, ts)"
                 " VALUES(?,?,?,?,?,?)",
                 (branch_id, turn_lo, turn_hi, json.dumps(ops), source, time.time()))
+            self._insert_typed_records(
+                branch_id,
+                source,
+                claim_records or [],
+                world_event_records or [],
+            )
+
+    @staticmethod
+    def _record_json(value: dict) -> str:
+        return json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+
+    def _assert_typed_record_ownership(
+        self,
+        branch_id: str,
+        turn_lo: int,
+        turn_hi: int,
+        ops: list[dict],
+        claim_records: list[dict],
+        world_event_records: list[dict],
+    ) -> None:
+        """Bind every typed row to one exact operation in this journal transaction."""
+        if not isinstance(ops, list):
+            raise ValueError("journal operations must be a list")
+        branch = self.db.execute(
+            "SELECT session_id FROM branches WHERE branch_id=?", (branch_id,)
+        ).fetchone()
+        if branch is None:
+            raise ValueError("typed record journal names an unknown branch")
+        session_id = str(branch["session_id"])
+
+        owned_claims = [
+            op.get("_record") for op in ops
+            if isinstance(op, dict) and op.get("op") == "claim_record"
+            and isinstance(op.get("_record"), dict)
+        ]
+        owned_events = [
+            op.get("event") for op in ops
+            if isinstance(op, dict) and op.get("op") == "world_event_admit"
+            and isinstance(op.get("event"), dict)
+        ]
+        if sorted(self._record_json(row) for row in owned_claims) \
+                != sorted(self._record_json(row) for row in claim_records):
+            raise ValueError("Claim Records do not exactly match their owning journal operations")
+        if sorted(self._record_json(row) for row in owned_events) \
+                != sorted(self._record_json(row) for row in world_event_records):
+            raise ValueError(
+                "World Event Records do not exactly match their owning journal operations"
+            )
+        for label, rows in (("Claim Record", claim_records),
+                            ("World Event Record", world_event_records)):
+            for record in rows:
+                if str(record.get("branch_id") or "") != branch_id \
+                        or str(record.get("session_id") or "") != session_id:
+                    raise ValueError(f"{label} does not belong to its owning Ledger branch")
+                turn = int(record.get("turn", record.get("turn_index", -1)))
+                if not int(turn_lo) <= turn <= int(turn_hi):
+                    raise ValueError(f"{label} turn lies outside its owning journal window")
+
+    def _insert_typed_records(
+        self,
+        branch_id: str,
+        source: str,
+        claim_records: list[dict],
+        world_event_records: list[dict],
+    ) -> None:
+        """Publish typed records beside their owning journal row.
+
+        Exact retries are no-ops.  Reusing an identity with changed bytes aborts the
+        caller's outer transaction, so the journal, checkpoint, and typed tables
+        cannot diverge.
+        """
+        now = time.time()
+        for raw in claim_records:
+            from .claim_frame import validate_claim_record
+
+            record = validate_claim_record(raw)
+            claim_id = str(record.get("claim_id") or record.get("record_id") or "")
+            if not claim_id:
+                raise ValueError("Claim Record has no durable identity")
+            fingerprint = str(record.get("fingerprint") or "")
+            prior = self.db.execute(
+                "SELECT fingerprint, record_json FROM claim_records"
+                " WHERE branch_id=? AND claim_id=?",
+                (branch_id, claim_id),
+            ).fetchone()
+            encoded = self._record_json(record)
+            if prior is not None:
+                if str(prior["fingerprint"]) != fingerprint \
+                        or str(prior["record_json"]) != encoded:
+                    raise ValueError("Claim Record identity conflicts with durable Store truth")
+                continue
+            self.db.execute(
+                "INSERT INTO claim_records(branch_id, claim_id, origin_branch, session_id,"
+                " world_id, turn_index, source, fingerprint, record_json, status, ts)"
+                " VALUES(?,?,?,?,?,?,?,?,?,'committed',?)",
+                (
+                    branch_id,
+                    claim_id,
+                    str(record.get("branch_id") or branch_id),
+                    str(record.get("session_id") or ""),
+                    str(record.get("world_id") or ""),
+                    int(record.get("turn", record.get("turn_index", -1))),
+                    source,
+                    fingerprint,
+                    encoded,
+                    now,
+                ),
+            )
+        for raw in world_event_records:
+            from .world_events import validate_world_event_record
+
+            record = validate_world_event_record(raw)
+            event_id = str(record["event_id"])
+            fingerprint = str(record.get("fingerprint") or "")
+            prior = self.db.execute(
+                "SELECT fingerprint, record_json FROM world_event_records"
+                " WHERE branch_id=? AND event_id=?",
+                (branch_id, event_id),
+            ).fetchone()
+            encoded = self._record_json(record)
+            if prior is not None:
+                if str(prior["fingerprint"]) != fingerprint \
+                        or str(prior["record_json"]) != encoded:
+                    raise ValueError(
+                        "World Event Record identity conflicts with durable Store truth"
+                    )
+                continue
+            self.db.execute(
+                "INSERT INTO world_event_records(branch_id, event_id, origin_branch, session_id,"
+                " world_id, turn_index, kind, relation_target, source, fingerprint, record_json,"
+                " status, ts)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,'committed',?)",
+                (
+                    branch_id,
+                    event_id,
+                    str(record.get("branch_id") or branch_id),
+                    str(record["session_id"]),
+                    str(record["world_id"]),
+                    int(record["turn"]),
+                    str(record["kind"]),
+                    record.get("relation_target"),
+                    source,
+                    fingerprint,
+                    encoded,
+                    now,
+                ),
+            )
+
+    def claim_records(self, branch_id: str, through_turn: Optional[int] = None) -> list[dict]:
+        """Read and integrity-check branch-owned Claim Records in replay order."""
+        sql = "SELECT fingerprint, record_json FROM claim_records WHERE branch_id=?"
+        params: tuple = (branch_id,)
+        if through_turn is not None:
+            sql += " AND turn_index<=?"
+            params = (branch_id, int(through_turn))
+        sql += " ORDER BY turn_index, claim_id"
+        with self._lock:
+            rows = self.db.execute(sql, params).fetchall()
+        from .claim_frame import validate_claim_record
+
+        out: list[dict] = []
+        for row in rows:
+            record = validate_claim_record(json.loads(row["record_json"]))
+            if str(record.get("fingerprint") or "") != str(row["fingerprint"]):
+                raise ValueError("durable Claim Record fingerprint column diverged")
+            out.append(record)
+        return out
+
+    def world_event_records(
+        self, branch_id: str, through_turn: Optional[int] = None
+    ) -> list[dict]:
+        """Read and integrity-check branch-owned World Event Records in replay order."""
+        sql = "SELECT fingerprint, record_json FROM world_event_records WHERE branch_id=?"
+        params: tuple = (branch_id,)
+        if through_turn is not None:
+            sql += " AND turn_index<=?"
+            params = (branch_id, int(through_turn))
+        sql += " ORDER BY turn_index, event_id"
+        with self._lock:
+            rows = self.db.execute(sql, params).fetchall()
+        from .world_events import validate_world_event_record
+
+        out: list[dict] = []
+        for row in rows:
+            record = validate_world_event_record(json.loads(row["record_json"]))
+            if str(record.get("fingerprint") or "") != str(row["fingerprint"]):
+                raise ValueError("durable World Event Record fingerprint column diverged")
+            out.append(record)
+        return out
+
+    def world_event_origin_branches(self, branch_id: str) -> list[str]:
+        """Return only immutable event origins actually copied into this branch view."""
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT DISTINCT origin_branch FROM world_event_records"
+                " WHERE branch_id=? AND origin_branch<>? ORDER BY origin_branch",
+                (branch_id, branch_id),
+            ).fetchall()
+        return [str(row["origin_branch"]) for row in rows if row["origin_branch"]]
+
+    def knowledge_record_scope(self, branch_id: str) -> dict:
+        """Return the current session and explicit ancestor chain for typed retrieval.
+
+        Forks copy immutable Claim/Fact/Epistemic occurrences without rewriting
+        their original branch identity.  The lineage therefore grants only this
+        branch and its real ancestors; sibling branches never enter the view.
+        """
+        with self._lock:
+            rows = self.db.execute(
+                "WITH RECURSIVE lineage(branch_id, session_id, parent_branch, depth) AS ("
+                " SELECT branch_id, session_id, parent_branch, 0 FROM branches"
+                " WHERE branch_id=?"
+                " UNION ALL"
+                " SELECT b.branch_id, b.session_id, b.parent_branch, lineage.depth + 1"
+                " FROM branches AS b JOIN lineage ON b.branch_id=lineage.parent_branch"
+                " WHERE lineage.depth < 127"
+                ") SELECT branch_id, session_id, depth FROM lineage ORDER BY depth",
+                (branch_id,),
+            ).fetchall()
+        if not rows:
+            return {"session_id": "", "branch_id": branch_id, "source_branch_ids": []}
+        return {
+            "session_id": str(rows[0]["session_id"] or ""),
+            "branch_id": str(rows[0]["branch_id"]),
+            "source_branch_ids": [str(row["branch_id"]) for row in rows[1:]],
+        }
 
     @staticmethod
     def _project_journal_rows(rows) -> list[dict]:
@@ -641,10 +910,16 @@ class Store:
 
     def journal_with_receipts(self, branch_id: str, turn_lo: int, turn_hi: int,
                               ops: list[dict], source: str, receipts: list[dict],
-                              mechanic_receipts: Optional[list[dict]] = None) -> None:
+                              mechanic_receipts: Optional[list[dict]] = None, *,
+                              claim_records: Optional[list[dict]] = None,
+                              world_event_records: Optional[list[dict]] = None) -> None:
         """Commit one journal row and its damage/mechanic receipts atomically."""
         now = time.time()
         with self.transaction():
+            self._assert_typed_record_ownership(
+                branch_id, turn_lo, turn_hi, ops,
+                claim_records or [], world_event_records or [],
+            )
             self.db.execute(
                 "INSERT INTO ops_journal(branch_id, turn_lo, turn_hi, ops, source, ts)"
                 " VALUES(?,?,?,?,?,?)",
@@ -681,6 +956,12 @@ class Store:
                     "committed",
                     now,
                 ) for r in (mechanic_receipts or [])])
+            self._insert_typed_records(
+                branch_id,
+                source,
+                claim_records or [],
+                world_event_records or [],
+            )
 
     def rule_ops_between(self, branch_id: str, turn_lo: int, turn_hi: int) -> list[dict]:
         """Rule/user ops whose journal range sits within ``turn_lo..turn_hi``.
@@ -706,7 +987,7 @@ class Store:
     def rule_ops_at(self, branch_id: str, turn_index: int) -> list[dict]:
         """All rule/user-source ops journaled exactly at ``turn_index``.
 
-        2026-07-10 (Arinvale re-serve): the lost-turn path re-reads the settled checks of a
+        2026-07-10 (Eranmor re-serve): the lost-turn path re-reads the settled checks of a
         turn whose reply never arrived. Read-only; never raises past sqlite.
         """
         return self.rule_ops_between(branch_id, turn_index, turn_index)
@@ -875,6 +1156,10 @@ class Store:
             self.db.execute(
                 "DELETE FROM mechanic_settlement_receipts WHERE branch_id=? AND turn_index>?",
                 (branch_id, turn_index))
+            self.db.execute("DELETE FROM claim_records WHERE branch_id=? AND turn_index>?",
+                            (branch_id, turn_index))
+            self.db.execute("DELETE FROM world_event_records WHERE branch_id=? AND turn_index>?",
+                            (branch_id, turn_index))
             self.db.execute("DELETE FROM checkpoints WHERE branch_id=? AND turn_index>?",
                             (branch_id, turn_index))
             self.db.execute("UPDATE turns SET extraction='pending' WHERE branch_id=?"
@@ -915,6 +1200,13 @@ class Store:
             self.db.execute(
                 "DELETE FROM mechanic_settlement_receipts WHERE branch_id=? AND turn_index>=?"
                 " AND source='extraction'", (branch_id, turn_index))
+            self.db.execute(
+                "DELETE FROM claim_records WHERE branch_id=? AND turn_index>=?"
+                " AND source='extraction'", (branch_id, turn_index))
+            self.db.execute(
+                "DELETE FROM world_event_records WHERE branch_id=? AND turn_index>=?"
+                " AND source='extraction'",
+                (branch_id, turn_index))
             self.db.execute("DELETE FROM checkpoints WHERE branch_id=? AND turn_index>=?",
                             (branch_id, turn_index))
             self.db.execute("UPDATE turns SET extraction='skipped' WHERE branch_id=?"
@@ -1177,7 +1469,8 @@ class Store:
             for b in bids:
                 self.turn_lifecycle.delete_branch(b)
                 for tbl in ("turns", "ops_journal", "effect_receipts",
-                            "mechanic_settlement_receipts", "checkpoints", "branch_msgs",
+                            "mechanic_settlement_receipts", "claim_records",
+                            "world_event_records", "checkpoints", "branch_msgs",
                             "turn_texts", "memories", "lint", "director", "discovery"):
                     self.db.execute(f"DELETE FROM {tbl} WHERE branch_id=?", (b,))
                 self.db.execute("DELETE FROM branches WHERE branch_id=?", (b,))

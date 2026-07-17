@@ -32,7 +32,7 @@ SOURCES_SCHEMA = "semantic-fabric-sources/1"
 MEANING_SCHEMA = "semantic-fabric-meaning/1"
 MEANING_RECEIPT_SCHEMA = "semantic-fabric-meaning-receipt/1"
 
-LEX_IDS = ("capability", "referent", "scene", "action")
+LEX_IDS = ("capability", "referent", "scene", "action", "claim")
 PACK_LEX_IDS = tuple(item for item in LEX_IDS if item != "capability")
 
 _ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
@@ -89,6 +89,35 @@ _FORBIDDEN_ACTION_FEATURE_KEYS = frozenset(
         "outcome",
         "spawn_op",
         "effect_op",
+    }
+)
+
+_CLAIM_GUARD_ONLY_FEATURE_KEYS = frozenset(
+    {
+        "admitted",
+        "authorized",
+        "deliberate_lie",
+        "establishes_facthood",
+        "establishes_knowledge",
+        "establishes_occurrence",
+        "establishes_truth",
+        "executable",
+        "fulfilled",
+        "mechanically_actionable",
+        "proves_hidden_truth",
+        "settled",
+        "world_truth",
+    }
+)
+_FORBIDDEN_CLAIM_FEATURE_KEYS = frozenset(
+    {
+        "authority_ceiling",
+        "authority_grant",
+        "fact_id",
+        "ledger_receipt",
+        "mechanic_receipt",
+        "settlement_id",
+        "world_event_id",
     }
 )
 
@@ -179,6 +208,36 @@ def _validate_action_features(
         raise SemanticFabricError(
             f"{identity} changed its consumed ActionLex action_class contract: "
             f"expected {expected!r}, got {action_class!r}"
+        )
+
+
+def _forbidden_claim_feature_paths(value: object, prefix: str = "features") -> tuple[str, ...]:
+    """Return ClaimLex feature paths that claim authority instead of recognizing language."""
+    out: list[str] = []
+    if isinstance(value, dict):
+        for raw_key, nested in value.items():
+            key = str(raw_key)
+            path = f"{prefix}.{key}"
+            if key in _FORBIDDEN_CLAIM_FEATURE_KEYS:
+                out.append(path)
+            elif key in _CLAIM_GUARD_ONLY_FEATURE_KEYS and nested is not False:
+                out.append(path)
+            elif key.startswith(("admits_", "authorizes_", "establishes_", "settles_")) and nested is not False:
+                out.append(path)
+            elif key.endswith(("_receipt_id", "_settlement_id", "_world_event_id")):
+                out.append(path)
+            out.extend(_forbidden_claim_feature_paths(nested, path))
+    elif isinstance(value, list):
+        for index, nested in enumerate(value):
+            out.extend(_forbidden_claim_feature_paths(nested, f"{prefix}[{index}]"))
+    return tuple(out)
+
+
+def _validate_claim_features(identity: str, features: Mapping[str, Any]) -> None:
+    forbidden = _forbidden_claim_feature_paths(features)
+    if forbidden:
+        raise SemanticFabricError(
+            f"{identity} has forbidden ClaimLex truth/authority feature values: {list(forbidden)}"
         )
 
 
@@ -421,6 +480,98 @@ class SemanticLexMatch:
 
 
 @dataclass(frozen=True)
+class ClaimDialogueAttribution:
+    """Exact spans for one bounded named-speaker quotation construction.
+
+    This is recognition evidence only.  It does not establish that the quoted
+    proposition is true, that the speaker was honest, or that anything occurred.
+    """
+
+    speaker: str
+    speaker_start: int
+    speaker_end: int
+    governor_start: int
+    governor_end: int
+    quotation_start: int
+    quotation_end: int
+    proposition_start: int
+    proposition_end: int
+    orientation: str
+
+
+_DIALOGUE_NAME_TOKEN = r"[A-Z][\w'\u2019-]*"
+_DIALOGUE_NAME = rf"{_DIALOGUE_NAME_TOKEN}(?:\s+{_DIALOGUE_NAME_TOKEN}){{0,2}}"
+_CLAIM_DIALOGUE_PATTERNS = (
+    (
+        "direct",
+        re.compile(
+            rf"(?<![\w'\u2019-])(?P<speaker>{_DIALOGUE_NAME})\s+"
+            r"(?P<governor>says|said)\b\s*[,;:]\s*"
+            r'(?P<quotation>"(?P<proposition>[^"\r\n]+)")'
+        ),
+    ),
+    (
+        "direct",
+        re.compile(
+            rf"(?<![\w'\u2019-])(?P<speaker>{_DIALOGUE_NAME})\s+"
+            r"(?P<governor>says|said)\b\s*[,;:]\s*"
+            r"(?P<quotation>\u201c(?P<proposition>[^\u201d\r\n]+)\u201d)"
+        ),
+    ),
+    (
+        "inverted",
+        re.compile(
+            r'(?P<quotation>"(?P<proposition>[^"\r\n]+)")\s*,?\s*'
+            rf"(?P<speaker>{_DIALOGUE_NAME})\s+(?P<governor>says|said)\b"
+        ),
+    ),
+    (
+        "inverted",
+        re.compile(
+            r"(?P<quotation>\u201c(?P<proposition>[^\u201d\r\n]+)\u201d)\s*,?\s*"
+            rf"(?P<speaker>{_DIALOGUE_NAME})\s+(?P<governor>says|said)\b"
+        ),
+    ),
+)
+
+
+def claim_dialogue_attributions(source: object) -> tuple[ClaimDialogueAttribution, ...]:
+    """Recognize direct and inverted one-line dialogue with an exact named speaker."""
+
+    text = str(source or "")
+    rows: dict[tuple[int, ...], ClaimDialogueAttribution] = {}
+    for orientation, pattern in _CLAIM_DIALOGUE_PATTERNS:
+        for hit in pattern.finditer(text):
+            row = ClaimDialogueAttribution(
+                speaker=hit.group("speaker"),
+                speaker_start=hit.start("speaker"),
+                speaker_end=hit.end("speaker"),
+                governor_start=hit.start("governor"),
+                governor_end=hit.end("governor"),
+                quotation_start=hit.start("quotation"),
+                quotation_end=hit.end("quotation"),
+                proposition_start=hit.start("proposition"),
+                proposition_end=hit.end("proposition"),
+                orientation=orientation,
+            )
+            key = (
+                row.speaker_start,
+                row.speaker_end,
+                row.governor_start,
+                row.governor_end,
+                row.quotation_start,
+                row.quotation_end,
+                row.proposition_start,
+                row.proposition_end,
+            )
+            rows[key] = row
+    return tuple(
+        rows[key]
+        for key in sorted(rows, key=lambda item: (item[2], item[0], item[4]))
+    )
+
+
+@dataclass(frozen=True)
 class CompiledMeaning:
     """Content-addressed, cross-Lex recognition result for one source message."""
 
@@ -509,8 +660,8 @@ class SemanticFabric:
         }:
             raise SemanticFabricError("semantic-fabric manifest fields do not match v1")
         family_version = manifest.get("family_version")
-        if family_version != 2:
-            raise SemanticFabricError("semantic-fabric family_version must be 2")
+        if family_version != 3:
+            raise SemanticFabricError("semantic-fabric family_version must be 3")
         if tuple(manifest.get("lex_ids") or ()) != LEX_IDS:
             raise SemanticFabricError("semantic-fabric lex_ids must use canonical family order")
         if manifest.get("authority_boundary") != "recognition_only":
@@ -526,8 +677,8 @@ class SemanticFabric:
         self.family_version = family_version
 
         artifacts = manifest.get("artifacts")
-        if not isinstance(artifacts, list) or len(artifacts) != 4:
-            raise SemanticFabricError("semantic-fabric family v2 requires sources plus three Lex packs")
+        if not isinstance(artifacts, list) or len(artifacts) != 5:
+            raise SemanticFabricError("semantic-fabric family v3 requires sources plus four Lex packs")
         verified: dict[str, tuple[dict[str, Any], bytes]] = {}
         seen_paths: set[str] = set()
         for artifact in artifacts:
@@ -891,6 +1042,8 @@ class SemanticFabric:
             raise SemanticFabricError(f"{concept_id}.features must be JSON-compatible") from exc
         if lex_id == "action":
             _validate_action_features(concept_id, frozen_features, construction=False)
+        elif lex_id == "claim":
+            _validate_claim_features(concept_id, frozen_features)
         false_friends = _string_list(raw.get("false_friends"), f"{concept_id}.false_friends")
         source_ids = _string_list(raw.get("source_ids"), f"{concept_id}.source_ids", allow_empty=False)
         unknown_sources = set(source_ids) - set(self.sources)
@@ -972,6 +1125,8 @@ class SemanticFabric:
             raise SemanticFabricError(f"{construction_id}.features must be JSON-compatible") from exc
         if lex_id == "action":
             _validate_action_features(construction_id, frozen_features, construction=True)
+        elif lex_id == "claim":
+            _validate_claim_features(construction_id, frozen_features)
         source_ids = _string_list(
             raw.get("source_ids"),
             f"{construction_id}.source_ids",
@@ -1096,6 +1251,8 @@ class SemanticFabric:
                 rows = self._translate_capabilities(source, requested_genres)
             else:
                 rows = self._translate_pack(source, lex_id, requested_genres)
+                if lex_id == "claim":
+                    rows.extend(self._translate_claim_dialogue(source))
             rows.sort(
                 key=lambda item: (
                     item.start,
@@ -1143,6 +1300,31 @@ class SemanticFabric:
             matches=tuple(matches),
             unresolved=unresolved,
         )
+
+    def _translate_claim_dialogue(self, source: str) -> list[SemanticLexMatch]:
+        """Project productive named dialogue through the sealed direct-assertion meaning."""
+
+        entry = self.entry("claim.assertion.direct")
+        return [
+            SemanticLexMatch(
+                lex_id="claim",
+                concept_id=entry.concept_id,
+                kind=entry.kind,
+                matched_phrase=source[row.governor_start:row.governor_end],
+                start=row.governor_start,
+                end=row.governor_end,
+                score=85,
+                genres=("*",),
+                required_roles=entry.required_roles,
+                optional_roles=entry.optional_roles,
+                completion=entry.completion,
+                features=entry.features,
+                source_ids=entry.source_ids,
+                entry_fingerprint=entry.fingerprint,
+                surface_baseline="dialogue_construction",
+            )
+            for row in claim_dialogue_attributions(source)
+        ]
 
     def _translate_pack(
         self,

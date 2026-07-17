@@ -32,7 +32,7 @@ def _meaning(
 ) -> dict:
     return {
         "meaning_ref": _fp({"meaning": seed}),
-        "actor_id": "player.arinvale",
+        "actor_id": "player.eranmor",
         "capability_id": capability_id,
         "invoked_capability_ids": [],
         "action_class": action_class,
@@ -114,7 +114,7 @@ def _packet(
 
 def _known(*extra: tuple[str, str, str]) -> list[dict]:
     rows = [
-        {"entity_id": "player.arinvale", "label": "Arinvale", "scope": "current"},
+        {"entity_id": "player.eranmor", "label": "Éranmor", "scope": "current"},
         {"entity_id": "iven", "label": "Iven", "scope": "current"},
     ]
     rows.extend(
@@ -282,7 +282,7 @@ def _assess_with_claims(
 
 
 def test_settled_single_target_exact_graph_passes_and_receipt_binds_visible_surface():
-    text = "Arinvale's settled strike harms Iven."
+    text = "Éranmor's settled strike harms Iven."
     packet = _packet(_weapon_row())
     contract = _contract(packet, text)
     claim = _claim_from_expected(text, contract["expected_claims"][0])
@@ -299,8 +299,8 @@ def test_settled_single_target_exact_graph_passes_and_receipt_binds_visible_surf
     assert decision.receipt["visible_graph_fingerprint"] == decision.visible_claim_graph["fingerprint"]
 
 
-def test_arinvale_no_hp_skill_check_quarantines_invented_damage():
-    text = "Arinvale's spell burns Iven."
+def test_eranmor_no_hp_skill_check_quarantines_invented_damage():
+    text = "Éranmor's spell burns Iven."
     packet = _packet(_skill_row())
     contract = _contract(packet, text)
     invented = _manual_claim(
@@ -308,7 +308,7 @@ def test_arinvale_no_hp_skill_check_quarantines_invented_damage():
         text,
         kind="harm",
         subjects=["iven"],
-        actor_id="player.arinvale",
+        actor_id="player.eranmor",
         occurrence_ref="candidate.unsettled-harm",
         cause_ref="candidate.unsettled-harm",
         authority_ref=_fp({"forged": "hp"}),
@@ -340,7 +340,7 @@ def test_x6_mass_casualty_claim_fails_even_with_matching_empty_graphs():
 
 
 def test_required_enemy_action_is_exactly_consumed_once():
-    text = "Baser Hollow x6's Void Rake hits Arinvale for 2 HP of harm."
+    text = "Baser Hollow x6's Void Rake hits Éranmor for 2 HP of harm."
     packet = _packet(_skill_row(target_id=None))
     opposition = [
         {
@@ -350,8 +350,8 @@ def test_required_enemy_action_is_exactly_consumed_once():
             "construction_ref": _fp({"opposition": "turn-4"}),
             "actor_id": "baser_hollow_x6",
             "actor_label": "Baser Hollow x6",
-            "target_id": "player.arinvale",
-            "target_label": "Arinvale",
+            "target_id": "player.eranmor",
+            "target_label": "Éranmor",
             "move_id": "void_rake",
             "move_label": "Void Rake",
             "outcome": "hit",
@@ -374,7 +374,7 @@ def test_required_enemy_action_is_exactly_consumed_once():
     assert decision.receipt["verdict"] == "allow"
     assert decision.receipt["expected_claim_count"] == 2
 
-    repeated = text + " Baser Hollow x6's Void Rake hits Arinvale again."
+    repeated = text + " Baser Hollow x6's Void Rake hits Éranmor again."
     repeated_contract = _contract(
         packet,
         repeated,
@@ -393,7 +393,7 @@ def test_required_enemy_action_is_exactly_consumed_once():
 
 
 def test_missing_or_misattributed_enemy_action_falls_back():
-    text = "Arinvale's blade hits Baser Hollow x6."
+    text = "Éranmor's blade hits Baser Hollow x6."
     packet = _packet()
     opposition = [
         {
@@ -403,8 +403,8 @@ def test_missing_or_misattributed_enemy_action_falls_back():
             "construction_ref": _fp({"opposition": "turn-4"}),
             "actor_id": "baser_hollow_x6",
             "actor_label": "Baser Hollow x6",
-            "target_id": "player.arinvale",
-            "target_label": "Arinvale",
+            "target_id": "player.eranmor",
+            "target_label": "Éranmor",
             "move_id": "void_rake",
             "move_label": "Void Rake",
             "outcome": "hit",
@@ -595,7 +595,7 @@ def test_mechanic_tag_is_never_visible_even_when_claim_graphs_are_empty():
 
 def test_exact_compound_multiplicity_passes_but_queued_fourth_target_fails():
     packet = _packet(_weapon_row())
-    exact_text = "Arinvale's bound volley harms Iven, Mara, and Nera."
+    exact_text = "Éranmor's bound volley harms Iven, Mara, and Nera."
     exact_outcomes = [
         {
             "schema": TARGET_OUTCOME_SCHEMA,
@@ -623,7 +623,7 @@ def test_exact_compound_multiplicity_passes_but_queued_fourth_target_fails():
     assert {claim["multiplicity"] for claim in contract["expected_claims"]} == {3}
 
     bad_text = (
-        "Arinvale's bound volley harms Iven, Mara, Nera, and Queued Hollow."
+        "Éranmor's bound volley harms Iven, Mara, Nera, and Queued Hollow."
     )
     bad_contract = _contract(packet, bad_text, known=known, outcomes=exact_outcomes)
     bad_claims = [
@@ -636,7 +636,7 @@ def test_exact_compound_multiplicity_passes_but_queued_fourth_target_fails():
             bad_text,
             kind="harm",
             subjects=["queued_hollow"],
-            actor_id="player.arinvale",
+            actor_id="player.eranmor",
             occurrence_ref="settlement.weapon",
             cause_ref="settlement.weapon",
             authority_ref=_fp({"queued": "no-authority"}),
@@ -651,7 +651,7 @@ def test_exact_compound_multiplicity_passes_but_queued_fourth_target_fails():
 
 
 def test_producer_verifier_and_offline_graphs_must_agree_exactly():
-    text = "Arinvale's settled strike harms Iven."
+    text = "Éranmor's settled strike harms Iven."
     packet = _packet(_weapon_row())
     contract = _contract(packet, text)
     correct = _claim_from_expected(text, contract["expected_claims"][0])
@@ -679,16 +679,16 @@ def test_producer_verifier_and_offline_graphs_must_agree_exactly():
 @pytest.mark.parametrize(
     ("unsafe_text", "code"),
     [
-        ("<span hidden>Arinvale harms Iven.</span>", "unsafe_visible_surface"),
-        ("~~Arinvale harms Iven.~~", "unsafe_visible_surface"),
-        ("Arinvale harms Iven.\u202e", "unsafe_visible_surface"),
+        ("<span hidden>Éranmor harms Iven.</span>", "unsafe_visible_surface"),
+        ("~~Éranmor harms Iven.~~", "unsafe_visible_surface"),
+        ("Éranmor harms Iven.\u202e", "unsafe_visible_surface"),
         ("E\u0301ranmor harms Iven.", "normalization_drift"),
     ],
 )
 def test_visible_surface_rejects_semantics_changing_or_noncanonical_bytes(
     unsafe_text: str, code: str
 ):
-    safe_plan = "Arinvale harms Iven."
+    safe_plan = "Éranmor harms Iven."
     packet = _packet(_weapon_row())
     contract = _contract(packet, safe_plan)
     producer, verifier, offline = _graphs(unsafe_text, [], offline=True)
@@ -708,7 +708,7 @@ def test_visible_surface_rejects_semantics_changing_or_noncanonical_bytes(
 
 
 def test_retry_equivalent_failures_have_identical_code_fallback_and_hash():
-    text = "Arinvale's spell kills Iven."
+    text = "Éranmor's spell kills Iven."
     first_packet = _packet(_skill_row(), delivery_mode="first_delivery")
     retry_packet = _packet(_skill_row(), delivery_mode="regeneration_retry")
     first_contract = _contract(first_packet, text)
@@ -718,7 +718,7 @@ def test_retry_equivalent_failures_have_identical_code_fallback_and_hash():
         text,
         kind="defeat",
         subjects=["iven"],
-        actor_id="player.arinvale",
+        actor_id="player.eranmor",
         occurrence_ref="candidate.unsupported",
         cause_ref="candidate.unsupported",
         authority_ref=_fp({"forged": "defeat"}),

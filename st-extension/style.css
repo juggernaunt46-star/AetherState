@@ -100,8 +100,24 @@
 .aes-pill.neg .g { color:var(--bad); } .aes-pill.neu .g { color:var(--dim); }
 .aes-kv { color:var(--dim); font-size:11.5px; margin:2px 0; }
 .aes-kv b { color:var(--ink); font-weight:600; }
+.aes-world-effect { margin:3px 0; padding:3px 6px; border-left:2px solid var(--acc2);
+  color:var(--dim); background:var(--bg); border-radius:0 6px 6px 0; font-size:10.5px;
+  line-height:1.35; overflow-wrap:anywhere; }
+.aes-world-effect b { color:var(--ink); }
+.aes-world-effect.world,.aes-world-effect.location,.aes-world-effect.actor,
+.aes-world-effect.faction { border-left-color:var(--acc2); }
+.aes-world-effect.relationship,.aes-world-effect.reputation { border-left-color:var(--warn); }
+.aes-world-effect.available { border-left-color:var(--good); color:var(--good); }
+.aes-world-effect.unavailable { border-left-color:var(--bad); color:var(--bad); }
+.aes-world-effect.available b,.aes-world-effect.unavailable b { color:inherit; }
+.aes-social { min-width:120px; flex:1 1 145px; padding:5px 7px; border:1px solid var(--line);
+  border-radius:8px; background:var(--panel); color:var(--dim); font-size:11.5px; }
+.aes-social b { color:var(--ink); }
+.aes-relationship { margin:4px 0; padding:4px 6px; border:1px solid var(--line);
+  border-radius:8px; background:var(--panel); }
 .aes-quest { margin:3px 0; padding-left:8px; border-left:2px solid var(--warn); }
 .aes-quest b { color:var(--ink); } .aes-quest.done { border-color:var(--good); opacity:.7; }
+.aes-quest.unavailable { border-color:var(--bad); opacity:1; }
 .aes-roll { display:flex; justify-content:space-between; font-family:ui-monospace,monospace;
   font-size:11px; padding:2px 0; border-bottom:1px dotted var(--line); }
 .aes-roll .t { color:var(--acc); font-weight:700; }
@@ -207,6 +223,7 @@
 .aes-skills { display:flex; flex-direction:column; gap:4px; }
 .aes-skill { display:flex; flex-direction:column; background:var(--panel); border:1px solid var(--line);
   border-radius:8px; padding:4px 8px; }
+.aes-skill.unavailable { border-color:var(--bad); }
 .aes-skill .aes-skl b { color:var(--ink); font-size:12px; }
 .aes-skill .m.big { color:var(--acc); font-weight:800; font-size:13px; margin-left:4px; }
 .aes-skmeta { color:var(--dim); font-size:10px; margin-top:1px; text-transform:capitalize; }
@@ -219,6 +236,7 @@
   padding:5px 8px; margin:4px 0; }
 .aes-abil.act { border-left:3px solid var(--acc); }
 .aes-abil.cd { opacity:.6; }
+.aes-abil.unavailable { border-color:var(--bad); opacity:.72; }
 .aes-abil-h { display:flex; align-items:center; gap:6px; }
 .aes-abil-h b { color:var(--ink); font-size:12.5px; }
 .aes-abil-mech { color:var(--acc); font-size:11px; margin:2px 0 1px; }
@@ -260,6 +278,8 @@
 .aes-rollbtn .m { color:var(--acc); font-weight:800; }
 .aes-rollbtn.gated { opacity:.55; border-style:dotted; }
 .aes-rollbtn.gated:hover { border-color:var(--warn); box-shadow:none; }
+.aes-rollbtn.world-unavailable { border-color:var(--bad); cursor:not-allowed; }
+.aes-rollbtn.world-unavailable:hover { border-color:var(--bad); box-shadow:none; }
 .aes-rollbtn.unaffordable { opacity:.72; border-color:var(--bad); cursor:not-allowed; }
 .aes-rollbtn.unaffordable:hover { border-color:var(--bad); box-shadow:none; }
 .aes-action-cost { display:inline-flex; align-items:center; padding:1px 5px; border-radius:6px;
@@ -297,6 +317,7 @@
 /* ---- Rolls tab (1.8): active-ability buttons + always-visible last-roll outcome ---- */
 .aes-rollbtn.act { border-style:dashed; color:var(--acc2); }
 .aes-rollbtn.act:hover { border-color:var(--acc2); box-shadow:inset 0 0 0 1px var(--acc2); }
+.aes-rollbtn.act.world-unavailable:hover { border-color:var(--bad); box-shadow:none; }
 .aes-lastroll { margin-top:5px; font-size:11.5px; font-weight:800; padding:3px 8px; border-radius:7px;
   border:1px solid var(--line); display:inline-block; letter-spacing:.2px; }
 .aes-lastroll.success { color:var(--good); border-color:var(--good); }
@@ -305,6 +326,33 @@
 .aes-lastroll .m { color:var(--dim); font-weight:600; }
 .aes-lastroll-impact { display:block; margin-top:1px; color:var(--dim); font-size:10px;
   font-weight:700; letter-spacing:0; }
+
+/* Player-safe typed knowledge: speech, actor epistemics, facts, and world truth never blend. */
+.aes-knowledge { display:grid; gap:8px; }
+.aes-knowledge-group { display:grid; gap:4px; padding:6px; border:1px solid var(--line);
+  border-radius:8px; background:var(--panel); }
+.aes-knowledge-h { color:var(--ink); font-size:10.5px; font-weight:900;
+  text-transform:uppercase; letter-spacing:.55px; }
+.aes-knowledge-note { color:var(--dim); font-size:10px; line-height:1.35; }
+.aes-knowledge-row { padding:5px 6px; border-left:3px solid var(--line); border-radius:5px;
+  background:var(--bg); color:var(--dim); font-size:10.5px; line-height:1.35;
+  overflow-wrap:anywhere; }
+.aes-knowledge-row.claim { border-left-color:var(--acc2); }
+.aes-knowledge-row.epistemic { border-left-color:var(--acc); }
+.aes-knowledge-row.fact { border-left-color:var(--good); }
+.aes-knowledge-row.event { border-left-color:var(--warn); }
+.aes-knowledge-row b,.aes-knowledge-statement { color:var(--ink); }
+.aes-knowledge-statement { margin-top:2px; font-size:11.5px; }
+.aes-knowledge-meta { margin-top:2px; color:var(--dim); font-size:9.5px; }
+.aes-knowledge-kind,.aes-knowledge-stance,.aes-knowledge-status { display:inline-flex;
+  align-items:center; padding:1px 5px; border:1px solid var(--line); border-radius:8px;
+  font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.35px; }
+.aes-knowledge-kind { color:var(--acc2); }
+.aes-knowledge-stance.known,.aes-knowledge-status.current { color:var(--good); border-color:var(--good); }
+.aes-knowledge-stance.belief { color:var(--acc); border-color:var(--acc); }
+.aes-knowledge-stance.doubt { color:var(--warn); border-color:var(--warn); }
+.aes-knowledge-stance.rumor,.aes-knowledge-status.scheduled { color:var(--acc2); border-color:var(--acc2); }
+.aes-knowledge-status.history { color:var(--dim); }
 
 /* 2026-07-09: the compact strip labels itself — a minimized HUD must never read as broken */
 .aes-expand { display:block; width:100%; margin-top:6px; padding:3px 8px; cursor:pointer;

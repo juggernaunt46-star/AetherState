@@ -16,7 +16,7 @@ EXPANSION_SCHEMA = "semantic-fabric-genre-expansions/1"
 MANIFEST_SCHEMA = "aetherstate-semantic-fabric/1"
 PACK_SCHEMA = "semantic-translation-memory/2"
 SOURCES_SCHEMA = "semantic-fabric-sources/1"
-LEX_IDS = ("capability", "referent", "scene", "action")
+LEX_IDS = ("capability", "referent", "scene", "action", "claim")
 PACK_LEX_IDS = LEX_IDS[1:]
 
 
@@ -224,7 +224,7 @@ def build_documents(root: Path) -> dict[str, bytes]:
     capability_hash = hashlib.sha256(capability_bytes).hexdigest()
     manifest = {
         "schema": MANIFEST_SCHEMA,
-        "family_version": 2,
+        "family_version": 3,
         "lex_ids": list(LEX_IDS),
         "artifacts": artifacts,
         "capability_lex": {

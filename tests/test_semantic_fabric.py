@@ -62,14 +62,19 @@ def _copy_sealed_corpora(tmp_path: Path) -> Path:
     return copied
 
 
-def test_default_family_has_four_lexes_and_every_existing_genre(
+def test_default_family_has_five_lexes_and_every_existing_genre(
     fabric: SemanticFabric,
     capability_lex: CapabilityGlossary,
 ) -> None:
-    assert LEX_IDS == ("capability", "referent", "scene", "action")
+    assert LEX_IDS == ("capability", "referent", "scene", "action", "claim")
     assert fabric.capability_glossary is capability_lex
     assert len(fabric.genre_ids) == 31
-    assert {entry.lex_id for entry in fabric.entries.values()} == {"referent", "scene", "action"}
+    assert {entry.lex_id for entry in fabric.entries.values()} == {
+        "referent",
+        "scene",
+        "action",
+        "claim",
+    }
     assert all(
         entry.meaning_fingerprint == semantic_entry_meaning_fingerprint(entry.lex_id, entry.as_dict())
         for entry in fabric.entries.values()
@@ -77,19 +82,59 @@ def test_default_family_has_four_lexes_and_every_existing_genre(
     assert len(fabric.entries_for("referent")) == 13
     assert len(fabric.entries_for("scene")) == 18
     assert len(fabric.entries_for("action")) == 15
-    assert all(fabric.constructions_for(lex_id) for lex_id in ("referent", "scene", "action"))
+    assert len(fabric.entries_for("claim")) == 16
+    assert all(
+        fabric.constructions_for(lex_id)
+        for lex_id in ("referent", "scene", "action", "claim")
+    )
     manifest = json.loads((CORPUS / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["schema"] == "aetherstate-semantic-fabric/1"
-    assert manifest["family_version"] == 2
+    assert manifest["family_version"] == 3
     assert manifest["capability_lex"]["schema"] == "aetherstate-capability-glossary/2"
-    for lex_id in ("referent", "scene", "action"):
+    for lex_id in ("referent", "scene", "action", "claim"):
         pack = json.loads((CORPUS / f"{lex_id}-lex.json").read_text(encoding="utf-8"))
         assert pack["schema"] == "semantic-translation-memory/2"
         assert pack["version"] == 2
     assert capability_lex.taxonomy["name"] == "Semantic Atlas"
 
     default_meaning = fabric.translate("I use swordplay to attack his shield.")
-    assert {match.lex_id for match in default_meaning.matches} == set(LEX_IDS)
+    assert {match.lex_id for match in default_meaning.matches} == {
+        "capability",
+        "referent",
+        "scene",
+        "action",
+    }
+
+    claim_meaning = fabric.translate("Mara reported that Vosk denied the gate was open.")
+    assert "claim" in {match.lex_id for match in claim_meaning.matches}
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        'Selene says, "The East Gate is shut."',
+        '"The East Gate is shut," Selene says.',
+    ),
+)
+def test_named_dialogue_reuses_sealed_direct_assertion_without_new_atlas_meaning(
+    fabric: SemanticFabric,
+    text: str,
+) -> None:
+    meaning = fabric.translate(text)
+    rows = [
+        match for match in meaning.matches
+        if match.lex_id == "claim" and match.surface_baseline == "dialogue_construction"
+    ]
+
+    assert len(rows) == 1
+    row = rows[0]
+    assertion = fabric.entry("claim.assertion.direct")
+    assert row.concept_id == assertion.concept_id
+    assert row.entry_fingerprint == assertion.fingerprint
+    assert row.matched_phrase == "says"
+    assert text[row.start:row.end] == row.matched_phrase
+    assert len(fabric.entries_for("claim")) == 16
+    assert validate_compiled_meaning(meaning.as_dict()) == meaning.as_dict()
 
 
 def test_entry_meaning_fingerprint_excludes_wording_provenance_and_support(

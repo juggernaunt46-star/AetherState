@@ -1,12 +1,9 @@
 """Player-facing HUD view — the ONE resolved, presentation-ready projection of the ledger.
 
-AetherState tracks a lot — the player's sheet AND the whole cast's statuses, conditions,
-diseases, moods, drives, physical state, mastery, relationships, quests, dice, world facts —
-and injects it into the MODEL as bracketed blocks. It used to show the HUMAN almost none of it.
-`hud_view(state, cfg)` returns that same truth as structured JSON with the registry math already
-done (effective skill mods, resolved ability names, effect kind/time-remaining, stat modifiers,
-mood labels), so BOTH surfaces that render it — the SillyTavern HUD and the web Console — read
-one identical, COMPREHENSIVE payload. Nothing tracked stays hidden in 'raw'.
+AetherState tracks more than a Player may inspect. ``hud_view`` therefore returns only the
+Player-visible subset with registry math and typed WorldOverlay effects already resolved.
+SillyTavern reads that projection; Console Player/Raw uses its stricter whitelisted
+``player_safe_raw`` member. Owner/debug state remains available through separate APIs.
 
 Read-only, fail-open, off the relay: never on the hot path, a `none` session's wire is untouched,
 and every section is defensively wrapped — a bad slice yields an empty section, never an
@@ -14,6 +11,7 @@ exception. By Bean (AetherState, MIT)."""
 from __future__ import annotations
 
 import re
+from copy import deepcopy
 
 from .compose import (GEAR_SLOT_ORDER, GEAR_SLOTS, _VALENCE_GLYPH, _initiative_order,
                       affinity_tier, derived_exposure)
@@ -25,6 +23,9 @@ _TIER_LABEL = {
     "crit_success": "Critical Success",
 }
 _REL_DIMS = ("trust", "affection", "respect", "desire", "tension", "fear", "familiarity")
+_PLAYER_PROSE_MAX = 4000
+_PLAYER_GOVERNS_MAX = 12
+_PLAYER_GOVERNS_ITEM_MAX = 80
 
 
 def _nm(state: dict, eid: str) -> str:
@@ -50,19 +51,48 @@ def _mood_label(affect: dict) -> str:
     return f"{mood} · {energy}"
 
 
+def _overlay_value(domain: dict, subject_keys: tuple[str, ...], field: str):
+    """Read one typed overlay scalar in an explicit, deterministic subject order."""
+    for subject_key in subject_keys:
+        fields = domain.get(subject_key)
+        row = fields.get(field) if isinstance(fields, dict) else None
+        if isinstance(row, dict):
+            return row.get("value")
+    return None
+
+
 def _scene(state: dict) -> dict:
     sc = state.get("scene") or {}
     clock = state.get("clock") or {}
     present = [_nm(state, eid) for eid, e in (state.get("entities") or {}).items()
                if (e or {}).get("present")]
+    try:
+        from .world_events import effective_domain, project_state_overlay
+
+        overlay = project_state_overlay(state)
+        world_domain = effective_domain(overlay, "world")
+        location_domain = effective_domain(overlay, "location")
+    except Exception:
+        world_domain, location_domain = {}, {}
+    world_circumstance = None
+    for fields in world_domain.values():
+        row = fields.get("circumstance") if isinstance(fields, dict) else None
+        if isinstance(row, dict):
+            world_circumstance = row.get("value")
+    location_id = str(sc.get("location_id") or "")
+    location_circumstance = _overlay_value(
+        location_domain, (f"location:{location_id}",), "circumstance",
+    ) if location_id else None
     return {
-        "location": sc.get("location_id") or "",
+        "location": location_id,
         "phase": sc.get("phase") or "",
         "mode": sc.get("mode") or "",
         "time_of_day": clock.get("time_of_day") or "",
         "day": clock.get("day", 1),
         "calendar_note": clock.get("calendar_note") or "",
         "present": sorted(present),
+        "world_circumstance": world_circumstance,
+        "location_circumstance": location_circumstance,
     }
 
 
@@ -111,6 +141,30 @@ def _resource_cost_text(p: dict, cost: dict) -> str:
     return " + ".join(bits)
 
 
+def _presentation_text(value, limit: int = _PLAYER_PROSE_MAX) -> str:
+    """Bound one Player-owned display string without coercing structured/private values."""
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    if len(text) <= limit:
+        return text
+    return text[:max(0, limit - 1)].rstrip() + "…"
+
+
+def _presentation_governs(value) -> list[str]:
+    """Keep only the bounded scalar verbs from one frozen skill definition."""
+    if not isinstance(value, (list, tuple)):
+        return []
+    out = []
+    for raw in value:
+        text = _presentation_text(raw, _PLAYER_GOVERNS_ITEM_MAX)
+        if text and text not in out:
+            out.append(text)
+        if len(out) >= _PLAYER_GOVERNS_MAX:
+            break
+    return out
+
+
 def _skill_rows(state: dict, reg, _registry, eid: str, p: dict) -> list[dict]:
     skills = p.get("skills") or {}
     mastery = p.get("mastery") or {}
@@ -120,6 +174,7 @@ def _skill_rows(state: dict, reg, _registry, eid: str, p: dict) -> list[dict]:
     sk_ids = list(skills) + [k for k in defs_sk if k not in skills]
     for sid in sk_ids:
         label, mod = str(sid), None
+        ent = defs_sk.get(sid) if isinstance(defs_sk.get(sid), dict) else {}
         if reg is not None:
             try:
                 label = reg.skill_label(sid, p)
@@ -139,9 +194,9 @@ def _skill_rows(state: dict, reg, _registry, eid: str, p: dict) -> list[dict]:
         keyed, cost, gated, basis_met, basis_name, group = "", "", False, False, "", ""
         if reg is not None:
             try:
-                ent = reg.skill_entry(sid, p)
-                keyed = str(ent.get("keyed_stat", ""))
-                group = str(ent.get("group", ""))       # free-form category (Spells, Cyber-Ware…)
+                resolved = reg.skill_entry(sid, p)
+                if isinstance(resolved, dict):
+                    ent = resolved
                 need = str(ent.get("requires_ability") or "")
                 if need:                          # a gated skill: does THIS player hold the basis?
                     gated = True
@@ -151,6 +206,10 @@ def _skill_rows(state: dict, reg, _registry, eid: str, p: dict) -> list[dict]:
                     cost = _resource_cost_text(p, _registry.skill_cost(ent))
             except Exception:
                 pass
+        keyed = _presentation_text(ent.get("keyed_stat"), 80)
+        group = _presentation_text(ent.get("group"), 120)
+        desc = _presentation_text(ent.get("desc"))
+        governs = _presentation_governs(ent.get("governs"))
         bracket = ""
         try:
             from .state import mastery_bracket
@@ -160,6 +219,7 @@ def _skill_rows(state: dict, reg, _registry, eid: str, p: dict) -> list[dict]:
         rows.append({"id": str(sid), "label": label, "mod": int(mod), "rank": rank,
                      "keyed_stat": keyed, "bracket": bracket, "cost": cost, "gated": gated,
                      "basis_met": basis_met, "basis_name": basis_name, "group": group,
+                     "desc": desc, "governs": governs,
                      "mastery": int(mastery.get(str(sid), 0) or 0)})
     return rows
 
@@ -218,12 +278,35 @@ def _ability_rows(reg, _registry, p: dict, turn: int) -> list[dict]:
             "applies_to": applies, "applies_id": applies_id, "magnitude": mag,
             "cost": _resource_cost_text(p, cost),
             "cooldown": cool, "on_cd": max(0, ready - (int(turn) + 1)) if cool else 0,
-            "desc": str(d.get("desc", "")), "effect": str(d.get("effect", "")),
+            "desc": _presentation_text(d.get("desc")),
+            "effect": _presentation_text(d.get("effect")),
         })
     # group order: spells, then techniques (actives), then talents (passives)
     rank = {"spell": 0, "technique": 1, "talent": 2}
     rows.sort(key=lambda r: (rank.get(r["group"], 3), not r["active"], r["name"]))
     return rows
+
+
+def _capability_overlay_rows(state: dict, rows: list[dict]) -> list[dict]:
+    """Attach current typed eligibility without changing the underlying capability ledger."""
+    try:
+        from .world_events import capability_eligible
+    except Exception:
+        capability_eligible = None
+    out = []
+    for raw in rows:
+        row = dict(raw)
+        cid = str(row.get("id") or "")
+        try:
+            row["eligible"] = bool(capability_eligible(state, {
+                "id": cid,
+                "capability_id": cid,
+                "name": str(row.get("label") or row.get("name") or cid),
+            })) if capability_eligible is not None else True
+        except Exception:
+            row["eligible"] = True
+        out.append(row)
+    return out
 
 
 def _mods_str(mods: dict) -> str:
@@ -285,7 +368,8 @@ def _gear_rows(state: dict, eid: str) -> list[dict]:
             continue
         rows.append({"slot": str(slot), "iid": str(iid), "name": str(it.get("name", iid)),
                      "mods": _mods_str(it.get("mods_snapshot") or {}),
-                     "aura": str(it.get("aura", "")), "capacity": it.get("capacity")})
+                     "aura": _presentation_text(it.get("aura")),
+                     "capacity": it.get("capacity")})
     return rows
 
 
@@ -319,7 +403,7 @@ def _gear_slots(state: dict, eid: str) -> list[dict]:
         if it:
             row["item"] = {"iid": str(iid), "name": str(it.get("name", iid)),
                            "mods": _mods_str(it.get("mods_snapshot") or {}),
-                           "aura": str(it.get("aura", "")),
+                           "aura": _presentation_text(it.get("aura")),
                            "type": str(it.get("type", "")), "capacity": it.get("capacity")}
         out.append(row)
     return out
@@ -374,7 +458,8 @@ def _carried_rows(state: dict, eid: str, want_gear: bool) -> list[dict]:
                             "qty": int(it.get("qty", 1)),
                             "type": str(it.get("type") or ""),
                             "consumable": bool(it.get("on_consume") or it.get("consumable")),
-                            "slot": str(it.get("slot") or "")})   # equippable when a slot is known
+                            "slot": str(it.get("slot") or ""),
+                            "aura": _presentation_text(it.get("aura"))})
         if not entries:
             continue
         cname = "carried" if cid == "loose" else str((items.get(cid) or {}).get("name", cid))
@@ -478,8 +563,12 @@ def _player_rows(state: dict, cfg, reg, _registry, turn: int) -> list[dict]:
             "hp": hp_view,
             "resources": resources,
             "stats": stats,
-            "skills": _skill_rows(state, reg, _registry, eid, p),
-            "abilities": _ability_rows(reg, _registry, p, turn),
+            "skills": _capability_overlay_rows(
+                state, _skill_rows(state, reg, _registry, eid, p)
+            ),
+            "abilities": _capability_overlay_rows(
+                state, _ability_rows(reg, _registry, p, turn)
+            ),
             "effects": _effect_rows(state, _registry, eid, turn),
             "gear": _gear_rows(state, eid),
             "gear_slots": _gear_slots(state, eid),
@@ -491,64 +580,93 @@ def _player_rows(state: dict, cfg, reg, _registry, turn: int) -> list[dict]:
 
 
 def _cast_rows(state: dict, _registry, turn: int, player_eids: set) -> list[dict]:
-    """Every tracked NON-player entity worth showing: presence, mood, statuses/conditions/
-    diseases, drives, goals, physical (worn/exposed), and standing toward the player."""
+    """Player-observable cast state; private NPC drives, goals, and arousal stay internal."""
     ents = state.get("entities") or {}
     chars = state.get("chars") or {}
     aff = state.get("affinity") or {}
     peid = next(iter(player_eids), None)
+    try:
+        from .world_events import effective_domain, project_state_overlay
+
+        actor_overlay = effective_domain(project_state_overlay(state), "actor")
+    except Exception:
+        actor_overlay = {}
     out = []
     for eid, e in ents.items():
         if eid in player_eids or (e or {}).get("kind") in ("faction", "location"):
             continue
         ch = chars.get(eid) or {}
         effs = _effect_rows(state, _registry, eid, turn)
-        drives = _drives(state, eid)
         worn, exposed = _worn_exposed(state, eid)
         rec = aff.get(f"{peid}->{eid}") if peid else None
         present = bool((e or {}).get("present"))
-        has_data = bool(effs or drives["obsessions"] or drives["cravings"] or drives["goals"]
-                        or worn or exposed or isinstance(rec, dict) or ch)
+        entity_kind = str((e or {}).get("kind") or "actor")
+        typed_kind = entity_kind if entity_kind in {"npc", "enemy"} else "actor"
+        subject_keys = (f"{typed_kind}:{eid}",)
+        if typed_kind != "actor":
+            subject_keys += (f"actor:{eid}",)
+        overlay_condition = _overlay_value(actor_overlay, subject_keys, "condition")
+        has_data = bool(effs or worn or exposed or isinstance(rec, dict)
+                        or overlay_condition is not None)
         if not present and not has_data:
             continue                          # untracked bystander — skip to keep it scannable
-        arousal = int((ch.get("arousal") or {}).get("arousal", 0) or 0)
         out.append({
             "eid": eid, "name": _nm(state, eid),
-            "kind": str((e or {}).get("kind", "character")),
+            "kind": entity_kind,
             "present": present,
             "location": (e or {}).get("location_id") or "",
             "mood": _mood_label(ch.get("affect") or {}) if ch.get("affect") else "",
-            "arousal": arousal,
             "effects": effs,
-            "drives": drives,
             "worn": worn, "exposed": exposed,
             "rel_tier": affinity_tier(rec.get("value", 0)) if isinstance(rec, dict) else "",
             "rel_dims": _rel_to(state, peid, eid) if peid else [],
+            "world_condition": overlay_condition,
         })
     # present first, then those with the most tracked detail
     out.sort(key=lambda c: (not c["present"], -len(c["effects"]) - len(c["rel_dims"])))
     return out
 
 
-def _relationships(state: dict) -> list[dict]:
+def _relationship_overlay_id(a: str, b: str) -> str:
+    """Closed typed id; state uses ``a->b`` but ``>`` is invalid in v2 subject refs."""
+    return f"{a}:{b}"
+
+
+def _relationships(state: dict, player_eids: set[str] | None = None) -> list[dict]:
+    try:
+        from .world_events import effective_domain, project_state_overlay
+
+        overlay = effective_domain(project_state_overlay(state), "relationship")
+    except Exception:
+        overlay = {}
     out = []
     for key, rec in (state.get("relationships") or {}).items():
         if not isinstance(rec, dict) or "->" not in key:
             continue
         a, b = key.split("->", 1)
+        if player_eids and a not in player_eids and b not in player_eids:
+            continue
         dims = _rel_to(state, a, b)
-        if dims:
-            out.append({"a": _nm(state, a), "b": _nm(state, b), "dims": dims})
+        overlay_id = _relationship_overlay_id(a, b)
+        modifier = _overlay_value(overlay, (f"relationship:{overlay_id}",), "modifier")
+        if dims or modifier is not None:
+            out.append({"a": _nm(state, a), "b": _nm(state, b), "dims": dims,
+                        "a_id": a, "b_id": b, "id": overlay_id,
+                        "world_modifier": modifier})
     return out[:12]
 
 
 def _front_rows(state: dict, turn: int) -> list[dict]:
     """Phase 2: REVEALED faction clocks only — rumor-gating applies to the HUD/briefing
-    (verified); the Console reads state_summary and always sees every front. The
+    (ratified); the Console reads state_summary and always sees every front. The
     consequence text stays hidden until the clock actually fills (no spoilers)."""
+    from .world_events import front_identity_visible_to_player
+
     rows = []
     for fid, f in sorted((state.get("fronts") or {}).items()):
         if not isinstance(f, dict) or not f.get("revealed"):
+            continue
+        if f.get("done") and not front_identity_visible_to_player(state, str(fid)):
             continue
         rows.append({
             "id": fid, "name": str(f.get("name", fid)),
@@ -564,12 +682,21 @@ def _front_rows(state: dict, turn: int) -> list[dict]:
 
 
 def _quests(state: dict) -> list[dict]:
+    try:
+        from .world_events import effective_domain, project_state_overlay
+
+        overlay = effective_domain(project_state_overlay(state), "quest")
+    except Exception:
+        overlay = {}
     out = []
     for qid, q in (state.get("quests") or {}).items():
         if not isinstance(q, dict):
             continue
-        out.append({"name": str(q.get("name", qid)), "status": str(q.get("status", "active")),
-                    "stakes": str(q.get("stakes", "")), "note": str(q.get("note", ""))})
+        name = str(q.get("name", qid))
+        availability = _overlay_value(overlay, (f"quest:{qid}",), "available")
+        out.append({"id": str(qid), "name": name, "status": str(q.get("status", "active")),
+                    "stakes": str(q.get("stakes", "")), "note": str(q.get("note", "")),
+                    "available": availability is not False})
     return out
 
 
@@ -669,22 +796,61 @@ def _rolls(state: dict) -> list[dict]:
 
 
 def _memories(state: dict) -> list[dict]:
+    from .memory import player_safe_memory_text
+
     out = []
     for m in (state.get("memories") or [])[-10:]:
         if isinstance(m, dict) and m.get("text"):
-            out.append({"turn": m.get("turn"), "text": str(m["text"])})
+            text = player_safe_memory_text(m["text"], state)
+            if text:
+                out.append({"turn": m.get("turn"), "text": text})
     return list(reversed(out))
 
 
-def _consent(state: dict) -> list[dict]:
+def _consent(state: dict, player_eids: set[str] | None = None) -> list[dict]:
     out = []
     for key, c in (state.get("consent") or {}).items():
         if not isinstance(c, dict) or key.count("|") < 2:
             continue
         a, b, cat = key.split("|", 2)
+        if player_eids and a not in player_eids and b not in player_eids:
+            continue
         out.append({"pair": f"{_nm(state, a)} ↔ {_nm(state, b)}", "category": cat,
+                    "a_id": a, "b_id": b,
                     "level": str(c.get("level", "unknown")), "cap": c.get("max_intensity")})
     return out
+
+
+def _knowledge(state: dict) -> dict:
+    """One Player-safe projection for claims, epistemics, facts, and world changes."""
+    from .knowledge import select_knowledge
+
+    player_ids = list((state.get("player") or {}).keys())
+    # The shared HUD has no authenticated viewer identity. One Player is unambiguous; with
+    # zero or multiple Player records actor-scoped knowledge must fail closed.
+    actor_id = player_ids[0] if len(player_ids) == 1 else None
+    selected = select_knowledge(
+        state,
+        audience="player",
+        actor_id=actor_id,
+        query=str(((state.get("scene") or {}).get("location_id") or "")),
+        limit=48,
+        include_history=True,
+    )
+    claims = [{
+        **row,
+        "proposition": row.get("statement", ""),
+        "class": row.get("claim_class"),
+        "polarity": row.get("proposition_polarity"),
+    } for row in selected["claims"]]
+    epistemics = [dict(row) for row in selected["epistemics"]]
+    facts = [dict(row) for row in selected["facts"]]
+    events = [{
+        **row,
+        "what_happened": row.get("statement", ""),
+        "cause": row.get("cause") if row.get("cause_visible") else "cause not known",
+    } for row in selected["events"]]
+    return {"claims": claims, "epistemics": epistemics, "facts": facts, "events": events}
 
 
 def _social(state: dict) -> tuple[list, list, dict]:
@@ -692,34 +858,58 @@ def _social(state: dict) -> tuple[list, list, dict]:
     peid = next(iter(players), None)
     aff = state.get("affinity") or {}
     ents = state.get("entities") or {}
+    try:
+        from .world_events import project_state_overlay
+        effective = (project_state_overlay(state) or {}).get("effective") or {}
+    except Exception:
+        effective = {}
     relations = []
     for eid, e in ents.items():
         if (e or {}).get("kind") in ("faction", "location") or eid in players:
             continue
         rec = aff.get(f"{peid}->{eid}") if peid else None
-        if not isinstance(rec, dict):
+        reputation = _overlay_value(
+            effective.get("reputation") or {},
+            (f"reputation:{eid}", f"actor:{eid}"),
+            "modifier",
+        )
+        if not isinstance(rec, dict) and reputation is None:
             continue
-        relations.append({"name": _nm(state, eid), "tier": affinity_tier(rec.get("value", 0)),
-                          "present": bool((e or {}).get("present"))})
+        relations.append({"id": str(eid), "name": _nm(state, eid),
+                          "tier": affinity_tier((rec or {}).get("value", 0)),
+                          "present": bool((e or {}).get("present")),
+                          "reputation_modifier": reputation})
     factions = []
     facs = state.get("factions") or {}
     fids = [fid for fid, e in ents.items() if (e or {}).get("kind") == "faction"]
     fids += [fid for fid in facs if fid not in fids]
     for fid in fids:
         rec = aff.get(f"{peid}->{fid}") if peid else None
-        circ = (facs.get(fid) or {}).get("circumstances") or {}
-        if not isinstance(rec, dict) and not circ:
+        overlay_row = ((effective.get("faction") or {}).get(f"faction:{fid}") or {}).get("circumstance")
+        world_circumstance = overlay_row.get("value") if isinstance(overlay_row, dict) else None
+        reputation = _overlay_value(
+            effective.get("reputation") or {},
+            (f"reputation:{fid}", f"faction:{fid}"),
+            "modifier",
+        )
+        if not isinstance(rec, dict) and world_circumstance is None and reputation is None:
             continue
-        factions.append({"name": _nm(state, fid),
+        factions.append({"id": str(fid), "name": _nm(state, fid),
                          "tier": affinity_tier((rec or {}).get("value", 0)),
-                         "circumstances": ", ".join(f"{k}={v}" for k, v in circ.items())})
-    return relations, factions, dict(state.get("world") or {})
+                         "world_circumstance": world_circumstance,
+                         "reputation_modifier": reputation})
+    world = {}
+    for subject in (effective.get("world") or {}).values():
+        row = (subject or {}).get("circumstance") if isinstance(subject, dict) else None
+        if isinstance(row, dict):
+            world["world_circumstance"] = row.get("value")
+    return relations, factions, world
 
 
 def _war_room(state: dict, cfg=None) -> dict:
-    """Phase 1 (the mechanics contract): the combat lane payload — EXACT HP (Bean: decided, pillar-17
+    """Phase 1 (plan doc 13): the combat lane payload — EXACT HP (Bean: decided, pillar-17
     rawness), each combatant's side/tier/armament, the pre-rolled dice (enemy opposition +
-    per-ally dice, VISIBLE — verified), fresh loot drops, and the last settled fight.
+    per-ally dice, VISIBLE — ratified), fresh loot drops, and the last settled fight.
     Rendered from committed rows + the same deterministic dice code the directive uses."""
     from .compose import _ally_die, _die_tier
     from .enemy_kits import intent_matches_frozen_kit
@@ -814,10 +1004,203 @@ def _war_room(state: dict, cfg=None) -> dict:
     return out
 
 
+_VISIBILITY_SECTIONS = frozenset({
+    "scene", "players", "skills", "abilities", "capabilities", "cast", "actors",
+    "quests", "rolls", "relationships", "relations", "factions", "world",
+    "knowledge", "claims", "epistemics", "facts", "events", "consent", "rules",
+    "war_room", "fronts", "clock",
+})
+_VISIBILITY_PREFIXES = frozenset({
+    "player", "actor", "npc", "enemy", "capability", "quest", "relationship",
+    "reputation", "faction", "claim", "epistemic", "fact", "event", "front",
+    "combatant",
+})
+
+
+def _surface_visibility(overlay: dict, surface: str) -> dict[str, bool]:
+    """Return only closed Player-surface selectors; unknown target ids are inert."""
+    domain = ((overlay.get("effective") or {}).get(surface) or {})
+    out: dict[str, bool] = {}
+    for fields in domain.values():
+        row = fields.get("visible") if isinstance(fields, dict) else None
+        subject = row.get("subject") if isinstance(row, dict) else None
+        value = row.get("value") if isinstance(row, dict) else None
+        if not isinstance(subject, dict) or subject.get("kind") != surface \
+                or not isinstance(value, bool):
+            continue
+        target = str(subject.get("id") or "")
+        prefix = target.split(":", 1)[0]
+        if target in _VISIBILITY_SECTIONS or prefix in _VISIBILITY_PREFIXES:
+            out[target] = value
+    return out
+
+
+def _hidden(decisions: dict[str, bool], *targets: str) -> bool:
+    return any(decisions.get(target) is False for target in targets if target)
+
+
+def _knowledge_row_target(kind: str, row: dict) -> str:
+    rid = row.get("id") or row.get("fingerprint") or row.get("claim_id") \
+        or row.get("belief_id") or row.get("fact_id") or row.get("event_id")
+    return f"{kind}:{rid}" if rid else ""
+
+
+def _apply_surface_visibility(
+    view: dict, decisions: dict[str, bool], state: dict,
+) -> dict:
+    """Apply HUD/Console visibility to a detached Player projection, never ledger state."""
+    out = deepcopy(view)
+    entities = state.get("entities") or {}
+
+    if _hidden(decisions, "scene"):
+        out["scene"] = {}
+    elif isinstance(out.get("scene"), dict):
+        hidden_names = {
+            str((entity or {}).get("name") or eid)
+            for eid, entity in entities.items()
+            if _hidden(
+                decisions, f"actor:{eid}", f"npc:{eid}", f"enemy:{eid}",
+                f"player:{eid}",
+            )
+        }
+        out["scene"]["present"] = [
+            name for name in out["scene"].get("present") or [] if name not in hidden_names
+        ]
+
+    players = [] if _hidden(decisions, "players") else list(out.get("players") or [])
+    filtered_players = []
+    for player in players:
+        eid = str(player.get("eid") or "")
+        if _hidden(decisions, f"player:{eid}", f"actor:{eid}"):
+            continue
+        if _hidden(decisions, "capabilities", "skills"):
+            player["skills"] = []
+        else:
+            player["skills"] = [
+                row for row in player.get("skills") or []
+                if not _hidden(decisions, f"capability:{row.get('id') or ''}")
+            ]
+        if _hidden(decisions, "capabilities", "abilities"):
+            player["abilities"] = []
+        else:
+            player["abilities"] = [
+                row for row in player.get("abilities") or []
+                if not _hidden(decisions, f"capability:{row.get('id') or ''}")
+            ]
+        filtered_players.append(player)
+    out["players"] = filtered_players
+
+    if _hidden(decisions, "cast", "actors"):
+        out["cast"] = []
+    else:
+        out["cast"] = [
+            row for row in out.get("cast") or []
+            if not _hidden(
+                decisions, f"actor:{row.get('eid') or ''}",
+                f"{row.get('kind') or 'actor'}:{row.get('eid') or ''}",
+            )
+        ]
+    out["quests"] = [] if _hidden(decisions, "quests") else [
+        row for row in out.get("quests") or []
+        if not _hidden(decisions, f"quest:{row.get('id') or ''}")
+    ]
+    if _hidden(decisions, "rolls"):
+        out["rolls"] = []
+    out["relationships"] = [] if _hidden(decisions, "relationships") else [
+        row for row in out.get("relationships") or []
+        if not _hidden(decisions, f"relationship:{row.get('id') or ''}")
+    ]
+    out["relations"] = [] if _hidden(decisions, "relations") else [
+        row for row in out.get("relations") or []
+        if not _hidden(
+            decisions, f"actor:{row.get('id') or ''}", f"reputation:{row.get('id') or ''}",
+        )
+    ]
+    out["factions"] = [] if _hidden(decisions, "factions") else [
+        row for row in out.get("factions") or []
+        if not _hidden(
+            decisions, f"faction:{row.get('id') or ''}", f"reputation:{row.get('id') or ''}",
+        )
+    ]
+    if _hidden(decisions, "world"):
+        out["world_flags"] = {}
+
+    knowledge = out.get("knowledge") if isinstance(out.get("knowledge"), dict) else {}
+    if _hidden(decisions, "knowledge"):
+        out["knowledge"] = {"claims": [], "epistemics": [], "facts": [], "events": []}
+    else:
+        for section, kind in (
+            ("claims", "claim"), ("epistemics", "epistemic"),
+            ("facts", "fact"), ("events", "event"),
+        ):
+            knowledge[section] = [] if _hidden(decisions, section) else [
+                row for row in knowledge.get(section) or []
+                if not _hidden(decisions, _knowledge_row_target(kind, row))
+            ]
+        out["knowledge"] = knowledge
+
+    if _hidden(decisions, "consent"):
+        out["consent"] = []
+    if _hidden(decisions, "rules"):
+        out["rules"] = {}
+    if _hidden(decisions, "fronts"):
+        out["fronts"] = []
+    else:
+        out["fronts"] = [
+            row for row in out.get("fronts") or []
+            if not _hidden(decisions, f"front:{row.get('id') or ''}")
+        ]
+    if _hidden(decisions, "clock"):
+        out["clock"] = {}
+    if _hidden(decisions, "war_room"):
+        out["war_room"] = {"active": False, "combatants": [], "player_impacts": []}
+    elif isinstance(out.get("war_room"), dict):
+        room = out["war_room"]
+        room["combatants"] = [
+            row for row in room.get("combatants") or []
+            if not _hidden(
+                decisions, f"combatant:{row.get('cid') or ''}",
+                f"actor:{row.get('cid') or ''}", f"enemy:{row.get('cid') or ''}",
+            )
+        ]
+        for field in ("intent", "opposition"):
+            row = room.get(field)
+            if isinstance(row, dict) and _hidden(
+                decisions, f"actor:{row.get('actor') or ''}", f"enemy:{row.get('actor') or ''}",
+            ):
+                room[field] = None
+    return out
+
+
+_PLAYER_RAW_KEYS = (
+    "spec", "frozen", "intent_floor", "frozen_reason", "turn", "scene", "players",
+    "cast", "quests", "rolls", "relationships", "relations", "factions", "knowledge",
+    "consent", "rules", "war_room", "fronts", "clock",
+)
+_SAFE_CAST_KEYS = (
+    "eid", "name", "kind", "present", "location", "mood", "effects", "worn", "exposed",
+    "rel_tier", "rel_dims", "world_condition",
+)
+
+
+def _player_safe_raw(view: dict, decisions: dict[str, bool], state: dict) -> dict:
+    """Strictly whitelisted Console Raw payload; no state, journal, memory, or private NPC prose."""
+    safe = {key: deepcopy(view.get(key)) for key in _PLAYER_RAW_KEYS if key in view}
+    safe["schema"] = "aetherstate-player-inspection/1"
+    safe["cast"] = [
+        {key: deepcopy(row.get(key)) for key in _SAFE_CAST_KEYS if key in row}
+        for row in safe.get("cast") or []
+    ]
+    safe["factions"] = [{
+        key: deepcopy(row.get(key))
+        for key in ("id", "name", "tier", "world_circumstance", "reputation_modifier")
+        if key in row
+    } for row in safe.get("factions") or []]
+    return _apply_surface_visibility(safe, decisions, state)
+
+
 def hud_view(state: dict, cfg=None) -> dict:
-    """The single resolved player-facing payload (registry math done here). Comprehensive:
-    the player's full sheet, the whole cast's statuses/conditions/diseases/mood/drives/physical,
-    relationships, quests, dice, world, recent events, consent. Fail-open per section."""
+    """Resolved Player projection with typed overlays and fail-closed private-state boundaries."""
     state = dict(state) if isinstance(state, dict) else {}
     if not isinstance(state.get("meta"), dict):
         state["meta"] = {}
@@ -835,7 +1218,8 @@ def hud_view(state: dict, cfg=None) -> dict:
         "frozen_reason": state.get("frozen_reason"), "turn": turn,
         "scene": {}, "players": [], "cast": [], "quests": [], "rolls": [],
         "relationships": [], "relations": [], "factions": [], "world_flags": {},
-        "memories": [], "consent": [], "rules": {},
+        "memories": [], "knowledge": {"claims": [], "epistemics": [], "facts": [], "events": []},
+        "consent": [], "rules": {},
         "war_room": {"active": False, "combatants": [], "player_impacts": [],
                      "intent": None, "opposition": None},
         "fronts": [], "clock": {},
@@ -848,9 +1232,9 @@ def hud_view(state: dict, cfg=None) -> dict:
         ("cast", lambda: _cast_rows(state, _registry, turn, player_eids)),
         ("quests", lambda: _quests(state)),
         ("rolls", lambda: _rolls(state)),
-        ("relationships", lambda: _relationships(state)),
-        ("memories", lambda: _memories(state)),
-        ("consent", lambda: _consent(state)),
+        ("relationships", lambda: _relationships(state, player_eids)),
+        ("knowledge", lambda: _knowledge(state)),
+        ("consent", lambda: _consent(state, player_eids)),
         ("fronts", lambda: _front_rows(state, turn)),
         ("clock", lambda: dict(state.get("clock") or {})),
     ):
@@ -862,4 +1246,18 @@ def hud_view(state: dict, cfg=None) -> dict:
         out["relations"], out["factions"], out["world_flags"] = _social(state)
     except Exception:
         pass
+    try:
+        from .world_events import project_state_overlay
+
+        overlay = project_state_overlay(state)
+    except Exception:
+        overlay = {}
+    hud_visibility = _surface_visibility(overlay, "hud")
+    console_visibility = _surface_visibility(overlay, "console")
+    out = _apply_surface_visibility(out, hud_visibility, state)
+    out["player_safe_raw"] = _player_safe_raw(out, console_visibility, state)
+    out["surface_visibility"] = {
+        "hud": hud_visibility,
+        "console": console_visibility,
+    }
     return out

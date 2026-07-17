@@ -1,4 +1,4 @@
-"""Regression tests for the 2026-07-11 bench fix pack (Emberfall regression test):
+"""Regression tests for the 2026-07-11 bench fix pack (Cinderveil playtest):
  - parse_foe_tags never twins a foe already LIVE on the field (the `purge#2` bug);
  - a defeated same-name foe does not block a genuinely new spawn;
  - merge_baseline_skills gives every Player Card the universal skill floor (authored ranks kept).

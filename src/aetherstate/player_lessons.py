@@ -38,7 +38,7 @@ INTENT_APPLICATION_SCHEMA = "player-lesson-intent-application/1"
 EFFECT_TYPES = frozenset({"narration_behavior", "intent_interpretation"})
 LESSON_SCOPES = frozenset({"every_rpg_turn", "exploration", "combat_opening", "combat_exchange"})
 NARRATION_MODES = frozenset({"exploration", "combat_opening", "combat_exchange"})
-LEX_IDS = frozenset({"capability", "referent", "scene", "action"})
+LEX_IDS = frozenset({"capability", "referent", "scene", "action", "claim"})
 INTENT_LEX_SLOTS = {"action": "action", "referent": "target"}
 INTENT_APPLICATION_REASONS = frozenset(
     {
@@ -191,7 +191,7 @@ _SCHEMA_STATEMENTS = (
              AND anchor_meaning_fingerprint IS NULL)
             OR
             (anchor_entry_id IS NOT NULL
-             AND anchor_lex_id IN ('capability', 'referent', 'scene', 'action')
+             AND anchor_lex_id IN ('capability', 'referent', 'scene', 'action', 'claim')
              AND anchor_concept_id IS NOT NULL
              AND length(anchor_concept_id) BETWEEN 1 AND 128
              AND anchor_meaning_fingerprint IS NOT NULL
@@ -248,7 +248,7 @@ _SCHEMA_STATEMENTS = (
              AND anchor_meaning_fingerprint IS NULL)
             OR
             (anchor_entry_id IS NOT NULL
-             AND anchor_lex_id IN ('capability', 'referent', 'scene', 'action')
+             AND anchor_lex_id IN ('capability', 'referent', 'scene', 'action', 'claim')
              AND anchor_concept_id IS NOT NULL
              AND anchor_meaning_fingerprint IS NOT NULL
              AND length(anchor_meaning_fingerprint) = 71
@@ -325,7 +325,7 @@ _SCHEMA_STATEMENTS = (
              AND anchor_meaning_fingerprint IS NULL)
             OR
             (anchor_entry_id IS NOT NULL
-             AND anchor_lex_id IN ('capability', 'referent', 'scene', 'action')
+             AND anchor_lex_id IN ('capability', 'referent', 'scene', 'action', 'claim')
              AND anchor_concept_id IS NOT NULL
              AND length(anchor_concept_id) BETWEEN 1 AND 128
              AND anchor_meaning_fingerprint IS NOT NULL

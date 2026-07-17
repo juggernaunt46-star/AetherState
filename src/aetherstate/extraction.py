@@ -40,7 +40,9 @@ from .state import OP_FIELD_ENUMS            # per-op vocabularies (single sourc
 
 log = logging.getLogger("aetherstate.extraction")
 
-DELTA_SCHEMA_ID = "aetherstate/delta/1"
+DELTA_SCHEMA_ID = "aetherstate/delta/2"
+LEGACY_DELTA_SCHEMA_ID = "aetherstate/delta/1"
+ACCEPTED_DELTA_SCHEMA_IDS = frozenset({DELTA_SCHEMA_ID, LEGACY_DELTA_SCHEMA_ID})
 
 
 class StateDelta(BaseModel):
@@ -67,8 +69,10 @@ _OP_FIELDS: dict[str, list[str]] = {
     "energy": ["integer", "null"], "dominance": ["integer", "null"],
     "category": ["string", "null"], "signal": ["string", "null"],
     "max_intensity": ["integer", "null"], "dimension": ["string", "null"],
-    "reason": ["string", "null"], "learner": ["string", "null"], "statement": ["string", "null"],
-    "source": ["string", "null"], "teller": ["string", "null"], "text": ["string", "null"],
+    "reason": ["string", "null"], "learner": ["string", "null"], "holder": ["string", "null"],
+    "statement": ["string", "null"], "stance": ["string", "null"],
+    "evidence_source": ["string", "null"], "source": ["string", "null"],
+    "teller": ["string", "null"], "text": ["string", "null"],
     "importance": ["integer", "null"], "tags": ["array", "null"], "goal": ["string", "null"],
     "minutes": ["integer", "null"], "to_time_of_day": ["string", "null"],
     "target_kind": ["string", "null"], "target": ["string", "null"], "flavor": ["string", "null"],
@@ -81,28 +85,28 @@ _OP_FIELDS: dict[str, list[str]] = {
 # hosted compilers cache it once (06 A.4).
 EXTRACTION_OPS = sorted((
     "set_attribute", "move_entity", "presence", "clothing", "position", "contact",
-    "arousal", "mood", "consent_signal", "relationship_adj", "reveal_fact",
+    "arousal", "mood", "consent_signal", "relationship_adj", "belief_acquire",
     "memory_event", "goal", "time_advance", "obsession", "craving"))
 
-# RPG-2 (the public contract): the five PROPOSABLE item ops. Offered to the model ONLY when
+# RPG-2 (doc 07 §4.1): the five PROPOSABLE item ops. Offered to the model ONLY when
 # specialization=rpg — a `none` session's wire schema + OP CARD stay byte-identical to 1.0
 # (the RPG invariant), and each variant is its own stable string so hosted compilers cache
 # both once. check / item_mint / set_* are privileged and NEVER appear on the wire.
 RPG_ITEM_OPS = ("item_consume", "item_equip", "item_move", "item_transfer", "item_unequip")
-# RPG-3 (the public contract): the three PROPOSABLE effect ops — same rpg-only wire discipline.
+# RPG-3 (doc 05 §5.4): the three PROPOSABLE effect ops — same rpg-only wire discipline.
 # check / item_mint / ability_grant / set_* are privileged and NEVER appear on the wire.
 RPG_EFFECT_OPS = ("effect_add", "effect_remove", "effect_update")
-# RPG-3b (the public contract): the two PROPOSABLE social ops — same rpg-only wire discipline.
+# RPG-3b (doc 07 §7.7): the two PROPOSABLE social ops — same rpg-only wire discipline.
 # Affinity `kind` is DERIVED engine-side (from the target entity's kind) and never rides
 # the wire; set_soulmate/set_nemesis are privileged and NEVER appear on the wire.
 RPG_SOCIAL_OPS = ("affinity_adj", "world_flag")
-# RPG-5 (regression test 2026-07-06 G2/G3/G7): the recording-gap ops — organic item channel
+# RPG-5 (playtest 2026-07-06 G2/G3/G7): the recording-gap ops — organic item channel
 # (mechanics-free unless a registry template grounds them at _enrich), the quest ledger,
 # and the clamped HP consequence channel. Proposable; same rpg-only wire discipline.
 # award_exp / level_up / master_tick / evolve_def / defeat_resolve are privileged and
-# NEVER appear on the wire — progression is code-awarded (the public contract).
+# NEVER appear on the wire — progression is code-awarded (doc 10).
 RPG_GAP_OPS = ("hp_adj", "item_gain", "item_lose", "quest_add", "quest_update")
-# Phase 1 (the mechanics contract): the NPC-vs-NPC clash RECORD — the extraction-ladder floor under
+# Phase 1 (plan doc 13): the NPC-vs-NPC clash RECORD — the extraction-ladder floor under
 # the [clash] tag ceiling. Proposable; unknown participants quarantine (real rows only).
 # combatant_spawn/defeat/combat_end/loot_table are privileged and NEVER on the wire;
 # combatant_hp is deliberately absent too — live harm rides the [hp] tag channel (batch
@@ -141,6 +145,17 @@ _RPG_FIELD_ENUMS: dict[str, dict[str, list]] = {
     "effect_update": {"valence": ["negative", "neutral", "positive"]},
 }
 _RPG_BRANCH_TYPES: dict[str, list[str]] = {"valence": ["string", "null"]}
+_EXTRACTION_FIELD_ENUMS: dict[str, dict[str, list]] = {
+    "belief_acquire": {
+        "stance": ["believes", "disputes", "doubts", "knows", "rumor", "uncertain"],
+        "evidence_source": ["inferred", "overheard", "told", "witnessed"],
+    },
+}
+
+
+def _field_enums(kind: str) -> dict[str, list]:
+    """Wire-only vocabularies layered over the reducer's shared enum table."""
+    return {**OP_FIELD_ENUMS.get(kind, {}), **_EXTRACTION_FIELD_ENUMS.get(kind, {})}
 
 # closed vocabularies — derived from state.OP_FIELD_ENUMS (single source of truth).
 # Per-FIELD unions for the flat schema: multi-contributor fields (action) get a sorted
@@ -149,8 +164,8 @@ _RPG_BRANCH_TYPES: dict[str, list[str]] = {"valence": ["string", "null"]}
 # literal, so hosted compiler caches are undisturbed (06 A.4).
 def _derive_flat_enums() -> dict[str, list]:
     by_field: dict[str, list[list]] = {}
-    for kind in sorted(OP_FIELD_ENUMS):
-        for f, vals in OP_FIELD_ENUMS[kind].items():
+    for kind in sorted(set(OP_FIELD_ENUMS) | set(_EXTRACTION_FIELD_ENUMS)):
+        for f, vals in _field_enums(kind).items():
             by_field.setdefault(f, []).append(list(vals))
     out: dict[str, list] = {"op": EXTRACTION_OPS}
     for f in sorted(by_field):
@@ -221,7 +236,7 @@ def delta_json_schema_anyof(rpg: bool = False) -> dict:
             else:
                 ftype = op_fields[f]
             prop: dict = {"type": ftype}
-            enum = OP_FIELD_ENUMS.get(kind, {}).get(f)
+            enum = _field_enums(kind).get(f)
             if enum is None and rpg:
                 enum = _RPG_FIELD_ENUMS.get(kind, {}).get(f)
             if enum is not None:
@@ -332,36 +347,36 @@ _OP_ALLOWED: dict[str, set[str]] = {
     "mood": {"char", "valence", "energy", "dominance"},
     "consent_signal": {"from_char", "to_char", "category", "signal", "max_intensity"},
     "relationship_adj": {"from_char", "to_char", "dimension", "delta", "reason"},
-    "reveal_fact": {"learner", "statement", "source", "teller", "is_secret"},
+    "belief_acquire": {"holder", "statement", "stance", "evidence_source", "teller"},
     "memory_event": {"text", "participants", "importance", "tags"},
     "goal": {"char", "action", "text"},
     "time_advance": {"minutes", "to_time_of_day", "calendar_note"},
     "obsession": {"char", "target_kind", "target", "delta", "set", "flavor",
                   "behavior_note"},
     "craving": {"char", "substance", "action", "delta"},
-    # RPG-2 proposable item ops (the public contract) — scrub rows; on the wire only under rpg
+    # RPG-2 proposable item ops (doc 07 §4.1) — scrub rows; on the wire only under rpg
     "item_move": {"instance", "to"},
     "item_equip": {"instance", "slot", "swap"},
     "item_unequip": {"instance", "to"},
     "item_consume": {"instance", "amount"},
     "item_transfer": {"instance", "to_owner", "to"},
-    # RPG-3 proposable effect ops (the public contract) — scrub rows; on the wire only under rpg.
+    # RPG-3 proposable effect ops (doc 05 §5.4) — scrub rows; on the wire only under rpg.
     # `mods` is deliberately ABSENT: mechanics come from the preset bake, never the model.
     "effect_add": {"char", "effect", "kind", "valence", "note", "duration", "stacks"},
     "effect_remove": {"char", "effect"},
     "effect_update": {"char", "effect", "valence", "note", "duration", "stacks"},
-    # RPG-3b proposable social ops (the public contract) — scrub rows; on the wire only under rpg.
+    # RPG-3b proposable social ops (doc 07 §7.7) — scrub rows; on the wire only under rpg.
     # affinity `kind` is deliberately ABSENT (derived from the target entity — the model
     # never types records); the bond ops are absent entirely (privileged).
     "affinity_adj": {"target", "delta", "reason"},
     "world_flag": {"key", "value", "faction"},
-    # RPG-5 recording-gap ops (regression test G2/G3/G7) — scrub rows; on the wire only under rpg.
+    # RPG-5 recording-gap ops (playtest G2/G3/G7) — scrub rows; on the wire only under rpg.
     "item_gain": {"char", "name", "qty"},
     "item_lose": {"char", "name"},
     "quest_add": {"name", "detail", "giver", "stakes"},
     "quest_update": {"quest", "status", "note"},
     "hp_adj": {"char", "delta", "reason"},
-    # Phase 1 clash record — scrub row; on the wire only under rpg (the mechanics contract).
+    # Phase 1 clash record — scrub row; on the wire only under rpg (plan doc 13).
     "clash_record": {"a", "b", "method", "outcome"},
 }
 
@@ -388,7 +403,7 @@ def enum_salvage(op: dict) -> dict:
     (03 SS5.1 per-op salvage; e.g. time_advance keeps its minutes when to_time_of_day
     arrives as "midnight")."""
     kind = op.get("op")
-    enums = OP_FIELD_ENUMS.get(kind)
+    enums = _field_enums(str(kind))
     if not enums:
         return op
     required = OP_SPEC.get(kind, set())
@@ -417,12 +432,42 @@ def parse_and_validate(text: str) -> Optional[StateDelta]:
         delta = StateDelta.model_validate(doc)
     except Exception:
         return None
-    if delta.schema_ != DELTA_SCHEMA_ID and "ops" not in doc:
+    if delta.schema_ not in ACCEPTED_DELTA_SCHEMA_IDS:
         return None
     # rung-2 strict schema pads every field: drop the null padding, then scrub fields
     # that don't belong to the op kind (Q18 mega-op defense)
-    delta.ops = [enum_salvage(scrub_op({k: v for k, v in op.items() if v is not None}))
-                 for op in delta.ops if isinstance(op, dict)]
+    normalized: list[dict] = []
+    for raw_op in delta.ops:
+        if not isinstance(raw_op, dict):
+            continue
+        op = {k: v for k, v in raw_op.items() if v is not None}
+        if op.get("op") == "reveal_fact":
+            # V1 was a cached extraction proposal, not replay authority. Preserve only its
+            # actor-specific epistemic meaning; never mint objective facthood from model prose.
+            if delta.schema_ != LEGACY_DELTA_SCHEMA_ID:
+                continue
+            holder = str(op.get("learner") or "").strip()
+            statement = str(op.get("statement") or "").strip()
+            evidence_source = str(op.get("source") or "").strip()
+            if not holder or not statement or evidence_source not in {
+                "inferred", "overheard", "told", "witnessed",
+            }:
+                continue
+            translated = {
+                "op": "belief_acquire",
+                "holder": holder,
+                "statement": statement,
+                "stance": "believes",
+                "evidence_source": evidence_source,
+            }
+            teller = str(op.get("teller") or "").strip()
+            if teller:
+                translated["teller"] = teller
+            normalized.append(translated)
+            continue
+        normalized.append(enum_salvage(scrub_op(op)))
+    delta.schema_ = DELTA_SCHEMA_ID
+    delta.ops = normalized
     return delta
 
 
@@ -705,7 +750,7 @@ class Ladder:
             return 0
 
     def _rpg(self) -> bool:
-        """RPG wire vocabulary gate (the public contract): item ops are offered only under rpg so a
+        """RPG wire vocabulary gate (doc 07 §4.1): item ops are offered only under rpg so a
         `none` session's extraction requests stay byte-identical to 1.0."""
         spec = getattr(self.cfg, "specialization", None)
         return spec is not None and getattr(spec, "name", "none") == "rpg"

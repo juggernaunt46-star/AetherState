@@ -1,4 +1,4 @@
-"""2026-07-09 Testhaven fix pack: the regression test findings.
+"""2026-07-09 Greywater fix pack: the live-playtest findings.
 
 Covers: same-turn affinity dedup (tag+ladder double-ingest), number-word item counts +
 '(worn)' author tags + worn-rig auto-equip, narrator-authored checks remaining inert
@@ -305,11 +305,11 @@ def test_s_sent_never_cuts_mid_word():
 
 # ------------------------------ genesis: narrator card is not a person -----------------
 def test_genesis_narrator_card_not_staged_as_character():
-    card = ("THE WORLD — Testhaven Spire (cyberpunk)\nA half-drowned arcology.\n"
+    card = ("THE WORLD — Greywater Spire (cyberpunk)\nA half-drowned arcology.\n"
             "You are the Narrator: speak the world and its people, never the Player.")
-    ops = rules_ops(card, "hello", speaker="Testhaven Spire")
+    ops = rules_ops(card, "hello", speaker="Greywater Spire")
     assert not any(o["op"] == "presence" for o in ops)
-    assert not any(o["op"] == "entity_add" and o.get("name") == "Testhaven Spire"
+    assert not any(o["op"] == "entity_add" and o.get("name") == "Greywater Spire"
                    for o in ops)
     normal = rules_ops("Name: Tam\nA ferryman.", "hello", speaker="Tam")
     assert any(o["op"] == "presence" for o in normal)

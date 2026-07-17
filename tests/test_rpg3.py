@@ -1,4 +1,4 @@
-"""RPG-3 (the public contract): Statuses & Conditions + the eligibility gate. The ledger — not the
+"""RPG-3 (doc 05 §9): Statuses & Conditions + the eligibility gate. The ledger — not the
 prose — owns the truth: effect_add/remove/update (proposable; preset snapshot baked, open
 vocabulary layered on top), the R9 tag protocol (the channel AI-Roguelite never had), dynamic
 valence, the data-driven `requires` gate, effect mods flowing into R8, derived expiry, the
@@ -111,7 +111,7 @@ def test_effect_refresh_remove_and_valence_shift():
     assert len(st["effects"]["kael"]) == 1
     rec = st["effects"]["kael"]["poisoned"]
     assert rec["gained_turn"] == 3 and rec["stacks"] == 2
-    # dynamic valence: engine-tracked property, shiftable in play (the public contract)
+    # dynamic valence: engine-tracked property, shiftable in play (doc 05 §5.4)
     apply_delta(store, sid, bid, 4, [{"op": "effect_update", "char": "Kael",
                                       "effect": "Poisoned", "valence": "neutral"}],
                 "extraction", cfg)
@@ -210,7 +210,7 @@ def test_effect_mods_flow_into_resolution_and_expire():
 
 # ------------------------------ the eligibility gate ----------------------------------
 def test_gated_skill_is_a_non_move_until_granted():
-    """the public contract: 'you cannot assert capability into existence' — a warrior typing mana is a
+    """Doc 10: 'you cannot assert capability into existence' — a warrior typing mana is a
     NON-MOVE (no roll, no op), and the SAME declaration rolls once the basis is earned."""
     cfg = _rpg_cfg()
     store, sid, bid = _seeded(cfg)
@@ -246,7 +246,7 @@ def test_ability_grant_def_freezes_and_unknown_rejects():
 
 
 def test_scope_scales_odds_and_caps_ceiling():
-    """the public contract: freedom at the top, coherence by difficulty — a thin skill may attempt an
+    """Doc 10: freedom at the top, coherence by difficulty — a thin skill may attempt an
     epic feat (the door is open), but the roll is punishing and the ceiling low."""
     cfg = _rpg_cfg()
     store, sid, bid = _seeded(cfg)

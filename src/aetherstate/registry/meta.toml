@@ -1,4 +1,4 @@
-# RPG curated-registry meta (the public contract). Versioned so the rules-contract prompt and the
+# RPG curated-registry meta (doc 06 §3.1). Versioned so the rules-contract prompt and the
 # code share one vocabulary. `dice`/`tiers` here are DEFAULTS; when specialization=rpg the
 # profile knobs (cfg.specialization.dice / .tiers) win (D1 — one knob to switch systems).
 version = "rpg-registry/1"

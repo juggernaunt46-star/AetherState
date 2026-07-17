@@ -1,4 +1,4 @@
-"""RPG-3b (the public contract): the social plane — affinity ledgers + derived tiers, factions +
+"""RPG-3b (doc 05 §9): the social plane — affinity ledgers + derived tiers, factions +
 the deterministic cascade, the privileged soulmate/nemesis bonds (demote-then-set +
 one_soulmate), world flags, the [FACTIONS]/[RELATIONS]/[WORLD] blocks, the rpg-gated
 OOC set-paths, and the rpg-gated extraction wire. Truth lives in the ledger: the tier
@@ -157,7 +157,7 @@ def test_soulmate_demote_then_set_clear_and_nemesis():
     st = current_state(store, bid)
     assert st["player"]["kael"]["soulmate"] == "seraphine"
     assert st["affinity"]["kael->seraphine"]["value"] == 90 >= DEVOTED_MIN
-    # promotion demotes the incumbent — uniqueness by construction (the public contract)
+    # promotion demotes the incumbent — uniqueness by construction (doc 07 §7.8)
     apply_delta(store, sid, bid, 3, [{"op": "affinity_adj", "target": "Mira",
                                       "delta": 15}] * 6, "rule", cfg)
     apply_delta(store, sid, bid, 4, [{"op": "set_soulmate", "target": "Mira"}], "user", cfg)

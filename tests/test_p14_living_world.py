@@ -1,4 +1,4 @@
-"""Phase 2 — the living world (the mechanics contract, verified 2026-07-09; pillar 12 operational).
+"""Phase 2 — the living world (plan doc 13, ratified 2026-07-09; pillar 12 operational).
 
 Covers: authored faction fronts (front_add seed-once, clamped bakes), code-only
 advancement (world_ops: day pace, faction touches, quest/combat echoes; one tick per
@@ -10,7 +10,7 @@ ceiling — and, per the RPG invariants, `none`-leak guards and deterministic re
 """
 from __future__ import annotations
 
-from aetherstate import tier0
+from aetherstate import creator, tier0
 from aetherstate.compose import _render_living_tail, render_header
 from aetherstate.config import Config
 from aetherstate.hud import hud_view
@@ -30,6 +30,16 @@ def _seeded(cfg=None):
     cfg = cfg or _rpg_cfg()
     store = Store(":memory:")
     sid, bid = store.create_session(external_id="p14")
+    identity = apply_delta(
+        store,
+        sid,
+        bid,
+        0,
+        [{"op": "world_identity_set", "world_id": creator.mint_world_id()}],
+        "user",
+        cfg,
+    )
+    assert identity.applied and not identity.quarantined
     apply_delta(store, sid, bid, 0, [
         {"op": "entity_add", "name": "Kael", "kind": "player"},
         {"op": "entity_add", "name": "Iron Pact", "kind": "faction"},
@@ -70,9 +80,25 @@ def test_front_fills_reveals_and_replays():
     cfg = _rpg_cfg()
     store, sid, bid = _seeded(cfg)
     for t in (1, 2, 3, 4):
-        apply_delta(store, sid, bid, t, [
-            {"op": "front_tick", "front": "the_iron_pact_rearms",
-             "reason": f"tick {t}"}], "rule", cfg)
+        trigger = apply_delta(
+            store,
+            sid,
+            bid,
+            t,
+            [{"op": "affinity_adj", "target": "Iron Pact", "delta": -1}],
+            "rule",
+            cfg,
+        )
+        generated = world_ops(
+            trigger.state,
+            trigger.applied,
+            clock_turns=0,
+            session_id=sid,
+            branch_id=bid,
+            turn_index=t,
+        )
+        result = apply_delta(store, sid, bid, t, generated, "rule", cfg)
+        assert result.applied and not result.quarantined
     s1 = current_state(store, bid)
     f = s1["fronts"]["the_iron_pact_rearms"]
     assert f["done"] and f["revealed"] and f["filled"] == 4 and f["filled_turn"] == 4
@@ -266,7 +292,7 @@ def test_p14_journal_replays_deterministically():
 
 
 def test_scene_follows_player_move_entity_floor():
-    """2026-07-09 Emberfall live repro: a DM that never emits [scene] tags still yields
+    """2026-07-09 Cinderveil live repro: a DM that never emits [scene] tags still yields
     extraction move_entity on the PLAYER — the camera (and the travel toll) must follow
     deterministically. Unknown destinations never mint; NPC moves never drag the scene."""
     st = _base(last_adv=3)
@@ -295,7 +321,7 @@ def test_scene_follows_player_move_entity_floor():
 
 def test_canonical_location_splits_middle_dot_sublocation():
     """GLM-5.2 writes sub-locations as 'Name · sub quarter' — the head must split on the
-    middle dot or the whole string mints a twin location (2026-07-09 Emberfall live)."""
+    middle dot or the whole string mints a twin location (2026-07-09 Cinderveil live)."""
     from aetherstate.state import canonical_location
     st = {"entities": {"vael_thyrr_ruins": {"kind": "location",
                                             "name": "Vael Thyrr (Ruins at the Caldera Floor)",
@@ -324,7 +350,7 @@ def test_canonical_location_parent_rung_resolves_subarea():
 
 def test_hp_adj_same_turn_near_dupe_counts_once():
     """The DM's [hp] tag AND the extraction ladder both report the same wound with slightly
-    different reason text — it must land ONCE (2026-07-09 Emberfall live: -2 became -4).
+    different reason text — it must land ONCE (2026-07-09 Cinderveil live: -2 became -4).
     A same-turn DIFFERENT wound (another foe) still applies."""
     from aetherstate.state import _apply_op
     st = {"player": {"rho": {"hp": {"cur": 20, "max": 20}}}, "meta": {"turn": 5},
@@ -345,7 +371,7 @@ def test_hp_adj_same_turn_near_dupe_counts_once():
 
 def test_hp_adj_paraphrased_reason_counts_once():
     """The cold-path ladder can PARAPHRASE the [hp] tag's reason enough to drop Jaccard below
-    the near-dupe gate (2026-07-10 Quietmere live: "wight's pike-butt grazes his ribs below
+    the near-dupe gate (2026-07-10 Hollowmere live: "wight's pike-butt grazes his ribs below
     the plate" vs "pike-butt graze below breastplate" -> J=0.30, so -1 landed twice -> -2).
     Containment catches the compressed re-report; a distinct same-magnitude wound still stacks."""
     from aetherstate.state import _apply_op

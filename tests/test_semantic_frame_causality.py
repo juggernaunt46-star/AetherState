@@ -6,6 +6,7 @@ also exercise journal replay so provenance cannot be a transient in-memory decor
 """
 from __future__ import annotations
 
+from aetherstate import creator
 from aetherstate.canon import canonicalize, chain
 from aetherstate.config import Config
 from aetherstate.semantic import ActionFrame
@@ -361,6 +362,16 @@ def test_legacy_stamped_opposition_reopens_and_forks_without_lending_its_player_
 
 def _world_runtime(tag: str):
     cfg, store, sid, bid = _runtime(tag)
+    identity = apply_delta(
+        store,
+        sid,
+        bid,
+        0,
+        [{"op": "world_identity_set", "world_id": creator.mint_world_id()}],
+        "user",
+        cfg,
+    )
+    assert identity.applied and not identity.quarantined
     seeded = apply_delta(
         store,
         sid,
@@ -430,14 +441,29 @@ def test_travel_and_its_day_front_consequences_replay_but_idle_does_not_claim_a_
         cfg,
     )
     assert not moved.quarantined
-    consequences = world_ops(moved.state, moved.applied, clock_turns=6)
+    consequences = world_ops(
+        moved.state,
+        moved.applied,
+        clock_turns=6,
+        session_id=sid,
+        branch_id=bid,
+        turn_index=3,
+    )
     assert [op["op"] for op in consequences] == [
         "time_advance",
         "front_tick",
         "world_flag",
         "memory_event",
+        "world_event_admit",
     ]
-    assert all(op.get("_semantic_frame_ref") == frame["fingerprint"] for op in consequences)
+    assert all(
+        op.get("_semantic_frame_ref") == frame["fingerprint"]
+        for op in consequences[:-1]
+    )
+    # The immutable event has its own rule-owned front-completion cause.  It keeps that authority
+    # distinct instead of borrowing the Player ActionFrame that triggered this day's clock tick.
+    assert consequences[-1]["event"]["cause_authority"] == "rule"
+    assert consequences[-1]["event"]["semantic_frame_ref"] is None
     applied = apply_delta(store, sid, bid, 3, consequences, "rule", cfg)
     assert not applied.quarantined
     replayed = current_state(store, bid)
@@ -456,12 +482,20 @@ def test_travel_and_its_day_front_consequences_replay_but_idle_does_not_claim_a_
         idle_cfg,
     )
     assert not idle_seed.quarantined
-    idle = world_ops(idle_seed.state, idle_seed.applied, clock_turns=6)
+    idle = world_ops(
+        idle_seed.state,
+        idle_seed.applied,
+        clock_turns=6,
+        session_id=idle_sid,
+        branch_id=idle_bid,
+        turn_index=8,
+    )
     assert [op["op"] for op in idle] == [
         "time_advance",
         "front_tick",
         "world_flag",
         "memory_event",
+        "world_event_admit",
     ]
     assert all("_semantic_frame_ref" not in op for op in idle)
     idle_applied = apply_delta(idle_store, idle_sid, idle_bid, 8, idle, "rule", idle_cfg)

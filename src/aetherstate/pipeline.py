@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from . import (__version__, compose, director, discovery, genesis, linter, promptcache,
                semantic_ingress, tier0)
 from .canon import canonicalize, content_hash
+from .claim_ingress import claim_ops_from_text
 from .config import Config
 from .narration_fallback_runtime import build_proof_complete_fallback
 from .narration_artifact_basis import derive_swipe_fallback_from_persisted_basis
@@ -830,7 +831,7 @@ class Pipeline:
         self._request_packets: OrderedDict[str, tuple[bytes, PostContext]] = OrderedDict()
         self._completed_responses: OrderedDict[str, float] = OrderedDict()
         self._prewarm_at: dict[str, float] = {}                   # sid -> monotonic cooldown
-        # 2026-07-10 (Arinvale, pillar 17): tier0 notices used to die in the proxy log —
+        # 2026-07-10 (Eranmor, pillar 17): tier0 notices used to die in the proxy log —
         # "recharging"/non-move/unknown-skill were invisible to the player. A bounded
         # in-memory ring per session feeds the HUD rolls lane (transient UX, not state).
         self._notices: OrderedDict[str, list] = OrderedDict()
@@ -2093,7 +2094,7 @@ class Pipeline:
                 doc = clean_doc
                 changed = True
             if reserved is not None:
-                # 2026-07-10 (Arinvale): the SAME action re-sent after a lost generation —
+                # 2026-07-10 (Eranmor): the SAME action re-sent after a lost generation —
                 # its rolls/costs/cooldowns are already journaled at the previous turn. One
                 # player action = one resolution: re-serve the settled checks on THIS
                 # [DIRECTIVE] and apply nothing new (no re-roll, no double clock/cost).
@@ -2160,7 +2161,7 @@ class Pipeline:
                     state = r.state
                     applied_now += r.applied
                     self._index_memories(res, r)
-                state, evolutions = self._progress(res, state, applied_now)   # RPG-5 (the public contract)
+                state, evolutions = self._progress(res, state, applied_now)   # RPG-5 (doc 10)
                 # [DIRECTIVE] shows EXACTLY the checks resolved THIS request (not
                 # turn-matched): reliable delivery + no stale rolls confusing the model.
                 state["_fresh_checks"] = [o for o in applied_now
@@ -2245,10 +2246,15 @@ class Pipeline:
         if self.jobs is not None and isinstance(doc.get("model"), str):
             self.jobs.models[res.session_id] = doc["model"]
 
-        recall = self.store.read_recall(res.session_id)     # Q15: one SELECT on the hot path
+        recall = [
+            memory.player_safe_memory_text(line, state)
+            for line in self.store.read_recall(res.session_id)
+        ]                                                    # Q15: one SELECT on the hot path
         note, l9 = "", None                                  # + two tiny indexed reads (03 SS9)
         try:
-            note = self.store.read_note(res.session_id)
+            note = memory.player_safe_memory_text(
+                self.store.read_note(res.session_id), state,
+            )
             if self.cfg.user_guard.enabled and self.cfg.user_guard.mode == "prevent_and_correct":
                 l9 = self.store.lint_l9_evidence(
                     res.branch_id, res.turn_index - self.cfg.consent.guard_escalate_turns)
@@ -2442,7 +2448,9 @@ class Pipeline:
                 self._index_memories(res, r)
             if getattr(spec, "living_world", True):   # Phase 2: the world moves — travel
                 lw = world_ops(state, applied,        # time, the idle clock, faction fronts
-                               clock_turns=getattr(spec, "clock_turns", 6))
+                               clock_turns=getattr(spec, "clock_turns", 6),
+                               session_id=res.session_id, branch_id=res.branch_id,
+                               turn_index=res.turn_index)
                 if lw:
                     rl = apply_delta(self.store, res.session_id, res.branch_id,
                                      res.turn_index, lw, "rule", self.cfg)
@@ -2647,6 +2655,15 @@ class Pipeline:
         self.store.retract_extraction_at(res.branch_id, res.turn_index)
 
     # ------------------------------------------------------------------ cold path
+    def _remember_completed_response(self, response_key: str | None) -> None:
+        """Suppress an exact transport retry only after its durable reply commit succeeds."""
+        if not response_key:
+            return
+        self._completed_responses[response_key] = time.monotonic()
+        self._completed_responses.move_to_end(response_key)
+        while len(self._completed_responses) > 512:
+            self._completed_responses.popitem(last=False)
+
     def _on_semantic_response(self, ctx: PostContext, raw: bytes, content_type: str) -> None:
         """Persist only the exact proof-carrying artifact; never re-extract mechanics."""
         replay = ctx.semantic_replay
@@ -2684,6 +2701,7 @@ class Pipeline:
                 ctx.turn_index,
                 assistant_hash=content_hash(text.strip()),
             )
+            self._ingest_delivered_claims(ctx, text)
             self.store.mark_extraction(
                 ctx.branch_id,
                 ctx.turn_index,
@@ -2691,11 +2709,8 @@ class Pipeline:
                 "skipped",
             )
             completed = True
-        if completed and ctx.response_key:
-            self._completed_responses[ctx.response_key] = time.monotonic()
-            self._completed_responses.move_to_end(ctx.response_key)
-            while len(self._completed_responses) > 512:
-                self._completed_responses.popitem(last=False)
+        if completed:
+            self._remember_completed_response(ctx.response_key)
         if completed:
             self._transport_errors.pop(ctx.session_id, None)
 
@@ -2714,26 +2729,41 @@ class Pipeline:
                 if ctx.response_key in self._completed_responses:
                     log.info("network duplicate response ignored after first completion")
                     return
-                self._completed_responses[ctx.response_key] = time.monotonic()
-                self._completed_responses.move_to_end(ctx.response_key)
-                while len(self._completed_responses) > 512:
-                    self._completed_responses.popitem(last=False)
-            self._transport_errors.pop(ctx.session_id, None)
             if ctx.enriched:                 # Phase 0a: cache observability (pillar 17)
                 self.cache.observe(ctx.session_id,
                                    promptcache.parse_usage(raw, content_type))
             if text and text.strip():
                 speaker = ctx.speaker or "Narrator"
-                self.store.write_turn_text(ctx.branch_id, ctx.turn_index,
-                                           assistant_text=f"{speaker}: {text.strip()}")
-                self.store.write_turn_hashes(
-                    ctx.branch_id, ctx.turn_index, assistant_hash=content_hash(text.strip()))
+                # The visible prose, its exact hash, and every recognition-only Claim Record are
+                # one publication.  A crash or failed claim write rolls the entire reply back, so
+                # the same transport delivery remains safe to retry instead of being suppressed
+                # by an in-memory completion marker with missing durable claims.
+                with self.store.transaction():
+                    self.store.write_turn_text(
+                        ctx.branch_id,
+                        ctx.turn_index,
+                        assistant_text=f"{speaker}: {text.strip()}",
+                    )
+                    self.store.write_turn_hashes(
+                        ctx.branch_id,
+                        ctx.turn_index,
+                        assistant_hash=content_hash(text.strip()),
+                    )
+                    if ctx.klass == "swipe":
+                        self.store.mark_extraction(
+                            ctx.branch_id,
+                            ctx.turn_index,
+                            ctx.turn_index,
+                            "skipped",
+                        )
+                    else:
+                        self._ingest_delivered_claims(ctx, text)
+                self._remember_completed_response(ctx.response_key)
+            self._transport_errors.pop(ctx.session_id, None)
             if ctx.klass == "swipe":
                 # A swipe/regenerate is narration-only.  Its final prose replaces the abandoned
                 # text for continuity, but neither inline tags nor Tier-1 may reinterpret the
                 # alternate wording as a second state/mechanics settlement.
-                self.store.mark_extraction(
-                    ctx.branch_id, ctx.turn_index, ctx.turn_index, "skipped")
                 log.info("same-turn narration retry stored without cold-path extraction")
                 return
             self._ingest_reply_tags(ctx, text)   # live_recalc: newest reply's world-tags NOW
@@ -2908,6 +2938,35 @@ class Pipeline:
         except Exception as exc:
             log.warning("response trace failed open: %s", type(exc).__name__)
 
+    def _ingest_delivered_claims(self, ctx: PostContext, text: Optional[str]) -> None:
+        """Recognize claim structure only after one ordinary reply is durably delivered."""
+        if ctx.klass not in {"new_turn", "new_session"} or not text or not text.strip():
+            return
+        spec = getattr(self.cfg, "specialization", None)
+        if spec is None or spec.name != "rpg":
+            return
+        ops = claim_ops_from_text(
+            text,
+            ingress="narrator",
+            source_id=ctx.speaker or "narrator",
+        )
+        if not ops:
+            return
+        result = apply_delta(
+            self.store,
+            ctx.session_id,
+            ctx.branch_id,
+            ctx.turn_index,
+            ops,
+            "rule",
+            self.cfg,
+        )
+        if result.quarantined:
+            log.info(
+                "delivered ClaimLex recognition quarantined %d row(s)",
+                len(result.quarantined),
+            )
+
     def _ingest_reply_tags(self, ctx: PostContext, text: Optional[str]) -> None:
         """live_recalc (Bean 2026-07-07): parse the DM's FRESH reply's world/effect tags
         (R9/R10) the instant its stream ends and commit them to the ledger at THIS turn
@@ -3035,12 +3094,14 @@ class Pipeline:
                         applied += r.applied
                         self._index_memories(ctx, r)
             if applied and getattr(spec, "living_world", True):
-                # Phase 2 (2026-07-09 Emberfall live): the living-world referee must read
+                # Phase 2 (2026-07-09 Cinderveil live): the living-world referee must read
                 # the FRESH reply's ops too — this path applied the player's move_entity,
                 # but only jobs/_progress ran world_ops, so travel time and the camera
                 # never followed a reply-committed move (the ladder later dedups it away).
                 lw = world_ops(state, applied,
-                               clock_turns=getattr(spec, "clock_turns", 6))
+                               clock_turns=getattr(spec, "clock_turns", 6),
+                               session_id=ctx.session_id, branch_id=ctx.branch_id,
+                               turn_index=ctx.turn_index)
                 if lw:
                     r = apply_delta(self.store, ctx.session_id, ctx.branch_id,
                                     ctx.turn_index, lw, "rule", self.cfg)
@@ -3087,7 +3148,7 @@ class Pipeline:
             log.warning("genesis schedule failed open: %s", type(exc).__name__)
 
     def _evolve_pass(self, ctx: PostContext) -> None:
-        """RPG-5 (the public contract / Q27): a mastery bracket crossed this turn schedules a cold-path
+        """RPG-5 (doc 10 §4 / Q27): a mastery bracket crossed this turn schedules a cold-path
         assist re-authoring of that skill's frozen def. Fail-open at every step — without an
         assist model the curated bracket bonus (registry.effective_mod) IS the evolution."""
         try:

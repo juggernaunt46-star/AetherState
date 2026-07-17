@@ -33,8 +33,10 @@ EXPECTED_REDUCER_OPS = frozenset(
         "battle_end",
         "battle_start",
         "battle_wave",
+        "belief_acquire",
         "capability_assign",
         "check",
+        "claim_record",
         "clash_record",
         "clock_tick",
         "clothing",
@@ -46,6 +48,7 @@ EXPECTED_REDUCER_OPS = frozenset(
         "consent_signal",
         "contact",
         "craving",
+        "creator_world_seed",
         "defeat_resolve",
         "effect_add",
         "effect_remove",
@@ -53,6 +56,7 @@ EXPECTED_REDUCER_OPS = frozenset(
         "enemy_intent_set",
         "entity_add",
         "evolve_def",
+        "fact_admit",
         "fact_retire",
         "freeze",
         "front_add",
@@ -101,6 +105,7 @@ EXPECTED_REDUCER_OPS = frozenset(
         "tide_set",
         "time_advance",
         "unfreeze",
+        "world_event_admit",
         "world_flag",
         "world_identity_set",
     }
@@ -123,7 +128,7 @@ def _base_state() -> dict:
     return {
         "meta": {"turn": TURN},
         "entities": {
-            "player.arinvale": {"name": "Arinvale", "present": True},
+            "player.eranmor": {"name": "Eranmor", "present": True},
             "guard": {"name": "Guard", "present": True},
         },
         "player": {},
@@ -153,7 +158,7 @@ def _build(state: dict, *ops: dict) -> dict:
 
 
 def test_reducer_inventory_is_exact_and_every_kind_has_one_audited_policy():
-    assert len(_SPEC) == 77
+    assert len(_SPEC) == 82
     assert frozenset(_SPEC) == EXPECTED_REDUCER_OPS
     policies = (
         runtime._SEMANTIC_EVIDENCE_JOURNAL_OPS,
@@ -165,7 +170,7 @@ def test_reducer_inventory_is_exact_and_every_kind_has_one_audited_policy():
         assert not any(policy & later for later in policies[index + 1 :])
     audited = frozenset().union(*policies)
     assert audited <= EXPECTED_REDUCER_OPS
-    assert len(EXPECTED_REDUCER_OPS - audited) == 58
+    assert len(EXPECTED_REDUCER_OPS - audited) == 63
 
 
 @pytest.mark.parametrize(
@@ -308,7 +313,7 @@ def _pending_state() -> tuple[dict, dict]:
         "defeated": False,
         "kit": kit,
     }
-    intent = select_enemy_intent(actor, TURN, "player.arinvale", "Arinvale")
+    intent = select_enemy_intent(actor, TURN, "player.eranmor", "Eranmor")
     assert intent is not None
     state = _base_state()
     state["combat"] = {
@@ -337,7 +342,7 @@ def test_exact_new_pending_intent_becomes_one_sealed_future_truth():
     assert fact["intent_ref"] == intent["id"]
     assert fact["intent_snapshot"] == intent
     assert fact["actor_id"] == "guard"
-    assert fact["target_id"] == "player.arinvale"
+    assert fact["target_id"] == "player.eranmor"
     assert fact["move_id"] == intent["move_id"]
     assert fact["tell"] == intent["tell"]
     assert fact["opening_kind"] == "following_intent"
@@ -351,7 +356,7 @@ def test_exact_new_pending_intent_becomes_one_sealed_future_truth():
         "cause_ref": intent["id"],
         "construction_ref": fact["construction_ref"],
         "actor_id": "guard",
-        "subject_ids": ["player.arinvale"],
+        "subject_ids": ["player.eranmor"],
         "kind": "pending_intent",
         "time_scope": "future",
         "detail": normalize_phrase(f"{intent['move_id']} {intent['tell']}"),

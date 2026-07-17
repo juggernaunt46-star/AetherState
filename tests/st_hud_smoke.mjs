@@ -28,7 +28,9 @@ const payload = {
   transport_error: { status: 400, turn: 12,
     message: "unsupported request field: include_reasoning" },
   scene: { location: "old_mill", phase: "combat", mode: "", time_of_day: "dusk", day: 3,
-           calendar_note: "", present: ["Mira", "Raider"] },
+           calendar_note: "", present: ["Mira", "Raider"],
+           world_circumstance: "Ashfall has closed the eastern road.",
+           location_circumstance: "The old mill floor is flooded." },
   players: [{
     eid: "player_testa", name: "Testa Vector", level: 3, xp: 140, stat_points: 1,
     mood: "level · steady", appearance: "A scarred courier with road-bleached hair.",
@@ -47,25 +49,39 @@ const payload = {
     skills: [
       { id: "blades", label: "Blades", mod: 4, keyed_stat: "might", group: "",
         bracket: "apprentice", mastery: 3, cost: "Ash Focus 3", gated: false,
-        basis_met: false, basis_name: "" },
+        basis_met: false, basis_name: "", desc: "Measured cuts and defensive parries.",
+        governs: ["slash", "parry"] },
       { id: "hexing", label: "Hexing", mod: 1, keyed_stat: "will", group: "Spells",
-        bracket: "", mastery: 0, cost: "Ash Focus 2", gated: true, basis_met: false, basis_name: "Witch-Sight" }],
+        bracket: "", mastery: 0, cost: "Ash Focus 2", gated: true, basis_met: false,
+        basis_name: "Witch-Sight", desc: "Reads <sealed> patterns without proving them true.",
+        governs: ["read signs"] },
+      { id: "sealed_path", label: "Sealed Path", mod: 2, keyed_stat: "wits", group: "",
+        bracket: "trained", mastery: 1, cost: "", gated: false, basis_met: true,
+        basis_name: "", eligible: false, desc: "Finds a lawful path through a closed road.",
+        governs: ["trace route"] }],
     abilities: [
       { id: "surge", name: "Adrenal Surge", active: true, applies_id: "blades",
         applies_to: "Blades", cost: "Ash Focus 2", cooldown: 3, on_cd: 0, group: "technique",
-        mechanic_label: "advantage on the roll", desc: "Burn stamina to push a strike." },
+        mechanic_label: "advantage on the roll", effect: "Burn stamina to push a strike.",
+        desc: "  burn   stamina to push a strike.  " },
       { id: "cooldown_dash", name: "Cooldown Dash", active: true, applies_id: "blades",
         applies_to: "Blades", cost: "Stamina 1", cooldown: 3, on_cd: 2, group: "technique",
         mechanic_label: "extra movement", desc: "Still recharging." },
+      { id: "world_locked", name: "World-Locked Technique", active: true, applies_id: "blades",
+        applies_to: "Blades", cost: "", cooldown: 0, on_cd: 0, group: "technique",
+        mechanic_label: "cross the sealed road", desc: "Blocked by the active world state.",
+        eligible: false },
       { id: "tough", name: "Wasteland-Tough", active: false, applies_to: "all checks",
         group: "talent", mechanic_label: "", desc: "" },
       { id: "optic", name: "Optic Zoom", active: false, applies_to: "perception",
-        group: "Cyber-Ware", mechanic_label: "", desc: "Telescopic eye implant." }],
+        group: "Cyber-Ware", mechanic_label: "", effect: "Magnifies distant details.",
+        desc: "Telescopic eye implant." }],
     effects: [{ key: "bleeding", name: "Bleeding", valence: "negative", kind_label: "Condition",
                 glyph: "🩸", note: "took a knife", remaining: 2, stacks: 1, mods: "-1 might" }],
     gear_slots: [
       { slot: "mainhand", label: "Main hand", kind: "weapon",
-        item: { iid: "i1", name: "Rusty Machete", mods: "+1 blades" } },
+        item: { iid: "i1", name: "Rusty Machete", mods: "+1 blades",
+          aura: "Its balance steadies defensive cuts." } },
       { slot: "offhand", label: "Off hand", kind: "weapon", item: null },
       { slot: "body", label: "Body", kind: "armor",
         item: { iid: "i5", name: "Patched Jacket", mods: "" } },
@@ -73,7 +89,8 @@ const payload = {
       { slot: "neck", label: "Neck", kind: "trinket", item: null },
       { slot: "waist", label: "Waist", kind: "armor", item: null }],
     stowed_gear: [{ container: "Backpack",
-      items: [{ iid: "i2", name: "Patch Kit", qty: 1, type: "tool", slot: "" }] }],
+      items: [{ iid: "i2", name: "Patch Kit", qty: 1, type: "tool", slot: "",
+        aura: "Repairs one torn field layer." }] }],
     inventory: [{ container: "Backpack", items: [
       { iid: "i3", name: "Ration", qty: 2, type: "consumable", consumable: true, slot: "" },
       { iid: "i4", name: "Iron Key", qty: 1, type: "key" }] }],
@@ -83,15 +100,15 @@ const payload = {
               goals: ["Reach the coast"] },
   }],
   cast: [{ eid: "mira", name: "Mira", present: true, rel_tier: "Friend", mood: "warm · lively",
-           arousal: 0, location: "",
+           arousal: 0, location: "", world_condition: "Marked by the ash storm.",
            effects: [{ key: "winded", name: "Winded", valence: "negative", kind_label: "Status",
                        glyph: "💨", note: "", remaining: 1, stacks: 1 }],
            drives: { goals: ["Guard Testa"], obsessions: [], cravings: [] },
            rel_dims: [{ dim: "trust", val: 35 }], worn: ["Leather cloak"], exposed: [] }],
   quests: [
     { name: "Cross the Amber Road", status: "active", stakes: "the caravan's survival",
-      note: "reach the mill by dusk" },
-    { name: "Find water", status: "done", stakes: "", note: "" }],
+      note: "reach the mill by dusk", available: false },
+    { name: "Find water", status: "done", stakes: "", note: "", available: true }],
   rolls: [
     { turn: 10, kind: "check", label: "Older Roll Sentinel", skill: "older_roll",
       spec: "", result: 5, mod: 1, tier: "fail", tier_label: "Failure",
@@ -102,11 +119,38 @@ const payload = {
       note: "clean check", impact: { kind: "none", target_id: null,
         target_label: null, damage: null, text: "No target impact" } },
   ],
-  relations: [{ name: "Mira", tier: "Friend" }],
-  factions: [{ name: "Roadwrights", tier: "Ally", circumstances: "debt=paid" }],
-  relationships: [{ a: "Testa", b: "Mira", dims: [{ dim: "trust", val: 35 }] }],
+  relations: [{ name: "Mira", tier: "Friend", reputation_modifier: 7 }],
+  factions: [{ name: "Roadwrights", tier: "Ally", circumstances: "debt=paid",
+    reputation_modifier: -5, world_circumstance: "Their river toll is suspended." }],
+  relationships: [{ a: "Testa", b: "Mira", dims: [{ dim: "trust", val: 35 }],
+    world_modifier: -12 }],
   world_flags: { amber_road_open: true },
   memories: [{ turn: 11, text: "Raiders struck the caravan at dusk." }],
+  knowledge: {
+    raw_prose: "RAW_CHAT_PROSE_SENTINEL",
+    claims: [{ speaker: "Mara", addressee: "Testa", class: "report",
+      proposition: "The eastern gate is open.", polarity: "positive", modality: "asserted",
+      raw_prose: "RAW_CLAIM_PROSE_SENTINEL" }],
+    epistemics: [
+      { holder: "Testa", stance: "knows", statement: "The bell rang.", source: "fact:bell" },
+      { holder: "Mira", stance: "believes", statement: "The eastern gate is open.", source: "claim:mara" },
+      { holder: "Vosk", stance: "doubts", statement: "The eastern gate is open.", source: "claim:mara" },
+      { holder: "Roadwrights", stance: "rumor", statement: "A second caravan is coming.", source: "claim:docks" },
+    ],
+    facts: [{ status: "accepted", statement: "The bell rang.", authority: "rule",
+      cause: "settlement:bell" }],
+    events: [
+      { id: "event.gate", status: "active", what_happened: "The eastern gate opened.",
+        cause_visible: true, cause: "front:roadwrights", affected_domains: ["world", "location"] },
+      { id: "event.veil", status: "expired_by_duration", what_happened: "The storm veil faded.",
+        cause_visible: false, cause: "HIDDEN_CAUSE_SENTINEL", affected_domains: ["world"] },
+      { id: "event.curfew", status: "reversal", what_happened: "The curfew was lifted.",
+        cause_visible: false, cause: "HIDDEN_REVERSAL_CAUSE_SENTINEL", affected_domains: ["faction"] },
+      { id: "event.treaty", status: "supersession", what_happened: "The old treaty no longer governs.",
+        cause_visible: false, cause: "HIDDEN_SUPERSESSION_CAUSE_SENTINEL",
+        affected_domains: ["faction", "relationship"], relation_target: "Roadwrights" },
+    ],
+  },
   consent: [{ pair: "Testa ↔ Mira", category: "romance", level: "yes", cap: null }],
   rules: { dice: "2d6", keep: 2,
     thresholds: [
@@ -970,14 +1014,31 @@ sandbox.aetherHudTab("char");
 // 3) every tab renders its markers
 const TAB_MARKERS = {
   char: ["Attributes", "might", "obsession", "Reach the coast"],
-  skills: ["Blades", "Witch-Sight", "Ash Focus 2"],
-  abilities: ["Adrenal Surge", "Wasteland-Tough", "Cyber-Ware", "advantage"],
-  rolls: ["aes-rollbtn", "Custom roll", "Adrenal Surge", "Recent checks",
+  skills: ["Blades", "Witch-Sight", "Ash Focus 2", "Sealed Path",
+    "Measured cuts and defensive parries.", "Used for: slash, parry",
+    "Reads &lt;sealed&gt; patterns without proving them true.",
+    "Unavailable due to world change"],
+  abilities: ["Adrenal Surge", "Wasteland-Tough", "Cyber-Ware", "advantage",
+    "Magnifies distant details.", "Telescopic eye implant.",
+    "World-Locked Technique", "Unavailable due to world change"],
+  rolls: ["aes-rollbtn", "Custom roll", "Adrenal Surge", "World-Locked Technique",
+    "unavailable due to world change", "Recent checks",
     "Newest Roll Sentinel", "Older Roll Sentinel"],
-  gear: ["Rusty Machete", "Patched Jacket", "Patch Kit", "open:"],
+  gear: ["Rusty Machete", "Its balance steadies defensive cuts.", "Patched Jacket",
+    "Patch Kit", "Repairs one torn field layer.", "open:"],
   inventory: ["Ration", "Iron Key"],
   status: ["Bleeding", "Condition"],
-  world: ["Mira", "Cross the Amber Road", "amber_road_open", "Raiders struck", "Roadwrights"],
+  world: ["Mira", "Cross the Amber Road", "amber_road_open", "Raiders struck", "Roadwrights",
+    "World circumstance", "Ashfall has closed the eastern road",
+    "Location circumstance", "The old mill floor is flooded",
+    "World condition", "Marked by the ash storm",
+    "Unavailable due to world change", "Available under current world conditions",
+    "World modifier", "-12", "Reputation modifier", "+7", "-5",
+    "Their river toll is suspended",
+    "Claims &amp; Events", "What was said", "Who knows, believes, doubts, or treats it as rumor",
+    "Accepted facts", "Admitted world events and history", "knows", "believes", "doubts", "rumor",
+    "active", "expired", "reversed", "superseded", "front:roadwrights",
+    "world, location", "cause not known", "relates to Roadwrights"],
 };
 for (const [tab, markers] of Object.entries(TAB_MARKERS)) {
   try {
@@ -986,6 +1047,30 @@ for (const [tab, markers] of Object.entries(TAB_MARKERS)) {
     mustContain(body._html, markers, "tab " + tab);
   } catch (e) { fail(`tab ${tab} THREW: ` + (e && e.stack || e)); }
 }
+sandbox.aetherHudTab("abilities");
+expect(occurrences(body._html, "Burn stamina to push a strike.") === 1,
+  "ability effect and equivalent description render only once");
+expect(!body._html.includes("  burn   stamina"),
+  "ability prose deduplication ignores case and whitespace differences");
+sandbox.aetherHudTab("skills");
+expect(!body._html.includes("<sealed>"),
+  "skill descriptions are HTML-escaped before visible rendering");
+sandbox.aetherHudTab("world");
+expect(!body._html.includes("HIDDEN_CAUSE_SENTINEL") &&
+       !body._html.includes("HIDDEN_REVERSAL_CAUSE_SENTINEL") &&
+       !body._html.includes("HIDDEN_SUPERSESSION_CAUSE_SENTINEL"),
+  "World knowledge never renders hidden event causes");
+expect(!body._html.includes("RAW_CHAT_PROSE_SENTINEL") &&
+       !body._html.includes("RAW_CLAIM_PROSE_SENTINEL"),
+  "World knowledge ignores raw prose fields outside the typed projection");
+expect(!body._html.includes("expired_by_duration") &&
+       !body._html.includes(">reversal<") &&
+       !body._html.includes(">supersession<"),
+  "World knowledge translates lifecycle codes into plain Player-facing history status");
+expect(occurrences(body._html, "Unavailable due to world change") >= 1,
+  "World tab plainly marks an unavailable quest");
+expect(occurrences(body._html, "Reputation modifier") === 2,
+  "actor and faction reputation modifiers render as separate typed rows");
 
 // 4) Rolls actions expose their real combined cost. Custom labels/colors remain presentation
 // data, never CSS classes; an unaffordable or recharging button cannot insert a command.
@@ -1023,7 +1108,27 @@ expect(!/class="[^"]*ash_focus/.test(rollsHtml),
   "custom resource id never becomes a Rolls-tab CSS class");
 expect(!rollsHtml.includes("red;display:none"), "unsafe resource color stays out of roll costs");
 
+const sealedSkillAt = rollsHtml.indexOf("Sealed Path");
+const sealedSkillButton = sealedSkillAt < 0 ? "" : rollsHtml.slice(
+  rollsHtml.lastIndexOf("<button", sealedSkillAt), rollsHtml.indexOf("</button>", sealedSkillAt));
+expect(sealedSkillButton.includes('class="aes-rollbtn gated world-unavailable"') &&
+       sealedSkillButton.includes('aria-disabled="true"') &&
+       sealedSkillButton.includes("unavailable due to world change"),
+  "world-ineligible skill is visibly disabled");
+const lockedAbilityAt = rollsHtml.indexOf("World-Locked Technique");
+const lockedAbilityButton = lockedAbilityAt < 0 ? "" : rollsHtml.slice(
+  rollsHtml.lastIndexOf("<button", lockedAbilityAt), rollsHtml.indexOf("</button>", lockedAbilityAt));
+expect(lockedAbilityButton.includes("gated world-unavailable") &&
+       lockedAbilityButton.includes('aria-disabled="true"') &&
+       lockedAbilityButton.includes("unavailable due to world change"),
+  "world-ineligible ability is visibly disabled");
+
 sendTextarea.value = "";
+const blockedWorldButton = { title: "unavailable due to world change",
+  classList: { contains: (name) => name === "gated" } };
+expect(sandbox.aetherTryRoll(blockedWorldButton, "sealed_path", "") === false &&
+       sendTextarea.value === "",
+  "world-ineligible skill cannot enter the composer");
 const blockedRollButton = { title: "cannot pay Ash Focus 5",
   classList: { contains: (name) => name === "gated" } };
 expect(sandbox.aetherTryRoll(blockedRollButton, "blades", "surge") === false &&

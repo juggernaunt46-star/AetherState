@@ -45,6 +45,102 @@ def _loads(blob, default):
         return default
 
 
+def player_safe_memory_text(text: object, state: dict) -> str:
+    """Hide legacy compatibility-memory labels for completed secret fronts.
+
+    Immutable journal and Store rows remain untouched.  Fresh producers already write a
+    cause-neutral event memory; this read-time projection covers rows created before that rule and
+    summaries which copied the old exact ``World event — <front name>:`` prefix.
+    """
+    rendered = str(text or "")
+    fronts = state.get("fronts") if isinstance(state, dict) else None
+    if not isinstance(fronts, dict) or not rendered:
+        return rendered
+    try:
+        from .world_events import front_identity_visible_to_player
+    except ImportError:
+        return rendered
+    for front_id, front in fronts.items():
+        if not isinstance(front, dict) or not front.get("done") \
+                or front_identity_visible_to_player(state, str(front_id)):
+            continue
+        name = str(front.get("name") or "").strip()
+        if not name:
+            continue
+        rendered = rendered.replace(
+            f"World event \N{EM DASH} {name}:",
+            "World event \N{EM DASH}",
+        )
+        rendered = rendered.replace(name, "a hidden cause")
+    return rendered
+
+
+def _typed_retrieval_query(state: dict, query_text: str) -> str:
+    """Add only bounded, audience-safe typed context before relevance scoring.
+
+    The returned string is an internal query, never prompt prose. Claims, epistemics, facts, and
+    event effects remain separately typed; their words can improve recall without turning memory
+    text or recognition confidence into authority.
+    """
+    scene = state.get("scene") or {}
+    entities = state.get("entities") or {}
+    player_id = next(iter(state.get("player") or {}), None)
+    context_values = [query_text, scene.get("location_id"), scene.get("phase")]
+    context_values.extend(scene.get("participants") or [])
+    context_values.extend(
+        row.get("name") for row in entities.values()
+        if isinstance(row, dict) and row.get("present")
+    )
+    context_tokens = set().union(*(_tokens(str(value or "")) for value in context_values))
+    additions: list[str] = []
+    try:
+        from .knowledge import select_knowledge
+
+        view = select_knowledge(
+            state,
+            audience="narrator",
+            actor_id=player_id,
+            query=query_text,
+            limit=8,
+        )
+        for bucket in ("facts", "events", "epistemics", "claims"):
+            for row in view[bucket]:
+                statement = str(row.get("statement") or "").strip()
+                if statement and _tokens(statement) & context_tokens:
+                    additions.append(statement)
+    except Exception:
+        pass
+    try:
+        from .world_events import effective_domain, project_state_overlay
+
+        overlay = project_state_overlay(state)
+        location_id = str(scene.get("location_id") or "")
+        present_ids = {
+            str(eid) for eid, row in entities.items()
+            if isinstance(row, dict) and row.get("present")
+        }
+        allowed = {"world", "retrieval:world", f"retrieval:{location_id}"}
+        for eid in present_ids | ({str(player_id)} if player_id else set()):
+            allowed.update({f"actor:{eid}", f"retrieval:{eid}"})
+        for subject_key, fields in effective_domain(overlay, "retrieval").items():
+            if subject_key not in allowed or not isinstance(fields, dict):
+                continue
+            row = fields.get("context")
+            value = str(row.get("value") or "").strip() if isinstance(row, dict) else ""
+            if value:
+                additions.append(value)
+    except Exception:
+        pass
+    bounded: list[str] = []
+    size = 0
+    for value in dict.fromkeys(additions):
+        if len(bounded) >= 8 or size + len(value) > 800:
+            break
+        bounded.append(value)
+        size += len(value)
+    return " ".join([query_text, *bounded]).strip()
+
+
 # ---- index writes (cold path, post-apply) --------------------------------------------------
 def index_applied(store, session_id: str, branch_id: str, applied_ops: list,
                   state: dict) -> int:
@@ -62,7 +158,7 @@ def index_applied(store, session_id: str, branch_id: str, applied_ops: list,
         if mode in ("flashback", "dream") and mode not in tags:
             tags.append(mode)                              # 08 B4 parity with the reducer
         store.memories_add(session_id, branch_id, tier="episodic",
-                           text=str(op.get("text", "")),
+                           text=player_safe_memory_text(op.get("text", ""), state),
                            participants=list(op.get("participants", [])),
                            location_id=sc.get("location_id"), tags=tags,
                            importance=max(1, min(10, int(op.get("importance", 3)))),
@@ -150,16 +246,25 @@ def retrieve(store, cfg, branch_id: str, state: dict, query_text: str,
     cands = _prefilter(rows, state, m.prefilter_limit)
     if not cands:
         return []
+    relevance_query = _typed_retrieval_query(state, query_text)
     rec = _norm([m.recency_decay ** max(0, now_turn - r["last_accessed_turn"]) for r in cands])
     imp = _norm([r["importance"] / 10.0 for r in cands])
-    rel = _norm(_relevance(store, cands, query_text, query_vec))
+    rel = _norm(_relevance(
+        store,
+        cands,
+        relevance_query,
+        query_vec if relevance_query == query_text else None,
+    ))
     scored = sorted(
         ((m.w_recency * rec[i] + m.w_importance * imp[i] + m.w_relevance * rel[i], i)
          for i in range(len(cands))),
         key=lambda t: (-t[0], cands[t[1]]["created_turn"] * -1))    # deterministic tie-break
     top = [cands[i] for _, i in scored[:max(1, m.top_k)]]
     store.memories_bump_access([r["memory_id"] for r in top], now_turn)
-    return top
+    return [
+        {**dict(row), "text": player_safe_memory_text(row["text"], state)}
+        for row in top
+    ]
 
 
 # ---- rendering (04 SS3.5) ------------------------------------------------------------------
@@ -213,7 +318,10 @@ def reflect(store, cfg, session_id: str, branch_id: str, state: dict) -> int:
     for scene_idx in sorted(by_scene):
         rows = by_scene[scene_idx]
         best = sorted(rows, key=lambda r: (-r["importance"], r["created_turn"]))
-        digest = "; ".join(r["text"] for r in best[:_DIGEST_MEMBERS])[:_DIGEST_CHARS]
+        digest = "; ".join(
+            player_safe_memory_text(r["text"], state)
+            for r in best[:_DIGEST_MEMBERS]
+        )[:_DIGEST_CHARS]
         participants = sorted({p for r in rows for p in _loads(r["participants"], [])})
         tags = sorted({t for r in rows for t in _loads(r["tags"], [])} | {"summary"})
         loc = rows[0]["location_id"]

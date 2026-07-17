@@ -64,8 +64,11 @@ def test_anyof_schema_branches_are_per_op_and_byte_stable():
     goal_action = by_kind["goal"]["properties"]["action"]["enum"]
     assert goal_action == ["abandon", "add", "complete", None]
     assert by_kind["craving"]["properties"]["action"]["enum"] == ["adjust", "consume", None]
-    # apply-side optionals stay OFF the wire, same surface as the flat schema
-    assert "is_secret" not in by_kind["reveal_fact"]["properties"]
+    # Fresh knowledge is actor-local; the legacy combined fact/belief op is not on the wire.
+    assert "reveal_fact" not in by_kind
+    assert set(by_kind["belief_acquire"]["properties"]) == {
+        "op", "holder", "statement", "stance", "evidence_source", "teller",
+    }
     assert "covers" not in by_kind["clothing"]["properties"]
     assert "calendar_note" not in by_kind["time_advance"]["properties"]
 
@@ -97,6 +100,8 @@ def test_op_add_stays_one_table_cheap():
     assert set(EXTRACTION_OPS_RPG) == set(EXTRACTION_OPS) | rpg_ops
     assert set(EXTRACTION_OPS_RPG) <= set(state._SPEC)
     for kind, enums in OP_FIELD_ENUMS.items():
+        if kind == "reveal_fact":
+            continue  # reducer/replay compatibility only; never a fresh extraction producer
         assert kind in _OP_ALLOWED, kind
         assert set(enums) <= _OP_ALLOWED[kind], (kind, enums)
         for f, vocab in enums.items():

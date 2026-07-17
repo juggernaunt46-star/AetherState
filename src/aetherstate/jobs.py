@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from . import assist, compose, director, discovery, linter, memory
+from .claim_ingress import link_extracted_beliefs_to_claims
 from .extraction import Endpoint, Ladder
 from .state import (apply_delta, assign_damage_effect_ids, battle_ops, combat_ops, current_state,
                     faction_cascade_ops, is_empty,
@@ -231,6 +232,15 @@ class JobRunner:
         self._fails.pop(b.session_id, None)
         delta_ops = assign_damage_effect_ids(
             delta.ops, b.branch_id, b.hi, "extraction", basis=f"{b.lo}:{b.hi}", canonical=True)
+        # Claims from the exact Player/narrator exchange are already durable before Tier-1 runs.
+        # Link actor-relative extraction beliefs to one unambiguous occurrence; never reparse the
+        # exchange under a false ``extraction`` ingress or duplicate its Claim Records.
+        delta_ops = link_extracted_beliefs_to_claims(
+            delta_ops,
+            self.store.claim_records(b.branch_id, through_turn=b.hi),
+            turn_lo=b.lo,
+            turn_hi=b.hi,
+        )
         res = apply_delta(self.store, b.session_id, b.branch_id, b.hi, delta_ops,
                           "extraction", self.cfg, turn_lo=b.lo,
                           required_extraction=(b.lo, b.hi))
@@ -238,7 +248,7 @@ class JobRunner:
             log.info("discarded retired extraction [%d,%d] after narration retry", b.lo, b.hi)
             return
         requeued = self._discover_from_quarantine(b, res.quarantined)
-        try:                                   # RPG-3b (the public contract): deterministic faction
+        try:                                   # RPG-3b (doc 05 §5.4): deterministic faction
             spec = getattr(self.cfg, "specialization", None)   # cascade — journaled rule ops
             if spec is not None and spec.name == "rpg" and res.state.get("player"):
                 casc = faction_cascade_ops(res.state, res.applied,
@@ -251,7 +261,7 @@ class JobRunner:
                     log.info("faction cascade: %d op(s) applied", len(r2.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("faction cascade skipped: %s", type(exc).__name__)
-        try:                                   # Phase 1 (the mechanics contract): the combat referee —
+        try:                                   # Phase 1 (plan doc 13): the combat referee —
             spec = getattr(self.cfg, "specialization", None)   # batch-applied clashes/harm
             if spec is not None and spec.name == "rpg" and res.state.get("player") \
                     and getattr(spec, "war_room", True):       # can settle defeats too
@@ -276,7 +286,7 @@ class JobRunner:
                         log.info("battle pass: %d op(s) applied", len(rb.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("combat pass skipped: %s", type(exc).__name__)
-        try:                                   # RPG-5 (the public contract): code-awarded progression —
+        try:                                   # RPG-5 (doc 10): code-awarded progression —
             spec = getattr(self.cfg, "specialization", None)   # XP / level-ups / defeat from
             if spec is not None and spec.name == "rpg" and res.state.get("player"):
                 pro = progression_ops(res.state, res.applied,
@@ -289,12 +299,14 @@ class JobRunner:
                     log.info("progression: %d op(s) applied", len(r3.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("progression pass skipped: %s", type(exc).__name__)
-        try:                                   # Phase 2 (the mechanics contract): the living-world pass —
+        try:                                   # Phase 2 (plan doc 13): the living-world pass —
             spec = getattr(self.cfg, "specialization", None)   # travel time, the idle clock,
             if spec is not None and spec.name == "rpg" and res.state.get("player") \
                     and getattr(spec, "living_world", True):   # and faction-front ticks
                 lw = world_ops(res.state, res.applied,
-                               clock_turns=getattr(spec, "clock_turns", 6))
+                               clock_turns=getattr(spec, "clock_turns", 6),
+                               session_id=res.session_id, branch_id=res.branch_id,
+                               turn_index=res.turn_index)
                 if lw:
                     r4 = apply_delta(self.store, b.session_id, b.branch_id, b.hi, lw,
                                      "rule", self.cfg,

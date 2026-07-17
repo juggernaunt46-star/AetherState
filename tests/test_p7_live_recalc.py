@@ -92,13 +92,13 @@ def test_gear_authored_slot_and_prose_effect_flow_through():
     store = Store(":memory:")
     sid, bid = store.create_session(external_id="gear-aura")
     apply_delta(store, sid, bid, 0, [
-        {"op": "entity_add", "name": "Lyra", "kind": "player"},
-        {"op": "player_seed", "entity": "Lyra", "card": {"resources": {"hp": {"max": 18}}}}],
+        {"op": "entity_add", "name": "Sera", "kind": "player"},
+        {"op": "player_seed", "entity": "Sera", "card": {"resources": {"hp": {"max": 18}}}}],
         "genesis", cfg)
     # a name the heuristic would classify as plain inventory, PINNED to the neck slot with a prose
     # effect — the authored slot must win and the aura must survive to the render surfaces
     r = apply_delta(store, sid, bid, 1, [
-        {"op": "item_gain", "char": "Lyra", "name": "the Murmuring Oath", "slot": "neck",
+        {"op": "item_gain", "char": "Sera", "name": "the Murmuring Oath", "slot": "neck",
          "aura": "a black pearl that hushes a room when you enter; strangers lean in"}], "user", cfg)
     assert r.applied, r.quarantined
     st = current_state(store, bid)
@@ -172,6 +172,24 @@ def test_live_recalc_ingests_fresh_reply_tags_at_this_turn():
     assert any(it["name"] == "health potion" for it in st["items"].values())
     assert any("escape" in str(q.get("name", "")).lower()
                for q in (st.get("quests") or {}).values())
+
+
+def test_live_recalc_passes_exact_context_to_living_world_referee():
+    """A delivered reply must reach the post-ingest world pass without a stale request object."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    ctx = PostContext(sid, bid, 6, "new_turn", speaker="Narrator")
+
+    pipe.on_response(
+        ctx,
+        _json_reply("Rune finds a useful bundle. [item gained | Rune | climbing rope]"),
+        "application/json",
+    )
+
+    state = current_state(store, bid)
+    assert state["clock"]["time_of_day"] == "night"
+    assert state["clock"]["last_advance_turn"] == 6
 
 
 def test_live_recalc_authorizes_foe_first_cohort_and_activates_war_room():

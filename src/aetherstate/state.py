@@ -34,10 +34,17 @@ from .enemy_capability_pool import (
 )
 from .enemy_kits import (build_enemy_kit, grounded_actor_armament,
                          intent_matches_frozen_kit, select_enemy_intent)
+from .knowledge import (
+    normalize_actor_id,
+    normalized_proposition,
+    polarized_proposition_id,
+    proposition_id,
+)
 from .worldlex import DefinitionRef, SubjectRef, validate_pool
 from .worldlex_assignment import (AssignmentError, materialize_assignment,
                                   validate_assignment)
 from .worldlex_store import WorldLexError
+from .world_events import project_world_overlay, validate_world_event_record
 
 log = logging.getLogger("aetherstate.state")
 
@@ -105,7 +112,7 @@ SIGNAL_TO_LEVEL = {"grant": "granted", "enthusiastic": "enthusiastic", "hesitant
                    "refuse": "withdrawn", "withdraw": "withdrawn"}
 TIMES = ["dawn", "morning", "midday", "afternoon", "evening", "night", "late_night"]
 SCENE_MODES = {"live", "flashback", "dream"}
-# ---- RPG specialization vocab (the public contract): the check-op tier ladder (PbtA + crits).
+# ---- RPG specialization vocab (doc 07 §1): the check-op tier ladder (PbtA + crits).
 # Single source of truth — validate_op checks it; registry.resolve_tier only emits members.
 CHECK_TIERS = ["crit_fail", "fail", "partial", "success", "crit_success"]
 CHECK_ROLL_SHAPE_SCHEMA = "check-roll-shape/1"
@@ -127,7 +134,7 @@ def merge_baseline_skills(skills):
     return out
 
 
-# ---- RPG-2 items vocab (the public contract): instance locations + gear slots.
+# ---- RPG-2 items vocab (docs 06 §3.5 / 07 §1): instance locations + gear slots.
 # GEAR_SLOT_ORDER is the render order; the AUTHORITATIVE slot set may be extended per-table via
 # the registry (meta.toml `extra_slots`) — validity is baked onto item_equip at _enrich time so
 # the reducer never reads the registry (replay purity).
@@ -264,11 +271,11 @@ def item_is_gear(it: dict) -> bool:
     return classify_item(str(it.get("name", "")), it)["class"] == "gear"
 
 
-# ---- RPG-3 effects vocab (the public contract): ledger-owned Statuses & Conditions. Truth lives in
+# ---- RPG-3 effects vocab (doc 05 §5.4): ledger-owned Statuses & Conditions. Truth lives in
 # the ledger, not the prose — the LLM PROPOSES (tag protocol / extraction), code COMMITS.
 EFFECT_KINDS = {"status", "condition"}
 EFFECT_VALENCES = ["negative", "neutral", "positive"]   # dynamic per-record, never hardcoded
-# ---- RPG-3b social vocab (the public contract-5.6 / 06 §2.4 / 07 §1): affinity ledgers, factions,
+# ---- RPG-3b social vocab (docs 05 §5.4-5.6 / 06 §2.4 / 07 §1): affinity ledgers, factions,
 # bonds, world flags. Affinity `value` is the CLAMPED LEDGER SUM; the tier is DERIVED at
 # render from AFFINITY_TIERS (never stored — like derived_exposure, it cannot drift). The
 # per-turn delta cap is the AI-Roguelite anti-swing fix, baked per-op (`_delta`) at _enrich
@@ -276,13 +283,13 @@ EFFECT_VALENCES = ["negative", "neutral", "positive"]   # dynamic per-record, ne
 AFFINITY_KINDS = {"npc", "faction"}
 AFFINITY_CLAMP = (-100, 100)
 AFFINITY_DELTA_CLAMP = (-15, 15)
-DEVOTED_MIN = 80                       # soulmate-eligibility floor (the public contract; linter-checked)
+DEVOTED_MIN = 80                       # soulmate-eligibility floor (doc 06 §2.4; linter-checked)
 AFFINITY_TIERS = [(80, "Devoted"), (40, "Ally"), (10, "Warm"), (-9, "Neutral"),
                   (-39, "Cold"), (-79, "Hostile")]     # below the last floor -> Nemesis
 
 
 def affinity_tier(value) -> str:
-    """Derived tier label (the public contract). Rendered/inspected, never stored."""
+    """Derived tier label (doc 06 §2.4). Rendered/inspected, never stored."""
     try:
         v = int(value)
     except (TypeError, ValueError):
@@ -293,7 +300,7 @@ def affinity_tier(value) -> str:
     return "Nemesis"
 
 
-# ---- RPG-5 progression & recording vocab (the public contract; regression test 2026-07-06 G-series) ------
+# ---- RPG-5 progression & recording vocab (doc 10; playtest 2026-07-06 G-series) ------
 # Curated, Bean-editable constants: code awards XP/mastery, the LLM never types a number
 # that sticks unclamped. Quests are a first-class ledger family (G3); items gain an organic
 # acquisition channel (G2); HP gains a bounded consequence channel (G7).
@@ -306,14 +313,14 @@ MASTERY_CAP = 120                                        # the hard ceiling (Bea
 MASTERY_BRACKETS = [(100, "Grandmaster"), (60, "Master"), (30, "Expert"),
                     (10, "Adept"), (0, "Novice")]
 MASTERY_TICKS = {"crit_success": 4, "success": 3, "partial": 1, "fail": 1, "crit_fail": 0}
-MASTERY_SCENE_CAP = 6            # anti-grind (the public contract M2): ticks per skill per scene
+MASTERY_SCENE_CAP = 6            # anti-grind (doc 10 M2): ticks per skill per scene
 DEFEAT_OUTCOMES = {"captured", "wake_safe", "robbed", "rescued", "death"}
 HP_ADJ_MIN_CAP = 5               # per-op swing clamp floor: max(5, hp.max // 4)
 
 
 def mastery_bracket(m) -> tuple[str, int]:
     """(label, bonus). The bonus joins effective_mod — the curated bracket bump
-    (the public contract), the evolution floor that needs no assist model."""
+    (doc 10 §4), the evolution floor that needs no assist model."""
     try:
         v = int(m)
     except (TypeError, ValueError):
@@ -335,11 +342,11 @@ def xp_level(xp) -> int:
         lvl += 1
     return lvl
 
-# ---- Phase 1 combat / War Room vocab (the mechanics contract, verified 2026-07-09) --------------
+# ---- Phase 1 combat / War Room vocab (plan doc 13, ratified 2026-07-09) --------------
 # Combatant INSTANCES are snapshot-frozen at spawn (replay-pure): HP by threat tier, an
 # armament tag, and the loot row all bake into the journaled op. Two classes (Bean's split):
 # EXTRAS are unnamed-procedural rows that evaporate at combat_end; TRACKED combatants
-# REFERENCE their entity row so wounds persist after the fight (FULL persistence, verified).
+# REFERENCE their entity row so wounds persist after the fight (FULL persistence, ratified).
 # 3v3 cap, player included on the ally side. All numbers curated — never model-typed.
 COMBAT_SIDES = {"ally", "enemy"}
 THREAT_TIERS = ["minion", "standard", "elite", "boss"]
@@ -393,7 +400,7 @@ _LOOT_FALLBACK = {
 }
 
 
-# ---- Large-scale battle (the mechanics contract §F, Bean 2026-07-10) ----------------------------
+# ---- Large-scale battle (plan doc 13 §F, Bean 2026-07-10) ----------------------------
 # The player fights their MICRO slice on the dice (the War Room bubble); the MACRO battle —
 # army-on-army, the rest of the field — lives in PROSE, the DM reporting how it goes. Only the
 # OUTCOME is tracked: a momentum (code-owned, clamped) whose sign is the TIDE for the player
@@ -864,11 +871,18 @@ _SPEC: dict[str, set[str]] = {
     "semantic_binding_commit": {"binding"},
     "semantic_world_alignment_commit": {"alignment"},
     "semantic_frame_commit": {"frame"},
+    "claim_record": {"frame"},
+    "fact_admit": {"statement", "cause"},
+    "belief_acquire": {"holder", "stance"},
     "mechanic_settlement_commit": {
         "contract_id", "settlement_ref", "frame_ref", "members",
     },
     "world_identity_set": {"world_id"},
+    # Creator-only, typed source document used to rebuild cards after long campaigns.  This is
+    # presentation/lore metadata, never objective event truth and never an extraction surface.
+    "creator_world_seed": {"document"},
     "capability_assign": {"definition", "subject", "acquisition_source"},
+    "world_event_admit": {"event"},
     "set_attribute": {"entity", "key", "value"},
     "move_entity": {"entity", "to_location"},
     "presence": {"entity", "present"},
@@ -896,29 +910,29 @@ _SPEC: dict[str, set[str]] = {
     "freeze": set(), "unfreeze": set(),
     "roll": {"spec", "result"},                # R7 (result pre-rolled at Tier-0)
     "stagnation": {"value"},                   # R6 signal
-    # RPG specialization (Q27 / the public contract): privileged ops (genesis/user); never extraction.
+    # RPG specialization (Q27 / doc 05): privileged ops (genesis/user); never extraction.
     "player_seed": {"entity"},                 # seed/replace the Player Card record
     "check": {"skill", "result", "tier"},      # RPG-1 R8 resolution record (rule/user; Tier-0)
     # Generic non-HP resource mutation for code-owned mechanics. It is deliberately absent from
     # the extraction wire: future reducers/Tier-0 rules may gain, spend, or set a DECLARED pool,
     # while narration and free-form user prose cannot mint or move resource points.
     "resource_change": {"char", "resource", "action", "amount"},
-    # RPG-2 items (the public contract): item_mint is privileged (user/genesis/rule; never extraction);
-    # the rest are PROPOSABLE (extraction may propose) and transactional at apply (the public contract).
+    # RPG-2 items (doc 07 §2): item_mint is privileged (user/genesis/rule; never extraction);
+    # the rest are PROPOSABLE (extraction may propose) and transactional at apply (doc 07 §7).
     "item_mint": {"template", "owner"},
     "item_move": {"instance", "to"},
     "item_equip": {"instance", "slot"},
     "item_unequip": {"instance"},
     "item_consume": {"instance"},
     "item_transfer": {"instance", "to_owner"},
-    # RPG-3 effects (the public contract): all three are PROPOSABLE (tag protocol + extraction);
+    # RPG-3 effects (doc 05 §5.4): all three are PROPOSABLE (tag protocol + extraction);
     # optional fields: kind/valence/note/duration/stacks. ability_grant is PRIVILEGED —
     # the eligibility gate's acquisition route (you earn power in-world; never extraction).
     "effect_add": {"char", "effect"},
     "effect_remove": {"char", "effect"},
     "effect_update": {"char", "effect"},
     "ability_grant": {"char", "ability"},
-    # RPG-3b social plane (the public contract-5.6 / 07 §7.7-7.8): affinity_adj + world_flag are
+    # RPG-3b social plane (docs 05 §5.4-5.6 / 07 §7.7-7.8): affinity_adj + world_flag are
     # PROPOSABLE (extraction may propose; delta clamped per turn); set_soulmate/set_nemesis
     # are PRIVILEGED — bonds are earned and set deliberately, extraction may only nudge
     # affinity. `target` may be null on the bond ops (= clear the bond).
@@ -926,7 +940,7 @@ _SPEC: dict[str, set[str]] = {
     "set_soulmate": {"target"},
     "set_nemesis": {"target"},
     "world_flag": {"key", "value"},
-    # RPG-5 recording gaps (regression test 2026-07-06 G1-G8): item_gain/item_lose (the organic
+    # RPG-5 recording gaps (playtest 2026-07-06 G1-G8): item_gain/item_lose (the organic
     # acquisition channel — templateless names commit MECHANICS-FREE; a registry-template
     # name grounds its mechanics), quest_add/quest_update (the quest ledger family), and
     # hp_adj (bounded consequence channel) are PROPOSABLE (tag protocol + rpg wire).
@@ -935,7 +949,7 @@ _SPEC: dict[str, set[str]] = {
     "quest_add": {"name"},
     "quest_update": {"quest"},
     "hp_adj": {"char", "delta"},
-    # RPG-5 progression (the public contract): ALL PRIVILEGED (rule/user/genesis; extraction rejected).
+    # RPG-5 progression (doc 10): ALL PRIVILEGED (rule/user/genesis; extraction rejected).
     # Growth is code-awarded from resolved play — never asserted, never typed by a model.
     "award_exp": {"char", "amount"},
     "level_up": {"char"},
@@ -943,7 +957,7 @@ _SPEC: dict[str, set[str]] = {
     "evolve_def": {"char", "table", "id", "def"},
     "defeat_resolve": {"char", "outcome"},
     "stat_spend": {"char", "stat"},            # spend a banked stat point: +1 stat, -1 point
-    # Phase 1 combat / War Room (the mechanics contract, verified). combatant_spawn / combatant_defeat /
+    # Phase 1 combat / War Room (plan doc 13, ratified). combatant_spawn / combatant_defeat /
     # combat_end / loot_table are PRIVILEGED (rule/user/genesis — the narrator's [foe] tag is
     # validated and re-sourced as rule by the pipeline); combatant_hp and
     # clash_record are PROPOSABLE (tag protocol + rpg wire, clamped/checked at apply).
@@ -954,7 +968,7 @@ _SPEC: dict[str, set[str]] = {
     "combat_end": set(),
     "clash_record": {"a", "b"},                # NPC-vs-NPC: record, never resolve (no dice)
     "loot_table": {"tier", "entries"},         # Creator/assist-frozen loot rows (pillar 18)
-    # Large-scale battle (the mechanics contract §F, Bean 2026-07-10). battle_start / battle_wave /
+    # Large-scale battle (plan doc 13 §F, Bean 2026-07-10). battle_start / battle_wave /
     # battle_end are PRIVILEGED (rule/user/genesis — the DM's [battle] tag opens it and the
     # code referee sends waves); tide_set is PROPOSABLE (the DM's [tide] tag reports the macro,
     # clamped +/-1 step per turn — code owns the pace).
@@ -962,7 +976,7 @@ _SPEC: dict[str, set[str]] = {
     "tide_set": {"tide"},
     "battle_wave": set(),
     "battle_end": set(),
-    # Phase 2 living world (the mechanics contract, verified). front_add / front_tick / route_set are
+    # Phase 2 living world (plan doc 13, ratified). front_add / front_tick / route_set are
     # PRIVILEGED (fronts are authored frozen and advanced by CODE — the world_ops referee);
     # front_reveal is PROPOSABLE (a rumor heard in the fiction is witnessed truth — the
     # [rumor] tag / name-mention floor surface a hidden clock, never advance it).
@@ -978,7 +992,7 @@ _ORDER = {"semantic_meaning_commit": -5,
           "semantic_world_alignment_commit": -3,
           "semantic_frame_commit": -2,
           "mechanic_settlement_commit": 1,
-          "freeze": -1, "unfreeze": 0, "world_identity_set": 0,
+          "freeze": -1, "unfreeze": 0, "world_identity_set": 0, "creator_world_seed": 0,
           "capability_assign": 1,
           "entity_add": 0, "presence": 1, "move_entity": 2,
           "scene_set": 2, "scene_mode": 2, "item_mint": 2, "item_gain": 2,
@@ -993,7 +1007,10 @@ _ORDER = {"semantic_meaning_commit": -5,
           "combatant_defeat": 8, "combat_end": 9,                     # harm; settle last
           "battle_start": 1, "tide_set": 6, "battle_wave": 2,         # §F: open early, wave with
           "battle_end": 9,                                            # the spawns, settle last
-          "front_add": 1, "route_set": 1, "front_reveal": 5, "front_tick": 8}   # Phase 2
+          "front_add": 1, "route_set": 1, "front_reveal": 5, "front_tick": 8,
+          # A front completion is the first code-owned event cause.  Apply its exact clock
+          # receipt before validating and publishing the immutable event in the same batch.
+          "world_event_admit": 9}   # Phase 2 + World Event admission
 _DEFAULT_ORDER = 7
 
 # 02 SS12b families
@@ -1002,9 +1019,14 @@ _FAMILY = {
     "semantic_binding_commit": "facts",
     "semantic_world_alignment_commit": "facts",
     "semantic_frame_commit": "facts",
+    "claim_record": "facts",
+    "fact_admit": "facts",
+    "belief_acquire": "facts",
     "mechanic_settlement_commit": "facts",
     "world_identity_set": "facts",
+    "creator_world_seed": "facts",
     "capability_assign": "facts",
+    "world_event_admit": "facts",
     "set_attribute": "scene", "move_entity": "scene", "presence": "scene", "clothing": "scene",
     "position": "scene", "contact": "scene", "time_advance": "scene", "clock_tick": "scene",
     "scene_set": "scene", "scene_mode": "scene", "entity_add": "scene", "roll": "scene",
@@ -1018,14 +1040,14 @@ _FAMILY = {
     "player_seed": "player",                   # RPG specialization (privileged)
     "resource_change": "player",               # internal declared-pool lifecycle mutation
     "check": "scene",                          # RPG-1: resolution record (like roll; scene family)
-    "item_mint": "scene", "item_move": "scene", "item_equip": "scene",   # RPG-2 (the public contract)
+    "item_mint": "scene", "item_move": "scene", "item_equip": "scene",   # RPG-2 (doc 07 §3)
     "item_unequip": "scene", "item_consume": "scene", "item_transfer": "scene",
     "effect_add": "scene", "effect_remove": "scene", "effect_update": "scene",   # RPG-3
     "ability_grant": "player",             # RPG-3: privileged, like player_seed
-    "affinity_adj": "organic",             # RPG-3b: evolves through play (the public contract);
+    "affinity_adj": "organic",             # RPG-3b: evolves through play (doc 07 §3);
     #                                        frozen-suppression + manual_override for free
     "set_soulmate": "facts", "set_nemesis": "facts",   # narrative truth; privileged (§5.1 guard)
-    "world_flag": "facts",                 # extraction may propose world truth (the public contract)
+    "world_flag": "facts",                 # extraction may propose world truth (doc 07 §3)
     "item_gain": "scene", "item_lose": "scene", "hp_adj": "scene",    # RPG-5 (G2/G7)
     "quest_add": "facts", "quest_update": "facts",                    # RPG-5 (G3)
     "award_exp": "player", "level_up": "player", "master_tick": "player",   # RPG-5
@@ -1091,10 +1113,13 @@ def slug(name: str) -> str:
 def empty_state() -> dict:
     return {"schema": SCHEMA, "entities": {}, "chars": {}, "attributes": {}, "clothing": {},
             "poses": {}, "contacts": {}, "consent": {}, "relationships": {}, "facts": {},
-            "beliefs": {}, "memories": [], "scene": {}, "clock": {"day": 1, "time_of_day": "evening",
+            "beliefs": {}, "epistemic_history": [], "claims": [], "propositions": {},
+            "memories": [], "scene": {}, "clock": {"day": 1, "time_of_day": "evening",
             "minutes": 0, "calendar_note": None}, "frozen": False, "rolls": [], "player": {},
             "items": {}, "gear": {}, "inventory": {}, "effects": {}, "quests": {},
             "affinity": {}, "factions": {}, "world": {}, "world_identity": {},
+            "creator_world": {},
+            "world_events": [], "world_overlay": {},
             "meta": {"turn": -1}}
 
 
@@ -1104,10 +1129,12 @@ def is_empty(state: dict) -> bool:
         return True
     return not (state.get("entities") or state.get("chars") or state.get("scene")
                 or state.get("consent") or state.get("relationships") or state.get("facts")
+                or state.get("beliefs") or state.get("claims")
                 or state.get("rolls") or state.get("frozen") or state.get("player")
                 or state.get("semantic_meanings") or state.get("semantic_bindings")
                 or state.get("semantic_world_alignments") or state.get("semantic_frames")
-                or state.get("mechanic_settlements"))
+                or state.get("mechanic_settlements") or state.get("world_events")
+                or state.get("creator_world") or state.get("claims"))
 
 
 def _trim_receipt_ledger(rows: list[dict], current_turn: int, older_cap: int = 16) -> None:
@@ -1117,6 +1144,76 @@ def _trim_receipt_ledger(rows: list[dict], current_turn: int, older_cap: int = 1
     historical_allowance = max(0, int(older_cap) - len(current))
     retained_older = older[-historical_allowance:] if historical_allowance else []
     rows[:] = retained_older + current
+
+
+_CREATOR_WORLD_DOCUMENT_KEYS = frozenset({
+    "world_id", "parent_world_id", "name", "genre", "setting", "date", "time", "tone",
+    "factions", "locations", "npcs", "aspects", "opening_scene", "opening_quest", "extras",
+    "loot", "fronts", "routes",
+})
+_CREATOR_WORLD_SCALAR_KEYS = frozenset({
+    "world_id", "parent_world_id", "name", "genre", "setting", "date", "time", "tone",
+    "opening_scene", "opening_quest",
+})
+_CREATOR_WORLD_LIST_KEYS = frozenset({
+    "factions", "locations", "npcs", "aspects", "extras", "fronts", "routes",
+})
+
+
+def _creator_world_snapshot(document: object, turn: int) -> dict:
+    """Validate and seal the Creator's normalized world source document.
+
+    The snapshot exists only so card regeneration does not depend on the rolling memory cache.
+    It carries no fact/event authority.  Directions are deliberately outside the accepted key set,
+    and the canonical fingerprint makes a same-world replacement conflict visible on replay.
+    """
+    if not isinstance(document, dict):
+        raise ValueError("Creator world source document must be an object")
+    unknown = set(document) - _CREATOR_WORLD_DOCUMENT_KEYS
+    if unknown:
+        raise ValueError("Creator world source document contains unsupported fields")
+    if any(not isinstance(document.get(key, ""), str) for key in _CREATOR_WORLD_SCALAR_KEYS):
+        raise ValueError("Creator world source document has a non-text scalar field")
+    if any(not isinstance(document.get(key, []), list) for key in _CREATOR_WORLD_LIST_KEYS):
+        raise ValueError("Creator world source document has a non-list collection")
+    if not isinstance(document.get("loot", {}), dict):
+        raise ValueError("Creator world source document loot must be an object")
+    world_id = str(document.get("world_id") or "")
+    parent_world_id = str(document.get("parent_world_id") or "")
+    if re.fullmatch(r"world_[0-9a-f]{32}", world_id) is None:
+        raise ValueError("Creator world source document lacks a canonical world identity")
+    if parent_world_id and (
+            re.fullmatch(r"world_[0-9a-f]{32}", parent_world_id) is None
+            or parent_world_id == world_id):
+        raise ValueError("Creator world source document has an invalid parent identity")
+    if not str(document.get("name") or "").strip() \
+            or not str(document.get("genre") or "").strip():
+        raise ValueError("Creator world source document lacks its name or genre")
+    try:
+        canonical_document = json.loads(json.dumps(
+            document, ensure_ascii=False, sort_keys=True, allow_nan=False,
+        ))
+        encoded = json.dumps(
+            canonical_document, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":"), allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Creator world source document must contain finite JSON data") from exc
+    if len(encoded) > 1024 * 1024:
+        raise ValueError("Creator world source document exceeds the one-megabyte safety bound")
+    from .capability_glossary import content_fingerprint
+
+    record = {
+        "schema": "aetherstate-creator-world-snapshot/1",
+        "world_id": world_id,
+        "authored_turn": int(turn),
+        "authority_ceiling": "creator_lore_only",
+        "establishes_objective_truth": False,
+        "admits_world_event": False,
+        "document": canonical_document,
+    }
+    record["fingerprint"] = content_fingerprint(record)
+    return record
 
 
 # ================================ validation =======================================
@@ -1367,6 +1464,10 @@ def validate_op(op: Any) -> Optional[dict]:
             from .semantic import validate_action_frame_snapshot
 
             validate_action_frame_snapshot(op.get("frame"))
+        if kind == "claim_record":
+            from .claim_frame import validate_claim_frame
+
+            validate_claim_frame(op.get("frame"))
         if kind == "mechanic_settlement_commit":
             _validate_settlement_members_shape(op)
         if kind == "world_identity_set":
@@ -1377,6 +1478,10 @@ def validate_op(op: Any) -> Optional[dict]:
             if parent and (not re.fullmatch(r"world_[0-9a-f]{32}", parent)
                            or parent == world_id):
                 return None
+        if kind == "creator_world_seed":
+            _creator_world_snapshot(op.get("document"), 0)
+        if kind == "world_event_admit":
+            validate_world_event_record(op.get("event"))
         if kind == "entity_add" and "present" in op \
                 and not isinstance(op["present"], bool):
             return None
@@ -1423,6 +1528,32 @@ def validate_op(op: Any) -> Optional[dict]:
             return None
         if kind == "reveal_fact" and op["source"] not in {"witnessed", "told", "overheard", "inferred"}:
             return None
+        if kind == "fact_admit":
+            if not all(isinstance(op.get(key), str) and op[key].strip()
+                       for key in ("statement", "cause")):
+                return None
+            if op.get("proposition_id") is not None \
+                    and (not isinstance(op["proposition_id"], str)
+                         or not op["proposition_id"].strip()):
+                return None
+            if op.get("visibility", "public") not in {
+                "public", "player", "actor_scoped", "hidden"
+            }:
+                return None
+        if kind == "belief_acquire" and (
+            op.get("stance") not in {"knows", "believes", "doubts", "disputes", "uncertain", "rumor"}
+            or not isinstance(op.get("holder"), str) or not op["holder"].strip()
+            or not (
+                isinstance(op.get("statement"), str) and op["statement"].strip()
+                or isinstance(op.get("proposition_id"), str) and op["proposition_id"].strip()
+            )
+            or not isinstance(op.get("source") or op.get("evidence_source"), str)
+            or not str(op.get("source") or op.get("evidence_source")).strip()
+            or op.get("visibility", "actor_scoped") not in {
+                "public", "player", "actor_scoped", "hidden"
+            }
+        ):
+            return None
         if kind == "goal" and op["action"] not in {"add", "complete", "abandon"}:
             return None
         if kind == "fact_retire" and not (op.get("fact") or op.get("statement")):
@@ -1448,7 +1579,7 @@ def validate_op(op: Any) -> Optional[dict]:
                 return None
             if "card" in op and not isinstance(op["card"], dict):
                 return None
-        if kind == "check" and op["tier"] not in CHECK_TIERS:   # RPG-1 R8 (the public contract)
+        if kind == "check" and op["tier"] not in CHECK_TIERS:   # RPG-1 R8 (doc 07 §5)
             return None
         if kind == "resource_change":
             rid = str(op.get("resource") or "")
@@ -1460,18 +1591,18 @@ def validate_op(op: Any) -> Optional[dict]:
                     or isinstance(amount, bool) or not isinstance(amount, int) \
                     or amount < (0 if action == "set" else 1) or amount > 10**6:
                 return None
-        if kind == "item_mint" and int(op.get("qty", 1)) < 1:   # RPG-2 items (the public contract)
+        if kind == "item_mint" and int(op.get("qty", 1)) < 1:   # RPG-2 items (doc 07 §5)
             return None
         if kind in ("item_move", "item_unequip", "item_transfer") and "to" in op \
                 and str(op["to"]).split(":", 1)[0] not in ITEM_LOC_KINDS:
             return None
         if kind == "item_equip" and not isinstance(op["slot"], str):
-            return None                # slot-vs-profile validity is baked at _enrich (the public contract)
+            return None                # slot-vs-profile validity is baked at _enrich (doc 07 §5)
         if kind == "item_consume" and int(op.get("amount", 1)) < 1:
             return None
         if kind == "stat_spend" and not str(op.get("stat", "")).strip():   # spend a stat point
             return None
-        if kind in ("effect_add", "effect_update", "effect_remove"):   # RPG-3 (the public contract)
+        if kind in ("effect_add", "effect_update", "effect_remove"):   # RPG-3 (doc 05 §5.4)
             if not str(op.get("effect", "")).strip():
                 return None
             if "kind" in op and op["kind"] is not None and op["kind"] not in EFFECT_KINDS:
@@ -1488,7 +1619,7 @@ def validate_op(op: Any) -> Optional[dict]:
                 return None
             if "def" in op and op["def"] is not None and not isinstance(op["def"], dict):
                 return None
-        if kind == "affinity_adj":                     # RPG-3b (the public contract)
+        if kind == "affinity_adj":                     # RPG-3b (doc 07 §5)
             if isinstance(op["delta"], bool) or not isinstance(op["delta"], (int, float)):
                 return None
             if "kind" in op and op["kind"] is not None and op["kind"] not in AFFINITY_KINDS:
@@ -1500,22 +1631,31 @@ def validate_op(op: Any) -> Optional[dict]:
                     and not isinstance(op["demote_label"], str):
                 return None
         if kind == "world_flag":                       # scalar truth only — structures stay
-            if not str(op.get("key", "")).strip():     # in entities/facts (the public contract)
+            if not str(op.get("key", "")).strip():     # in entities/facts (doc 05 §5.6)
                 return None
             if op["value"] is not None and not isinstance(op["value"], (str, int, float, bool)):
                 return None
-        if kind in ("item_gain", "item_lose"):         # RPG-5 (the public contract addendum)
+        if kind in ("item_gain", "item_lose"):         # RPG-5 (doc 07 §7 addendum)
             if not str(op.get("name", "")).strip():
                 return None
             if kind == "item_gain" and op.get("qty") is not None and int(op["qty"]) < 1:
                 return None
         if kind == "quest_add":                        # RPG-5 quest ledger (G3)
-            if not str(op.get("name", "")).strip():
+            if (not isinstance(op.get("name"), str) or not op["name"].strip()
+                    or len(op["name"].strip()) > 120):
                 return None
+            for field, limit in (("note", 8000), ("detail", 8000), ("giver", 300)):
+                if op.get(field) is not None and (
+                        not isinstance(op[field], str) or len(op[field].strip()) > limit):
+                    return None
             if "stakes" in op and op["stakes"] is not None and op["stakes"] not in QUEST_STAKES:
                 return None
         if kind == "quest_update":
-            if not str(op.get("quest", "")).strip():
+            if (not isinstance(op.get("quest"), str) or not op["quest"].strip()
+                    or len(op["quest"].strip()) > 120):
+                return None
+            if op.get("note") is not None and (
+                    not isinstance(op["note"], str) or len(op["note"].strip()) > 8000):
                 return None
             if "status" in op and op["status"] is not None \
                     and op["status"] not in QUEST_STATUSES:
@@ -1545,6 +1685,11 @@ def validate_op(op: Any) -> Optional[dict]:
                 return None
             if op.get("char") is not None and not str(op["char"]).strip():
                 return None
+            if op.get("faction") is not None and (
+                op["side"] != "enemy"
+                or re.fullmatch(r"[a-z0-9_]{1,64}", str(op["faction"])) is None
+            ):
+                return None
             cohort_ref = op.get("cohort_ref")
             cohort_index = op.get("cohort_index")
             if (cohort_ref is None) != (cohort_index is None):
@@ -1564,7 +1709,7 @@ def validate_op(op: Any) -> Optional[dict]:
                 return None
         if kind == "combatant_defeat" and not str(op.get("target", "")).strip():
             return None
-        if kind == "clash_record":                 # record, never resolve (the mechanics contract)
+        if kind == "clash_record":                 # record, never resolve (plan doc 13)
             a, b = str(op.get("a", "")).strip(), str(op.get("b", "")).strip()
             if not a or not b or a.lower() == b.lower():
                 return None
@@ -1579,9 +1724,20 @@ def validate_op(op: Any) -> Optional[dict]:
         if kind == "tide_set" and op.get("tide") not in BATTLE_TIDES:         # losing/holding/win
             return None
         if kind == "front_add":                    # Phase 2: an authored clock, typed at the door
-            if not str(op.get("name", "")).strip():
+            if not str(op.get("name", "")).strip() \
+                    or not str(op.get("consequence", "")).strip():
                 return None
             int(op["segments"])                    # int-able or the op is dropped
+            duration = op.get("event_duration_turns")
+            if duration is not None and (
+                isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0
+            ):
+                return None
+            if op.get("spawn_eligibility") is not None and (
+                not isinstance(op.get("spawn_eligibility"), bool)
+                or not str(op.get("faction") or "").strip()
+            ):
+                return None
         if kind in ("front_tick", "front_reveal") and not str(op.get("front", "")).strip():
             return None
         if kind == "route_set":
@@ -1595,8 +1751,8 @@ def validate_op(op: Any) -> Optional[dict]:
 
 # ================================ authority (02 SS12b) =============================
 _ENTITY_FIELDS = {"entity", "char", "from_char", "to_char", "learner", "teller",
-                  "subject", "partner", "owner", "to_owner"}   # owner/to_owner: RPG-2 (the public contract)
-# RPG-3b (the public contract): fields that name an entity only on SPECIFIC ops. `target` cannot join
+                  "subject", "partner", "owner", "to_owner"}   # owner/to_owner: RPG-2 (doc 07 §2)
+# RPG-3b (doc 07 §2): fields that name an entity only on SPECIFIC ops. `target` cannot join
 # _ENTITY_FIELDS globally — obsession's target may be a substance/concept and must never be
 # alias-resolved. Affinity/bond targets and a world_flag's faction ARE real entities: unknown
 # names quarantine (extraction/rule) or auto-create (user), exactly like any other reference.
@@ -1682,7 +1838,7 @@ def resolve_aliases(op: dict, state: dict, source: str) -> tuple[Optional[dict],
         entity_fields.discard("entity")  # chosen identity, not a reference to an existing entity
     for f in sorted(entity_fields):
         if f in extra and op[f] is None:
-            continue                       # null bond target = clear (the public contract)
+            continue                       # null bond target = clear (doc 07 §7.8)
         name = str(op[f])
         eid = amap.get(name.lower())
         if eid is None:
@@ -1745,7 +1901,7 @@ def _expand_user_alias_occurrences(op: dict, turn: int) -> list[dict]:
     return occurrences
 
 
-# ---- RPG-4 location registry & canonicalization (the public contract) -------------------------
+# ---- RPG-4 location registry & canonicalization (doc 05 §9) -------------------------
 _LOC_ARTICLES = ("the ", "a ", "an ")
 _LOC_HEAD_RE = re.compile(r"[,;:.(·•|]|\s[—–-]\s")   # name head before prose; keeps 'Vael-Cora'
 #             GLM-5.2 separates sub-locations with a MIDDLE DOT ("Vael Thyrr · temple
@@ -1813,7 +1969,7 @@ def canonical_location(state: dict, raw: str) -> tuple[str, str, bool]:
                 or any(toks <= set(_norm_loc(a).split()) for a in e.get("aliases", []))]
         if len(hits) == 1:                               # ambiguous → new row, never a guess
             return hits[0], (ents[hits[0]] or {}).get("name", head), False
-    # PARENT rung (2026-07-09 Emberfall live): the extractor/DM often writes a known place
+    # PARENT rung (2026-07-09 Cinderveil live): the extractor/DM often writes a known place
     # PLUS a sub-area specifier ("Ashen Maw rim", "Vael Thyrr archive hall"). When exactly
     # one location's own name-HEAD tokens (≥2 — never a one-word swallow) are all contained
     # in the raw head's tokens, that place is the parent — resolve to it, never mint a twin.
@@ -1925,6 +2081,7 @@ def authority_violation(
         "semantic_world_alignment_commit",
         "semantic_frame_commit",
         "mechanic_settlement_commit",
+        "claim_record",
     ) \
             or "_semantic_frame_ref" in op \
             or "_settlement_ref" in op:
@@ -1935,23 +2092,93 @@ def authority_violation(
         if spec is None or spec.name != "rpg":
             return "semantic action frames are RPG-only; specialization=none remains inert"
 
-    if kind == "player_seed":                  # privileged: initialization only (the public contract)
+    if kind == "fact_admit":
+        authority = str(op.get("authority") or "")
+        cause = str(op.get("cause") or "")
+        allowed = {
+            "user": {"creator"},
+            "genesis": {"genesis"},
+            "rule": {"rule", "mechanic_settlement", "semantic_transition_truth"},
+        }
+        if authority not in allowed.get(source, set()):
+            return "accepted fact authority does not match its privileged ingress"
+        exact_prefixes = {
+            "creator": ("creator:",),
+            "genesis": ("genesis:",),
+            "rule": ("rule:", "tier0-"),
+            "mechanic_settlement": ("mechanic:settlement:",),
+            "semantic_transition_truth": ("semantic-transition-truth:",),
+        }
+        if not cause.startswith(exact_prefixes[authority]):
+            return "accepted fact cause lacks its exact privileged or code-owned identity"
+        return None
+
+    if kind == "belief_acquire" and source == "extraction":
+        claim_id = str(op.get("claim_id") or "").strip()
+        if claim_id:
+            statement = str(op.get("statement") or "").strip()
+            teller = str(op.get("teller") or "").strip()
+            evidence = str(op.get("evidence_source") or op.get("source") or "").strip()
+            try:
+                identity = proposition_id(statement)
+                polarity = normalized_proposition(statement)[1]
+            except ValueError:
+                return "extraction belief Claim Record link lacks an exact proposition"
+            matches = [
+                row for row in state.get("claims") or []
+                if isinstance(row, dict) and row.get("claim_id") == claim_id
+            ]
+            frame = matches[0].get("frame") if len(matches) == 1 else None
+            if not isinstance(frame, dict) \
+                    or evidence not in {"told", "overheard"} \
+                    or not teller \
+                    or str(frame.get("speaker") or "").casefold() != teller.casefold() \
+                    or frame.get("proposition_identity") != identity \
+                    or frame.get("proposition_polarity") != polarity:
+                return "extraction belief Claim Record link is forged, ambiguous, or mismatched"
+        return None
+
+    if kind == "player_seed":                  # privileged: initialization only (doc 05 §5.1)
         return None if source in ("user", "genesis") else \
-            "player card is privileged: genesis or the user only (the public contract)"
+            "player card is privileged: genesis or the user only (doc 05 §5.1)"
 
     if kind == "world_identity_set":
         return None if source in ("user", "genesis", "rule") else \
             "world identity is minted or imported only at a privileged authoring boundary"
+
+    if kind == "creator_world_seed":
+        return None if source in ("user", "genesis") else \
+            "Creator world source is authored only by the user or genesis boundary"
 
     if kind == "capability_assign":
         return None if source in ("user", "genesis", "rule") else \
             "capability acquisition is ledger-authorized: models may recognize meaning, " \
             "but only the engine or user may assign it"
 
+    if kind == "world_event_admit":
+        if source not in ("user", "genesis", "rule"):
+            return "world events require an exact privileged or code-settled cause"
+        spec = getattr(cfg, "specialization", None)
+        if spec is None or spec.name != "rpg":
+            return "world events are RPG-only; specialization=none remains inert"
+        event = op.get("event") or {}
+        current_world = str((state.get("world_identity") or {}).get("world_id") or "")
+        if not current_world or event.get("world_id") != current_world:
+            return "world event belongs to a stale, forged, or cross-world identity"
+        if source == "rule" and event.get("cause_authority") not in {
+            "rule", "mechanic_settlement", "semantic_transition_truth"
+        }:
+            return "rule event cause authority does not match its ingress"
+        if source == "user" and event.get("cause_authority") != "creator":
+            return "Creator event cause authority does not match its ingress"
+        if source == "genesis" and event.get("cause_authority") != "genesis":
+            return "authored event cause authority does not match its ingress"
+        return None
+
     if kind == "ability_grant":                # RPG-3: power is ACQUIRED in-world, never asserted
         return None if source in ("user", "genesis", "rule") else \
             "abilities are earned in-world: the engine grants them (quest/ritual/user) — " \
-            "extraction may only witness, not bestow (the public contract)"
+            "extraction may only witness, not bestow (doc 10)"
 
     if kind == "resource_change":
         if source != "rule":
@@ -1964,16 +2191,16 @@ def authority_violation(
     if kind in ("award_exp", "level_up", "master_tick", "evolve_def", "defeat_resolve"):
         return None if source in ("user", "genesis", "rule") else \
             "progression is code-awarded: XP, levels, mastery, and defeat are earned " \
-            "through resolved play, never asserted (the public contract)"   # RPG-5
+            "through resolved play, never asserted (doc 10)"   # RPG-5
 
     if kind == "stat_spend":                   # spending a banked point is the player's call
         return None if source in ("user", "genesis", "rule") else \
-            "stat points are spent by the player, never asserted by a model (the public contract)"
+            "stat points are spent by the player, never asserted by a model (doc 10)"
 
     if kind in ("front_add", "front_tick", "route_set"):
         return None if source in ("user", "genesis", "rule") else \
             "the living world is engine-owned: fronts are authored frozen and advanced by " \
-            "code (world_ops) — a model may only surface one via [rumor] (the mechanics contract)"
+            "code (world_ops) — a model may only surface one via [rumor] (plan doc 13)"
 
     if kind == "battle_start" and isinstance(op.get("cohort"), dict):
         if source not in ("user", "genesis", "rule"):
@@ -2002,7 +2229,7 @@ def authority_violation(
         return None if source in ("user", "genesis", "rule") else \
             "combat instances are engine-owned: spawn/defeat/end and loot tables are " \
             "privileged — the DM introduces foes via the [foe] tag (validated, re-sourced), " \
-            "never by writing state (the mechanics contract)"   # Phase 1: code resolves, the model narrates
+            "never by writing state (plan doc 13)"   # Phase 1: code resolves, the model narrates
 
     if kind == "enemy_intent_set" and source != "rule":
         return "enemy intent is selected only by the code referee from a frozen enemy kit"
@@ -2014,7 +2241,7 @@ def authority_violation(
         return None if source in ("user", "genesis", "rule") else \
             "the large-scale battle is engine-owned: it opens by the [battle] tag (validated, " \
             "re-sourced) and the referee sends the waves — a model narrates the macro and " \
-            "reports the tide with [tide], but never writes the battle (the mechanics contract §F)"
+            "reports the tide with [tide], but never writes the battle (plan doc 13 §F)"
     # tide_set is PROPOSABLE (the DM's [tide] report) — clamped +/-1 step/turn at apply; it
     # falls through to the default proposable path (no privileged guard here).
 
@@ -2061,13 +2288,13 @@ def authority_violation(
     # source == "extraction" (P3 wires this; matrix enforced now for completeness)
     if kind == "entity_add":
         return "entity creation is privileged: discovery counts evidence first (03 SS5.1, 08 B2)"
-    if kind == "check":                        # RPG-1: extraction never rolls (the public contract)
+    if kind == "check":                        # RPG-1: extraction never rolls (doc 07 §5.1)
         return "checks resolve at Tier-0 (rule) or via the user only; extraction never rolls"
-    if kind == "item_mint":                    # RPG-2: extraction never creates items (the public contract)
+    if kind == "item_mint":                    # RPG-2: extraction never creates items (doc 07 §5.1)
         return "item minting is privileged: user/genesis/rule only — extraction may move, not mint"
-    if kind in ("set_soulmate", "set_nemesis"):   # RPG-3b (the public contract)
+    if kind in ("set_soulmate", "set_nemesis"):   # RPG-3b (doc 07 §5.1)
         return "bond pointers are privileged: extraction may only nudge affinity, " \
-               "not set soulmate/nemesis (the public contract)"
+               "not set soulmate/nemesis (doc 06 §2.4)"
     if family == "safety":
         return "extraction may only PROPOSE safety changes (02 SS6/SS12b)"
     if kind == "consent_set":
@@ -2164,7 +2391,7 @@ def _ensure_entities(state: dict, op: dict) -> None:
 
 
 class OpReject(ValueError):
-    """Raised by a reducer arm when a transactional precondition fails (the public contract): apply_delta
+    """Raised by a reducer arm when a transactional precondition fails (doc 07 §7): apply_delta
     quarantines the op with THIS message and state is left untouched (invariant 3). Journaled
     ops never contain a rejected op, so replay never sees one."""
 
@@ -2456,7 +2683,7 @@ def _semantic_frame_for_op(state: dict, op: dict, turn: int) -> Optional[dict]:
     return frame
 
 
-# ---- RPG-2 item-index helpers (the public contract/§8) — thin, pure state readers/writers. The
+# ---- RPG-2 item-index helpers (doc 07 §7/§8) — thin, pure state readers/writers. The
 # instance's `loc` is the single source of truth; `gear`/`inventory` are derived indexes the
 # render blocks read. Every mutation goes remove -> add with rollback on failure, which is what
 # makes one-instance-one-place hold by construction (and the linter rule a pure safety net).
@@ -2522,7 +2749,7 @@ def _index_add(state: dict, owner, iid: str, loc: str) -> bool:
 
 def _resolve_instance(state: dict, token) -> Optional[str]:
     """Exact instance id, else a UNIQUE case-insensitive name match among live instances —
-    extraction references items by the names the [GEAR]/[INVENTORY] blocks render (the public contract:
+    extraction references items by the names the [GEAR]/[INVENTORY] blocks render (doc 07 §2:
     instance refs are validated against state, not a static enum). Ambiguous/unknown -> None."""
     items = state.get("items", {})
     t = str(token or "").strip()
@@ -2536,7 +2763,7 @@ def _resolve_instance(state: dict, token) -> Optional[str]:
 
 # ---- RPG-3b social helpers — pure state readers -------------------------------------
 def _player_eid(state: dict) -> Optional[str]:
-    """The (one) Player Card eid — affinity/bonds are measured FROM the player (the public contract)."""
+    """The (one) Player Card eid — affinity/bonds are measured FROM the player (doc 06 §2.4)."""
     for eid, rec in (state.get("player") or {}).items():
         if isinstance(rec, dict):
             return eid
@@ -2553,7 +2780,7 @@ def _player_target_eid(state: dict) -> Optional[str]:
     return None
 
 
-# ---- RPG-3 effect helpers (the public contract) — pure state readers ------------------------
+# ---- RPG-3 effect helpers (doc 05 §5.4) — pure state readers ------------------------
 def _entity_sex(state: dict, eid: str) -> str:
     """Best-known sex for an entity: the `sex`/`gender` attribute (creator writes it),
     else the Player Card's pronouns. Empty = unknown (a data-driven `requires` gate then
@@ -2622,7 +2849,7 @@ def _freeze(state: dict, turn: int, reason: str) -> None:
 
 
 def _apply_player_seed(state: dict, op: dict) -> None:
-    """Expand a Player Card seed into the runtime `player` record (RPG genesis, the public contract).
+    """Expand a Player Card seed into the runtime `player` record (RPG genesis, doc 06 §2.2).
     Privileged (authority gates source); tolerant of a partial seed so the [PLAYER] block can
     render from turn 0. The player is also an ordinary entities row, marked kind='player'.
 
@@ -2658,6 +2885,16 @@ def _apply_player_seed(state: dict, op: dict) -> None:
         rec["concept"] = str(card["concept"])
     if card.get("pronouns"):
         rec["pronouns"] = str(card["pronouns"])
+    if isinstance(card.get("creator_extras"), list):
+        # Typed Creator metadata for faithful card regeneration. The matching memory_event ops
+        # remain the relevance-indexed lore path; this snapshot is never gameplay authority and
+        # avoids guessing old extras back out of arbitrary prose.
+        rec["creator_extras"] = [
+            {"label": str(row.get("label") or "Note").strip()[:60],
+             "text": str(row.get("text") or "").strip()[:8000]}
+            for row in card["creator_extras"][:20]
+            if isinstance(row, dict) and str(row.get("text") or "").strip()
+        ]
     if isinstance(card.get("stats"), dict):
         rec["stats"] = {str(k): _clamp(v, -99, 999) for k, v in card["stats"].items()}
     # Creator commits both ownership tables on every finalized card. Their joint presence is the
@@ -2839,6 +3076,147 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             return
         meanings.append({"turn": turn, "meaning": json.loads(json.dumps(meaning))})
         _trim_receipt_ledger(meanings, turn)
+    elif kind == "claim_record":
+        try:
+            from .claim_frame import validate_claim_frame, validate_claim_record
+
+            frame = validate_claim_frame(op.get("frame"))
+            record = validate_claim_record(op["_record"]) if isinstance(op.get("_record"), dict) \
+                else None
+        except (TypeError, ValueError) as exc:
+            raise OpReject("Claim Record frame is malformed") from exc
+        claims = state.setdefault("claims", [])
+        identity = record["claim_id"] if record is not None else frame["fingerprint"]
+        prior = next((
+            row for row in claims
+            if isinstance(row, dict)
+            and (row.get("claim_id") or row.get("fingerprint")) == identity
+        ), None)
+        stored = json.loads(json.dumps(record if record is not None else {**frame, "turn": turn}))
+        if prior is not None:
+            if prior != stored:
+                raise OpReject("Claim Record identity conflicts with prior recognition")
+            return
+        claims.append(stored)
+        state.setdefault("propositions", {}).setdefault(frame["proposition_id"], {
+            "statement": frame["proposition"],
+            "authority": "recognition_only",
+            "identity": frame.get("proposition_identity") or frame["proposition_id"],
+        })
+    elif kind == "fact_admit":
+        proposition_id = str(op["proposition_id"])
+        proposition_identity = str(op.get("proposition_identity") or proposition_id)
+        facts = state.setdefault("facts", {})
+        fid = str(op.get("_fact_id") or (
+            "fact_" + hashlib.sha256(proposition_id.encode()).hexdigest()[:16]
+        ))
+        row = dict(op.get("_record") or {
+            "schema": "aetherstate-fact-record/2",
+            "fact_id": fid,
+            "proposition_id": proposition_id,
+            "statement": str(op["statement"]),
+            "cause": str(op["cause"]),
+            "authority": str(op.get("authority") or "privileged"),
+            "established_turn": turn,
+            "status": "accepted",
+            "visibility": str(op.get("visibility") or "public"),
+            "scoped_actors": list(op.get("scoped_actors") or []),
+        })
+        prior = facts.get(fid)
+        if prior is not None and prior != row:
+            raise OpReject("Fact Record identity conflicts with prior accepted truth")
+        # Preserve the historical compression contract for typed facts without weakening their
+        # provenance.  A near-restatement may supersede only an active record on the same exact
+        # causal/authority line; unrelated facts that merely share vocabulary remain independent.
+        # The prior row stays in state as immutable history and the reducer bakes only lifecycle
+        # metadata, so replay reaches the same result from the journal order.
+        new_tokens = _fact_tokens(row.get("statement", ""))
+        if new_tokens:
+            for old_id, old in facts.items():
+                if old_id == fid or not isinstance(old, dict) \
+                        or old.get("retired_turn") is not None:
+                    continue
+                if old.get("cause") != row.get("cause") \
+                        or old.get("authority") != row.get("authority"):
+                    continue
+                old_tokens = _fact_tokens(old.get("statement", ""))
+                if old_tokens and _jaccard(new_tokens, old_tokens) >= 0.75:
+                    old["status"] = "superseded"
+                    old["retired_turn"] = turn
+                    old["superseded_by"] = fid
+        facts[fid] = row
+        state.setdefault("propositions", {})[proposition_id] = {
+            "statement": row["statement"], "authority": row["authority"],
+            "identity": row.get("proposition_identity") or proposition_identity,
+        }
+    elif kind == "belief_acquire":
+        proposition_id = str(op["proposition_id"])
+        holder = str(op["holder"])
+        key = f"{holder}|{proposition_id}"
+        row = dict(op.get("_record") or {
+            "schema": "aetherstate-epistemic-record/2",
+            "belief_id": str(op.get("_belief_id") or ""),
+            "holder": holder,
+            "proposition_id": proposition_id,
+            "statement": str(op.get("statement") or ""),
+            "stance": str(op["stance"]),
+            "source": str(op.get("source") or op.get("evidence_source")),
+            "claim_id": op.get("claim_id"),
+            "acquired_turn": turn,
+            "visibility": str(op.get("visibility") or "actor_scoped"),
+            "scoped_actors": list(op.get("scoped_actors") or [holder]),
+            "status": "current",
+        })
+        beliefs = state.setdefault("beliefs", {})
+        prior = beliefs.get(key)
+        if isinstance(prior, dict) and prior != row:
+            retired = {**prior, "status": "superseded", "superseded_turn": turn,
+                       "superseded_by": row.get("belief_id")}
+            history = state.setdefault("epistemic_history", [])
+            if not any(existing.get("belief_id") == retired.get("belief_id")
+                       for existing in history if isinstance(existing, dict)):
+                history.append(retired)
+        beliefs[key] = row
+        state.setdefault("propositions", {}).setdefault(proposition_id, {
+            "statement": row.get("statement", ""),
+            "authority": "epistemic_only",
+            "identity": row.get("proposition_identity")
+            or op.get("proposition_identity") or proposition_id,
+        })
+    elif kind == "world_event_admit":
+        try:
+            event = validate_world_event_record(op.get("event"))
+        except (TypeError, ValueError) as exc:
+            raise OpReject("World Event Record is malformed") from exc
+        current_world = str((state.get("world_identity") or {}).get("world_id") or "")
+        if not current_world or event["world_id"] != current_world:
+            raise OpReject("World Event Record belongs to another world")
+        if event["turn"] != turn:
+            raise OpReject("World Event Record turn is stale or forged")
+        records = state.setdefault("world_events", [])
+        prior = next((row for row in records if row.get("event_id") == event["event_id"]), None)
+        if prior is not None:
+            if prior != event:
+                raise OpReject("World Event Record identity is immutable")
+            return
+        if event["kind"] != "admission" and not any(
+            row.get("event_id") == event["relation_target"] for row in records
+        ):
+            raise OpReject("World Event Record relation target is missing")
+        records.append(json.loads(json.dumps(event)))
+        overlay_branch = str(state.get("world_event_branch_id") or event["branch_id"])
+        inherited_origins = state.get("world_event_source_branch_ids")
+        if not isinstance(inherited_origins, list):
+            inherited_origins = []
+        state["world_overlay"] = project_world_overlay(
+            records,
+            world_id=current_world,
+            session_id=event["session_id"],
+            branch_id=overlay_branch,
+            source_branch_ids=inherited_origins,
+            game_time=turn if event.get("schema") == "aetherstate-world-event-record/2"
+            else int((state.get("clock") or {}).get("minutes", 0)),
+        )
     elif kind == "semantic_binding_commit":
         try:
             from .semantic_binding import validate_meaning_binding
@@ -3019,6 +3397,21 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         if op.get("parent_world_id"):
             identity["parent_world_id"] = op["parent_world_id"]
         state["world_identity"] = identity
+    elif kind == "creator_world_seed":
+        expected = _creator_world_snapshot(op.get("document"), turn)
+        supplied = op.get("_snapshot")
+        if supplied is not None and supplied != expected:
+            raise OpReject("Creator world source snapshot fingerprint is forged or stale")
+        identity = state.get("world_identity") or {}
+        if expected["world_id"] != identity.get("world_id"):
+            raise OpReject("Creator world source belongs to a stale or cross-world identity")
+        current = state.get("creator_world")
+        if isinstance(current, dict) and current.get("fingerprint"):
+            if current.get("world_id") != expected["world_id"] \
+                    or current.get("document") != expected["document"]:
+                raise OpReject("Creator world source is immutable after it is committed")
+            return
+        state["creator_world"] = expected
     elif kind == "capability_assign":
         raw_assignment = op.get("_assignment")
         if not isinstance(raw_assignment, dict):
@@ -3180,6 +3573,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 if sim > best and sim >= 0.5:   # user-directed: looser match, still one target
                     target, best = ofid, sim
         if target is not None:
+            state["facts"][target]["status"] = "retired"
             state["facts"][target]["retired_turn"] = turn
     elif kind == "memory_event":
         tags = list(op.get("tags", []))
@@ -3213,7 +3607,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             clock["minutes"] = 0
         if op.get("calendar_note"):
             clock["calendar_note"] = op["calendar_note"]
-        if op.get("to_time_of_day"):                       # RPG-5 (the public contract): a real time
+        if op.get("to_time_of_day"):                       # RPG-5 (doc 10 §6): a real time
             for p in (state.get("player") or {}).values():   # skip is rest: only the shipped
                 if not isinstance(p, dict):                   # stamina/mana lifecycle fires
                     continue
@@ -3318,7 +3712,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                                "target": op.get("_target"),  # Phase 1: strike audit for the
                                "dmg": op.get("_dmg")})       # HUD/directive (None off-combat)
         del state["rolls"][:-10]
-        cost = op.get("_cost")                  # RPG-5 (the public contract): resource cost charged
+        cost = op.get("_cost")                  # RPG-5 (doc 10 §5.4): resource cost charged
         pl = state.get("player", {}).get(op.get("char")) if op.get("char") else None
         if isinstance(cost, dict) and isinstance(pl, dict):
             for rname, amt in cost.items():
@@ -3363,7 +3757,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             pool["cur"] = amount
         else:                                      # replay defense; live validation rejects first
             raise OpReject(f"unknown resource action '{action}'")
-    elif kind == "item_mint":                   # RPG-2 (the public contract): instance from template
+    elif kind == "item_mint":                   # RPG-2 (doc 07 §7.2): instance from template
         iid, snap = op.get("_iid"), op.get("_snapshot") or {}
         if not iid or not snap:                 # template unknown at _enrich -> visible reject
             raise OpReject(f"unknown item template '{op.get('template')}' "
@@ -3382,9 +3776,9 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             rec["bound"] = True
         items[iid] = rec
         if not _index_add(state, owner, iid, loc):
-            del items[iid]                      # rollback: full container / busy slot (the public contract)
+            del items[iid]                      # rollback: full container / busy slot (doc 07 §7.2)
             raise OpReject(f"cannot mint into {loc}: container full or slot busy")
-    elif kind == "item_move":                   # RPG-2 (the public contract): within-owner relocation
+    elif kind == "item_move":                   # RPG-2 (doc 07 §7.3): within-owner relocation
         iid = _resolve_instance(state, op["instance"])
         it = state.get("items", {}).get(iid) if iid else None
         if not it:
@@ -3400,7 +3794,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         it["loc"] = new
         if new.split(":", 1)[0] in ("world", "gone"):
             it["owner"] = None
-    elif kind == "item_equip":                  # RPG-2 (the public contract): inv -> gear:<slot>
+    elif kind == "item_equip":                  # RPG-2 (doc 07 §7.4): inv -> gear:<slot>
         iid = _resolve_instance(state, op["instance"])
         it = state.get("items", {}).get(iid) if iid else None
         slot = str(op["slot"])
@@ -3427,8 +3821,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             _index_add(state, owner, iid, old)                 # transactional rollback
             raise OpReject(f"slot {slot} is occupied")
         it["loc"] = f"gear:{slot}"              # gear mods are DERIVED at render/resolution,
-        #                                         never written into player stats (the public contract)
-    elif kind == "item_unequip":                # RPG-2 (the public contract): gear -> inv (or given loc)
+        #                                         never written into player stats (doc 07 §7.4)
+    elif kind == "item_unequip":                # RPG-2 (doc 07 §7.4): gear -> inv (or given loc)
         iid = _resolve_instance(state, op["instance"])
         it = state.get("items", {}).get(iid) if iid else None
         if not it or not str(it.get("loc", "")).startswith("gear:"):
@@ -3443,14 +3837,14 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         it["loc"] = dest
         if dest.split(":", 1)[0] in ("world", "gone"):
             it["owner"] = None
-    elif kind == "item_consume":                # RPG-2 (the public contract): qty--; baked on_consume only
+    elif kind == "item_consume":                # RPG-2 (doc 07 §7.5): qty--; baked on_consume only
         iid = _resolve_instance(state, op["instance"])
         it = state.get("items", {}).get(iid) if iid else None
         if not it or int(it.get("qty", 0)) < 1:
             raise OpReject(f"unknown or depleted item instance '{op['instance']}'")
         it["qty"] = max(0, int(it.get("qty", 1)) - max(1, int(op.get("amount", 1))))
         eff = it.get("on_consume") or {}        # read from the INSTANCE (baked at mint) — never
-        owner = it.get("owner")                 # the registry (replay purity, the public contract)
+        owner = it.get("owner")                 # the registry (replay purity, doc 07 §7.5)
         pl = state.get("player", {}).get(owner) if owner else None
         if pl and isinstance(eff, dict):
             if isinstance(eff.get("heal"), int) and isinstance(pl.get("hp"), dict):
@@ -3464,7 +3858,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         if it["qty"] == 0:
             _index_remove(state, iid)
             it["loc"], it["owner"] = "gone", None
-    elif kind == "item_transfer":               # RPG-2 (the public contract): atomic owner change
+    elif kind == "item_transfer":               # RPG-2 (doc 07 §7.6): atomic owner change
         iid = _resolve_instance(state, op["instance"])
         it = state.get("items", {}).get(iid) if iid else None
         if not it:
@@ -3479,7 +3873,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             _index_add(state, old_owner, iid, old_loc)         # (the AI-Roguelite duplication
             raise OpReject(f"cannot transfer to {dest}: container full or slot busy")   # guard)
         it["loc"], it["owner"] = dest, new_owner
-    elif kind == "effect_add":                  # RPG-3 (the public contract): commit to the ledger
+    elif kind == "effect_add":                  # RPG-3 (doc 05 §5.4): commit to the ledger
         eid = resolve_entity_ref(state, op["char"]) or op["char"]   # canonical cast row (or open-vocab)
         snap = op.get("_snapshot") or {}        # preset bake (_enrich) — {} = open vocabulary
         req = str(snap.get("requires") or "").lower()
@@ -3532,14 +3926,14 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                            f"updating it")
         rec = effs[fid]
         if op.get("valence"):
-            rec["valence"] = str(op["valence"])   # blessing/perspective reframes it (the public contract)
+            rec["valence"] = str(op["valence"])   # blessing/perspective reframes it (doc 05 §5.4)
         if op.get("stacks") is not None:
             rec["stacks"] = _clamp(op["stacks"], 1, 99) or 1
         if op.get("duration") is not None:
             rec["duration"] = max(0, int(op["duration"]))
         if op.get("note"):
             rec["note"] = str(op["note"])
-    elif kind == "ability_grant":               # RPG-3: the earned-acquisition route (the public contract)
+    elif kind == "ability_grant":               # RPG-3: the earned-acquisition route (doc 10)
         eid = op["char"]
         pl = state.get("player", {}).get(eid)
         if not isinstance(pl, dict):
@@ -3555,11 +3949,11 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         known = pl.setdefault("abilities", [])
         if aid not in known:
             known.append(aid)
-    elif kind == "affinity_adj":                # RPG-3b (the public contract): reason-tagged ledger
+    elif kind == "affinity_adj":                # RPG-3b (doc 07 §7.7): reason-tagged ledger
         peid = _player_eid(state)
         if peid is None:
             raise OpReject("no Player Card: affinity is measured from the player "
-                           "(seed one first — the public contract)")
+                           "(seed one first — doc 06 §2.4)")
         tgt = op["target"]
         if tgt == peid:
             raise OpReject("affinity toward the player themselves is not a thing")
@@ -3583,7 +3977,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         if kindv == "faction":                  # factions carry structured world state too
             f = state.setdefault("factions", {}).setdefault(tgt, {"circumstances": {}})
             f.setdefault("name", state.get("entities", {}).get(tgt, {}).get("name", tgt))
-    elif kind in ("set_soulmate", "set_nemesis"):   # RPG-3b (the public contract): demote-then-set
+    elif kind in ("set_soulmate", "set_nemesis"):   # RPG-3b (doc 07 §7.8): demote-then-set
         ptr = "soulmate" if kind == "set_soulmate" else "nemesis"
         peid = _player_eid(state)
         pl = state.get("player", {}).get(peid) if peid else None
@@ -3601,7 +3995,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                     labels.append(lbl)
         pl[ptr] = tgt                           # THEN set (or clear); the one_soulmate
         #                                         linter owns eligibility (doc 08 §4)
-    elif kind == "world_flag":                  # RPG-3b (the public contract): standing world truth
+    elif kind == "world_flag":                  # RPG-3b (doc 05 §5.6): standing world truth
         key = slug(op["key"])
         val = op["value"]                       # null = clear the flag
         if op.get("faction"):                   # faction-scoped circumstance
@@ -3653,7 +4047,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                     rec[k] = snap[k]
             items[iid] = rec
             if not _index_add(state, owner, iid, loc):
-                del items[iid]                  # transactional rollback (the public contract)
+                del items[iid]                  # transactional rollback (doc 07 §7)
                 raise OpReject(f"cannot add '{name}': inventory full")
     elif kind == "item_lose":                   # RPG-5 (G2): narrated loss/consume, ledger-checked
         owner = op["char"]
@@ -3693,14 +4087,17 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         if qid in qs:                           # re-add refreshes, never duplicates
             q = qs[qid]
             q["updated_turn"] = turn
-            if op.get("detail"):
-                q["detail"] = str(op["detail"])[:300]
+            note = op.get("note") or op.get("detail")
+            if note:
+                q["note"] = str(note)[:8000]
         else:
             q = {"name": str(op["name"]).strip()[:120], "status": "active",
                  "created_turn": turn, "updated_turn": turn}
-            for k in ("detail", "giver"):
-                if op.get(k):
-                    q[k] = str(op[k])[:300]
+            note = op.get("note") or op.get("detail")
+            if note:
+                q["note"] = str(note)[:8000]
+            if op.get("giver"):
+                q["giver"] = str(op["giver"])[:300]
             if op.get("stakes") in QUEST_STAKES:
                 q["stakes"] = op["stakes"]
             qs[qid] = q
@@ -3731,7 +4128,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             if op["status"] == "complete":
                 q["completed_turn"] = turn
         if op.get("note"):
-            q["note"] = str(op["note"])[:300]
+            q["note"] = str(op["note"])[:8000]
         q["updated_turn"] = turn
     elif kind == "hp_adj":                      # RPG-5 (G7): bounded consequence channel —
         pl = state.get("player", {}).get(op["char"])   # the narrator proposes severity, the
@@ -3747,8 +4144,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 and last.get("delta") == d and toks and prev:
             # ONE wound reported twice — the [hp] tag (hot path, verbatim) AND the cold-path
             # ladder's paraphrase both land it. Jaccard alone misses when the paraphrase
-            # COMPRESSES the reason (2026-07-09 Emberfall: a -2 graze landed as -4; 2026-07-10
-            # Quietmere live: "…grazes his ribs below the plate" vs "pike-butt graze below
+            # COMPRESSES the reason (2026-07-09 Cinderveil: a -2 graze landed as -4; 2026-07-10
+            # Hollowmere live: "…grazes his ribs below the plate" vs "pike-butt graze below
             # breastplate" → J=0.30, the -1 applied twice → -2). Containment (overlap / the
             # shorter reason) is paraphrase-robust; genuinely distinct same-magnitude wounds
             # share far fewer nouns (measured <=0.5 across side/arm/leg/shoulder controls), so
@@ -3804,7 +4201,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             raise OpReject(f"{stat} is already at its max ({cap})")
         stats[stat] = int(stats[stat]) + 1
         pl["stat_points"] = int(pl.get("stat_points", 0)) - 1
-    elif kind == "master_tick":                 # RPG-5 (the public contract): use grows mastery —
+    elif kind == "master_tick":                 # RPG-5 (doc 10 §4): use grows mastery —
         pl = state.get("player", {}).get(op["char"])   # scene-capped so spam can't cheese it
         if not isinstance(pl, dict):
             raise OpReject("no Player Card for mastery")
@@ -3828,7 +4225,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         if table not in ("skills", "abilities") or not isinstance(op.get("def"), dict):
             raise OpReject("evolve_def needs table skills|abilities and an authored def")
         pl.setdefault("defs", {}).setdefault(table, {})[str(op["id"])] = dict(op["def"])
-    elif kind == "defeat_resolve":              # RPG-5 (the public contract): defeat, not death (unless
+    elif kind == "defeat_resolve":              # RPG-5 (doc 10 §7): defeat, not death (unless
         pl = state.get("player", {}).get(op["char"])            # hardcore chose the outcome)
         if not isinstance(pl, dict) or not isinstance(pl.get("hp"), dict):
             raise OpReject("no Player Card to defeat")
@@ -3851,6 +4248,19 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             effs = state.setdefault("effects", {}).setdefault(op["char"], {})
             effs[eff["id"]] = {**eff, "gained_turn": turn}
     elif kind == "combatant_spawn":             # Phase 1: a snapshot-frozen combat instance
+        from .world_events import future_subject_eligible
+
+        if not future_subject_eligible(state, {
+            "kind": "enemy" if op.get("side") == "enemy" else "ally",
+            "id": str(op.get("_cid") or op.get("char") or slug(str(op.get("name") or ""))),
+            "faction": op.get("faction"),
+            "name": op.get("name"),
+            "tier": op.get("tier", "standard"),
+            "role": op.get("role"),
+            "location": op.get("location"),
+            "tags": op.get("tags"),
+        }, game_time=turn):
+            raise OpReject("an active WorldOverlay makes this future spawn ineligible")
         cb = _combat(state)
         rows = cb["combatants"]
         cohort_state = None
@@ -3878,7 +4288,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         side = op["side"]
         cap = COMBAT_SIDE_CAP - 1 if side == "ally" else COMBAT_SIDE_CAP   # player holds an
         if len(live_combatants(state, side)) >= cap:                       # ally slot (3v3)
-            raise OpReject(f"the {side} side is full — 3v3 is the cap (the mechanics contract)")
+            raise OpReject(f"the {side} side is full — 3v3 is the cap (plan doc 13)")
         cid = op.get("_cid") or slug(op["name"])[:32]
         if cid in rows:
             n = 2
@@ -3897,6 +4307,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                      "init": int(op.get("_init", THREAT_MOD.get(op.get("tier") or "standard", 1)
                                             * 10)),   # baked turn-order score (2026-07-10)
                       "defeated": False, "spawned_turn": turn, "dropped": []}
+        if op.get("faction"):
+            rows[cid]["faction"] = op["faction"]
         if cohort_state is not None:
             total = int(cohort_state["total"])
             index = int(op["cohort_index"])
@@ -3994,7 +4406,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             (defeated if row.get("defeated") else survivors).append(str(row.get("name", "?")))
             loot += list(row.get("dropped") or [])
             eid = row.get("eid")
-            if eid and eid in state.get("entities", {}):   # FULL wound persistence (verified):
+            if eid and eid in state.get("entities", {}):   # FULL wound persistence (ratified):
                 hp = row.get("hp") or {}                   # the fight's toll lands on the row
                 state.setdefault("attributes", {}).setdefault(eid, {})["hp"] = {
                     "cur": int(hp.get("cur", 0)), "max": int(hp.get("max", 1))}
@@ -4102,9 +4514,13 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                            "faction": slug(str(op["faction"]))[:64] if op.get("faction") else None,
                            "segments": int(op.get("_segments", op.get("segments", 6))),
                            "filled": 0, "pace": int(op.get("_pace", 1)),
-                           "consequence": str(op.get("consequence", "")).strip()[:300],
+                           "consequence": str(op.get("consequence", "")).strip()[:4000],
                            "revealed": False, "done": False,
-                           "created_turn": turn, "log": []}
+                            "created_turn": turn, "log": []}
+            if op.get("_event_duration_turns") is not None:
+                fronts[fid]["event_duration_turns"] = int(op["_event_duration_turns"])
+            if isinstance(op.get("spawn_eligibility"), bool):
+                fronts[fid]["spawn_eligibility"] = op["spawn_eligibility"]
     elif kind == "front_tick":
         rec = (state.get("fronts") or {}).get(str(op.get("front", "")))
         if isinstance(rec, dict) and not rec.get("done"):
@@ -4241,7 +4657,7 @@ def reduce_state(state: dict, ops: list[dict]) -> dict:
     return state
 
 
-# ---- RPG-3b faction cascade (the public contract) — pure, deterministic, cold-path ----------
+# ---- RPG-3b faction cascade (doc 05 §5.4) — pure, deterministic, cold-path ----------
 def faction_cascade_ops(state: dict, applied: list[dict], factor: float = 0.1) -> list[dict]:
     """Extraction-applied NPC affinity shifts ripple to the NPC's faction (membership = the
     entity's `faction` attribute), scaled by `factor` and HALVED on negatives — the
@@ -4283,9 +4699,9 @@ def faction_cascade_ops(state: dict, applied: list[dict], factor: float = 0.1) -
     return out
 
 
-# ---- RPG-5 progression pass (the public contract) — pure, deterministic, journaled ---------------
+# ---- RPG-5 progression pass (doc 10) — pure, deterministic, journaled ---------------
 def _defeat_outcome(state: dict, peid: str) -> str:
-    """Contextual non-lethal outcome CLASS, code-decided (the public contract M5): judged from the
+    """Contextual non-lethal outcome CLASS, code-decided (doc 10 M5): judged from the
     player's standing with whoever is present. The LLM flavors within the class."""
     aff = state.get("affinity") or {}
     present = [eid for eid, e in (state.get("entities") or {}).items()
@@ -4306,7 +4722,7 @@ def _defeat_outcome(state: dict, peid: str) -> str:
 
 
 def progression_ops(state: dict, applied: list[dict], hardcore: bool = False) -> list[dict]:
-    """RPG-5 (the public contract): code-awarded progression — XP from quest/goal completion and positive
+    """RPG-5 (doc 10): code-awarded progression — XP from quest/goal completion and positive
     standing-tier crossings; level_up when the curve is crossed; defeat_resolve when the
     Player's HP hits 0. Pure reader over (state, this batch's applied ops); returns
     PRIVILEGED rule ops for the caller to apply — propose-then-commit, journaled, never a
@@ -4405,7 +4821,7 @@ def progression_ops(state: dict, applied: list[dict], hardcore: bool = False) ->
     return out
 
 
-# ---- Phase 1 combat pass (the mechanics contract) — pure, deterministic, journaled ----------------
+# ---- Phase 1 combat pass (plan doc 13) — pure, deterministic, journaled ----------------
 def combat_gate(state: dict) -> bool:
     """The War Room's floor trigger: the scene PHASE says violence (same vocabulary R8c's
     opposition die uses) or a combat-ish world flag is truthy. A hostile merely being
@@ -4498,7 +4914,7 @@ def _is_player_summon(peid: str, eid: str, aff: dict, attrs: dict) -> bool:
 
 
 def combat_ops(state: dict, applied: list[dict], *, prepare_intent: bool = True) -> list[dict]:
-    """Phase 1 (verified the public contract): the code-side combat referee. Pure reader over
+    """Phase 1 (ratified doc 13): the code-side combat referee. Pure reader over
     (state, this batch's applied ops); returns PRIVILEGED rule ops for the caller to
     apply — propose-then-commit, journaled, never a hidden reducer side-effect.
 
@@ -4789,7 +5205,7 @@ def battle_ops(state: dict, applied: list[dict]) -> list[dict]:
     ]
 
 
-# ---- Phase 2 living-world pass (the mechanics contract, verified) — pure, deterministic, journaled ----
+# ---- Phase 2 living-world pass (plan doc 13, ratified) — pure, deterministic, journaled ----
 def travel_cost(state: dict, a: str, b: str) -> int:
     """Committed route override between two canon locations, else the inferred 1-segment
     default. Reads only state — callers bake the result into the ops they emit."""
@@ -4810,8 +5226,218 @@ def _lw_tokens(*texts) -> set:
     return out
 
 
-def world_ops(state: dict, applied: list[dict], clock_turns: int = 6) -> list[dict]:
-    """Phase 2 (verified the mechanics contract): the living-world referee. Pure reader over
+def _event_effect_conflict_key(effect: object) -> tuple[str, str, str, str] | None:
+    """Return the typed overlay cell one supported effect owns."""
+    if not isinstance(effect, dict) or effect.get("supported") is not True:
+        return None
+    subject = effect.get("subject")
+    if not isinstance(subject, dict):
+        return None
+    domain, field = effect.get("domain"), effect.get("field")
+    kind, subject_id = subject.get("kind"), subject.get("id")
+    if not all(isinstance(value, str) and value for value in (domain, field, kind, subject_id)):
+        return None
+    return domain, kind, subject_id, field
+
+
+def _front_completion_cause_visibility(front: dict) -> str:
+    """Freeze whether the authored agenda itself was known before it completed."""
+    return "public" if front.get("revealed_turn") is not None else "hidden"
+
+
+def _front_completion_consequence(front: dict, front_id: str) -> str:
+    """Return Player-safe event fallout, including a neutral legacy-state fallback."""
+    consequence = str(front.get("consequence") or "").strip()
+    if consequence:
+        return consequence
+    if _front_completion_cause_visibility(front) == "hidden":
+        return "A world change has come to a head."
+    return f"the {front.get('name', front_id)} agenda comes to a head"
+
+
+def _front_completion_memory_text(
+    front: dict,
+    front_id: str,
+    consequence: str | None = None,
+) -> str:
+    """Project compatibility recall without disclosing a hidden front's identity."""
+    visible_consequence = consequence or _front_completion_consequence(front, front_id)
+    if _front_completion_cause_visibility(front) == "public":
+        return f"World event \N{EM DASH} {front.get('name', front_id)}: {visible_consequence}"
+    return f"World event \N{EM DASH} {visible_consequence}"
+
+
+def _front_completion_event_records(
+    state: dict,
+    *,
+    front_id: str,
+    world_id: str,
+    session_id: str,
+    branch_id: str,
+    turn: int,
+) -> list[dict]:
+    """Build the complete deterministic record group for one front completion.
+
+    The group contains zero or more append-only supersession terminals followed by the new
+    admission.  It can be rebuilt both before and after the front tick, which lets fresh admission,
+    validation, retry, and replay share one byte-exact source of truth.
+    """
+    front = (state.get("fronts") or {}).get(front_id)
+    if not isinstance(front, dict):
+        return []
+    from .capability_glossary import content_fingerprint
+    from .world_events import build_world_event_record
+
+    consequence = _front_completion_consequence(front, front_id)
+    faction = str(front.get("faction") or "")
+    subject = f"faction:{faction}" if faction else "world"
+    domain = "faction" if faction else "world"
+    adapter = "faction.circumstance/1" if faction else "world.circumstance/1"
+    affected = {domain, "briefing", "narration", "console", "hud"}
+    effects = [{
+        "adapter": adapter,
+        "domain": domain,
+        "subject": subject,
+        "field": "circumstance",
+        "value": consequence,
+        "supported": True,
+        "lore": "",
+    }]
+    selector = None
+    propagation = "existing_subjects"
+    spawn_eligibility = front.get("spawn_eligibility")
+    if isinstance(spawn_eligibility, bool) and faction:
+        selector_payload = {
+            "schema": "aetherstate-world-subject-selector/1",
+            "subject_kinds": ["enemy"],
+            "predicates": {"faction": faction},
+        }
+        selector = {**selector_payload, "fingerprint": content_fingerprint(selector_payload)}
+        effects.append({
+            "adapter": "spawn.eligibility/1",
+            "domain": "enemy_eligibility",
+            "subject": f"selector:front.{front_id}.enemy",
+            "field": "eligible",
+            "value": spawn_eligibility,
+            "supported": True,
+            "lore": "",
+        })
+        affected.add("enemy_eligibility")
+        propagation = "existing_and_future"
+
+    event_id = "event.front." + hashlib.sha256(
+        f"{world_id}|{branch_id}|{turn}|{front_id}|complete".encode()
+    ).hexdigest()[:24]
+    # Explicit prior reveal makes the cause public.  Auto-reveal on completion deliberately does
+    # not expose why a previously hidden front reached its consequence.
+    cause_visibility = _front_completion_cause_visibility(front)
+    duration = front.get("event_duration_turns")
+    admission = build_world_event_record(
+        event_id=event_id,
+        world_id=world_id,
+        session_id=session_id,
+        branch_id=branch_id,
+        turn=turn,
+        game_time=turn,
+        cause_id=f"front:{front_id}:completion",
+        cause_authority="rule",
+        cause_visibility=cause_visibility,
+        actor=faction or None,
+        affected_domains=sorted(affected),
+        priority=10,
+        scope="branch",
+        propagation=propagation,
+        future_selector=selector,
+        duration=int(duration) if isinstance(duration, int) and not isinstance(duration, bool) else None,
+        reversible=True,
+        subjects=[subject],
+        effects=effects,
+        description=consequence,
+    )
+
+    records = [row for row in state.get("world_events") or [] if isinstance(row, dict)]
+    active_ids: set[str] = set()
+    if records:
+        try:
+            source_branches = state.get("world_event_source_branch_ids")
+            overlay = project_world_overlay(
+                records,
+                world_id=world_id,
+                session_id=session_id,
+                branch_id=branch_id,
+                source_branch_ids=source_branches if isinstance(source_branches, list) else [],
+                game_time=turn,
+            )
+            active_ids = {str(value) for value in overlay.get("active_event_ids") or []}
+        except (TypeError, ValueError):
+            active_ids = set()
+    new_cells = {
+        key for key in (_event_effect_conflict_key(effect) for effect in admission["effects"])
+        if key is not None
+    }
+    prior_by_id = {
+        str(row.get("event_id")): row for row in records
+        if row.get("kind") == "admission" and isinstance(row.get("event_id"), str)
+    }
+    targets = {
+        event_id_value for event_id_value in active_ids
+        if event_id_value != event_id
+        and event_id_value in prior_by_id
+        and new_cells.intersection({
+            key for key in (
+                _event_effect_conflict_key(effect)
+                for effect in prior_by_id[event_id_value].get("effects") or []
+            ) if key is not None
+        })
+    }
+    # Exact retries rebuild the original terminals even though their targets are no longer active.
+    targets.update(
+        str(row.get("relation_target")) for row in records
+        if row.get("kind") == "supersession"
+        and row.get("cause_id") == f"front:{front_id}:completion"
+        and str(row.get("relation_target") or "") in prior_by_id
+    )
+    terminals: list[dict] = []
+    for target in sorted(targets):
+        terminal_id = "event.front." + hashlib.sha256(
+            f"{world_id}|{branch_id}|{turn}|{front_id}|supersedes|{target}".encode()
+        ).hexdigest()[:24]
+        terminals.append(build_world_event_record(
+            event_id=terminal_id,
+            world_id=world_id,
+            session_id=session_id,
+            branch_id=branch_id,
+            turn=turn,
+            game_time=turn,
+            kind="supersession",
+            relation_target=target,
+            cause_id=f"front:{front_id}:completion",
+            cause_authority="rule",
+            cause_visibility=cause_visibility,
+            actor=faction or None,
+            affected_domains=[],
+            priority=10,
+            scope="branch",
+            propagation="existing_subjects",
+            start=turn,
+            reversible=False,
+            subjects=[],
+            effects=[],
+            description=f"{consequence} supersedes {target}",
+        ))
+    return [*terminals, admission]
+
+
+def world_ops(
+    state: dict,
+    applied: list[dict],
+    clock_turns: int = 6,
+    *,
+    session_id: str | None = None,
+    branch_id: str | None = None,
+    turn_index: int | None = None,
+) -> list[dict]:
+    """Phase 2 (ratified plan doc 13): the living-world referee. Pure reader over
     (state, this batch's applied ops); returns PRIVILEGED rule ops for the caller to
     apply — propose-then-commit, journaled, never a hidden reducer side-effect.
 
@@ -4843,7 +5469,7 @@ def world_ops(state: dict, applied: list[dict], clock_turns: int = 6) -> list[di
     pmove = None                             # (from, to) — the camera follows the player
     pmove_cause = None
     if move is None:
-        # Floor repair (2026-07-09 live, Emberfall bench): a DM that never emits a [scene]
+        # Floor repair (2026-07-09 live, Cinderveil bench): a DM that never emits a [scene]
         # tag still yields extraction move_entity ops on the PLAYER. The scene — and the
         # travel clock — must follow the player deterministically (pillars 6/12), not the
         # model's tag discipline. Only KNOWN locations move the camera (never mint here).
@@ -4930,16 +5556,29 @@ def world_ops(state: dict, applied: list[dict], clock_turns: int = 6) -> list[di
             {"op": "front_tick", "front": fid, "reason": reason}, trigger_causes,
         ))
         if int(f.get("filled", 0)) + 1 >= max(1, int(f.get("segments", 6))):
-            cons = str(f.get("consequence") or "").strip() \
-                or f"the {f.get('name', fid)} agenda comes to a head"
+            cons = _front_completion_consequence(f, fid)
             out.append(_inherit_semantic_frame_ref(
                 {"op": "world_flag", "key": fid, "value": "come to a head",
                  **({"faction": fac} if fac else {})},
                 trigger_causes,
             ))
             out.append({"op": "memory_event",
-                        "text": f"World event — {f.get('name', fid)}: {cons}"})
+                        "text": _front_completion_memory_text(f, fid, cons)})
             out[-1] = _inherit_semantic_frame_ref(out[-1], trigger_causes)
+            world_id = str((state.get("world_identity") or {}).get("world_id") or "")
+            if session_id and branch_id and re.fullmatch(r"world_[0-9a-f]{32}", world_id):
+                event_turn = int(turn if turn_index is None else turn_index)
+                out.extend(
+                    {"op": "world_event_admit", "event": event}
+                    for event in _front_completion_event_records(
+                        state,
+                        front_id=fid,
+                        world_id=world_id,
+                        session_id=session_id,
+                        branch_id=branch_id,
+                        turn=event_turn,
+                    )
+                )
     return out
 
 
@@ -5104,8 +5743,40 @@ class ApplyResult:
     unfroze: bool = False
 
 
+def _attach_world_event_branch_view(store, branch_id: str, state: dict) -> dict:
+    """Attach Store-owned retrieval lineage and the matching active overlay to a state view."""
+    if state.get("claims") or state.get("facts") or state.get("beliefs") \
+            or state.get("epistemic_history"):
+        state["knowledge_record_scope"] = store.knowledge_record_scope(branch_id)
+    if state.get("world_events"):
+        state["world_event_branch_id"] = branch_id
+        state["world_event_source_branch_ids"] = store.world_event_origin_branches(branch_id)
+        try:
+            from .world_events import project_state_overlay
+
+            state["world_overlay"] = project_state_overlay(state)
+        except Exception:
+            state["world_overlay"] = {}
+    return state
+
+
 def current_state(store, branch_id: str) -> dict:
-    return store.state_at(branch_id, BIG_TURN, reduce_state, empty=empty_state())
+    source_branch_ids = store.world_event_origin_branches(branch_id)
+
+    def reduce_branch_state(state: dict, ops: list[dict]) -> dict:
+        # Forked journals retain each immutable event's origin branch.  Supply the Store-owned
+        # child view before replaying an event batch so a child terminal can target an inherited
+        # parent admission.  Attaching this only when events exist keeps event-free replay byte
+        # compatible with the historical empty-state shape.
+        if state.get("world_events") or any(
+            isinstance(op, dict) and op.get("op") == "world_event_admit" for op in ops
+        ):
+            state["world_event_branch_id"] = branch_id
+            state["world_event_source_branch_ids"] = list(source_branch_ids)
+        return reduce_state(state, ops)
+
+    state = store.state_at(branch_id, BIG_TURN, reduce_branch_state, empty=empty_state())
+    return _attach_world_event_branch_view(store, branch_id, state)
 
 
 _DAMAGE_OPS = {"hp_adj", "combatant_hp"}
@@ -5171,7 +5842,7 @@ def assign_damage_effect_ids(ops: list[dict], branch_id: str, turn: int, owner: 
     return out
 
 
-_TRACE_OP_KEYS = ("op", "char", "target", "name", "entity", "delta", "_delta",
+_TRACE_OP_KEYS = ("op", "char", "target", "name", "entity", "faction", "delta", "_delta",
                   "_effect_id", "_effect_owner", "_strike", "_opposition", "reason")
 
 
@@ -5185,9 +5856,10 @@ _SCENE_MOVEMENT_SOURCES = frozenset({"user", "rule"})
 
 
 def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
-            source: str = "rule") -> dict:
+            source: str = "rule", *, session_id: Optional[str] = None,
+            branch_id: Optional[str] = None) -> dict:
     """Bake config/registry-dependent values into the journaled op (replay determinism,
-    03 SS3.3; the public contract extends the bake to item reference data). `state` is the pre-apply
+    03 SS3.3; doc 07 §6 extends the bake to item reference data). `state` is the pre-apply
     snapshot — used only to generate a fresh, unique instance id at mint.
 
     ``source`` is also the live causal authority for scene movement.  Genesis and extraction may
@@ -5197,6 +5869,141 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
     """
     out = dict(op)
     out["_turn"] = turn
+    if op["op"] in {"fact_admit", "belief_acquire"}:
+        from .capability_glossary import content_fingerprint
+
+        statement = str(op.get("statement") or "").strip()
+        supplied_pid = str(op.get("proposition_id") or "").strip()
+        if statement:
+            derived_pid = polarized_proposition_id(statement)
+            proposition_identity = proposition_id(statement)
+            if supplied_pid and supplied_pid not in {derived_pid, proposition_identity}:
+                raise ValueError("supplied proposition identity does not match statement")
+            out["proposition_id"] = derived_pid
+            out["proposition_identity"] = proposition_identity
+            out["statement"] = statement
+        elif supplied_pid:
+            out["proposition_id"] = supplied_pid
+            proposition_row = (
+                ((state or {}).get("propositions") or {}).get(supplied_pid) or {}
+            )
+            statement = str(proposition_row.get("statement", "")).strip()
+            out["proposition_identity"] = str(
+                proposition_row.get("identity") or supplied_pid
+            )
+            if statement:
+                out["statement"] = statement
+        if op["op"] == "fact_admit":
+            pid = str(out["proposition_id"])
+            fact_id = "fact_" + hashlib.sha256(pid.encode()).hexdigest()[:16]
+            record = {
+                "schema": "aetherstate-fact-record/2",
+                "fact_id": fact_id,
+                "session_id": str(session_id or "historical"),
+                "branch_id": str(branch_id or "historical"),
+                "world_id": str(
+                    ((state or {}).get("world_identity") or {}).get("world_id")
+                    or "world_unbound"
+                ),
+                "turn": int(turn),
+                "proposition_id": pid,
+                "proposition_identity": str(out.get("proposition_identity") or pid),
+                "statement": statement,
+                "proposition_polarity": normalized_proposition(statement)[1],
+                "cause": str(op["cause"]),
+                "authority": str(op.get("authority") or source),
+                "ingress": str(source),
+                "authority_ceiling": "objective_fact",
+                "visibility": str(op.get("visibility") or "public"),
+                "scoped_actors": sorted({str(v) for v in op.get("scoped_actors") or []}),
+                "status": "accepted",
+            }
+            record["fingerprint"] = content_fingerprint(record)
+            out["_fact_id"] = fact_id
+            out["_record"] = record
+        else:
+            raw_holder = str(op["holder"])
+            resolved_holder = resolve_entity_ref(state or {}, raw_holder) or raw_holder
+            holder = normalize_actor_id(resolved_holder) or slug(resolved_holder)
+            evidence = str(op.get("evidence_source") or op.get("source"))
+            pid = str(out["proposition_id"])
+            scoped = sorted({
+                normalize_actor_id(resolve_entity_ref(state or {}, str(value)) or str(value))
+                or slug(str(value))
+                for value in op.get("scoped_actors") or [holder]
+            })
+            identity_payload = {
+                "holder": holder,
+                "proposition_id": pid,
+                "turn": int(turn),
+                "stance": str(op["stance"]),
+                "source": evidence,
+                "evidence_source": evidence,
+                "ingress": str(source),
+                "authority_ceiling": "actor_epistemic_only",
+                "claim_id": op.get("claim_id"),
+            }
+            belief_id = "belief:" + content_fingerprint(identity_payload).removeprefix("sha256:")
+            record = {
+                "schema": "aetherstate-epistemic-record/2",
+                "belief_id": belief_id,
+                "session_id": str(session_id or "historical"),
+                "branch_id": str(branch_id or "historical"),
+                "world_id": str(
+                    ((state or {}).get("world_identity") or {}).get("world_id")
+                    or "world_unbound"
+                ),
+                "turn": int(turn),
+                "holder": holder,
+                "proposition_id": pid,
+                "proposition_identity": str(out.get("proposition_identity") or pid),
+                "statement": statement,
+                "proposition_polarity": normalized_proposition(statement)[1]
+                if statement else "unspecified",
+                "stance": str(op["stance"]),
+                "source": evidence,
+                "teller": op.get("teller"),
+                "claim_id": op.get("claim_id"),
+                "ingress": str(source),
+                "authority_ceiling": "actor_epistemic_only",
+                "establishes_truth": False,
+                "admits_world_event": False,
+                "visibility": str(op.get("visibility") or "actor_scoped"),
+                "scoped_actors": scoped,
+                "status": "current",
+            }
+            record["fingerprint"] = content_fingerprint(record)
+            out["source"] = evidence
+            out["holder"] = holder
+            out["scoped_actors"] = scoped
+            out["_belief_id"] = belief_id
+            out["_record"] = record
+    if op["op"] == "claim_record":
+        from .claim_frame import build_claim_record, validate_claim_frame
+
+        frame = validate_claim_frame(op.get("frame"))
+        ingress = str(frame.get("ingress") or "code")
+        record_source = slug(str(frame.get("source") or ingress))
+        world_id = str(((state or {}).get("world_identity") or {}).get("world_id") or "world_unbound")
+        try:
+            occurrence_index = max(1, int(str(frame.get("frame_id") or "1").rsplit("-", 1)[-1]))
+        except (TypeError, ValueError):
+            occurrence_index = 1
+        scoped = [
+            str(value) for value in (frame.get("speaker"), frame.get("addressee")) if value
+        ]
+        out["frame"] = json.loads(json.dumps(frame))
+        out["_record"] = build_claim_record(
+            frame,
+            session_id=str(session_id or "historical"),
+            branch_id=str(branch_id or "historical"),
+            world_id=world_id,
+            turn=int(turn),
+            source=record_source,
+            occurrence_index=occurrence_index,
+            visibility=str(op.get("visibility") or "public"),
+            scoped_actors=op.get("scoped_actors") or scoped,
+        )
     if op["op"] == "semantic_meaning_commit":
         from .semantic_fabric import validate_compiled_meaning_receipt
 
@@ -5217,6 +6024,14 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
 
         frame = validate_action_frame_snapshot(op.get("frame"))
         out["frame"] = json.loads(json.dumps(frame))
+    if op["op"] == "creator_world_seed":
+        # Caller-supplied sealing evidence is never trusted.  Rebuild it from the validated source
+        # document and current replayable turn at the privileged Creator boundary.
+        out.pop("_snapshot", None)
+        out["document"] = json.loads(json.dumps(
+            op.get("document"), ensure_ascii=False, sort_keys=True, allow_nan=False,
+        ))
+        out["_snapshot"] = _creator_world_snapshot(out["document"], turn)
     if op["op"] == "capability_assign":
         # Callers submit refs and provenance only. The live apply path resolves and bakes
         # authority from append-only WorldLex storage; caller-supplied snapshots are ignored.
@@ -5231,7 +6046,7 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
     if op["op"] == "consent_signal" and op.get("signal") == "safeword" \
             and cfg.consent.mode == "unrestricted":
         out["_raw_mode"] = True
-    if op["op"] == "item_mint":                # RPG-2 (the public contract): bake the template snapshot +
+    if op["op"] == "item_mint":                # RPG-2 (doc 07 §6): bake the template snapshot +
         from . import registry as _registry    # the generated iid — never re-read at replay, so
         try:                                    # editing items.toml can't rewrite a minted item
             tpl = _registry.load(cfg).items.get(str(op.get("template", "")))
@@ -5288,7 +6103,7 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
             out["_known"] = slug(str(op.get("ability", ""))) in _registry.load(cfg).abilities
         except Exception:
             out["_known"] = False
-    if op["op"] == "affinity_adj":             # RPG-3b (the public contract): the per-turn clamp is baked
+    if op["op"] == "affinity_adj":             # RPG-3b (doc 07 §6): the per-turn clamp is baked
         out["_delta"] = _clamp(op.get("delta", 0), *AFFINITY_DELTA_CLAMP)   # so history is
                                                # stable even if the constant is tuned later
     if op["op"] == "tide_set":                 # §F: the DM's macro report -> a single clamped
@@ -5322,7 +6137,9 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
             snap["slot"], snap["worn"], snap["class"] = want_slot, True, "gear"   # ((aether.equip)))
         aura = str(op.get("aura") or op.get("effect") or "").strip()   # 2026-07-10 (Bean): a gear
         if aura:                                                       # PROSE/glamour/lore effect
-            snap["aura"] = aura[:240]                                  # that MATTERS to narration
+            # Match the complete Creator prose allowance. The old 240-character clamp could
+            # amputate a validated sentence only after the main-model response had passed.
+            snap["aura"] = aura[:4000]                                 # that MATTERS to narration
         cls = classify_item(snap.get("name", ""), snap)
         snap["class"] = cls["class"]
         if cls["worn"]:
@@ -5384,6 +6201,31 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
         out.pop("_capability_pool", None)
         out.pop("_capability_assignments", None)
         out.pop("_kit_source", None)
+        entity_id = op.get("char")
+        supplied_faction = op.get("faction")
+        stored_faction = (((state or {}).get("attributes") or {}).get(entity_id) or {}).get(
+            "faction"
+        ) if entity_id else None
+        supplied_faction_id = resolve_entity_ref(state or {}, supplied_faction) \
+            if supplied_faction else None
+        stored_faction_id = resolve_entity_ref(state or {}, stored_faction) \
+            if stored_faction else None
+        for faction_id in (supplied_faction_id, stored_faction_id):
+            if faction_id is not None and (((state or {}).get("entities") or {}).get(
+                    faction_id) or {}).get("kind") != "faction":
+                raise OpReject("combatant faction must resolve to one stable faction entity")
+        if supplied_faction and supplied_faction_id is None:
+            raise OpReject("combatant faction must resolve to one stable faction entity")
+        if stored_faction and stored_faction_id is None:
+            raise OpReject("tracked combatant has an invalid committed faction")
+        if supplied_faction_id and stored_faction_id \
+                and supplied_faction_id != stored_faction_id:
+            raise OpReject("combatant faction conflicts with the tracked actor's committed faction")
+        faction_id = stored_faction_id or supplied_faction_id
+        if faction_id:
+            out["faction"] = faction_id
+        else:
+            out.pop("faction", None)
         rows = ((state or {}).get("combat") or {}).get("combatants") or {}
         base = slug(str(op.get("name", "foe")))[:32] or "foe"
         cid, n = base, 1
@@ -5507,7 +6349,7 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
     if op["op"] == "scene_set" and "location" in op \
             and getattr(cfg, "specialization", None) is not None \
             and cfg.specialization.name == "rpg":
-        # RPG-4 (the public contract): canonical location baked into the journaled op — replay never
+        # RPG-4 (doc 05 §9): canonical location baked into the journaled op — replay never
         # re-resolves; a `none` session's ops stay byte-identical (no _canon keys).
         loc_id, disp, is_new = canonical_location(state or {}, op["location"])
         out["location"] = loc_id
@@ -5538,6 +6380,8 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
         out["_fid"] = slug(str(op.get("name", "")))[:64]
         out["_segments"] = _clamp(op.get("segments", 6), 3, 12)
         out["_pace"] = _clamp(op.get("pace", 1), 1, 3)
+        if op.get("event_duration_turns") is not None:
+            out["_event_duration_turns"] = _clamp(op["event_duration_turns"], 1, 100)
     if op["op"] == "front_tick":
         out["_delta"] = 1                      # one segment per tick, always — pace lives in
         #                                        the trigger cadence, never the step size
@@ -5633,6 +6477,373 @@ def _materialize_enemy_capability_pool(
 def _enemy_pool_subject_id(combatant_id: str) -> str:
     """Stable WorldLex id for a combat row whose legacy id may contain ``#``."""
     return "enemy." + str(combatant_id).replace("#", ":")
+
+
+def _world_overlay_operation_violation(
+    state: dict, op: dict, *, turn: int | None = None,
+) -> Optional[str]:
+    """Fail closed before a consumer materializes Store-owned side effects."""
+    try:
+        from .world_events import (
+            capability_eligible,
+            future_subject_eligible,
+            future_subject_identity_resolved,
+            project_state_overlay,
+        )
+
+        kind = str(op.get("op") or "")
+        if kind == "entity_add":
+            raw_kind = str(op.get("kind") or "character")
+            candidate_kind = {
+                "character": "npc", "npc": "npc", "player": "actor", "enemy": "enemy",
+            }.get(raw_kind, raw_kind)
+            if candidate_kind in {"actor", "npc", "enemy"}:
+                candidate = {
+                    field: op.get(field) for field in (
+                        "faction", "name", "tier", "role", "location", "tags",
+                    )
+                }
+                candidate.update({
+                    "id": str(op.get("entity") or slug(str(op.get("name") or ""))),
+                    "kind": candidate_kind,
+                })
+                if not future_subject_eligible(state, candidate, game_time=turn):
+                    return "an active WorldOverlay makes this future actor ineligible"
+        if kind == "combatant_spawn":
+            candidate = {
+                "kind": "enemy" if op.get("side") == "enemy" else "ally",
+                "id": str(op.get("_cid") or op.get("char") or slug(str(op.get("name") or ""))),
+                **{
+                    field: op.get(field) for field in (
+                        "faction", "name", "role", "location", "tags",
+                    )
+                },
+                "tier": op.get("tier", "standard"),
+            }
+            if not future_subject_identity_resolved(state, candidate, game_time=turn):
+                return "an active WorldOverlay requires stable faction identity for this spawn"
+            if not future_subject_eligible(state, candidate, game_time=turn):
+                return "an active WorldOverlay makes this future spawn ineligible"
+            kit = op.get("_kit")
+            if isinstance(kit, dict):
+                for index, move in enumerate(kit.get("moves") or []):
+                    if not isinstance(move, dict):
+                        continue
+                    move_id = str(move.get("id") or "")
+                    definition_id = (
+                        f"enemy_move.{kit.get('fingerprint')}.{index}.{move_id}"
+                    )
+                    if not capability_eligible(state, {
+                        "id": move_id,
+                        "capability_id": move_id,
+                        "definition_id": definition_id,
+                        "name": move.get("name"),
+                        "tags": [move.get("primitive"), move.get("basis")],
+                    }, game_time=turn):
+                        return (
+                            "an active WorldOverlay makes this enemy capability pool ineligible"
+                        )
+            return None
+        effective = (project_state_overlay(state, game_time=turn).get("effective") or {})
+        if kind == "capability_assign":
+            definition = op.get("definition") or {}
+            subject = op.get("subject") or {}
+            definition_id = str(definition.get("definition_id") or "")
+            capability_id = str(definition.get("capability_id") or definition_id)
+            if not capability_eligible(state, {
+                "id": capability_id,
+                "capability_id": capability_id,
+                "definition_id": definition_id,
+                "name": definition.get("name"),
+                "tags": definition.get("concept_ids") or [],
+                "owner_id": subject.get("id"),
+            }, game_time=turn):
+                return "an active WorldOverlay makes this capability ineligible"
+        if kind in {"check", "ability_grant"}:
+            values = [op.get("skill")] if kind == "check" else [op.get("ability")]
+            if kind == "check":
+                values.extend(op.get("use") or [])
+            for value in values:
+                capability_id = slug(str(value or ""))
+                if capability_id and not capability_eligible(state, {
+                    "id": capability_id,
+                    "capability_id": capability_id,
+                    "name": str(value or ""),
+                }, game_time=turn):
+                    return "an active WorldOverlay makes this capability use ineligible"
+        if kind == "enemy_intent_set" and isinstance(op.get("_intent"), dict):
+            intent = op["_intent"]
+            actor = str(intent.get("actor") or "")
+            combatant = (((state.get("combat") or {}).get("combatants") or {}).get(actor) or {})
+            kit = op.get("_kit") if isinstance(op.get("_kit"), dict) else combatant.get("kit")
+            move_id = str(intent.get("move_id") or "")
+            moves = kit.get("moves") if isinstance(kit, dict) else []
+            index = next((
+                i for i, move in enumerate(moves or [])
+                if isinstance(move, dict) and move.get("id") == move_id
+            ), -1)
+            definition_id = (
+                f"enemy_move.{kit.get('fingerprint')}.{index}.{move_id}"
+                if isinstance(kit, dict) and index >= 0 else ""
+            )
+            if move_id and not capability_eligible(state, {
+                "id": move_id,
+                "capability_id": move_id,
+                "definition_id": definition_id,
+                "name": intent.get("move_name"),
+            }, game_time=turn):
+                return "an active WorldOverlay makes this enemy capability use ineligible"
+        if kind in {"quest_add", "quest_update"}:
+            token = str(op.get("name") if kind == "quest_add" else op.get("quest") or "")
+            qid = token if token in (state.get("quests") or {}) else slug(token)[:64]
+            keys = {qid, "quest:" + qid}
+            for key, fields in (effective.get("quest") or {}).items():
+                row = (fields or {}).get("available") if isinstance(fields, dict) else None
+                if str(key) in keys and isinstance(row, dict) and row.get("value") is False:
+                    return "an active WorldOverlay makes this quest unavailable"
+    except Exception:
+        # A malformed or incompatible event view cannot silently grant eligibility. Historical
+        # states without events keep their old behavior; a state claiming event authority closes.
+        return "WorldOverlay could not be projected safely" if state.get("world_events") else None
+    return None
+
+
+def _nested_ref_exists(value: object, ref: str, fields: set[str]) -> bool:
+    """Find an exact typed reference without treating arbitrary prose as evidence."""
+    if isinstance(value, dict):
+        if any(str(value.get(field) or "") == ref for field in fields):
+            return True
+        return any(_nested_ref_exists(child, ref, fields) for child in value.values())
+    if isinstance(value, list):
+        return any(_nested_ref_exists(child, ref, fields) for child in value)
+    return False
+
+
+def _world_event_lineage_violation(store, state: dict, event: dict) -> Optional[str]:
+    lineage = event.get("worldlex_lineage")
+    if not isinstance(lineage, dict):
+        return None
+    world_id = str(event.get("world_id") or "")
+    definition_ref = lineage.get("definition_ref")
+    if definition_ref is not None:
+        try:
+            definition = store.worldlex.get_by_fingerprint(str(definition_ref))
+        except (TypeError, ValueError, WorldLexError):
+            definition = None
+        if not isinstance(definition, dict) or definition.get("world_id") != world_id:
+            return "World Event Record has an unknown or cross-world WorldLex definition"
+
+    assignment_ref = lineage.get("assignment_ref")
+    if assignment_ref is not None and not _nested_ref_exists(
+        state.get("capability_assignments") or {},
+        str(assignment_ref),
+        {"assignment_id", "assignment_ref"},
+    ):
+        return "World Event Record has an unknown WorldLex assignment reference"
+
+    eligibility_ref = lineage.get("eligibility_ref")
+    if eligibility_ref is not None and not _nested_ref_exists(
+        state.get("combat") or {}, str(eligibility_ref), {"eligibility_ref"}
+    ):
+        return "World Event Record has an unknown WorldLex eligibility reference"
+
+    event_effects = event.get("effects") or []
+    adapter_ref = lineage.get("adapter_ref")
+    if adapter_ref is not None and not (
+        _nested_ref_exists(event_effects, str(adapter_ref), {"fingerprint", "adapter_ref"})
+        or _nested_ref_exists(
+            state.get("capability_assignments") or {},
+            str(adapter_ref),
+            {"adapter_ref", "adapter_fingerprint", "fingerprint"},
+        )
+    ):
+        return "World Event Record has an unknown WorldLex adapter reference"
+
+    receipt_ref = lineage.get("receipt_ref")
+    if receipt_ref is not None and not (
+        _nested_ref_exists(
+            event_effects,
+            str(receipt_ref),
+            {"receipt_ref", "receipt_id", "application_fingerprint", "fingerprint"},
+        )
+        or _nested_ref_exists(
+            state.get("combat") or {},
+            str(receipt_ref),
+            {"receipt_ref", "admission_ref", "receipt_id", "fingerprint"},
+        )
+    ):
+        return "World Event Record has an unknown WorldLex receipt reference"
+    return None
+
+
+def _front_event_cause_violation(state: dict, event: dict, turn: int) -> Optional[str]:
+    match = re.fullmatch(r"front:([^:]+):completion", str(event.get("cause_id") or ""))
+    if match is None:
+        return "rule World Event cause is not an approved code-owned producer"
+    fid = match.group(1)
+    front = (state.get("fronts") or {}).get(fid)
+    if not isinstance(front, dict) or not front.get("done") \
+            or int(front.get("filled_turn", -1)) != turn \
+            or int(front.get("filled", 0)) < max(1, int(front.get("segments", 6))):
+        return "front World Event cause is missing its exact current-turn completion"
+    expected = _front_completion_event_records(
+        state,
+        front_id=fid,
+        world_id=str(event.get("world_id") or ""),
+        session_id=str(event.get("session_id") or ""),
+        branch_id=str(event.get("branch_id") or ""),
+        turn=turn,
+    )
+    if event not in expected:
+        return "front World Event differs from its deterministic completion projection"
+    return None
+
+
+def _world_event_existing_actor_violation(state: dict, event: dict) -> Optional[str]:
+    """Require exact actor effects to name a subject that exists at admission.
+
+    Selector subjects are the typed template for future actors.  An exact actor/npc/enemy
+    reference must never remain dormant and start affecting a later entity that happens to reuse
+    its id.
+    """
+    if event.get("kind") != "admission" \
+            or event.get("propagation") not in {"existing_subjects", "existing_and_future"}:
+        return None
+    entities = state.get("entities") or {}
+    combatants = ((state.get("combat") or {}).get("combatants") or {})
+    compatible_kinds = {
+        "actor": {"actor", "character", "player", "npc", "enemy"},
+        "npc": {"npc", "character"},
+        "enemy": {"enemy"},
+    }
+    for effect in event.get("effects") or []:
+        if not isinstance(effect, dict) or effect.get("supported") is not True:
+            continue
+        subject = effect.get("subject")
+        if not isinstance(subject, dict):
+            continue
+        subject_kind = str(subject.get("kind") or "")
+        if subject_kind not in compatible_kinds:
+            continue
+        subject_id = str(subject.get("id") or "")
+        entity = entities.get(subject_id)
+        entity_kind = str(entity.get("kind") or "") if isinstance(entity, dict) else ""
+        exists = entity_kind in compatible_kinds[subject_kind]
+        if subject_kind == "enemy" and subject_id in combatants:
+            exists = True
+        if not exists:
+            return (
+                "World Event exact existing actor subject does not exist at admission: "
+                f"{subject_kind}:{subject_id}"
+            )
+    return None
+
+
+def _world_event_cause_violation(
+    store, state: dict, event: dict, source: str, cfg, turn: int,
+) -> Optional[str]:
+    """Resolve one fresh event cause against privileged or code-owned receipts."""
+    if event.get("schema") != "aetherstate-world-event-record/2":
+        return "historical World Event records are replay-only"
+    if event.get("turn") != turn:
+        return "World Event Record turn is stale or forged"
+    if int(event.get("game_time", -1)) != turn:
+        return "World Event Record game time is stale or forged"
+
+    authority = str(event.get("cause_authority") or "")
+    exact_source = {"creator": "user", "genesis": "genesis"}.get(authority)
+    if exact_source is not None:
+        if source != exact_source:
+            return f"{authority} World Event cause does not match its privileged ingress"
+        if not str(event.get("cause_id") or "").startswith(authority + ":"):
+            return f"{authority} World Event cause lacks its exact privileged identity"
+    elif authority == "rule":
+        if source != "rule":
+            return "rule World Event cause does not match its code ingress"
+        problem = _front_event_cause_violation(state, event, turn)
+        if problem is not None:
+            return problem
+    elif authority == "mechanic_settlement":
+        if source != "rule":
+            return "mechanic World Event cause is rule-only"
+        ref = str(event.get("settlement_ref") or "")
+        public, private = _state_settlement_pair(state, ref, turn)
+        try:
+            from .mechanic_settlement import validate_mechanic_settlement
+
+            receipt = validate_mechanic_settlement(
+                public.get("receipt") if isinstance(public, dict) else None
+            )
+        except (TypeError, ValueError):
+            return "mechanic World Event cause has no exact current-turn settlement receipt"
+        if not isinstance(private, dict) or private.get("settlement_ref") != ref \
+                or receipt.get("settlement_ref") != ref \
+                or receipt.get("frame_ref") != event.get("semantic_frame_ref"):
+            return "mechanic World Event cause conflicts with its settlement receipt"
+    elif authority == "semantic_transition_truth":
+        spec = getattr(cfg, "specialization", None)
+        if source != "rule" or spec is None or spec.name != "rpg" \
+                or not getattr(spec, "semantic_truth_gate", False):
+            return "Semantic Transition Truth event admission is disabled"
+        # The current lifecycle proof is committed only after reducer publication.  Accepting it
+        # here would require a second, non-atomic journal row, so this route remains fail-closed
+        # until the event and transition entry share one transaction.
+        return "Semantic Transition Truth event lacks an atomically committed transition entry"
+    else:
+        return "World Event Record cause authority is unsupported"
+    lineage_violation = _world_event_lineage_violation(store, state, event)
+    if lineage_violation is not None:
+        return lineage_violation
+    return _world_event_existing_actor_violation(state, event)
+
+
+def _claim_lineage_violation(state: dict, frame: dict, turn: int) -> Optional[str]:
+    """Bind a fresh ClaimFrame to the exact meaning receipt committed for this turn."""
+    receipts = [
+        row.get("meaning") for row in state.get("semantic_meanings") or []
+        if isinstance(row, dict) and row.get("turn") == turn and isinstance(row.get("meaning"), dict)
+    ]
+    matching = next((
+        receipt for receipt in receipts
+        if receipt.get("source_fingerprint") == frame.get("source_fingerprint")
+        and receipt.get("fabric_fingerprint") == frame.get("fabric_fingerprint")
+    ), None)
+    if matching is None:
+        return "Claim Record lacks its exact current-turn semantic meaning receipt"
+    match = next((
+        row for row in matching.get("matches") or []
+        if isinstance(row, dict)
+        and row.get("lex_id") == "claim"
+        and row.get("entry_fingerprint") == frame.get("meaning_ref")
+        and row.get("concept_id") == frame.get("claim_concept_id")
+        and row.get("start") == (frame.get("governor_span") or {}).get("start")
+        and row.get("end") == (frame.get("governor_span") or {}).get("end")
+    ), None)
+    if match is None:
+        return "Claim Record governor is stale, forged, or absent from its meaning receipt"
+    receipt_ambiguity = sorted({
+        str(value) for value in match.get("ambiguity") or []
+        if isinstance(value, str) and value
+    })
+    frame_ambiguity = sorted({
+        str(value) for value in frame.get("ambiguity") or []
+        if isinstance(value, str) and value
+    })
+    if frame_ambiguity != receipt_ambiguity:
+        return "Claim Record ambiguity differs from its exact meaning receipt"
+    if receipt_ambiguity:
+        return "Claim Record governor is ambiguous and cannot bind a durable occurrence"
+    receipt_anchors = sorted({
+        str(value) for value in match.get("source_ids") or []
+        if isinstance(value, str) and value.startswith("playerlex.")
+    })
+    frame_anchors = sorted({
+        str(value) for value in frame.get("playerlex_anchor_refs") or []
+        if isinstance(value, str)
+    })
+    if frame_anchors != receipt_anchors:
+        return "Claim Record PlayerLex anchor is stale, forged, or absent from its meaning receipt"
+    return None
 
 
 def _settlement_fingerprint(value: object) -> str:
@@ -6928,6 +8139,111 @@ def _settlement_batch_failures(pending: list[dict]) -> dict[int, str]:
     return failures
 
 
+def _front_event_batch_failures(
+    pending: list[dict],
+    state: dict,
+    *,
+    session_id: str,
+    branch_id: str,
+    turn: int,
+) -> dict[int, str]:
+    """Require one exact, complete immutable event group for every finishing front tick.
+
+    The rule pass publishes a front completion and its zero-or-more supersession terminals plus
+    admission in one Ledger batch.  Per-record validation alone is insufficient: removing one
+    member could otherwise leave a completed front or a partial event history in the returned
+    state.  Exact current-turn retries are accepted when the front already completed this turn.
+    """
+    event_rows: dict[str, list[dict]] = {}
+    for op in pending:
+        if op.get("op") != "world_event_admit":
+            continue
+        event = op.get("event")
+        if not isinstance(event, dict):
+            continue
+        match = re.fullmatch(r"front:([^:]+):completion", str(event.get("cause_id") or ""))
+        if match is not None:
+            event_rows.setdefault(match.group(1), []).append(op)
+
+    fronts = state.get("fronts") or {}
+    finishing_ticks: dict[str, list[dict]] = {}
+    for op in pending:
+        if op.get("op") != "front_tick":
+            continue
+        fid = str(op.get("front") or "")
+        front = fronts.get(fid)
+        if not isinstance(front, dict) or front.get("done"):
+            continue
+        segments = max(1, int(front.get("segments", 6)))
+        if int(front.get("filled", 0)) + 1 >= segments:
+            finishing_ticks.setdefault(fid, []).append(op)
+
+    failures: dict[int, str] = {}
+    for fid in sorted(set(event_rows) | set(finishing_ticks)):
+        rows = event_rows.get(fid, [])
+        ticks = finishing_ticks.get(fid, [])
+        front = fronts.get(fid)
+        reason = ""
+        already_complete = isinstance(front, dict) \
+            and front.get("done") is True \
+            and int(front.get("filled_turn", -1)) == turn \
+            and int(front.get("filled", 0)) >= max(1, int(front.get("segments", 6)))
+        if not isinstance(front, dict):
+            reason = "front World Event group has no committed front"
+        elif len(ticks) > 1:
+            reason = "front completion batch contains duplicate finishing ticks"
+        elif not already_complete and len(ticks) != 1:
+            reason = "front World Event group lacks its exact finishing tick"
+        else:
+            world_id = str((state.get("world_identity") or {}).get("world_id") or "")
+            expected = _front_completion_event_records(
+                state,
+                front_id=fid,
+                world_id=world_id,
+                session_id=session_id,
+                branch_id=branch_id,
+                turn=turn,
+            )
+            submitted = [row.get("event") for row in rows]
+            expected_json = sorted(
+                json.dumps(record, sort_keys=True, separators=(",", ":"))
+                for record in expected
+            )
+            submitted_json = sorted(
+                json.dumps(record, sort_keys=True, separators=(",", ":"))
+                for record in submitted
+            )
+            if not expected or submitted_json != expected_json:
+                if any(
+                    isinstance(record, dict) and record.get("game_time") != turn
+                    for record in submitted
+                ):
+                    reason = "World Event Record game time is stale or forged"
+                else:
+                    reason = (
+                        "front World Event differs from its deterministic completion projection; "
+                        "the atomic supersession and admission set is incomplete or changed"
+                    )
+        if not reason:
+            continue
+        for row in [*rows, *ticks]:
+            failures[id(row)] = reason
+        # Do not allow the legacy briefing projections to leak a completion whose immutable event
+        # set was rejected.  These rows are deterministic companions emitted by world_ops.
+        expected_memory = ""
+        if isinstance(front, dict):
+            expected_memory = _front_completion_memory_text(front, fid)
+        for candidate in pending:
+            if candidate.get("op") == "world_flag" \
+                    and candidate.get("key") == fid \
+                    and candidate.get("value") == "come to a head":
+                failures[id(candidate)] = reason
+            elif candidate.get("op") == "memory_event" \
+                    and candidate.get("text") == expected_memory:
+                failures[id(candidate)] = reason
+    return failures
+
+
 def _unsettled_skill_check_batch_failures(
     pending: list[dict], state: dict, turn: int,
 ) -> dict[int, str]:
@@ -7106,6 +8422,89 @@ def _semantic_receipt_duplicate(state: dict, op: dict, turn: int) -> bool:
     )
 
 
+_WORLD_ENTITY_NAMESPACE_KINDS = frozenset({"faction", "location", "npc"})
+_PLAYER_ENTITY_NAMESPACE_KIND = "player"
+
+
+def _entity_namespace_keys(
+    entity_id: object, name: object = "", aliases: object = None,
+) -> frozenset[str]:
+    """Canonical keys that can resolve to one entity in the shared ledger namespace."""
+    raw_keys = [entity_id, name]
+    if isinstance(aliases, list):
+        raw_keys.extend(aliases)
+    return frozenset(
+        key for key in (slug(str(value or "")) for value in raw_keys)
+        if key != "unnamed"
+    )
+
+
+def _entity_namespace_kinds_conflict(left: str, right: str) -> bool:
+    if left == right:
+        return False
+    relevant = _WORLD_ENTITY_NAMESPACE_KINDS | {_PLAYER_ENTITY_NAMESPACE_KIND}
+    return left in relevant and right in relevant
+
+
+def _fresh_entity_namespace_violation(
+    state: dict, pending: list[dict],
+) -> Optional[tuple[dict, str]]:
+    """Fail a fresh batch before any shared world/Player id can change meaning.
+
+    Historical journals replay through the reducer unchanged.  This admission-only preflight
+    protects both ordinary Creator output and forged/direct batches while keeping old saves
+    deterministic and readable.
+    """
+    declarations: list[tuple[frozenset[str], str]] = []
+    for entity_id, entity in (state.get("entities") or {}).items():
+        if not isinstance(entity, dict):
+            continue
+        kind = str(entity.get("kind") or "character")
+        if kind not in _WORLD_ENTITY_NAMESPACE_KINDS | {_PLAYER_ENTITY_NAMESPACE_KIND}:
+            continue
+        declarations.append((
+            _entity_namespace_keys(
+                entity_id, entity.get("name"), entity.get("aliases"),
+            ),
+            kind,
+        ))
+    for entity_id in (state.get("player") or {}):
+        declarations.append((
+            _entity_namespace_keys(entity_id), _PLAYER_ENTITY_NAMESPACE_KIND,
+        ))
+
+    for op in pending:
+        kind = ""
+        keys: frozenset[str] = frozenset()
+        if op.get("op") == "entity_add":
+            kind = str(op.get("kind") or "character")
+            if kind in _WORLD_ENTITY_NAMESPACE_KINDS | {_PLAYER_ENTITY_NAMESPACE_KIND}:
+                keys = _entity_namespace_keys(
+                    op.get("entity") or slug(str(op.get("name") or "")),
+                    op.get("name"),
+                    op.get("aliases"),
+                )
+        elif op.get("op") == "player_seed":
+            kind = _PLAYER_ENTITY_NAMESPACE_KIND
+            raw_entity = op.get("entity")
+            resolved = resolve_entity_ref(state, raw_entity)
+            keys = _entity_namespace_keys(resolved or raw_entity, raw_entity)
+        if not kind or not keys:
+            continue
+
+        for prior_keys, prior_kind in declarations:
+            shared = keys & prior_keys
+            if not shared or not _entity_namespace_kinds_conflict(prior_kind, kind):
+                continue
+            entity_id = sorted(shared)[0]
+            return op, (
+                f"entity namespace collision: '{entity_id}' cannot be both "
+                f"{prior_kind} and {kind}"
+            )
+        declarations.append((keys, kind))
+    return None
+
+
 def apply_delta(store, session_id: str, branch_id: str, turn: int, ops: list,
                 source: str, cfg, turn_lo: Optional[int] = None,
                 required_extraction: Optional[tuple[int, int]] = None, *,
@@ -7130,6 +8529,34 @@ def apply_delta(store, session_id: str, branch_id: str, turn: int, ops: list,
                                    semantic_source=semantic_source)
 
 
+def _migrate_fresh_legacy_knowledge_op(op: object) -> object:
+    """Translate a fresh legacy reveal into actor-relative belief only.
+
+    Historical journals still replay ``reveal_fact`` in the pure reducer.  New
+    ingress never receives that combined fact-plus-belief authority.
+    """
+    if not isinstance(op, dict) or op.get("op") != "reveal_fact":
+        return op
+    statement = str(op.get("statement") or "").strip()
+    holder = str(op.get("learner") or "").strip()
+    evidence = str(op.get("source") or "inferred").strip()
+    if not statement or not holder:
+        return {"op": "belief_acquire"}
+    migrated = {
+        "op": "belief_acquire",
+        "holder": holder,
+        "statement": statement,
+        "stance": "believes",
+        "evidence_source": evidence,
+        "source": f"legacy_reveal_fact_migration:{evidence}",
+        "visibility": "actor_scoped",
+        "scoped_actors": [holder],
+    }
+    if op.get("teller"):
+        migrated["teller"] = op["teller"]
+    return migrated
+
+
 def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: list,
                         source: str, cfg, turn_lo: Optional[int] = None,
                         required_extraction: Optional[tuple[int, int]] = None, *,
@@ -7138,6 +8565,7 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
                         semantic_context: object = None,
                         semantic_source: object = None) -> ApplyResult:
     res = ApplyResult(state=current_state(store, branch_id))
+    ops = [_migrate_fresh_legacy_knowledge_op(op) for op in ops]
     if required_extraction is not None:
         lo, hi = required_extraction
         if not store.extraction_pending_range(branch_id, lo, hi):
@@ -7174,6 +8602,7 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
             enemy_evidence = _enemy_narration_evidence(res.state, privileged_ops, lo, turn)
     pending = []
     identity_validation_failed = False
+    creator_world_validation_failed = False
     narrator = ""
     try:
         narrator = store.narrator_speaker(session_id)
@@ -7185,7 +8614,17 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
             res.quarantined.append({"op": op, "reason": "malformed op (02 SS11 spec)"})
             if isinstance(op, dict) and op.get("op") == "world_identity_set":
                 identity_validation_failed = True
+            if isinstance(op, dict) and op.get("op") == "creator_world_seed":
+                creator_world_validation_failed = True
             continue
+        if v.get("op") == "world_event_admit":
+            event = v.get("event") or {}
+            if event.get("session_id") != session_id or event.get("branch_id") != branch_id:
+                res.quarantined.append({
+                    "op": op,
+                    "reason": "World Event Record has a stale, forged, or cross-branch Ledger identity",
+                })
+                continue
         v, why = _protect_narrator(v, narrator)
         if v is None:
             res.quarantined.append({"op": op, "reason": why})
@@ -7199,6 +8638,17 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
     batch_failures = {
         **_unsettled_skill_check_batch_failures(pending, res.state, turn),
         **_settlement_batch_failures(pending),
+        **(
+            _front_event_batch_failures(
+                pending,
+                res.state,
+                session_id=session_id,
+                branch_id=branch_id,
+                turn=turn,
+            )
+            if source == "rule"
+            else {}
+        ),
     }
     if batch_failures:
         kept = []
@@ -7229,8 +8679,13 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
         for index, assigned_op in zip(positions, assigned, strict=True):
             pending[index] = assigned_op
     pending.sort(key=lambda o: _ORDER.get(o["op"], _DEFAULT_ORDER))   # 08 E2 family order
+    namespace_violation = _fresh_entity_namespace_violation(res.state, pending)
+    if namespace_violation is not None:
+        failed_op, reason = namespace_violation
+        res.quarantined.append({"op": failed_op, "reason": reason})
+        pending = []
     identity_ops = [op for op in pending if op.get("op") == "world_identity_set"]
-    if identity_validation_failed:
+    if identity_validation_failed or creator_world_validation_failed:
         pending = []
     elif identity_ops:
         first = identity_ops[0]
@@ -7273,6 +8728,26 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
             except WorldLexError as exc:
                 res.quarantined.append({"op": first, "reason": str(exc)})
                 pending = []
+    creator_ops = [op for op in pending if op.get("op") == "creator_world_seed"]
+    if creator_ops:
+        first = creator_ops[0]
+        document = first.get("document") or {}
+        target_world_id = str((res.state.get("world_identity") or {}).get("world_id") or "")
+        if identity_ops:
+            target_world_id = str(identity_ops[0].get("world_id") or "")
+        reason = None
+        if any(op.get("document") != document for op in creator_ops[1:]):
+            reason = "one batch cannot commit more than one Creator world source"
+        elif document.get("world_id") != target_world_id:
+            reason = "Creator world source belongs to a stale or cross-world identity"
+        else:
+            current_creator = res.state.get("creator_world") or {}
+            if current_creator.get("fingerprint") \
+                    and current_creator.get("document") != document:
+                reason = "Creator world source is immutable after it is committed"
+        if reason is not None:
+            res.quarantined.append({"op": first, "reason": reason})
+            pending = []
     effect_ids = [str(op.get("_effect_id")) for op in pending
                   if op.get("op") in _DAMAGE_OPS and op.get("_effect_id")]
     existing_receipts = store.effect_receipts(branch_id, effect_ids)
@@ -7452,7 +8927,42 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
         if why is not None:
             res.quarantined.append({"op": op, "reason": why})
             continue
-        op2 = _enrich(op2, turn, cfg, res.state, source=source)
+        try:
+            op2 = _enrich(
+                op2, turn, cfg, res.state, source=source,
+                session_id=session_id, branch_id=branch_id,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            res.quarantined.append({"op": op, "reason": str(exc)})
+            continue
+        if op2.get("op") == "claim_record":
+            record = op2.get("_record") or {}
+            current_world = str((res.state.get("world_identity") or {}).get("world_id") or "")
+            expected_world = current_world or "world_unbound"
+            if record.get("session_id") != session_id \
+                    or record.get("branch_id") != branch_id \
+                    or record.get("turn") != turn \
+                    or record.get("world_id") != expected_world:
+                res.quarantined.append({
+                    "op": op,
+                    "reason": "Claim Record has a stale, forged, cross-world, or cross-branch occurrence",
+                })
+                continue
+            claim_violation = _claim_lineage_violation(res.state, op2["frame"], turn)
+            if claim_violation is not None:
+                res.quarantined.append({"op": op, "reason": claim_violation})
+                continue
+        if op2.get("op") == "world_event_admit":
+            event_violation = _world_event_cause_violation(
+                store, res.state, op2["event"], source, cfg, turn,
+            )
+            if event_violation is not None:
+                res.quarantined.append({"op": op, "reason": event_violation})
+                continue
+        overlay_violation = _world_overlay_operation_violation(res.state, op2, turn=turn)
+        if overlay_violation is not None:
+            res.quarantined.append({"op": op, "reason": overlay_violation})
+            continue
         if op2.get("op") == "hp_adj" and isinstance(op2.get("_opposition"), dict):
             # New autonomous enemy actions have no Player-owned semantic cause.  Strip a bad
             # caller stamp while preserving the exact baked action and historical journal replay.
@@ -7579,9 +9089,14 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
                 # cannot leak an entity into state or the journal.
                 candidate_state = deepcopy(res.state)
                 for occurrence in occurrences:
+                    occurrence_overlay_violation = _world_overlay_operation_violation(
+                        candidate_state, occurrence, turn=turn,
+                    )
+                    if occurrence_overlay_violation is not None:
+                        raise OpReject(occurrence_overlay_violation)
                     _apply_op(candidate_state, occurrence)
                 res.state = candidate_state
-        except OpReject as exc:                 # transactional reject (the public contract): visible reason
+        except OpReject as exc:                 # transactional reject (doc 07 §7): visible reason
             res.quarantined.append({"op": op, "reason": str(exc)})
             continue
         except Exception as exc:
@@ -7597,15 +9112,29 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
                 "owner": owner or "unknown"}
     if res.applied:
         lo = turn_lo if turn_lo is not None else turn
-        if new_receipts or new_mechanic_receipts:
+        durable_claims = [
+            op["_record"] for op in res.applied
+            if op.get("op") == "claim_record" and isinstance(op.get("_record"), dict)
+        ]
+        durable_events = [
+            op["event"] for op in res.applied
+            if op.get("op") == "world_event_admit" and isinstance(op.get("event"), dict)
+        ]
+        if new_receipts or new_mechanic_receipts or durable_claims or durable_events:
             store.journal_with_receipts(branch_id, lo, turn, res.applied, source,
                                         list(new_receipts.values()),
-                                        mechanic_receipts=list(new_mechanic_receipts.values()))
+                                        mechanic_receipts=list(new_mechanic_receipts.values()),
+                                        claim_records=durable_claims,
+                                        world_event_records=durable_events)
         else:
             store.journal(branch_id, lo, turn, res.applied, source)
         every = cfg.session.checkpoint_every_turns
         if turn >= 0 and every > 0 and turn % every == 0:
             store.checkpoint(branch_id, turn, res.state)
+        # A first event is published to the Store in this transaction.  Return the same derived
+        # branch lineage and overlay that close/reopen replay will expose, without persisting those
+        # view-only fields inside the journal or checkpoint.
+        _attach_world_event_branch_view(store, branch_id, res.state)
     now_frozen = bool(res.state.get("frozen"))
     res.froze, res.unfroze = (not was_frozen and now_frozen), (was_frozen and not now_frozen)
     if res.froze or res.unfroze:
@@ -7779,6 +9308,12 @@ def translate_path(path: str, value: str, rpg: bool = False) -> Optional[dict]:
 
 def state_summary(state: dict) -> dict:
     """Read-only inspector 'Now' view payload (10 SS3 core; full inspector lands P6)."""
+    try:
+        from .world_events import project_state_overlay
+
+        world_overlay = project_state_overlay(state)
+    except Exception:
+        world_overlay = state.get("world_overlay", {})
     return {
         "schema": state.get("schema", SCHEMA),
         "frozen": bool(state.get("frozen")),
@@ -7799,6 +9334,11 @@ def state_summary(state: dict) -> dict:
         "relationships": state.get("relationships", {}),
         "facts": state.get("facts", {}),
         "beliefs": state.get("beliefs", {}),
+        "epistemic_history": state.get("epistemic_history", []),
+        "claims": state.get("claims", []),
+        "propositions": state.get("propositions", {}),
+        "world_events": state.get("world_events", []),
+        "world_overlay": world_overlay,
         "memories": state.get("memories", [])[-20:],
         "rolls": state.get("rolls", []),
         "player": state.get("player", {}),

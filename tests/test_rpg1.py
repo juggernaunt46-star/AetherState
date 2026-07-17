@@ -1,6 +1,6 @@
-"""RPG-1 fixtures (Q27 / the public contract phase RPG-1): the curated stat/skill/ability registry, the
+"""RPG-1 fixtures (Q27 / doc 05 §9 phase RPG-1): the curated stat/skill/ability registry, the
 Tier-0 R8 explicit skill-check -> PbtA resolution -> [DIRECTIVE], the `check` op, and the
-`outcome_match` linter rule. Exit criteria (the public contract):
+`outcome_match` linter rule. Exit criteria (doc 05 §9):
   - resolve-then-narrate fixtures green;
   - seed + roll recorded in the turn record;
   - outcome_match rejects a contradicting narration;

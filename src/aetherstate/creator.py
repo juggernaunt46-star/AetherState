@@ -1,8 +1,8 @@
-"""Character Creator & World-first genesis authoring (the public contract).
+"""Character Creator & World-first genesis authoring (doc 09).
 
-Deterministic backbone + optional assist-LLM "fill the blanks". The player supplies the main
-details they care about; every blank is filled — deterministically ALWAYS, and by an assist LLM
-when one is configured (fail-open to the deterministic fill). The completed docs are then turned
+Deterministic backbone + optional MAIN-LLM complete authoring. The player supplies the main
+details they care about; deterministic templates are always available explicitly, while the MAIN
+model must return a complete validated document before AI fill changes the form. Completed docs become
 into SHIPPED state ops (world identity, entities, memory/lore, goals, scene, `player_seed`).
 
 Same spine as the rest of AetherState: code is authority, the LLM only proposes. A proposal is
@@ -18,10 +18,14 @@ import json
 import logging
 import re
 import uuid
+from copy import deepcopy
+from dataclasses import dataclass
 from typing import Optional
 
+import httpx
+
 from . import registry
-from .assist import _chat, _json_or_none
+from .extraction import is_venice_host
 from .state import TIMES, merge_baseline_skills, slug
 
 log = logging.getLogger("aetherstate.creator")
@@ -126,11 +130,11 @@ _GENRE_TEMPLATES: dict[str, dict] = {
 _GENRE_TEMPLATES["custom"] = _GENRE_TEMPLATES["high_fantasy"]
 
 # ------------------------------------------------------------------ genre packs (2026-07-06)
-# The curated preset floor for NON-fantasy genres (regression test: a sci_fi world was offered
+# The curated preset floor for NON-fantasy genres (live playtest: a sci_fi world was offered
 # Spellcraft/Arcane Gift and "+1 archery" — the floor didn't exist outside fantasy). A pack
 # `hide`s the fantasy-flavored registry entries and `adds` genre-true skills/abilities. Pack
 # entries are NOT new registry rows: whatever the player picks is FROZEN into per-character
-# `defs` at creation (snapshot overlay, the public contract) — replay-pure, zero wire change, and the
+# `defs` at creation (snapshot overlay, doc 09 §1) — replay-pure, zero wire change, and the
 # eligibility gate works because `skill_entry` reads defs first (requires_ability preserved).
 # Shape mirrors registry/skills.toml + abilities: kind passive|active|basis ("basis" = grants
 # the in-world basis for a gated skill — the Arcane Gift pattern, made a first-class kind).
@@ -260,7 +264,7 @@ GENRE_PACKS: dict[str, dict] = {
 }
 
 # Genre-true Class/concept placeholder examples (the old fixed "Storm-Touched Skald" read
-# absurd on a sci_fi sheet — regression test note).
+# absurd on a sci_fi sheet — live playtest note).
 GENRE_CONCEPT_HINTS: dict[str, str] = {
     "high_fantasy": "e.g. Storm-Touched Skald", "dark_fantasy": "e.g. Plague-Doctor Turned Witness",
     "sci_fi": "e.g. Salvage Diver & Lace-Runner", "cyberpunk": "e.g. Burned-Out Corpo Fixer",
@@ -280,7 +284,7 @@ def _split_name_desc(line: str) -> tuple[str, str]:
             head, _, tail = s.partition(sep)
             head, tail = head.strip(" -:—– "), tail.strip()
             if head:
-                return head[:80], _s_soft(tail, 400)
+                return head[:80], _s_soft(tail, 2000)
     return s[:80], ""
 
 
@@ -331,6 +335,10 @@ _MAX_GEAR = 32          # starting gear gets its own, roomier cap: a full paper-
                         # silently truncate an authored kit (2026-07-11: was a stray out[:10]
                         # that dropped every item past the 10th — consumables included).
 _TXT = 2000             # per-field prose clamp (roomy — the briefing budget governs downstream)
+_CREATOR_DIRECTION_MAX = 32768  # prompt instructions, not a short lore row
+_CREATOR_GEAR_EFFECT_MAX = 4000 # live proof: 240 cut valid prose after validation
+_CREATOR_ROW_PROSE_MAX = 4000   # descriptions/effects; context budgets govern later delivery
+_CREATOR_LONG_PROSE_MAX = 8000  # setting/opening fields may legitimately span several paragraphs
 
 
 _RESOURCE_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -354,6 +362,12 @@ def _s_soft(v, n=_TXT) -> str:
     if len(s) <= n:
         return s
     cut = s[:n]
+    # Prefer a real sentence boundary. Validation happens before normalization; clipping a
+    # complete model response at a word boundary could otherwise manufacture a new unfinished
+    # sentence after it had already passed the completeness gate.
+    endings = [m.end() for m in re.finditer(r"[.!?](?:[\"'\)\]\}]+)?(?=\s|$)", cut)]
+    if endings and endings[-1] >= max(8, n // 3):
+        return cut[:endings[-1]].rstrip()
     soft = cut.rsplit(" ", 1)[0].rstrip(" ,;:—–-")
     return soft if len(soft) >= max(8, n // 3) else cut
 
@@ -560,30 +574,37 @@ def deterministic_world(doc: dict) -> dict:
                             if WORLD_ID_RE.fullmatch(_s(doc.get("parent_world_id"), 40)) else ""),
         "name": _s_soft(doc.get("name"), 80) or "Untitled World",
         "genre": genre,
-        "setting": _s_soft(doc.get("setting")) or tpl["setting"],
+        "setting": _s_soft(doc.get("setting"), _CREATOR_LONG_PROSE_MAX) or tpl["setting"],
         "date": _s_soft(doc.get("date"), 160) or tpl["date"],
         "time": (_s(doc.get("time"), 20).lower() if _s(doc.get("time"), 20).lower() in TIMES
                  else tpl["time"]),
         "tone": _s_soft(doc.get("tone"), 160) or tpl["tone"],
         # 'Name — description' composite rows: the old 80-char hard cut amputated every
         # description mid-word on every auto-fill (500 = 80 name + 400 desc + separator)
-        "factions": [_s_soft(x, 500)
+        "factions": [_s_soft(x, 2000)
                      for x in (_lst(doc.get("factions")) or tpl["factions"])][:_MAX_LIST],
-        "locations": [_s_soft(x, 500)
+        "locations": [_s_soft(x, 2000)
                       for x in (_lst(doc.get("locations")) or tpl["locations"])][:_MAX_LIST],
         "npcs": _norm_npcs(doc.get("npcs")),
-        "aspects": [_s_soft(x) for x in aspects][:_MAX_LIST],
-        "opening_scene": _s_soft(doc.get("opening_scene")) or tpl["opening_scene"],
-        "opening_quest": _s_soft(doc.get("opening_quest")) or tpl["opening_quest"],
+        "aspects": [_s_soft(x, _CREATOR_ROW_PROSE_MAX) for x in aspects][:_MAX_LIST],
+        "opening_scene": _s_soft(
+            doc.get("opening_scene"), _CREATOR_LONG_PROSE_MAX,
+        ) or tpl["opening_scene"],
+        "opening_quest": _s_soft(
+            doc.get("opening_quest"), _CREATOR_LONG_PROSE_MAX,
+        ) or tpl["opening_quest"],
         "extras": _norm_extras(doc.get("extras")),
         "loot": _norm_loot(doc.get("loot")),
         "fronts": _norm_fronts(doc.get("fronts")),
         "routes": _norm_routes(doc.get("routes")),
+        # Creative direction controls this authoring pass but is not runtime lore or truth.
+        # Keep it on the editable draft so applying an AI result cannot blank the Player's box.
+        "notes": _s_soft(doc.get("notes"), _CREATOR_DIRECTION_MAX),
     }
 
 
 def _norm_loot(loot) -> dict:
-    """Phase 1 (the mechanics contract): world-flavored loot tables — {tier: [rows]} authored by the
+    """Phase 1 (plan doc 13): world-flavored loot tables — {tier: [rows]} authored by the
     assist model or typed by hand, clamped here and FROZEN into state via loot_table ops at
     save (pillar 18). Absent tiers fall back to the registry floor at spawn-bake time."""
     from .state import THREAT_TIERS
@@ -613,7 +634,7 @@ def _norm_loot(loot) -> dict:
 
 
 def _norm_fronts(fronts) -> list:
-    """Phase 2 (the mechanics contract): faction fronts — PbtA-style agenda clocks authored by the
+    """Phase 2 (plan doc 13): faction fronts — PbtA-style agenda clocks authored by the
     assist model or typed by hand, clamped here and FROZEN into state via front_add ops at
     save (pillar 18). Code advances them (world_ops); rumor reveals them."""
     out: list = []
@@ -623,11 +644,17 @@ def _norm_fronts(fronts) -> list:
             f = {"name": name, "consequence": cons}
         if not isinstance(f, dict) or not _s(f.get("name"), 80):
             continue
-        out.append({"name": _s_soft(f.get("name"), 120),
-                    "faction": _s(f.get("faction"), 64),
-                    "segments": _clampi(f.get("segments", 6), 3, 12),
-                    "pace": _clampi(f.get("pace", 1), 1, 3),
-                    "consequence": _s_soft(f.get("consequence"), 300)})
+        row = {"name": _s_soft(f.get("name"), 120),
+               "faction": _s(f.get("faction"), 64),
+               "segments": _clampi(f.get("segments", 6), 3, 12),
+               "pace": _clampi(f.get("pace", 1), 1, 3),
+               "consequence": _s_soft(f.get("consequence"), _CREATOR_ROW_PROSE_MAX)}
+        duration = f.get("event_duration_turns")
+        if duration is not None and not isinstance(duration, bool):
+            row["event_duration_turns"] = _clampi(duration, 1, 100)
+        if isinstance(f.get("spawn_eligibility"), bool) and row["faction"]:
+            row["spawn_eligibility"] = f["spawn_eligibility"]
+        out.append(row)
     return out
 
 
@@ -654,11 +681,17 @@ def _norm_extras(extras) -> list:
     for e in _lst(extras)[:_MAX_LIST]:
         if isinstance(e, dict):
             label = _s(e.get("label") or e.get("key") or e.get("name"), 60)
-            text = _s(e.get("text") or e.get("value") or e.get("desc"))
+            text = _s_soft(
+                e.get("text") or e.get("value") or e.get("desc"),
+                _CREATOR_LONG_PROSE_MAX,
+            )
             if label or text:
                 out.append({"label": label or "Note", "text": text})
         elif isinstance(e, str) and e.strip():
-            out.append({"label": "Note", "text": _s(e)})
+            out.append({
+                "label": "Note",
+                "text": _s_soft(e, _CREATOR_LONG_PROSE_MAX),
+            })
     return out
 
 
@@ -677,7 +710,10 @@ def _norm_gear(raw) -> list:
             sl = _s(g.get("slot"), 20).lower().replace(" ", "").replace("-", "")
             if sl:
                 row["slot"] = sl
-            eff = _clean_authored_row(g.get("effect") or g.get("aura") or g.get("prose"), 240)
+            eff = _clean_authored_row(
+                g.get("effect") or g.get("aura") or g.get("prose"),
+                _CREATOR_GEAR_EFFECT_MAX,
+            )
             if eff:
                 row["effect"] = eff
             out.append(row)
@@ -695,7 +731,7 @@ def _norm_npcs(npcs) -> list:
             name = _s(n.get("name"), 80)
             if name:
                 out.append({"name": name, "role": _s_soft(n.get("role"), 160),
-                            "desc": _s_soft(n.get("desc"), 600),
+                            "desc": _s_soft(n.get("desc"), _CREATOR_ROW_PROSE_MAX),
                             "home": _s(n.get("home"), 80)})   # 0b: authored home anchor
         elif isinstance(n, str) and n.strip():
             out.append({"name": _s(n, 80), "role": "", "desc": "", "home": ""})
@@ -876,7 +912,7 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
     hp_doc = doc.get("hp") if isinstance(doc.get("hp"), dict) else None
     hp = _resource_row(hp_doc, default_max=20, minimum_max=1) if hp_doc is not None else \
         declared_resources.get("hp", _resource_row({}, default_max=20, minimum_max=1))
-    # RPG-5 (the public contract): pools. Stamina is universal; mana materializes only when the sheet
+    # RPG-5 (doc 10 §6): pools. Stamina is universal; mana materializes only when the sheet
     # is magic-shaped (a basis ability, a gated skill, or a def that spends mana) — a
     # low-magic character never shows a Mana bar. All Console-editable afterwards.
     resources: dict = {"hp": hp}
@@ -905,12 +941,16 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
         "sex": _s(doc.get("sex"), 40),
         "pronouns": _s(doc.get("pronouns"), 40),
         "species": _s(doc.get("species"), 120),
-        "appearance": _s(doc.get("appearance") or doc.get("description"), 800),
+        "appearance": _s_soft(
+            doc.get("appearance") or doc.get("description"), _CREATOR_ROW_PROSE_MAX,
+        ),
         "concept": _s(doc.get("concept") or doc.get("class"), 200),
         "level": _clampi(doc.get("level", 1), 1, 999),
         "stats": stats, "skills": skills, "abilities": abilities,
         "defs": defs, "gear": gear, "extras": _norm_extras(doc.get("extras")),
         "resources": resources,
+        # Same draft-only preservation as the World Creator; player_to_ops deliberately omits it.
+        "notes": _s_soft(doc.get("notes"), _CREATOR_DIRECTION_MAX),
     }
 
 
@@ -924,7 +964,7 @@ def _clampi(v, lo, hi) -> int:
 def _coerce_defs(custom, reg, allowed_resources: Optional[set[str]] = None) -> dict:
     """Freeze freestyle skills/abilities into a per-character `defs` snapshot (fixed numbers).
     A freestyle skill must key a real stat; numbers are clamped. This is the snapshot that the
-    resolver reads snapshot-first (the public contract) — so a bespoke mechanic resolves without ever being
+    resolver reads snapshot-first (doc 09 §1) — so a bespoke mechanic resolves without ever being
     freestyle at roll time."""
     if not isinstance(custom, dict):
         return {}
@@ -945,7 +985,7 @@ def _coerce_defs(custom, reg, allowed_resources: Optional[set[str]] = None) -> d
             "governs": ([_s(g, 40) for g in _lst(sk.get("governs"))][:12]
                         or [w for w in _s(sk.get("name") or sid, 60).lower()
                             .replace("-", " ").split() if len(w) >= 4][:4]),
-            "desc": _s(sk.get("desc"), 400)}
+            "desc": _s_soft(sk.get("desc"), _CREATOR_ROW_PROSE_MAX)}
         req = slug(_s(sk.get("requires_ability"), 40))
         if req:                                  # eligibility gate rides the def (validated below)
             entry["requires_ability"] = req
@@ -953,7 +993,7 @@ def _coerce_defs(custom, reg, allowed_resources: Optional[set[str]] = None) -> d
         if grp:                                  # free-form category (Bean 07-07): "Spells",
             entry["group"] = grp                 # "Cyber-Ware", "Disciplines" — the HUD sections by it
         cost = sk.get("cost")
-        if cost is not None:                     # RPG-5 (the public contract): frozen resource cost —
+        if cost is not None:                     # RPG-5 (doc 10 §5.4): frozen resource cost —
             cc = _coerce_cost(
                 cost, allowed_resources, owner=f"skill '{entry['name']}'",
             )
@@ -976,7 +1016,8 @@ def _coerce_defs(custom, reg, allowed_resources: Optional[set[str]] = None) -> d
         if kind not in ("passive", "active", "basis"):   # "basis" (2026-07-06): grants the
             kind = "active"                              # in-world basis for a gated skill
         entry = {"name": _s(ab.get("name") or aid, 60), "kind": kind,
-                 "effect": _s(ab.get("effect"), 400), "desc": _s(ab.get("desc"), 400)}
+                 "effect": _s_soft(ab.get("effect"), _CREATOR_ROW_PROSE_MAX),
+                 "desc": _s_soft(ab.get("desc"), _CREATOR_ROW_PROSE_MAX)}
         # 2026-07-07 redesign: an ability's MECHANIC — how it bends the dice, frozen at authoring.
         # edge/ward = passive dice-shapers; extra_die/reroll/surge = active dice-shapers;
         # mod = legacy flat bonus; basis = a gate key. Everything clamped, never model-typed at roll.
@@ -985,7 +1026,11 @@ def _coerce_defs(custom, reg, allowed_resources: Optional[set[str]] = None) -> d
         if mech not in _registry.ABILITY_MECHANICS:
             mech = "basis" if kind == "basis" else ""
         if not mech:                             # 2026-07-09: infer a missing mechanic from the
-            txt = (_s(ab.get("effect"), 400) + " " + _s(ab.get("desc"), 400)).lower()
+            txt = (
+                _s_soft(ab.get("effect"), _CREATOR_ROW_PROSE_MAX)
+                + " "
+                + _s_soft(ab.get("desc"), _CREATOR_ROW_PROSE_MAX)
+            ).lower()
             if "extra die" in txt or "another die" in txt or "keep the best" in txt:
                 mech = "extra_die" if kind == "active" else "edge"   # effect text (weak floor —
             elif "reroll" in txt or "re-roll" in txt:                # a typed row without a
@@ -1069,6 +1114,45 @@ def _coerce_defs(custom, reg, allowed_resources: Optional[set[str]] = None) -> d
 
 
 # ------------------------------------------------------------------ doc -> shipped ops
+def _world_entity_namespace_issues(doc: dict) -> list[str]:
+    """Reject one normalized id being authored as two different world entity kinds.
+
+    Entity ids share one ledger namespace.  Keeping same-kind duplicates compatible avoids
+    rewriting historical authoring behavior, but a faction/location/NPC collision would make
+    the first kind win while later attributes silently attach to that wrong row.
+    """
+    declarations: list[tuple[str, str]] = []
+    for field, kind in (("factions", "faction"), ("locations", "location")):
+        for row in _lst(doc.get(field)):
+            if not isinstance(row, str):
+                continue
+            name, _description = _split_name_desc(row)
+            if name:
+                declarations.append((slug(name), kind))
+    for row in _lst(doc.get("npcs")):
+        if isinstance(row, dict):
+            name = _s(row.get("name"), 80)
+        elif isinstance(row, str):
+            name = _s(row, 80)
+        else:
+            name = ""
+        if name:
+            declarations.append((slug(name), "npc"))
+
+    issues: list[str] = []
+    first_kind_by_id: dict[str, str] = {}
+    for entity_id, kind in declarations:
+        first_kind = first_kind_by_id.setdefault(entity_id, kind)
+        if first_kind == kind:
+            continue
+        issue = (
+            f"world entity id '{entity_id}' is used by both {first_kind} and {kind}"
+        )
+        if issue not in issues:
+            issues.append(issue)
+    return issues
+
+
 def world_to_ops(world: dict) -> list[dict]:
     """Turn a finalized world doc into shipped ops (entities / opening cast / lore / scene).
 
@@ -1083,13 +1167,27 @@ def world_to_ops(world: dict) -> list[dict]:
     source = ensure_world_identity(world)
     authored_locations = _lst(source.get("locations"))
     w = deterministic_world(source)
+    namespace_issues = _world_entity_namespace_issues(w)
+    if namespace_issues:
+        raise ValueError("; ".join(namespace_issues))
     identity_op = {"op": "world_identity_set", "world_id": w["world_id"]}
     if w.get("parent_world_id"):
         identity_op["parent_world_id"] = w["parent_world_id"]
+    source_document = {
+        key: deepcopy(value)
+        for key, value in w.items()
+        if key != "notes"
+    }
     ops: list[dict] = [identity_op,
+                       {"op": "creator_world_seed", "document": source_document},
                        {"op": "memory_event",
                         "text": f"World — {w['name']} ({w['genre']}): {w['setting']}"}]
     ops.append({"op": "memory_event", "text": f"In-world date: {w['date']} ({w['time']})."})
+    if w["tone"]:
+        # Authoring tone is presentation metadata, not an objective fact or mechanical effect.
+        # A typed prefix lets the committed-session card path recover it without treating the
+        # original free-form direction notes as runtime lore.
+        ops.append({"op": "memory_event", "text": f"World tone: {w['tone']}"})
     for line in w["aspects"]:
         if line:
             ops.append({"op": "memory_event", "text": f"World lore: {line}"})
@@ -1145,7 +1243,7 @@ def world_to_ops(world: dict) -> list[dict]:
         ops.append({"op": "memory_event", "text": f"Opening quest: {w['opening_quest']}"})
         qname = _split_name_desc(w["opening_quest"])[0][:80] or w["opening_quest"][:80]
         ops.append({"op": "quest_add", "name": qname,      # RPG-5 (G3): the opening quest is
-                    "detail": w["opening_quest"][:300]})   # LEDGER truth, not just lore prose
+                    "note": w["opening_quest"]})            # LEDGER truth, not just lore prose
     for ex in w.get("extras", []):                         # Bean 07-07: free-form custom lore
         if ex.get("text"):                                 # categories -> retrievable memory lore
             ops.append({"op": "memory_event",
@@ -1159,6 +1257,10 @@ def world_to_ops(world: dict) -> list[dict]:
               "consequence": f["consequence"]}
         if f.get("faction"):
             op["faction"] = f["faction"]
+        if f.get("event_duration_turns") is not None:
+            op["event_duration_turns"] = f["event_duration_turns"]
+        if isinstance(f.get("spawn_eligibility"), bool):
+            op["spawn_eligibility"] = f["spawn_eligibility"]
         ops.append(op)
     for r in w.get("routes") or []:                        # Phase 2: travel-time edges
         ops.append({"op": "route_set", "a": r["a"], "b": r["b"], "segments": r["segments"]})
@@ -1174,7 +1276,11 @@ def player_to_ops(player: dict, cfg=None) -> list[dict]:
             "stats": p["stats"], "skills": merge_baseline_skills(p["skills"]),
             "abilities": p["abilities"],
             "hp": p["resources"]["hp"],
-            "resources": {k: v for k, v in p["resources"].items() if k != "hp"}}
+            "resources": {k: v for k, v in p["resources"].items() if k != "hp"},
+            # Typed authoring metadata for faithful committed-session card regeneration.
+            # Extras still become retrieval memories below, but reconstruction never guesses
+            # them back from coincidentally similar organic prose.
+            "creator_extras": p.get("extras", [])}
     if p["defs"]:
         card["defs"] = p["defs"]
     ops: list[dict] = [{"op": "entity_add", "name": name, "kind": "player"},
@@ -1215,22 +1321,55 @@ def world_from_state(state: dict) -> dict:
     ents = state.get("entities") or {}
     attrs = state.get("attributes") or {}
     identity = state.get("world_identity") if isinstance(state.get("world_identity"), dict) else {}
-    doc: dict = {"world_id": str(identity.get("world_id") or ""),
-                 "parent_world_id": str(identity.get("parent_world_id") or ""),
-                 "name": "", "genre": "", "setting": "", "date": "", "time": "", "tone": "",
-                 "factions": [], "locations": [], "npcs": [], "aspects": [],
-                 "opening_scene": "", "opening_quest": ""}
+    committed = state.get("creator_world")
+    source_document = committed.get("document") if isinstance(committed, dict) else None
+    has_snapshot = (
+        isinstance(source_document, dict)
+        and committed.get("schema") == "aetherstate-creator-world-snapshot/1"
+        and committed.get("world_id") == identity.get("world_id")
+    )
+    doc: dict = deepcopy(source_document) if has_snapshot else {}
+    defaults = {
+        "world_id": str(identity.get("world_id") or ""),
+        "parent_world_id": str(identity.get("parent_world_id") or ""),
+        "name": "", "genre": "", "setting": "", "date": "", "time": "", "tone": "",
+        "factions": [], "locations": [], "npcs": [], "aspects": [],
+        "opening_scene": "", "opening_quest": "", "extras": [], "loot": {},
+        "fronts": [], "routes": [],
+    }
+    for key, value in defaults.items():
+        doc.setdefault(key, deepcopy(value))
+    # Session identity always wins over presentation metadata restored from the snapshot.
+    doc["world_id"] = str(identity.get("world_id") or "")
+    doc["parent_world_id"] = str(identity.get("parent_world_id") or "")
+    entity_names = {
+        str(eid): str((entity or {}).get("name") or eid)
+        for eid, entity in ents.items()
+    }
+    current_factions: list[str] = []
+    current_locations: list[str] = []
+    current_npcs: list[dict] = []
     for eid, e in ents.items():
         kind, name = (e or {}).get("kind"), (e or {}).get("name") or eid
+        a = attrs.get(eid) or {}
+        desc = str(a.get("description") or "").strip()
+        named_row = f"{name} — {desc}" if desc else name
         if kind == "faction":
-            doc["factions"].append(name)
+            current_factions.append(named_row)
         elif kind == "location":
-            doc["locations"].append(name)
+            current_locations.append(named_row)
         elif kind == "npc":
-            a = attrs.get(eid) or {}
-            doc["npcs"].append({"name": name, "role": str(a.get("role") or ""),
-                                "desc": str(a.get("description") or "")})
-    for m in state.get("memories") or []:
+            current_npcs.append({"name": name, "role": str(a.get("role") or ""),
+                                 "desc": desc, "home": str(a.get("home") or "")})
+    if current_factions:
+        doc["factions"] = current_factions
+    if current_locations:
+        doc["locations"] = current_locations
+    if current_npcs:
+        doc["npcs"] = current_npcs
+    # Historical saves without a typed snapshot retain the old prefixed-memory migration path.
+    # New saves never depend on the rolling 100-memory cache for their source document.
+    for m in [] if has_snapshot else (state.get("memories") or []):
         text = str((m or {}).get("text") or "")
         if text.startswith("World lore — "):
             head, _, body = text[len("World lore — "):].partition(": ")
@@ -1252,16 +1391,151 @@ def world_from_state(state: dict) -> dict:
                 doc["time"] = body[body.rfind("(") + 1:].rstrip(")").strip()
             else:
                 doc["date"] = body.strip()
+        elif text.startswith("World tone: "):
+            doc["tone"] = text[len("World tone: "):].strip()
         elif text.startswith("World lore: "):
             doc["aspects"].append(text[len("World lore: "):])
         elif text.startswith("Opening scene: "):
             doc["opening_scene"] = text[len("Opening scene: "):]
         elif text.startswith("Opening quest: "):
             doc["opening_quest"] = text[len("Opening quest: "):]
+
+    current_loot: dict = {}
+    for tier, entries in (state.get("loot") or {}).items():
+        rows = []
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict) or not str(entry.get("name") or "").strip():
+                continue
+            rows.append({
+                "name": str(entry["name"]),
+                "qty_min": int(entry.get("qty_min", 1)),
+                "qty_max": int(entry.get("qty_max", 1)),
+                "chance": float(entry.get("chance", 1.0)),
+            })
+        if rows:
+            current_loot[str(tier)] = rows
+    if current_loot:
+        doc["loot"] = current_loot
+
+    current_fronts: list[dict] = []
+    for front in (state.get("fronts") or {}).values():
+        if not isinstance(front, dict) or not str(front.get("name") or "").strip():
+            continue
+        faction_id = str(front.get("faction") or "")
+        row = {
+            "name": str(front["name"]),
+            "faction": entity_names.get(faction_id, faction_id),
+            "segments": int(front.get("segments", 6)),
+            "pace": int(front.get("pace", 1)),
+            "consequence": str(front.get("consequence") or ""),
+        }
+        if front.get("event_duration_turns") is not None:
+            row["event_duration_turns"] = int(front["event_duration_turns"])
+        if isinstance(front.get("spawn_eligibility"), bool):
+            row["spawn_eligibility"] = front["spawn_eligibility"]
+        current_fronts.append(row)
+    if current_fronts:
+        doc["fronts"] = current_fronts
+
+    current_routes: list[dict] = []
+    for edge, segments in (state.get("routes") or {}).items():
+        endpoints = str(edge).split("|", 1)
+        if len(endpoints) != 2 or not all(endpoints):
+            continue
+        current_routes.append({
+            "a": entity_names.get(endpoints[0], endpoints[0]),
+            "b": entity_names.get(endpoints[1], endpoints[1]),
+            "segments": int(segments),
+        })
+    if current_routes:
+        doc["routes"] = current_routes
     return doc
 
 
-# ------------------------------------------------------------------ assist-LLM authoring
+def _current_player_gear(state: dict, player_eid: str) -> list:
+    """Project current owned item truth into the Creator's starting-gear document shape."""
+    rows: list = []
+    items = (state or {}).get("items") or {}
+    ordered = sorted(
+        items.items(),
+        key=lambda pair: (int((pair[1] or {}).get("minted_turn", 0)), str(pair[0])),
+    )
+    for _iid, item in ordered:
+        if not isinstance(item, dict) or item.get("owner") != player_eid \
+                or item.get("loc") in {"gone", "world"}:
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        qty = max(1, int(item.get("qty", 1)))
+        display_name = f"{qty}x {name}" if qty > 1 else name
+        loc = str(item.get("loc") or "")
+        loc_slot = loc.split(":", 1)[1] if loc.startswith("gear:") else ""
+        slot = str(item.get("slot") or loc_slot).lower().replace(" ", "").replace("-", "")
+        if slot not in _DIRECTION_GEAR_SLOTS:
+            slot = ""
+        effect = str(item.get("aura") or "").strip()
+        if slot or effect:
+            row: dict = {"name": display_name}
+            if slot:
+                row["slot"] = slot
+            if effect:
+                row["effect"] = effect
+            rows.append(row)
+        else:
+            rows.append(display_name)
+    return rows[:_MAX_GEAR]
+
+
+def player_from_state(state: dict) -> dict:
+    """Build one clean Creator Player document from committed runtime state.
+
+    Only authoring fields cross this boundary. Runtime counters, cooldowns, relationship pointers,
+    and reducer policy markers never leak into a regenerated Narrator-card seed.
+    """
+    state = state or {}
+    players = state.get("player") or {}
+    player_eid = next((eid for eid, row in players.items() if isinstance(row, dict)), None)
+    if player_eid is None:
+        return {}
+    player = players[player_eid]
+    attrs = ((state.get("attributes") or {}).get(player_eid) or {})
+    entity = ((state.get("entities") or {}).get(player_eid) or {})
+    resources = {"hp": dict(player.get("hp") or {})}
+    resources.update({
+        str(resource_id): dict(spec)
+        for resource_id, spec in (player.get("resources") or {}).items()
+        if isinstance(spec, dict)
+    })
+    doc: dict = {
+        "name": str(entity.get("name") or player_eid),
+        "sex": str(attrs.get("sex") or ""),
+        "pronouns": str(player.get("pronouns") or ""),
+        "species": str(attrs.get("species") or ""),
+        "appearance": str(attrs.get("appearance") or ""),
+        "concept": str(player.get("concept") or attrs.get("class") or ""),
+        "level": int(player.get("level", 1)),
+        "stats": dict(player.get("stats") or {}),
+        "skills": dict(player.get("skills") or {}),
+        "abilities": list(player.get("abilities") or []),
+        "resources": resources,
+        "gear": _current_player_gear(state, player_eid),
+        "extras": [
+            {"label": str(row.get("label") or "Note"), "text": str(row.get("text") or "")}
+            for row in player.get("creator_extras", [])
+            if isinstance(row, dict) and str(row.get("text") or "").strip()
+        ],
+    }
+    if isinstance(player.get("defs"), dict):
+        doc["defs"] = {
+            str(table): {str(row_id): dict(row) for row_id, row in rows.items()
+                         if isinstance(row, dict)}
+            for table, rows in player["defs"].items() if isinstance(rows, dict)
+        }
+    return doc
+
+
+# ------------------------------------------------------------------ MAIN-LLM Creator authoring
 _WORLD_SYSTEM = (
     "You are a world-building assistant for a tabletop RPG. The player gives you seed "
     "details — anywhere from one line to pages of lore. EVERYTHING they wrote is canon: "
@@ -1272,26 +1546,39 @@ _WORLD_SYSTEM = (
     "exactly this schema: {\"name\":str,\"genre\":str,\"setting\":str,\"date\":str,\"time\":str,"
     "\"tone\":str,\"factions\":[str],\"locations\":[str],\"npcs\":[{\"name\":str,\"role\":str,"
     "\"desc\":str,\"home\":str}],\"aspects\":[str],\"opening_scene\":str,\"opening_quest\":str,"
-    "\"loot\":{\"minion\":[{\"name\":str,\"chance\":float}],\"standard\":[...],\"elite\":[...],"
+    "\"extras\":[{\"label\":str,\"text\":str}],"
+    "\"loot\":{\"minion\":[{\"name\":str,\"qty_min\":int,\"qty_max\":int,\"chance\":float}],\"standard\":[...],\"elite\":[...],"
     "\"boss\":[...]},\"fronts\":[{\"name\":str,\"faction\":str,\"segments\":int,"
-    "\"consequence\":str}],\"routes\":[{\"a\":str,\"b\":str,\"segments\":int}]}. "
+    "\"pace\":int,\"consequence\":str,\"event_duration_turns\":int|null,"
+    "\"spawn_eligibility\":bool|null}],\"routes\":[{\"a\":str,\"b\":str,"
+    "\"segments\":int}]}. "
     "Each npc's `home` names the ONE location they are usually found at — reuse a name from "
     "`locations` verbatim whenever one fits. `loot` gives 2-3 world-flavored drop rows per "
     "threat tier (what a defeated foe of that rank plausibly carries HERE — currency, kit, "
     "consumables; chance 0..1); keep names concrete and reusable. `fronts` gives 2-4 faction "
     "agenda clocks (PbtA fronts): name the AGENDA (\"The Iron Pact rearms\"), tie it to one "
     "of your `factions`, 4-8 segments, and a consequence — what becomes TRUE in the world "
-    "the day it completes. `routes` lists travel times in day-segments (1-4) between "
+    "the day it completes. Use `event_duration_turns` only for a genuinely temporary "
+    "consequence. Use `spawn_eligibility` only when completion explicitly permits or prevents "
+    "future enemies of that same faction from appearing; otherwise return null. `routes` lists "
+    "travel times in day-segments (1-4) between "
     "`locations` pairs that are notably far apart or hard to cross; omit adjacent pairs. "
-    "`time` must be one of: " + ", ".join(TIMES) + ". `setting` should be a substantial, "
+    "`extras` may hold complete labeled lore categories that do not fit another field; use an "
+    "empty list when none are useful, and never return a blank or unfinished extra. "
+    "`genre` must be one of: " + ", ".join(GENRES) + "; use `custom` for a blend or premise "
+    "outside the named presets. `time` must be one of: " + ", ".join(TIMES)
+    + ". `setting` should be a substantial, "
     "vivid paragraph (or more) that captures what makes this world ITSELF. Give 4-6 factions "
     "with names that imply agendas, 5-8 locations, 4-8 npcs with sharp one-line hooks, 5-8 "
     "aspects (laws of the world: magic, tech, cosmology, taboos). Write every `factions` and "
     "`locations` entry as \"Name — one-line hook\" (an em-dash, then what it wants or hides — "
     "a bare name is a wasted row); COMPLETE the sentence, never trail off. Be evocative and SPECIFIC — "
     "proper nouns, concrete images, no generic fantasy filler. If the player gives `notes`, "
-    "treat them as creative direction and follow them faithfully — any genre blend, tone, "
-    "power level, or wild premise the player asks for is allowed. Keep physical geography and "
+    "those are CONTROLLING CREATIVE-DIRECTION INSTRUCTIONS for this exact generation. Follow "
+    "them faithfully in the generated fields; they override your stylistic defaults (while the "
+    "JSON schema and the player's filled canon still win). Do not copy the notes into lore as a "
+    "separate fact. Any genre blend, tone, power level, or wild premise is allowed. Keep physical "
+    "geography and "
     "dates ARITHMETICALLY consistent: pick one spatial axis convention (what is up/down, "
     "higher/lower, inner/outer) and one calendar, and make every location description and "
     "every date agree with them — a reader must be able to do the math.")
@@ -1301,9 +1588,10 @@ _CHAR_SYSTEM_TMPL = (
     "player gives a few seed details; you fill in what they left blank into a complete character "
     "that FITS THE WORLD. Output ONLY minified JSON, no prose, matching this schema: "
     "{{\"name\":str,\"sex\":str,\"pronouns\":str,\"species\":str,\"appearance\":str,"
-    "\"concept\":str,"
+    "\"concept\":str,\"level\":int,"
     "\"stats\":{{STAT:int}},\"skills\":{{skill_id:rank}},\"abilities\":[ability_id],"
     "\"gear\":[str OR {{\"name\":str,\"slot\":str,\"effect\":str}}],"
+    "\"extras\":[{{\"label\":str,\"text\":str}}],"
     "\"defs\":{{\"skills\":[{{\"id\":str,\"name\":str,\"keyed_stat\":STAT,\"base_mod\":int,"
     "\"max_rank\":int,\"governs\":[str],\"desc\":str,\"requires_ability\":str,\"group\":str,"
     "\"cost\":{{\"resource_id\":int}}}}],"
@@ -1314,7 +1602,8 @@ _CHAR_SYSTEM_TMPL = (
     "\"cost\":{{\"resource_id\":int}},\"cooldown_turns\":int,"
     "\"passive_mod\":{{\"skill\":str,\"amount\":int}},"
     "\"resolution_mod\":int,\"effect\":str,\"desc\":str}}]}}}}. "
-    "`concept` is the character's CLASS/archetype. STATS are: {stats}. Assign stats by point-buy "
+    "`concept` is the character's CLASS/archetype. Use level 1 unless the Player explicitly gave "
+    "another level. STATS are: {stats}. Assign stats by point-buy "
     "in [{lo}..{hi}], defaulting to {default}, favouring the concept — SPEND about 6 points over "
     "baseline total (a fresh character should not be all-{default}s). `skills` MUST use only these "
     "ids: {skills}. `abilities` MUST use only these ids: {abilities}. If the concept needs a skill "
@@ -1353,10 +1642,22 @@ _CHAR_SYSTEM_TMPL = (
     "accessory1/accessory2) only when it matters, and `effect` is a short PROSE line for what a "
     "signature or glamorous piece DOES in the fiction — appearance, glamour, lore, presence, NOT a "
     "dice stat (e.g. 'turns every entrance into a weapon'). Keep most items plain names. "
+    "When the player's notes name a gear item and request its slot or effect, that item MUST be "
+    "returned as an object, not a plain string: preserve the requested name and slot exactly and "
+    "write the requested effect faithfully. Dropping a requested slot or effect is an incomplete "
+    "character document. "
+    "If the player's notes require an effect for every gear row, that requirement overrides the "
+    "usual plain-name default: return EVERY item as an object with a finished, sentence-ending "
+    "effect. Never return a blank effect or a sentence cut off before its conclusion. "
+    "`extras` may contain complete labeled character lore categories that do not fit another "
+    "field; use an empty list when none are useful, and never return a blank or unfinished extra. "
     "A def skill may carry `cost` (available declared resource ids, whole amounts "
     "{cost_min}-{cost_max}, normally 1-5) when "
     "using it should visibly tire or drain the character; omit it otherwise. If the "
-    "player gives `notes`, treat them as creative direction and follow them faithfully.")
+    "player gives `notes`, those are CONTROLLING CREATIVE-DIRECTION INSTRUCTIONS for this exact "
+    "generation. Follow them in the generated character fields; they override your stylistic "
+    "defaults while the JSON schema and the player's filled canon still win. Do not copy the "
+    "notes into the character as lore or backstory unless they explicitly ask you to.")
 
 
 def _pack_for(world: Optional[dict]) -> Optional[dict]:
@@ -1436,11 +1737,17 @@ def _world_user(seed: dict, world_ctx: str = "") -> str:
         if _s(seed.get(k)):
             lines.append(f"- {k}: {_s(seed.get(k))}")
     if _s(seed.get("setting")):
-        lines.append(f"- setting (verbatim, any length):\n{_s(seed.get('setting'), 6000)}")
+        lines.append(
+            "- setting (verbatim, up to 8,000 characters):\n"
+            + _s(seed.get("setting"), _CREATOR_LONG_PROSE_MAX)
+        )
     for k in ("factions", "locations", "aspects"):
         vals = [v for v in _lst(seed.get(k)) if _s(v)]
         if vals:
-            lines.append(f"- {k}: {'; '.join(_s(v, 520) for v in vals)}")
+            lines.append(
+                f"- {k}: "
+                + "; ".join(_s(v, 2000) for v in vals)
+            )
     npcs = _norm_npcs(seed.get("npcs"))
     if npcs:
         lines.append("- npcs: " + "; ".join(
@@ -1453,12 +1760,25 @@ def _world_user(seed: dict, world_ctx: str = "") -> str:
                      "an empty home.")
     for k, label in (("opening_scene", "opening scene"), ("opening_quest", "opening quest")):
         if _s(seed.get(k)):
-            lines.append(f"- {label}: {_s(seed.get(k))}")
+            lines.append(
+                f"- {label}: {_s(seed.get(k), _CREATOR_LONG_PROSE_MAX)}"
+            )
     for ex in _norm_extras(seed.get("extras")):       # free-form custom categories are canon
         if ex["text"]:
             lines.append(f"- {ex['label']} (canon, keep verbatim, build around it): {ex['text']}")
+    for key in ("loot", "fronts", "routes"):
+        value = seed.get(key)
+        if (isinstance(value, dict) and value) or (isinstance(value, list) and value):
+            lines.append(
+                f"- Player-authored {key} (canon; re-list and complete it): "
+                + json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+            )
     if _s(seed.get("notes")):
-        lines.append(f"- creative direction: {_s(seed.get('notes'), 4000)}")
+        lines.append(
+            "\nCREATIVE DIRECTION — CONTROLLING INSTRUCTIONS FOR THIS GENERATION "
+            "(follow these in every relevant output field; do not return them as lore):\n"
+            + _s(seed.get("notes"), _CREATOR_DIRECTION_MAX)
+        )
     if len(lines) == 1:
         lines.append("- (the player left everything blank — invent a compelling world)")
     return "\n".join(lines)
@@ -1468,20 +1788,32 @@ def _char_user(seed: dict, world: Optional[dict]) -> str:
     lines = []
     if world:
         w = deterministic_world(world)
-        lines.append(f"WORLD: {w['name']} — genre {w['genre']}, tone {w['tone']}. {w['setting']}")
-        if w["factions"]:
-            lines.append("Factions: " + ", ".join(w["factions"]))
-        if w["locations"]:
-            lines.append("Locations: " + ", ".join(w["locations"]))
-        if w["aspects"]:
-            lines.append("World aspects: " + " | ".join(w["aspects"][:8]))
-        if w["npcs"]:
-            lines.append("NPCs: " + "; ".join(
-                n["name"] + (f" ({n['role']})" if n.get("role") else "") for n in w["npcs"][:8]))
+        world_doc = {
+            key: w[key]
+            for key in (
+                "name", "genre", "setting", "date", "time", "tone", "factions",
+                "locations", "npcs", "aspects", "opening_scene", "opening_quest",
+                "extras", "loot", "fronts", "routes",
+            )
+            if w.get(key) not in (None, "", [], {})
+        }
+        lines.append(
+            "WORLD DOCUMENT — use every relevant field when fitting the character; this is "
+            "context, not permission to rewrite it:\n"
+            + json.dumps(world_doc, ensure_ascii=False, separators=(",", ":"))
+        )
     lines.append("Player's character seed (all of this is canon — fill in everything else):")
     for k in ("name", "sex", "pronouns", "species", "concept", "class"):
         if _s(seed.get(k)):
             lines.append(f"- {k}: {_s(seed.get(k))}")
+    if _s(seed.get("appearance") or seed.get("description")):
+        lines.append(
+            "- appearance (verbatim): "
+            + _s(
+                seed.get("appearance") or seed.get("description"),
+                _CREATOR_ROW_PROSE_MAX,
+            )
+        )
     if isinstance(seed.get("stats"), dict) and seed["stats"]:
         lines.append("- stats given: " + ", ".join(f"{k}={v}" for k, v in seed["stats"].items()))
     if isinstance(seed.get("skills"), dict) and seed["skills"]:
@@ -1490,8 +1822,13 @@ def _char_user(seed: dict, world: Optional[dict]) -> str:
     if _lst(seed.get("abilities")):
         lines.append("- abilities picked: " + ", ".join(str(a) for a in seed["abilities"][:20]))
     if _lst(seed.get("gear")):
-        lines.append("- starting gear given: " + ", ".join(
-            _s(g, 60) for g in seed["gear"][:8] if _s(g)))
+        rows = [
+            json.dumps(g, ensure_ascii=False, separators=(",", ":"))
+            for g in seed["gear"][:_MAX_GEAR]
+            if isinstance(g, (str, dict))
+        ]
+        if rows:
+            lines.append("- starting gear given (preserve every field): " + "; ".join(rows))
     declared = _declared_resources(seed.get("resources"))
     if isinstance(seed.get("hp"), dict):
         declared["hp"] = _resource_row(seed["hp"], default_max=20, minimum_max=1)
@@ -1503,15 +1840,38 @@ def _char_user(seed: dict, world: Optional[dict]) -> str:
     cust = seed.get("custom") if isinstance(seed.get("custom"), dict) else \
         (seed.get("defs") if isinstance(seed.get("defs"), dict) else {})
     for kind in ("skills", "abilities"):
-        names = [_s((c or {}).get("name"), 60) for c in _def_rows(cust.get(kind))
-                 if isinstance(c, dict) and _s((c or {}).get("name"))]
-        if names:
-            lines.append(f"- custom {kind} the player already defined: " + ", ".join(names))
+        rows = [
+            json.dumps(c, ensure_ascii=False, separators=(",", ":"))
+            for c in _def_rows(cust.get(kind))[:_MAX_LIST]
+            if isinstance(c, dict)
+        ]
+        if rows:
+            lines.append(
+                f"- custom {kind} the player already defined (preserve all mechanics): "
+                + "; ".join(rows)
+            )
     for ex in _norm_extras(seed.get("extras")):       # free-form custom character categories
         if ex["text"]:
             lines.append(f"- {ex['label']} (canon, keep verbatim, build around it): {ex['text']}")
     if _s(seed.get("notes")):
-        lines.append(f"- creative direction: {_s(seed.get('notes'), 4000)}")
+        lines.append(
+            "\nCREATIVE DIRECTION — CONTROLLING INSTRUCTIONS FOR THIS GENERATION "
+            "(follow these in every relevant output field; do not return them as lore):\n"
+            + _s(seed.get("notes"), _CREATOR_DIRECTION_MAX)
+        )
+        if _direction_requires_effectful_gear(seed.get("notes", "")):
+            lines.append(
+                "- VALIDATED COMPLETE-GEAR REQUIREMENT: return every starting gear row as "
+                "an object with a finished name and a complete, sentence-ending prose effect. "
+                "A bare string, blank effect, or cut-off effect will be rejected."
+            )
+        for requirement in _direction_structured_gear_requirements(seed.get("notes", "")):
+            effect_clause = " with a complete prose effect" if requirement["effect"] else ""
+            lines.append(
+                "- VALIDATED STRUCTURED GEAR REQUIREMENT: return "
+                f"{requirement['name']} as an object in slot {requirement['slot']}"
+                f"{effect_clause}; a bare string will be rejected."
+            )
     if len([x for x in lines if x.startswith("- ")]) == 0:
         lines.append("- (mostly blank — invent a character that fits the world)")
     return "\n".join(lines)
@@ -1526,8 +1886,763 @@ def _char_user(seed: dict, world: Optional[dict]) -> str:
 # truncated and _json_or_none salvaged only a partial character. Raised the ceiling with room
 # to spare; the timeout scales with it so a big model can actually finish.
 _AUTHOR_TEMP = 0.9
-_AUTHOR_TIMEOUT_S = 240.0
-_AUTHOR_MAX_TOKENS = 9000
+_AUTHOR_TIMEOUT_S = 600.0
+_AUTHOR_MAX_TOKENS = 32768
+_AUTHOR_VALIDATION_RETRIES = 1
+
+
+@dataclass(frozen=True)
+class _CreatorReply:
+    """One main-model reply plus the provider's completion signal."""
+
+    content: str
+    finish_reason: str = ""
+
+
+class _CreatorCallError(RuntimeError):
+    """Safe, content-free Creator transport/protocol failure."""
+
+
+def _creator_limits(cfg) -> tuple[int, float, int]:
+    creator_cfg = getattr(cfg, "creator", None)
+    return (
+        int(getattr(creator_cfg, "max_tokens", _AUTHOR_MAX_TOKENS)),
+        float(getattr(creator_cfg, "timeout_s", _AUTHOR_TIMEOUT_S)),
+        int(getattr(creator_cfg, "validation_retries", _AUTHOR_VALIDATION_RETRIES)),
+    )
+
+
+def _creator_message_text(content) -> str:
+    """Normalize OpenAI-compatible string or text-part content without using reasoning text."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for part in content:
+        if not isinstance(part, dict):
+            continue
+        value = part.get("text")
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, dict) and isinstance(value.get("value"), str):
+            parts.append(value["value"])
+    return "".join(parts)
+
+
+async def _creator_chat(
+        get_client, cfg, ep, *, system: str, user: str, max_tokens: int,
+        temperature: float, timeout_s: float) -> _CreatorReply:
+    """Call the supplied main endpoint and return its exact content.
+
+    Transport/429/5xx failures receive one network retry. There is deliberately no JSON repair,
+    reasoning-content fallback, or endpoint/model fallback here: validation owns the separate
+    full-document retry, and a broken proposal must never become a partially loaded Creator form.
+    """
+    body = {
+        "model": ep.model,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    }
+    if is_venice_host(ep.base_url):
+        body["venice_parameters"] = {
+            "disable_thinking": True,
+            "include_venice_system_prompt": False,
+        }
+    headers = {"content-type": "application/json"}
+    key = getattr(ep, "api_key", "") or getattr(getattr(cfg, "upstream", None), "api_key", "")
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    url = str(ep.base_url or "").rstrip("/") + "/chat/completions"
+    if not str(ep.base_url or "").strip() or not str(ep.model or "").strip():
+        raise _CreatorCallError("main endpoint or model is not configured")
+
+    own_client = get_client is None
+    client = httpx.AsyncClient() if own_client else get_client()
+    try:
+        for attempt in (0, 1):
+            try:
+                response = await client.post(
+                    url,
+                    json=body,
+                    headers=headers,
+                    timeout=timeout_s,
+                )
+            except httpx.TransportError as exc:
+                if attempt == 0:
+                    continue
+                log.warning("Creator main-model transport failed: %s", type(exc).__name__)
+                raise _CreatorCallError("main model could not be reached") from exc
+            except Exception as exc:
+                log.warning("Creator main-model call failed: %s", type(exc).__name__)
+                raise _CreatorCallError("main model call failed") from exc
+
+            if response.status_code == 429 or response.status_code >= 500:
+                if attempt == 0:
+                    continue
+                log.warning("Creator main-model transient HTTP failure: %d", response.status_code)
+                raise _CreatorCallError("main model remained temporarily unavailable")
+            if response.status_code >= 400:
+                log.warning("Creator main-model request rejected: HTTP %d", response.status_code)
+                raise _CreatorCallError(
+                    f"main model rejected the request (HTTP {response.status_code})"
+                )
+            try:
+                choice = (response.json().get("choices") or [])[0]
+                message = choice.get("message") or {}
+            except (IndexError, TypeError, ValueError) as exc:
+                raise _CreatorCallError("main model returned an invalid response envelope") from exc
+            if not isinstance(choice, dict) or not isinstance(message, dict):
+                raise _CreatorCallError("main model returned an invalid response envelope")
+            return _CreatorReply(
+                content=_creator_message_text(message.get("content")),
+                finish_reason=str(choice.get("finish_reason") or "").strip().lower(),
+            )
+    finally:
+        if own_client:
+            await client.aclose()
+    raise _CreatorCallError("main model call failed")
+
+
+_CREATOR_FENCE_RE = re.compile(
+    r"^```(?:json)?\s*\r?\n?(?P<body>[\s\S]*?)\r?\n?```$",
+    re.IGNORECASE,
+)
+
+
+def _strict_creator_json_object(text: str) -> dict:
+    """Parse one complete object, allowing only an enclosing Markdown JSON fence.
+
+    No brace slicing, quote healing, truncation closure, or trailing commentary is accepted.
+    Those techniques are useful for low-authority extraction salvage but unsafe for a form that
+    the Player may save as an entire world or character.
+    """
+    raw = str(text or "").lstrip("\ufeff").strip()
+    if not raw:
+        raise ValueError("empty response")
+    fenced = _CREATOR_FENCE_RE.fullmatch(raw)
+    if fenced:
+        raw = fenced.group("body").strip()
+    elif "```" in raw:
+        raise ValueError("incomplete JSON fence")
+    decoder = json.JSONDecoder()
+    try:
+        value, end = decoder.raw_decode(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid or truncated JSON") from exc
+    if raw[end:].strip():
+        raise ValueError("text appeared after the JSON object")
+    if not isinstance(value, dict):
+        raise ValueError("top-level JSON must be an object")
+    return value
+
+
+_DANGLING_PROSE_RE = re.compile(
+    r"(?:\b(?:a|an|and|are|as|at|because|but|by|for|from|in|into|is|of|on|or|that|"
+    r"the|their|then|to|was|were|which|who|with)|[,;:/\\(\[\{\-\u2013\u2014])\s*$",
+    re.IGNORECASE,
+)
+
+
+def _prose_complete(value, *, minimum: int = 8) -> bool:
+    """Conservative truncation check for prose that parsed as otherwise valid JSON."""
+    text = str(value or "").strip()
+    if len(text) < minimum or _DANGLING_PROSE_RE.search(text):
+        return False
+    pairs = (("(", ")"), ("[", "]"), ("{", "}"))
+    if any(text.count(left) != text.count(right) for left, right in pairs):
+        return False
+    return text.count('"') % 2 == 0
+
+
+def _named_row_complete(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    head, desc = _split_name_desc(value)
+    return bool(head.strip()) and _prose_complete(desc, minimum=8)
+
+
+_DIRECTION_NUMBERS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+}
+
+_DIRECTION_GEAR_SLOTS = (
+    "head", "face", "neck", "shoulders", "body", "cape", "arms", "hands",
+    "mainhand", "offhand", "waist", "legs", "feet", "back", "accessory1", "accessory2",
+)
+
+
+def _direction_structured_gear_requirements(notes: str) -> list[dict]:
+    """Read only explicit structured-gear requirements from creative direction.
+
+    This narrow canary covers the genuine Creator failure where the model repeated a requested
+    item name but downgraded it to a bare string, silently discarding its requested slot and prose
+    effect. Less-specific free-form direction remains model-authored rather than regex-interpreted.
+    """
+    slots = "|".join(re.escape(slot) for slot in _DIRECTION_GEAR_SLOTS)
+    pattern = re.compile(
+        rf"\b(?:starting\s+gear|gear)\s+must\s+include\s+"
+        rf"(?:an?\s+)?(?:object|item)\s+(?:named|called)\s+"
+        rf"[\"']?([^,.;\n]{{1,60}}?)[\"']?\s*,?\s*"
+        rf"(?:pinned|assigned|set|equipped)\s+(?:to|in|as)\s+({slots})\b"
+        rf"([^\.\n]{{0,300}})",
+        re.IGNORECASE,
+    )
+    out: list[dict] = []
+    for match in pattern.finditer(str(notes or "")):
+        name = _clean_authored_row(match.group(1).strip(" \t\"'"), 60)
+        if not name:
+            continue
+        requirement = {
+            "name": name,
+            "slot": match.group(2).lower(),
+            "effect": bool(re.search(r"\beffect\b", match.group(3), re.IGNORECASE)),
+        }
+        if requirement not in out:
+            out.append(requirement)
+    return out
+
+
+def _direction_requires_effectful_gear(notes: str) -> bool:
+    """Recognize an explicit instruction that every generated gear row needs an effect.
+
+    General requests for "good gear" do not activate this rule. Only an all/every/each
+    construction does, so ordinary mundane gear may continue to use compact string rows.
+    """
+    text = str(notes or "")
+    patterns = (
+        r"\b(?:every|each|all)\s+(?:starting\s+)?gear(?:\s+(?:row|item|entry))?s?\s+"
+        r"(?:must|should|needs?|has|have|with|gets?|is|are)\b[^.\n]{0,180}\beffects?\b",
+        r"\bgive\s+(?:every|each|all)\s+(?:starting\s+)?gear"
+        r"(?:\s+(?:row|item|entry))?s?\b[^.\n]{0,180}\beffects?\b",
+    )
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def _sentence_complete(value, *, minimum: int = 8) -> bool:
+    """Require a closed sentence where creative direction explicitly asks for one."""
+    text = str(value or "").strip()
+    return _prose_complete(text, minimum=minimum) and bool(
+        re.search(r"[.!?](?:[\"'\)\]\}]+)?$", text)
+    )
+
+
+def _creator_extras_issues(value: object, *, owner: str) -> list[str]:
+    """Validate optional labeled lore rows before normalization can discard or shorten them."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return [f"{owner} extras must be a list"]
+    issues: list[str] = []
+    if len(value) > _MAX_LIST:
+        issues.append(f"{owner} extras exceed the {_MAX_LIST}-row limit")
+    for index, row in enumerate(value):
+        if not isinstance(row, dict):
+            issues.append(f"{owner} extra {index + 1} is not an object")
+            continue
+        label, text = row.get("label"), row.get("text")
+        if (not isinstance(label, str) or not label.strip() or len(label.strip()) > 60
+                or not isinstance(text, str) or len(text.strip()) > _CREATOR_LONG_PROSE_MAX
+                or not _prose_complete(text, minimum=8)):
+            issues.append(f"{owner} extra {index + 1} is blank, unfinished, or over limit")
+    return issues
+
+
+def _custom_definition_issues(custom: object, reg, seed: dict) -> list[str]:
+    """Reject incomplete custom mechanics before deterministic defaults can make them look valid."""
+    if not isinstance(custom, dict):
+        return ["defs are missing"]
+    issues: list[str] = []
+    try:
+        declared = _declared_resources(seed.get("resources"))
+        allowed_resources = _BUILTIN_RESOURCE_IDS | set(declared)
+        for rid in ("stamina", "mana"):
+            if rid in declared and not declared[rid]["max"]:
+                allowed_resources.discard(rid)
+    except ValueError as exc:
+        return [str(exc)]
+
+    for kind in ("skills", "abilities"):
+        raw_rows = custom.get(kind)
+        if not isinstance(raw_rows, (list, dict)):
+            issues.append(f"defs.{kind} is missing")
+            continue
+        if isinstance(raw_rows, list) and any(not isinstance(row, dict) for row in raw_rows):
+            issues.append(f"defs.{kind} contains a non-object row")
+        rows = _def_rows(raw_rows)
+        if len(rows) > _MAX_LIST:
+            issues.append(f"defs.{kind} exceed the {_MAX_LIST}-row limit")
+        for index, row in enumerate(rows):
+            label = f"defs.{kind} row {index + 1}"
+            row_id, name = row.get("id"), row.get("name")
+            if (not isinstance(row_id, str) or not row_id.strip() or len(row_id.strip()) > 40
+                    or not isinstance(name, str) or not name.strip() or len(name.strip()) > 60):
+                issues.append(f"{label} lacks a bounded id or name")
+                continue
+            group = row.get("group")
+            if group is not None and (not isinstance(group, str) or len(group.strip()) > 24):
+                issues.append(f"{label} has an invalid group")
+            cost = row.get("cost")
+            if cost is not None:
+                try:
+                    _coerce_cost(cost, allowed_resources, owner=label)
+                except ValueError as exc:
+                    issues.append(str(exc))
+            if kind == "skills":
+                governs = row.get("governs")
+                keyed = row.get("keyed_stat")
+                base_mod, max_rank = row.get("base_mod"), row.get("max_rank")
+                desc = row.get("desc")
+                if (keyed not in reg.stats
+                        or isinstance(base_mod, bool) or not isinstance(base_mod, int)
+                        or not -5 <= base_mod <= 10
+                        or isinstance(max_rank, bool) or not isinstance(max_rank, int)
+                        or not 1 <= max_rank <= 10
+                        or not isinstance(governs, list) or not 3 <= len(governs) <= 12
+                        or any(not isinstance(verb, str) or not verb.strip()
+                               or len(verb.strip()) > 40 for verb in governs)
+                        or not isinstance(desc, str) or len(desc.strip()) > _CREATOR_ROW_PROSE_MAX
+                        or not _prose_complete(desc, minimum=8)):
+                    issues.append(f"{label} has incomplete mechanics, governs, or description")
+                requirement = row.get("requires_ability")
+                if requirement is not None and (
+                        not isinstance(requirement, str) or len(requirement.strip()) > 40):
+                    issues.append(f"{label} has an invalid requires_ability")
+                continue
+
+            kind_value, mechanic = row.get("kind"), row.get("mechanic")
+            effect, desc = row.get("effect"), row.get("desc")
+            if (kind_value not in {"active", "passive", "basis"}
+                    or mechanic not in registry.ABILITY_MECHANICS
+                    or not isinstance(effect, str) or len(effect.strip()) > _CREATOR_ROW_PROSE_MAX
+                    or not _prose_complete(effect, minimum=8)
+                    or not isinstance(desc, str) or len(desc.strip()) > _CREATOR_ROW_PROSE_MAX
+                    or not _prose_complete(desc, minimum=8)):
+                issues.append(f"{label} has incomplete kind, mechanic, effect, or description")
+                continue
+            applies = row.get("applies_to")
+            applies_ok = (
+                isinstance(applies, str) and bool(applies.strip())
+                or isinstance(applies, list) and bool(applies)
+                and all(isinstance(item, str) and item.strip() for item in applies)
+            )
+            magnitude = row.get("magnitude")
+            cooldown = row.get("cooldown_turns")
+            if mechanic in {"extra_die", "reroll", "surge"} and (
+                    kind_value != "active" or not applies_ok
+                    or isinstance(magnitude, bool) or not isinstance(magnitude, int)
+                    or not 1 <= magnitude <= 4
+                    or isinstance(cooldown, bool) or not isinstance(cooldown, int)
+                    or not 0 <= cooldown <= 10):
+                issues.append(f"{label} has incomplete active dice-shaping mechanics")
+            elif mechanic in {"edge", "ward"} and (
+                    kind_value != "passive" or not applies_ok
+                    or isinstance(magnitude, bool) or not isinstance(magnitude, int)
+                    or not 1 <= magnitude <= 3):
+                issues.append(f"{label} has incomplete passive dice-shaping mechanics")
+            elif mechanic == "basis" and kind_value != "basis":
+                issues.append(f"{label} has a mismatched basis mechanic")
+            elif mechanic == "mod" and kind_value == "active" and (
+                    not applies_ok
+                    or isinstance(row.get("resolution_mod"), bool)
+                    or not isinstance(row.get("resolution_mod"), int)
+                    or not -5 <= row["resolution_mod"] <= 8
+                    or isinstance(cooldown, bool) or not isinstance(cooldown, int)
+                    or not 0 <= cooldown <= 10):
+                issues.append(f"{label} has incomplete active modifier mechanics")
+            elif mechanic == "mod" and kind_value == "passive":
+                passive = row.get("passive_mod")
+                if (not isinstance(passive, dict)
+                        or not isinstance(passive.get("skill"), str)
+                        or not passive["skill"].strip()
+                        or isinstance(passive.get("amount"), bool)
+                        or not isinstance(passive.get("amount"), int)
+                        or not -5 <= passive["amount"] <= 5):
+                    issues.append(f"{label} has incomplete passive modifier mechanics")
+    return issues
+
+
+def _exact_direction_count(notes: str, noun: str) -> Optional[int]:
+    """Read only unambiguous 'exactly N <noun>' constraints from creative direction."""
+    match = re.search(
+        rf"\bexactly\s+(\d+|{'|'.join(_DIRECTION_NUMBERS)})\s+(?:named\s+)?{noun}s?\b",
+        str(notes or ""),
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    token = match.group(1).lower()
+    return int(token) if token.isdigit() else _DIRECTION_NUMBERS[token]
+
+
+def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str]:
+    """Return structural/completeness failures without echoing generated prose."""
+    issues: list[str] = []
+    seed = seed if isinstance(seed, dict) else {}
+    issues.extend(_world_entity_namespace_issues(doc))
+    allowed_keys = {
+        "name", "genre", "setting", "date", "time", "tone", "factions", "locations",
+        "npcs", "aspects", "opening_scene", "opening_quest", "extras", "loot", "fronts",
+        "routes",
+    }
+    unknown = sorted(set(doc) - allowed_keys)
+    if unknown:
+        issues.append("world proposal contains fields outside the requested schema")
+    scalar_limits = {
+        "name": 80, "genre": 40, "setting": _CREATOR_LONG_PROSE_MAX, "date": 160,
+        "time": 20, "tone": 160, "opening_scene": _CREATOR_LONG_PROSE_MAX,
+        "opening_quest": _CREATOR_LONG_PROSE_MAX,
+    }
+    for key, limit in scalar_limits.items():
+        value = doc.get(key)
+        if isinstance(value, str) and len(value.strip()) > limit:
+            issues.append(f"{key} exceeds its {limit}-character limit")
+    for key, limit in {
+        "factions": _MAX_LIST, "locations": _MAX_LIST, "npcs": _MAX_LIST,
+        "aspects": _MAX_LIST, "fronts": 8, "routes": 24,
+    }.items():
+        value = doc.get(key)
+        if isinstance(value, list) and len(value) > limit:
+            issues.append(f"{key} exceed the {limit}-row limit")
+    issues.extend(_creator_extras_issues(doc.get("extras"), owner="world"))
+    for key in ("name", "genre", "setting", "date", "time", "tone",
+                "opening_scene", "opening_quest"):
+        if not isinstance(doc.get(key), str) or not doc[key].strip():
+            issues.append(f"missing {key}")
+    if doc.get("genre") not in GENRES:
+        issues.append("unsupported genre")
+    if doc.get("time") not in TIMES:
+        issues.append("unsupported time")
+    for key in ("setting", "opening_scene", "opening_quest"):
+        if key in doc and not _prose_complete(doc.get(key), minimum=12):
+            issues.append(f"unfinished {key}")
+
+    factions = doc.get("factions")
+    locations = doc.get("locations")
+    if not isinstance(factions, list) or len(factions) < 4 or not all(
+            _named_row_complete(row) and len(row.strip()) <= 2000 for row in factions):
+        issues.append("factions need at least four complete named rows")
+    if not isinstance(locations, list) or len(locations) < 5 or not all(
+            _named_row_complete(row) and len(row.strip()) <= 2000 for row in locations):
+        issues.append("locations need at least five complete named rows")
+    faction_names = {
+        _row_head(row) for row in (factions if isinstance(factions, list) else [])
+        if _row_head(row)
+    }
+    location_names = {
+        _row_head(row) for row in (locations if isinstance(locations, list) else [])
+        if _row_head(row)
+    }
+
+    npcs = doc.get("npcs")
+    if not isinstance(npcs, list) or len(npcs) < 4:
+        issues.append("npcs need at least four rows")
+    else:
+        for index, npc in enumerate(npcs):
+            if not isinstance(npc, dict) or not all(
+                    isinstance(npc.get(key), str) and npc[key].strip()
+                    for key in ("name", "role", "desc", "home")):
+                issues.append(f"npc {index + 1} is incomplete")
+                continue
+            if not _prose_complete(npc["desc"], minimum=8):
+                issues.append(f"npc {index + 1} has unfinished description")
+            if (len(npc["name"].strip()) > 80 or len(npc["role"].strip()) > 160
+                    or len(npc["desc"].strip()) > _CREATOR_ROW_PROSE_MAX
+                    or len(npc["home"].strip()) > 80):
+                issues.append(f"npc {index + 1} exceeds a field limit")
+            if _row_head(npc["home"]) not in location_names:
+                issues.append(f"npc {index + 1} home is not an authored location")
+
+    aspects = doc.get("aspects")
+    if not isinstance(aspects, list) or len(aspects) < 5 or not all(
+            isinstance(row, str) and len(row.strip()) <= _CREATOR_ROW_PROSE_MAX
+            and _prose_complete(row, minimum=8) for row in aspects):
+        issues.append("aspects need at least five complete rows")
+
+    loot = doc.get("loot")
+    if not isinstance(loot, dict):
+        issues.append("loot table is missing")
+    else:
+        for tier in ("minion", "standard", "elite", "boss"):
+            rows = loot.get(tier)
+            valid = isinstance(rows, list) and 2 <= len(rows) <= 12
+            if valid:
+                for row in rows:
+                    chance = row.get("chance") if isinstance(row, dict) else None
+                    qty_min = row.get("qty_min", 1) if isinstance(row, dict) else None
+                    qty_max = row.get("qty_max", 1) if isinstance(row, dict) else None
+                    if (not isinstance(row, dict)
+                            or not isinstance(row.get("name"), str)
+                            or not row["name"].strip()
+                            or len(row["name"].strip()) > 80
+                            or isinstance(chance, bool)
+                            or not isinstance(chance, (int, float))
+                            or not 0 <= float(chance) <= 1
+                            or isinstance(qty_min, bool) or not isinstance(qty_min, int)
+                            or isinstance(qty_max, bool) or not isinstance(qty_max, int)
+                            or not 1 <= qty_min <= qty_max <= 99):
+                        valid = False
+                        break
+            if not valid:
+                issues.append(f"loot.{tier} needs two valid rows")
+
+    fronts = doc.get("fronts")
+    if not isinstance(fronts, list) or len(fronts) < 2:
+        issues.append("fronts need at least two rows")
+    else:
+        for index, front in enumerate(fronts):
+            if not isinstance(front, dict):
+                issues.append(f"front {index + 1} is not an object")
+                continue
+            required = ("name", "faction", "segments", "consequence",
+                         "event_duration_turns", "spawn_eligibility")
+            if any(key not in front for key in required):
+                issues.append(f"front {index + 1} is incomplete")
+                continue
+            segments = front.get("segments")
+            duration = front.get("event_duration_turns")
+            spawn = front.get("spawn_eligibility")
+            pace = front.get("pace")
+            if (not isinstance(front.get("name"), str) or not front["name"].strip()
+                    or len(front["name"].strip()) > 120
+                    or not isinstance(front.get("faction"), str)
+                    or len(front["faction"].strip()) > 64
+                    or _row_head(front.get("faction")) not in faction_names
+                    or isinstance(segments, bool) or not isinstance(segments, int)
+                    or not 4 <= segments <= 8
+                    or (pace is not None and (
+                        isinstance(pace, bool) or not isinstance(pace, int)
+                        or not 1 <= pace <= 3))
+                    or not _prose_complete(front.get("consequence"), minimum=8)
+                    or len(str(front.get("consequence") or "").strip())
+                    > _CREATOR_ROW_PROSE_MAX
+                    or (duration is not None and (
+                        isinstance(duration, bool) or not isinstance(duration, int)
+                        or not 1 <= duration <= 100))
+                    or (spawn is not None and not isinstance(spawn, bool))):
+                issues.append(f"front {index + 1} has invalid fields")
+    exact_fronts = _exact_direction_count(seed.get("notes", ""), "front")
+    if exact_fronts is not None and (
+            not isinstance(fronts, list) or len(fronts) != exact_fronts):
+        issues.append(f"creative direction requires exactly {exact_fronts} fronts")
+
+    routes = doc.get("routes")
+    if not isinstance(routes, list):
+        issues.append("routes must be a list")
+    else:
+        for index, route in enumerate(routes):
+            if not isinstance(route, dict):
+                issues.append(f"route {index + 1} is not an object")
+                continue
+            a, b, segments = route.get("a"), route.get("b"), route.get("segments")
+            if (not isinstance(a, str) or not isinstance(b, str)
+                    or len(a.strip()) > 80 or len(b.strip()) > 80
+                    or _row_head(a) not in location_names or _row_head(b) not in location_names
+                    or _row_head(a) == _row_head(b)
+                    or isinstance(segments, bool) or not isinstance(segments, int)
+                    or not 1 <= segments <= 4):
+                issues.append(f"route {index + 1} has invalid fields")
+
+    # Filled structured rows are Player-authored canon. The model must show it understood them in
+    # its complete proposal; merge then restores every exact typed value field-by-field.
+    for key in ("factions", "locations", "npcs", "fronts"):
+        seeded = {_row_head(row) for row in _lst(seed.get(key)) if _row_head(row)}
+        proposed = {_row_head(row) for row in _lst(doc.get(key)) if _row_head(row)}
+        if not seeded <= proposed:
+            issues.append(f"proposal omitted Player-authored {key}")
+    return issues
+
+
+def _player_validation_issues(doc: dict, reg, pack: Optional[dict] = None,
+                              seed: Optional[dict] = None) -> list[str]:
+    """Validate one whole character proposal before deterministic clamping can hide omissions."""
+    issues: list[str] = []
+    seed = seed if isinstance(seed, dict) else {}
+    allowed_keys = {
+        "name", "sex", "pronouns", "species", "appearance", "concept", "level", "stats",
+        "skills", "abilities", "gear", "extras", "defs",
+    }
+    if set(doc) - allowed_keys:
+        issues.append("character proposal contains fields outside the requested schema")
+    for key, limit in {
+        "name": 80, "sex": 40, "pronouns": 40, "species": 120,
+        "appearance": _CREATOR_ROW_PROSE_MAX, "concept": 200,
+    }.items():
+        value = doc.get(key)
+        if isinstance(value, str) and len(value.strip()) > limit:
+            issues.append(f"{key} exceeds its {limit}-character limit")
+    if doc.get("level") is not None and (
+            isinstance(doc.get("level"), bool) or not isinstance(doc.get("level"), int)
+            or not 1 <= doc["level"] <= 999):
+        issues.append("invalid level")
+    issues.extend(_creator_extras_issues(doc.get("extras"), owner="character"))
+    for key in ("name", "sex", "pronouns", "species", "appearance", "concept"):
+        if not isinstance(doc.get(key), str) or not doc[key].strip():
+            issues.append(f"missing {key}")
+    if "appearance" in doc and not _prose_complete(doc.get("appearance"), minimum=12):
+        issues.append("unfinished appearance")
+
+    stats = doc.get("stats")
+    if not isinstance(stats, dict):
+        issues.append("stats are missing")
+    else:
+        if set(stats) != set(reg.stats):
+            issues.append("stats must contain exactly the requested stat ids")
+        for sid, spec in reg.stats.items():
+            value = stats.get(sid)
+            if (isinstance(value, bool) or not isinstance(value, int)
+                    or not int(spec.get("min", 1)) <= value <= int(spec.get("max", 20))):
+                issues.append(f"invalid stat {sid}")
+
+    custom = doc.get("defs") if isinstance(doc.get("defs"), dict) else {}
+    issues.extend(_custom_definition_issues(doc.get("defs"), reg, seed))
+    custom_skills = {
+        slug(_s(row.get("id") or row.get("name"), 40))
+        for row in _def_rows(custom.get("skills")) if row.get("id") or row.get("name")
+    }
+    custom_abilities = {
+        slug(_s(row.get("id") or row.get("name"), 40))
+        for row in _def_rows(custom.get("abilities")) if row.get("id") or row.get("name")
+    }
+    pack_skills = set((pack or {}).get("skills", {}))
+    pack_abilities = set((pack or {}).get("abilities", {}))
+
+    skills = doc.get("skills")
+    if not isinstance(skills, dict) or len(skills) < 2:
+        issues.append("skills need at least two ranked entries")
+    else:
+        if len(skills) > _MAX_LIST:
+            issues.append(f"skills exceed the {_MAX_LIST}-row limit")
+        known = set(reg.skills) | pack_skills | custom_skills
+        for raw_id, rank in skills.items():
+            if (not isinstance(raw_id, str) or len(raw_id.strip()) > 40
+                    or slug(str(raw_id)) not in known or isinstance(rank, bool)
+                    or not isinstance(rank, int) or not 0 <= rank <= 5):
+                issues.append("skills contain an invalid id or rank")
+                break
+
+    abilities = doc.get("abilities")
+    if not isinstance(abilities, list) or not abilities:
+        issues.append("abilities need at least one entry")
+    else:
+        if len(abilities) > _MAX_LIST:
+            issues.append(f"abilities exceed the {_MAX_LIST}-row limit")
+        known = set(reg.abilities) | pack_abilities | custom_abilities
+        if any(not isinstance(ability, str) or len(ability.strip()) > 40
+               or slug(str(ability)) not in known for ability in abilities):
+            issues.append("abilities contain an invalid id")
+
+    gear = doc.get("gear")
+    if not isinstance(gear, list) or len(gear) < 2:
+        issues.append("gear needs at least two entries")
+    else:
+        if len(gear) > _MAX_GEAR:
+            issues.append(f"gear exceeds the {_MAX_GEAR}-row limit")
+        require_effects = _direction_requires_effectful_gear((seed or {}).get("notes", ""))
+        for item in gear:
+            name = item.get("name") if isinstance(item, dict) else item
+            if (not isinstance(name, str) or len(name.strip()) > 60
+                    or not _prose_complete(name, minimum=3)):
+                issues.append("gear contains an incomplete entry")
+                break
+            if isinstance(item, dict):
+                if set(item) - {"name", "slot", "effect"}:
+                    issues.append("structured gear contains unsupported fields")
+                    break
+                slot = item.get("slot")
+                if slot is not None and (
+                        not isinstance(slot, str)
+                        or slot.lower().replace(" ", "").replace("-", "")
+                        not in _DIRECTION_GEAR_SLOTS):
+                    issues.append("structured gear has an invalid slot")
+                    break
+                effect = item.get("effect")
+                if effect is not None and (
+                        not isinstance(effect, str)
+                        or len(effect.strip()) > _CREATOR_GEAR_EFFECT_MAX
+                        or not _sentence_complete(effect, minimum=8)):
+                    issues.append("structured gear has an unfinished or over-limit effect")
+                    break
+            if require_effects and (
+                    not isinstance(item, dict)
+                    or not _sentence_complete(item.get("effect"), minimum=8)):
+                issues.append(
+                    "creative direction requires every gear row to have a complete effect"
+                )
+                break
+    for requirement in _direction_structured_gear_requirements((seed or {}).get("notes", "")):
+        matching = next((
+            item for item in (gear if isinstance(gear, list) else [])
+            if isinstance(item, dict)
+            and slug(str(item.get("name") or "")) == slug(requirement["name"])
+        ), None)
+        effect_ok = not requirement["effect"] or (
+            isinstance(matching, dict)
+            and _sentence_complete(matching.get("effect"), minimum=4)
+        )
+        slot = str((matching or {}).get("slot") or "").lower().replace(" ", "").replace("-", "")
+        if not isinstance(matching, dict) or slot != requirement["slot"] or not effect_ok:
+            suffix = " and a complete effect" if requirement["effect"] else ""
+            issues.append(
+                "creative direction requires structured gear "
+                f"{requirement['name']} in slot {requirement['slot']}{suffix}"
+            )
+    return issues
+
+
+async def _complete_creator_object(
+        get_client, cfg, ep, *, system: str, user: str, validator) -> tuple[Optional[dict], str]:
+    """Request, strictly parse, and validate a whole document with one clean restart."""
+    max_tokens, timeout_s, validation_retries = _creator_limits(cfg)
+    last_issue = "the main model did not return a complete document"
+    attempt_system = system
+    for attempt in range(validation_retries + 1):
+        if attempt:
+            attempt_system = (
+                system
+                + "\n\nThe previous response was rejected because "
+                + last_issue
+                + ". Start over. Return the entire object again from its first opening brace "
+                  "through its final closing brace. Do not abbreviate, omit sections, continue "
+                  "the old response, or add commentary."
+            )
+        try:
+            reply = await _creator_chat(
+                get_client,
+                cfg,
+                ep,
+                system=attempt_system,
+                user=user,
+                max_tokens=max_tokens,
+                temperature=_AUTHOR_TEMP,
+                timeout_s=timeout_s,
+            )
+            if reply.finish_reason in {"length", "max_tokens", "content_filter"}:
+                last_issue = f"the provider stopped with finish_reason={reply.finish_reason}"
+                continue
+            if reply.finish_reason and reply.finish_reason not in {"stop", "end_turn", "eos"}:
+                last_issue = "the provider did not report a complete response"
+                continue
+            parsed = _strict_creator_json_object(reply.content)
+            issues = validator(parsed)
+            if issues:
+                last_issue = "; ".join(issues[:8])
+                continue
+            return parsed, ""
+        except (_CreatorCallError, ValueError) as exc:
+            last_issue = str(exc)
+    return None, last_issue
 
 
 def _row_head(row) -> str:
@@ -1594,22 +2709,72 @@ def _keep_seed_rows(seed_rows, model_rows, cap: int = 12) -> list:
     return out
 
 
+def _keep_seed_loot(seed_loot, model_loot) -> dict:
+    """Preserve every Player-authored loot row while accepting complete new model rows."""
+    seed_loot = seed_loot if isinstance(seed_loot, dict) else {}
+    model_loot = model_loot if isinstance(model_loot, dict) else {}
+    out: dict = {}
+    for tier in ("minion", "standard", "elite", "boss"):
+        seeded = _lst(seed_loot.get(tier))
+        proposed = _lst(model_loot.get(tier))
+        out[tier] = _keep_seed_rows(seeded, proposed) if seeded else proposed
+    return out
+
+
+def _route_key(route) -> tuple[str, str]:
+    if not isinstance(route, dict):
+        return "", ""
+    a = _row_head(route.get("a") or route.get("from"))
+    b = _row_head(route.get("b") or route.get("to"))
+    return tuple(sorted((a, b))) if a and b else ("", "")
+
+
+def _keep_seed_routes(seed_routes, model_routes, cap: int = 24) -> list:
+    proposed = {
+        _route_key(row): row for row in _lst(model_routes) if _route_key(row) != ("", "")
+    }
+    out: list = []
+    for row in _lst(seed_routes):
+        key = _route_key(row)
+        if key == ("", ""):
+            continue
+        out.append(_row_fill(row, proposed.get(key, {})))
+    have = {_route_key(row) for row in out}
+    for row in _lst(model_routes):
+        key = _route_key(row)
+        if key != ("", "") and key not in have:
+            out.append(row)
+            have.add(key)
+        if len(out) >= cap:
+            break
+    return out
+
+
 async def author_world(get_client, cfg, ep, seed: dict) -> dict:
     """LLM-author the blanks of a world seed, then deterministic-fill + clamp.
 
     Returns source='llm' with the doc, or source='error' with a human-readable detail —
     the Creator shows the error and leaves the form alone instead of silently swapping
     in templates (the caller can still request the deterministic fill explicitly)."""
+    seed = seed if isinstance(seed, dict) else {}
     try:
-        raw = await _chat(get_client, cfg, ep, _WORLD_SYSTEM, _world_user(seed),
-                          max_tokens=_AUTHOR_MAX_TOKENS, temperature=_AUTHOR_TEMP,
-                          timeout_s=_AUTHOR_TIMEOUT_S)
-        if raw is None:
-            return {"source": "error",
-                    "detail": f"no reply from {ep.base_url} ({ep.model}) — the call timed "
-                              "out or the endpoint rejected it; try again or pick another "
-                              "model in the menu"}
-        parsed = _json_or_none(raw)
+        parsed, issue = await _complete_creator_object(
+            get_client,
+            cfg,
+            ep,
+            system=_WORLD_SYSTEM,
+            user=_world_user(seed),
+            validator=lambda doc: _world_validation_issues(doc, seed),
+        )
+        if parsed is None:
+            log.warning("World Creator rejected two incomplete main-model proposals")
+            return {
+                "source": "error",
+                "detail": (
+                    f"The main model did not return a complete world ({issue}); "
+                    "nothing was loaded. Try the AI fill again."
+                ),
+            }
         if isinstance(parsed, dict):
             merged = {**seed, **{k: v for k, v in parsed.items() if v not in (None, "", [])}}
             # player-given scalars always win over the model
@@ -1617,18 +2782,23 @@ async def author_world(get_client, cfg, ep, seed: dict) -> dict:
                       "opening_scene", "opening_quest", "notes"):
                 if _s(seed.get(k)):
                     merged[k] = seed[k]
-            for k in ("factions", "locations", "aspects", "npcs", "extras"):
+            row_caps = {
+                "factions": _MAX_LIST, "locations": _MAX_LIST, "aspects": _MAX_LIST,
+                "npcs": _MAX_LIST, "extras": _MAX_LIST, "fronts": 8,
+            }
+            for k, cap in row_caps.items():
                 seed_rows = _lst(seed.get(k))       # typed rows are canon: verbatim, never the
                 if seed_rows:                       # model's (possibly mangled) echo of them
-                    merged[k] = _keep_seed_rows(seed_rows, _lst(parsed.get(k)))
+                    merged[k] = _keep_seed_rows(seed_rows, _lst(parsed.get(k)), cap=cap)
+            if isinstance(seed.get("loot"), dict):
+                merged["loot"] = _keep_seed_loot(seed["loot"], parsed.get("loot"))
+            if _lst(seed.get("routes")):
+                merged["routes"] = _keep_seed_routes(seed["routes"], parsed.get("routes"))
             return {"source": "llm", "doc": deterministic_world(merged)}
-        log.warning("world authoring: unparseable reply (%d chars): head=%r tail=%r",
-                    len(raw), raw[:200], raw[-240:])
-        return {"source": "error",
-                "detail": f"{ep.model} replied but not with usable JSON — try again"}
     except Exception as exc:                 # fail-open: report, never crash the route
-        log.warning("world authoring failed open: %s", type(exc).__name__)
-        return {"source": "error", "detail": f"authoring failed: {type(exc).__name__}"}
+        log.warning("World Creator failed safely: %s", type(exc).__name__)
+        return {"source": "error",
+                "detail": "World authoring failed safely; nothing was loaded. Try again."}
 
 
 async def author_player(get_client, cfg, ep, seed: dict, world: Optional[dict] = None) -> dict:
@@ -1636,16 +2806,25 @@ async def author_player(get_client, cfg, ep, seed: dict, world: Optional[dict] =
     Same source='llm'|'error' contract as author_world."""
     reg = registry.load(cfg)
     pack = _pack_for(world)
+    seed = seed if isinstance(seed, dict) else {}
     try:
-        raw = await _chat(get_client, cfg, ep, _char_system(reg, pack), _char_user(seed, world),
-                          max_tokens=_AUTHOR_MAX_TOKENS, temperature=_AUTHOR_TEMP,
-                          timeout_s=_AUTHOR_TIMEOUT_S)
-        if raw is None:
-            return {"source": "error",
-                    "detail": f"no reply from {ep.base_url} ({ep.model}) — the call timed "
-                              "out or the endpoint rejected it; try again or pick another "
-                              "model in the menu"}
-        parsed = _json_or_none(raw)
+        parsed, issue = await _complete_creator_object(
+            get_client,
+            cfg,
+            ep,
+            system=_char_system(reg, pack),
+            user=_char_user(seed, world),
+            validator=lambda doc: _player_validation_issues(doc, reg, pack, seed),
+        )
+        if parsed is None:
+            log.warning("Character Creator rejected two incomplete main-model proposals")
+            return {
+                "source": "error",
+                "detail": (
+                    f"The main model did not return a complete character ({issue}); "
+                    "nothing was loaded. Try the AI fill again."
+                ),
+            }
         if isinstance(parsed, dict):
             merged = dict(parsed)
             for k in ("name", "sex", "pronouns", "species", "concept", "appearance", "notes"):
@@ -1679,22 +2858,19 @@ async def author_player(get_client, cfg, ep, seed: dict, world: Optional[dict] =
                 merged.pop("defs", None)                    # one canonical shape before pack fill
             if _lst(seed.get("gear")):
                 merged["gear"] = _keep_seed_rows(_lst(seed.get("gear")),
-                                                 _lst(merged.get("gear")), cap=10)
+                                                 _lst(merged.get("gear")), cap=_MAX_GEAR)
             if _lst(seed.get("extras")):
                 merged["extras"] = _keep_seed_rows(_lst(seed.get("extras")),
-                                                   _lst(merged.get("extras")))
+                                                   _lst(merged.get("extras")), cap=_MAX_LIST)
             merged = _inject_pack_defs(merged, pack)   # ranks on pack ids must freeze into defs
             return {"source": "llm", "doc": deterministic_player(merged, cfg)}
-        log.warning("player authoring: unparseable reply (%d chars): head=%r tail=%r",
-                    len(raw), raw[:200], raw[-240:])
-        return {"source": "error",
-                "detail": f"{ep.model} replied but not with usable JSON — try again"}
     except ValueError as exc:
         log.warning("player authoring rejected invalid resource contract: %s", exc)
         return {"source": "error", "detail": str(exc)}
     except Exception as exc:
-        log.warning("player authoring failed open: %s", type(exc).__name__)
-        return {"source": "error", "detail": f"authoring failed: {type(exc).__name__}"}
+        log.warning("Character Creator failed safely: %s", type(exc).__name__)
+        return {"source": "error",
+                "detail": "Character authoring failed safely; nothing was loaded. Try again."}
 
 
 # ------------------------------------------------------------------ RPG-5: Q27 evolution
@@ -1711,7 +2887,7 @@ _EVOLVE_SYSTEM = (
 async def evolve_def_snapshot(store, cfg, get_client, ep, session_id: str, branch_id: str,
                               char_eid: str, table: str, sid: str, bracket: str,
                               turn: Optional[int] = None) -> None:
-    """RPG-5 (the public contract / Q27): cold-path mastery re-authoring. The assist LLM proposes the
+    """RPG-5 (doc 10 §4 / Q27): cold-path mastery re-authoring. The assist LLM proposes the
     evolved form; this validates, clamps, and FREEZES it as a new per-character def version
     via a privileged evolve_def op (the journal keeps every prior version for replay).
     Fail-open at every step — the curated bracket bonus already applied is the floor."""

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 
-from aetherstate.config import load_config
+from aetherstate.config import Config, load_config
 
 
 def test_defaults_when_no_file(tmp_path):
@@ -80,4 +80,34 @@ def test_read_only_load_does_not_create_a_missing_backup(tmp_path):
     cfg = load_config(source, read_only=True)
 
     assert cfg.server.port == 19130
+    assert not (tmp_path / "config.toml.bak").exists()
+
+
+def test_creator_generation_defaults_are_large_and_old_configs_inherit_them(tmp_path):
+    assert Config().creator.max_tokens == 32768
+    assert Config().creator.timeout_s == 600.0
+    assert Config().creator.validation_retries == 1
+
+    legacy = tmp_path / "legacy.toml"
+    legacy.write_text('[upstream]\nmodel = "main-model"\n', encoding="utf-8")
+    loaded = load_config(legacy)
+    assert loaded.creator.max_tokens == 32768
+    assert loaded.creator.timeout_s == 600.0
+    assert loaded.creator.validation_retries == 1
+
+
+def test_creator_generation_config_loads_read_only_without_mutating_source(tmp_path):
+    source = tmp_path / "config.toml"
+    source.write_text(
+        '[creator]\nmax_tokens = 49152\ntimeout_s = 720\nvalidation_retries = 1\n',
+        encoding="utf-8",
+    )
+    before = _file_snapshot(source)
+
+    cfg = load_config(source, read_only=True)
+
+    assert cfg.creator.max_tokens == 49152
+    assert cfg.creator.timeout_s == 720.0
+    assert cfg.creator.validation_retries == 1
+    assert _file_snapshot(source) == before
     assert not (tmp_path / "config.toml.bak").exists()

@@ -1,4 +1,4 @@
-"""RPG-2 (the public contract): items — Inventory & Gear. Template+Instance model over the shipped spine:
+"""RPG-2 (doc 05 §9): items — Inventory & Gear. Template+Instance model over the shipped spine:
 `item_mint` (privileged) + move/equip/unequip/consume/transfer (proposable, transactional with
 rollback), the baked template snapshot + generated instance id (replay purity), the
 one-instance-one-place safety net (+ self-heal), the [GEAR]/[INVENTORY] blocks, gear mods

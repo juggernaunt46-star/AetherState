@@ -179,10 +179,15 @@ def test_l6_advisory_in_dream():
 # ------------------------------ L7 belief leak -----------------------------------------
 def test_l7_unaware_char_references_secret():
     cfg, store, sid, bid = mk()
-    apply_delta(store, sid, bid, 1, [{"op": "reveal_fact", "learner": "kira",
+    apply_delta(store, sid, bid, 1, [{"op": "fact_admit",
                                       "statement": "the amulet is cursed",
-                                      "source": "told", "teller": "vexana",
-                                      "is_secret": True}], "user", cfg)
+                                      "cause": "creator:test:cursed-amulet",
+                                      "authority": "creator", "visibility": "hidden"},
+                                     {"op": "belief_acquire", "holder": "kira",
+                                      "statement": "the amulet is cursed",
+                                      "stance": "believes", "evidence_source": "told",
+                                      "teller": "vexana", "visibility": "actor_scoped",
+                                      "scoped_actors": ["kira"]}], "user", cfg)
     text = '"Careful — that amulet is cursed," Dane said grimly.'
     vios = linter.run(st(store, bid), text, cfg)
     assert any(v.rule == "L7" and "dane" in v.subjects for v in vios)
@@ -192,10 +197,15 @@ def test_l7_teller_and_learner_are_aware():
     cfg, store, sid, bid = mk()
     apply_delta(store, sid, bid, 1, [{"op": "presence", "entity": "vexana",
                                       "present": True},
-                                     {"op": "reveal_fact", "learner": "kira",
+                                     {"op": "fact_admit",
                                       "statement": "the amulet is cursed",
-                                      "source": "told", "teller": "vexana",
-                                      "is_secret": True}], "user", cfg)
+                                      "cause": "creator:test:cursed-amulet",
+                                      "authority": "creator", "visibility": "hidden"},
+                                     {"op": "belief_acquire", "holder": "kira",
+                                      "statement": "the amulet is cursed",
+                                      "stance": "believes", "evidence_source": "told",
+                                      "teller": "vexana", "visibility": "actor_scoped",
+                                      "scoped_actors": ["kira"]}], "user", cfg)
     ok = '"The amulet is cursed," Kira said. "Cursed," Vexana says.'
     assert not any(v.rule == "L7" for v in linter.run(st(store, bid), ok, cfg))
 

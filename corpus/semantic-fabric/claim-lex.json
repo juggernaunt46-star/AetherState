@@ -1,0 +1,878 @@
+{
+  "ambiguities": [],
+  "authority": "recognition_only",
+  "constructions": [
+    {
+      "completion": "condition_and_scoped_proposition_required",
+      "construction_id": "claim.frame.conditional",
+      "features": {
+        "condition_does_not_assert_occurrence": true
+      },
+      "fingerprint": "sha256:96528053ece389d7023d88b1c37e241bfd02f7457314f39a732e8464612150ea",
+      "kind": "conditional_scope",
+      "markers": [
+        "if",
+        "unless",
+        "provided that",
+        "as long as"
+      ],
+      "optional_roles": [
+        "source",
+        "consequence"
+      ],
+      "required_roles": [
+        "condition",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.universal_dependencies",
+        "web.framenet"
+      ]
+    },
+    {
+      "completion": "claim_governor_and_bounded_content_required",
+      "construction_id": "claim.frame.content_clause",
+      "features": {
+        "nested_attribution_supported": true,
+        "preserve_governor_span": true,
+        "preserve_proposition_span": true
+      },
+      "fingerprint": "sha256:6b30851fe96ba3e752e20290f041ebbb4f6fefcf3b73df286e525497d8234a4f",
+      "kind": "content_clause",
+      "markers": [
+        "that",
+        "whether"
+      ],
+      "optional_roles": [
+        "source",
+        "addressee",
+        "condition",
+        "time"
+      ],
+      "required_roles": [
+        "governor",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.universal_dependencies"
+      ]
+    },
+    {
+      "completion": "quote_boundaries_and_attribution_required",
+      "construction_id": "claim.frame.direct_quotation",
+      "features": {
+        "quotation_is_not_world_truth": true,
+        "quotation_is_proposition_evidence": true
+      },
+      "fingerprint": "sha256:36d3bc7db6a95e3b54ef9a08f642048173f4e2b480cc658550e40720ba93d026",
+      "kind": "quotation_frame",
+      "markers": [
+        "quoted",
+        "wrote",
+        "said verbatim"
+      ],
+      "optional_roles": [
+        "speaker",
+        "addressee",
+        "governor"
+      ],
+      "required_roles": [
+        "quotation",
+        "source"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.universal_dependencies"
+      ]
+    },
+    {
+      "completion": "each_attribution_layer_bounded_separately",
+      "construction_id": "claim.frame.nested_attribution",
+      "features": {
+        "nested_attribution_supported": true,
+        "outer_claim_does_not_promote_inner_truth": true
+      },
+      "fingerprint": "sha256:0ae254fadc7bacb915bed53206eb18dc242c47100707558961836b57836b03b5",
+      "kind": "attribution_chain",
+      "markers": [
+        "according to",
+        "said that",
+        "reported that",
+        "claimed that"
+      ],
+      "optional_roles": [
+        "outer_source",
+        "inner_source",
+        "addressee",
+        "quotation"
+      ],
+      "required_roles": [
+        "source",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.framenet"
+      ]
+    }
+  ],
+  "description": "What a source asserted, denied, reported, believed, remembered, observed, inferred, predicted, planned, promised, hypothesized, questioned, quoted, accused, or explicitly described as deceptive without establishing truth.",
+  "entries": [
+    {
+      "completion": "accuser_accused_and_proposition_required",
+      "concept_id": "claim.accusation.allegation",
+      "false_friends": [
+        "charge a battery",
+        "accused parameter"
+      ],
+      "features": {
+        "claim_class": "accusation",
+        "establishes_truth": false,
+        "wrongdoing_not_established": true
+      },
+      "fingerprint": "sha256:c6ade7ed14b1f522a2bba5725979a48750fab8b87535cd7f405b3c2e169299fe",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "accusation",
+      "label": "Accusation or allegation",
+      "meaning_fingerprint": "sha256:3953d3174e5123abbb82fec56322d10056d49165d6c9e94832fff0041134f3d7",
+      "optional_roles": [
+        "addressee",
+        "evidence",
+        "time"
+      ],
+      "required_roles": [
+        "accuser",
+        "accused_party",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.framenet"
+      ],
+      "terms": [
+        "accuse",
+        "accuses",
+        "accused",
+        "allege",
+        "alleges",
+        "alleged",
+        "charge that",
+        "charges that",
+        "charged that"
+      ]
+    },
+    {
+      "completion": "source_and_denied_proposition_required",
+      "concept_id": "claim.assertion.denial",
+      "false_friends": [
+        "deny access",
+        "reject the offer",
+        "refute an equation"
+      ],
+      "features": {
+        "claim_class": "denial",
+        "establishes_truth": false,
+        "proposition_polarity_separate": true,
+        "speech_act_polarity": "negative"
+      },
+      "fingerprint": "sha256:8ca23d57bbed3c2ae3484ac05e43cb43d1221306a7c3d2aaa194b26f18caab37",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "denial",
+      "label": "Denial or rejection",
+      "meaning_fingerprint": "sha256:53984a14b3d11c5552beae566a7c8ca19c901a42439e27b89ff3d568693ee50c",
+      "optional_roles": [
+        "addressee",
+        "topic",
+        "evidence",
+        "time"
+      ],
+      "required_roles": [
+        "source",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.framenet"
+      ],
+      "terms": [
+        "deny",
+        "denies",
+        "denied",
+        "dispute",
+        "disputes",
+        "disputed",
+        "reject the claim",
+        "refute",
+        "refutes",
+        "refuted"
+      ]
+    },
+    {
+      "completion": "source_and_proposition_required",
+      "concept_id": "claim.assertion.direct",
+      "false_friends": [
+        "state machine",
+        "state of matter",
+        "declare a variable"
+      ],
+      "features": {
+        "claim_class": "assertion",
+        "establishes_truth": false,
+        "speech_act_polarity": "positive"
+      },
+      "fingerprint": "sha256:67addd8a40b112cd4771e4f8d6177a203c28ba8bab2883b023be54fbad98ff3d",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "assertion",
+      "label": "Direct assertion",
+      "meaning_fingerprint": "sha256:59a76b8c76bbdf0c43688bcc5609a15c651464e23afbb4e095f0f7621295f7cf",
+      "optional_roles": [
+        "addressee",
+        "topic",
+        "evidence",
+        "time"
+      ],
+      "required_roles": [
+        "source",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.framenet"
+      ],
+      "terms": [
+        "assert",
+        "asserts",
+        "asserted",
+        "state",
+        "states",
+        "stated",
+        "declare",
+        "declares",
+        "declared"
+      ]
+    },
+    {
+      "completion": "holder_and_proposition_required",
+      "concept_id": "claim.cognition.belief",
+      "false_friends": [
+        "think tank",
+        "belief system setting"
+      ],
+      "features": {
+        "claim_class": "belief",
+        "establishes_truth": false,
+        "knowledge_state": "actor_relative"
+      },
+      "fingerprint": "sha256:2bdafd5abcf9cf0d26a4ca43520720398273f42c99f7510b9f0491b44c59f1d7",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "belief",
+      "label": "Belief or opinion",
+      "meaning_fingerprint": "sha256:71aae5f41dfc4dbdf6f7e551c304e7c6a49d84f8bd9d9296da6bb698d6e50e89",
+      "optional_roles": [
+        "evidence",
+        "confidence",
+        "time"
+      ],
+      "required_roles": [
+        "holder",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.framenet"
+      ],
+      "terms": [
+        "believe",
+        "believes",
+        "believed",
+        "think",
+        "thinks",
+        "thought",
+        "suspect",
+        "suspects",
+        "suspected",
+        "in my opinion",
+        "in their opinion"
+      ]
+    },
+    {
+      "completion": "rememberer_and_proposition_required",
+      "concept_id": "claim.cognition.memory",
+      "false_friends": [
+        "memory address",
+        "recall the product"
+      ],
+      "features": {
+        "claim_class": "memory",
+        "establishes_truth": false,
+        "knowledge_state": "actor_relative"
+      },
+      "fingerprint": "sha256:bc51b6854334fac8ddb882a4edf6811d5aaca70d18d24001e9455c96189a39fd",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "memory",
+      "label": "Memory or recollection",
+      "meaning_fingerprint": "sha256:071ce9ff8fa1eba48b3d6a8e40e41d764cfd88aade98c0cda1fc97f3ef189abd",
+      "optional_roles": [
+        "evidential_source",
+        "time",
+        "confidence"
+      ],
+      "required_roles": [
+        "rememberer",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.framenet"
+      ],
+      "terms": [
+        "remember",
+        "remembers",
+        "remembered",
+        "recall",
+        "recalls",
+        "recalled",
+        "recollect",
+        "recollects",
+        "recollected"
+      ]
+    },
+    {
+      "completion": "promisor_and_committed_proposition_required",
+      "concept_id": "claim.commitment.promise",
+      "false_friends": [
+        "promise object",
+        "swear word"
+      ],
+      "features": {
+        "claim_class": "promise",
+        "establishes_truth": false,
+        "fulfillment_not_implied": true,
+        "modality": "commissive"
+      },
+      "fingerprint": "sha256:2b681b5dcbf68e7b4266034caeac386109db91d3822a6d6a86dda6d2676910c2",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "promise",
+      "label": "Promise or commitment claim",
+      "meaning_fingerprint": "sha256:0727dff603355b8ad1e4c216e14077b8817d56e9d5c23e0dbd9f12d61f63f83b",
+      "optional_roles": [
+        "promisee",
+        "condition",
+        "time",
+        "witness"
+      ],
+      "required_roles": [
+        "promisor",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.framenet",
+        "web.propbank"
+      ],
+      "terms": [
+        "promise",
+        "promises",
+        "promised",
+        "swear to",
+        "swears to",
+        "swore to",
+        "vow to",
+        "vows to",
+        "vowed to",
+        "pledge to",
+        "pledges to",
+        "pledged to"
+      ]
+    },
+    {
+      "completion": "explicit_deception_attribution_required",
+      "concept_id": "claim.deception.explicit",
+      "false_friends": [
+        "lie down",
+        "lying position",
+        "deceive sheet"
+      ],
+      "features": {
+        "claim_class": "deception_description",
+        "establishes_truth": false,
+        "intent_required_for_deliberate_lying": true,
+        "speaker_knowledge_required_for_truth": true
+      },
+      "fingerprint": "sha256:2f4b6f27cc9712aca6d336d75254d5d714a030f2ba81ce462a940ef6f1326765",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "deception",
+      "label": "Explicit deception description",
+      "meaning_fingerprint": "sha256:26681b18bf10f8489cfd739ceab1f08a0c8002083d09727388b1c46d7a78b7bb",
+      "optional_roles": [
+        "evidence",
+        "intent_basis",
+        "knowledge_basis",
+        "time"
+      ],
+      "required_roles": [
+        "attributing_source",
+        "accused_source",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.framenet"
+      ],
+      "terms": [
+        "lie",
+        "lies",
+        "lied",
+        "lying about",
+        "deceive about",
+        "deceived about",
+        "falsely claimed",
+        "fabricated the claim",
+        "made up the story"
+      ]
+    },
+    {
+      "completion": "observer_and_proposition_required",
+      "concept_id": "claim.evidence.observation",
+      "false_friends": [
+        "observe the rule",
+        "witness signature"
+      ],
+      "features": {
+        "claim_class": "observation",
+        "establishes_truth": false,
+        "evidentiality": "direct_claimed",
+        "proves_hidden_truth": false
+      },
+      "fingerprint": "sha256:d5930c63c8a699bb05f3fe44a2f936572e79fbbe636256948e8b78ccfa8247b2",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "observation",
+      "label": "Observation claim",
+      "meaning_fingerprint": "sha256:803c838a6a7baa6f7e836c3e8a3c2ac14f3a690830505838d01660ebc108f4cc",
+      "optional_roles": [
+        "sense",
+        "instrument",
+        "location",
+        "time"
+      ],
+      "required_roles": [
+        "observer",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.framenet"
+      ],
+      "terms": [
+        "observe",
+        "observes",
+        "observed",
+        "witness",
+        "witnesses",
+        "witnessed",
+        "saw that",
+        "see that",
+        "noticed that",
+        "notice that"
+      ]
+    },
+    {
+      "completion": "planner_and_intended_proposition_required",
+      "concept_id": "claim.future.plan",
+      "false_friends": [
+        "floor plan",
+        "intended recipient"
+      ],
+      "features": {
+        "claim_class": "plan",
+        "establishes_truth": false,
+        "fulfillment_not_implied": true,
+        "modality": "intentional"
+      },
+      "fingerprint": "sha256:55ff4d34d7879f70fc74c3d5bc0c1e4cdbf46497c59c51b6501a79eee410e790",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "plan",
+      "label": "Plan or intention claim",
+      "meaning_fingerprint": "sha256:908fc15e104d6e1a484b9a20723ad9a1bde4c6d78d8df93be66cadbfe9288097",
+      "optional_roles": [
+        "beneficiary",
+        "condition",
+        "time",
+        "reason"
+      ],
+      "required_roles": [
+        "planner",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.framenet"
+      ],
+      "terms": [
+        "plan to",
+        "plans to",
+        "planned to",
+        "intend to",
+        "intends to",
+        "intended to",
+        "aim to",
+        "aims to",
+        "meant to"
+      ]
+    },
+    {
+      "completion": "source_and_future_proposition_required",
+      "concept_id": "claim.future.prediction",
+      "false_friends": [
+        "forecast field",
+        "likely type"
+      ],
+      "features": {
+        "claim_class": "prediction",
+        "establishes_truth": false,
+        "modality": "epistemic_future",
+        "occurrence_not_implied": true
+      },
+      "fingerprint": "sha256:b733b579b91655f1bd11b7ad39dde7e2581dc6ff136b8ff4d5f5e3ddb8d6daff",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "prediction",
+      "label": "Prediction or forecast",
+      "meaning_fingerprint": "sha256:16b2015c453df3f335b8abaffc7c8b0f6dcb1123a0d9a638d17fade72746937a",
+      "optional_roles": [
+        "evidence",
+        "confidence",
+        "time",
+        "condition"
+      ],
+      "required_roles": [
+        "source",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.framenet",
+        "web.propbank"
+      ],
+      "terms": [
+        "predict",
+        "predicts",
+        "predicted",
+        "forecast",
+        "forecasts",
+        "foretold",
+        "will probably",
+        "is likely to",
+        "are likely to"
+      ]
+    },
+    {
+      "completion": "hypothetical_scope_and_proposition_required",
+      "concept_id": "claim.modality.hypothesis",
+      "false_friends": [
+        "suppose operator",
+        "if statement"
+      ],
+      "features": {
+        "claim_class": "hypothesis",
+        "establishes_truth": false,
+        "modality": "hypothetical",
+        "occurrence_not_implied": true
+      },
+      "fingerprint": "sha256:9a64dbc6572a788eb5bf07c951ef86dcb965bfc1960aad34fa92f3eb5982cb39",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "hypothesis",
+      "label": "Hypothesis or counterfactual",
+      "meaning_fingerprint": "sha256:ae99141269404f05e62d4ee3bae3454a94ce4ee276b803d2510bb203762cce73",
+      "optional_roles": [
+        "source",
+        "condition",
+        "evidence",
+        "consequence"
+      ],
+      "required_roles": [
+        "proposition"
+      ],
+      "source_ids": [
+        "web.framenet",
+        "web.universal_dependencies"
+      ],
+      "terms": [
+        "hypothesize",
+        "hypothesizes",
+        "hypothesized",
+        "suppose that",
+        "assuming that",
+        "if it were",
+        "if there were",
+        "what if"
+      ]
+    },
+    {
+      "completion": "question_scope_and_proposition_required",
+      "concept_id": "claim.question.inquiry",
+      "false_friends": [
+        "question mark field",
+        "ask price"
+      ],
+      "features": {
+        "assertion_not_implied": true,
+        "claim_class": "question",
+        "establishes_truth": false,
+        "speech_act_polarity": "open"
+      },
+      "fingerprint": "sha256:97390ddacdb169340d58d8b2cbbd47884313f3d7f97f125303dc4b5c51b03826",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "question",
+      "label": "Questioned proposition",
+      "meaning_fingerprint": "sha256:9d1627ad9dc8fff5ddca508af1b5725ae88ba9d6be05f92082d751212963af13",
+      "optional_roles": [
+        "addressee",
+        "topic",
+        "time"
+      ],
+      "required_roles": [
+        "questioner",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.universal_dependencies"
+      ],
+      "terms": [
+        "ask whether",
+        "asks whether",
+        "asked whether",
+        "wonder whether",
+        "wonders whether",
+        "wondered whether",
+        "is it true that",
+        "could it be that"
+      ]
+    },
+    {
+      "completion": "quotation_and_attributed_source_required",
+      "concept_id": "claim.quotation.attributed",
+      "false_friends": [
+        "quote price",
+        "quotation mark setting"
+      ],
+      "features": {
+        "claim_class": "quotation",
+        "establishes_truth": false,
+        "nested_attribution_supported": true
+      },
+      "fingerprint": "sha256:36e2cc7d74bc2214db738e85930d975797887774d41b7cff9f66996667e7e8c6",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "quotation",
+      "label": "Quotation or reported speech",
+      "meaning_fingerprint": "sha256:5a1567e93d65fc05a92c58ba986e6e4aefbbc9716af01b875b95b1f3855c4ea8",
+      "optional_roles": [
+        "speaker",
+        "addressee",
+        "quotation",
+        "time"
+      ],
+      "required_roles": [
+        "quoted_source",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.framenet"
+      ],
+      "terms": [
+        "quote",
+        "quotes",
+        "quoted",
+        "in the words of",
+        "as she put it",
+        "as he put it",
+        "as they put it"
+      ]
+    },
+    {
+      "completion": "proposition_and_inference_basis_required",
+      "concept_id": "claim.reasoning.inference",
+      "false_friends": [
+        "conclude the meeting",
+        "therefore symbol"
+      ],
+      "features": {
+        "claim_class": "inference",
+        "establishes_truth": false,
+        "evidentiality": "derived"
+      },
+      "fingerprint": "sha256:fbc637a540fa9697b1a93e68215ab9290173c1da991b2aa78c545d4b9df64bc5",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "inference",
+      "label": "Inference or conclusion",
+      "meaning_fingerprint": "sha256:369cb4ad64530fcb0ca0598a41d67208b6327e966b30b4817427fbe6d7766676",
+      "optional_roles": [
+        "evidence",
+        "premise",
+        "confidence",
+        "time"
+      ],
+      "required_roles": [
+        "reasoner",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.framenet",
+        "web.propbank"
+      ],
+      "terms": [
+        "infer",
+        "infers",
+        "inferred",
+        "conclude",
+        "concludes",
+        "concluded",
+        "deduce",
+        "deduces",
+        "deduced",
+        "therefore",
+        "apparently"
+      ]
+    },
+    {
+      "completion": "proposition_and_attribution_state_required",
+      "concept_id": "claim.report.hearsay",
+      "false_friends": [
+        "word is a token",
+        "heard that song"
+      ],
+      "features": {
+        "claim_class": "hearsay",
+        "establishes_truth": false,
+        "evidentiality": "indirect",
+        "source_may_be_unresolved": true
+      },
+      "fingerprint": "sha256:f96cc600442d4ed72a7b114c1323bf5b6cd2a81621cbcdd4081babb81ed47a27",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "hearsay",
+      "label": "Rumor or hearsay",
+      "meaning_fingerprint": "sha256:81063f87e09f6937729b850a7c2a1a6196cd1455d34d85633083ff93ed1bc487",
+      "optional_roles": [
+        "source",
+        "speaker",
+        "evidential_source",
+        "transmission_chain",
+        "time"
+      ],
+      "required_roles": [
+        "proposition"
+      ],
+      "source_ids": [
+        "web.framenet",
+        "web.propbank"
+      ],
+      "terms": [
+        "rumor has it",
+        "rumour has it",
+        "word is",
+        "it is said",
+        "it was said",
+        "heard that",
+        "hearsay"
+      ]
+    },
+    {
+      "completion": "reporting_source_and_proposition_required",
+      "concept_id": "claim.report.testimony",
+      "false_friends": [
+        "report for duty",
+        "tell time",
+        "according to plan"
+      ],
+      "features": {
+        "claim_class": "report",
+        "establishes_truth": false,
+        "evidentiality": "attributed"
+      },
+      "fingerprint": "sha256:b08b027a8cac2f5292deca3dc15fd74f62feeac7d856fdba3e08b85edf328b66",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "report",
+      "label": "Report or testimony",
+      "meaning_fingerprint": "sha256:5781b22dd20260c1de46ebefd3da69d87eec5711dd586be0ac72934e9b3b6e1f",
+      "optional_roles": [
+        "speaker",
+        "addressee",
+        "topic",
+        "evidential_source",
+        "time"
+      ],
+      "required_roles": [
+        "source",
+        "proposition"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.verbnet"
+      ],
+      "terms": [
+        "report",
+        "reports",
+        "reported",
+        "testify",
+        "testifies",
+        "testified",
+        "according to",
+        "tell",
+        "tells",
+        "told"
+      ]
+    }
+  ],
+  "fingerprint": "sha256:7021790e1baa51bd6c63f115574627e0b635a63a76df9b86c3ef6e16898a5c5f",
+  "lex_id": "claim",
+  "schema": "semantic-translation-memory/2",
+  "version": 2
+}

@@ -20,9 +20,11 @@ fails -> today's empty start. Exposure is NEVER seeded — it derives from worn 
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
 
+from .claim_ingress import claim_ops_from_text
 from .extraction import repair_json
 from .state import apply_delta, current_state, merge_baseline_skills, validate_op
 
@@ -94,8 +96,12 @@ _LLM_SYSTEM = (
     "anus genitals thighs legs feet\n"
     '{"op":"relationship_adj","from_char":str,"to_char":str,"dimension":"trust|affection'
     '|respect|desire|tension|fear|familiarity","delta":-30..30}\n'
-    '{"op":"reveal_fact","learner":str,"statement":str,"source":"told",'
-    '"is_secret":bool}  // beliefs, facts, and secrets the card establishes\n'
+    '{"op":"belief_acquire","holder":str,"statement":str,"stance":"knows|believes|'
+    'doubts|disputes|uncertain|rumor","evidence_source":"witnessed|told|overheard|inferred",'
+    '"teller":str?}  // only this actor\'s knowledge or belief; never objective truth\n'
+    '{"op":"fact_admit","statement":str,"basis_source":"card|opening","basis_text":str,'
+    '"holder":str?}  // objective fact only when basis_text is an exact verbatim source span; '
+    'holder is the safe belief fallback if that basis cannot be verified\n'
     '{"op":"consent_set","subject":str,"partner":str,"category":"kissing|manual|'
     'oral_give|oral_receive|vaginal|anal|toys|restraint|impact|degradation|praise|'
     'exhibition|group|roleplay_scene|other","level":"unknown|hesitant|granted|'
@@ -253,12 +259,12 @@ def seed_rules(store, cfg, session_id: str, branch_id: str, doc: dict,
         return 0
 
 
-# ---- RPG player genesis (track 2 of two-track genesis, the public contract / the public contract) ---------
+# ---- RPG player genesis (track 2 of two-track genesis, doc 05 §3.3 / doc 06 §2) ---------
 # World genesis (track 1) is the existing two-stage pass above, re-read as the DM/world seed
 # when specialization=rpg (the card IS the Dungeon Master). Track 2 below establishes the
 # Player Card. RPG-0 ships a deterministic, hot-path-safe skeleton (no LLM): an explicit seed
 # if the request carries one, else a registry-less default so [PLAYER] renders from turn 0.
-# The point-buy / curated-registry creator lands at RPG-1 (the public contract).
+# The point-buy / curated-registry creator lands at RPG-1 (doc 09).
 DEFAULT_PLAYER_STATS = {"STR": 10, "DEX": 10, "INT": 10, "CHA": 10, "CUN": 10, "CON": 10}
 DEFAULT_PLAYER_HP_MAX = 20
 
@@ -299,7 +305,7 @@ def _player_name_from_text(*texts: str) -> str:
 
 def _player_seed_from_doc(doc: dict, cfg) -> tuple[str, dict]:
     """(player_name, seed_card). Tolerates a few carrier shapes for an explicit seed
-    (the public contract §S4: ST card extensions.aetherstate.player) without depending on any; falls back
+    (doc 06 §S4: ST card extensions.aetherstate.player) without depending on any; falls back
     to a sensible default. The player is the USER's character, so the default name is the
     user persona (never the card/DM speaker); if neither is set, a PC name the opening declares
     in second person ("You are Kael") is used before the generic "Player" placeholder."""
@@ -329,7 +335,7 @@ def _player_seed_from_doc(doc: dict, cfg) -> tuple[str, dict]:
         "abilities": seed["abilities"] if isinstance(seed.get("abilities"), list) else [],
         "resources": seed["resources"] if isinstance(seed.get("resources"), dict)
                      else {"hp": {"max": DEFAULT_PLAYER_HP_MAX},
-                           "stamina": {"max": 12}},   # RPG-5 (the public contract): the universal pool
+                           "stamina": {"max": 12}},   # RPG-5 (doc 10 §6): the universal pool
     }
     if not seed:
         # No explicit seed anywhere: this is the registry-less PLACEHOLDER card (the floor so
@@ -346,7 +352,7 @@ def _player_seed_from_doc(doc: dict, cfg) -> tuple[str, dict]:
 
 
 def seed_player(store, cfg, session_id: str, branch_id: str, doc: dict) -> int:
-    """RPG player genesis (the public contract). Deterministic and sub-ms (no LLM): writes the Player
+    """RPG player genesis (doc 05 §3.3). Deterministic and sub-ms (no LLM): writes the Player
     Card via the privileged `player_seed` op (source='genesis'). Idempotent (skips if a Player
     Card already exists); inert unless specialization=rpg; fail-open (an empty Player Card is
     acceptable — [PLAYER] simply won't render)."""
@@ -421,6 +427,8 @@ async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
             speaker=speaker,
             player_name=pname,
             narrator_speaker=is_narrator,
+            card=card,
+            prompt=prompt,
         ),
                                    card, prompt, speaker)
         ops = _scene_with_current_location_basis(ops, card, prompt)
@@ -440,6 +448,22 @@ async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
                          len(res.quarantined),
                          "; ".join(str(q.get("reason"))[:60]
                                    for q in res.quarantined[:5]))
+        head = store.db.execute("SELECT head_turn FROM branches WHERE branch_id=?",
+                                (branch_id,)).fetchone()
+        claim_turn = max(0, (head["head_turn"] if head else 0))
+        for authored_text, authored_source in ((card, "creator_card"),
+                                               (prompt, "creator_opening")):
+            claim_ops = claim_ops_from_text(
+                authored_text,
+                ingress="creator",
+                source_id=authored_source,
+            )
+            if not claim_ops:
+                continue
+            claim_result = apply_delta(
+                store, session_id, branch_id, claim_turn, claim_ops, "rule", cfg
+            )
+            n += sum(1 for op in claim_result.applied if op.get("op") == "claim_record")
         store.genesis_mark(session_id, "done")
         log.info("genesis stage B seeded %d op(s) for %s", n, session_id[:8])
         return n
@@ -549,8 +573,55 @@ def _scene_with_current_location_basis(ops: list[dict], card: str,
     return keep
 
 
+def _normalize_genesis_knowledge(op: dict, card: str, prompt: str) -> dict | None:
+    """Keep epistemics actor-local and admit facts only from an exact source span."""
+    kind = op.get("op")
+    if kind == "belief_acquire":
+        holder = str(op.get("holder") or "").strip()
+        statement = str(op.get("statement") or "").strip()
+        stance = str(op.get("stance") or "believes").strip()
+        evidence_source = str(op.get("evidence_source") or "inferred").strip()
+        if not holder or not statement \
+                or stance not in {"knows", "believes", "doubts", "disputes", "uncertain", "rumor"} \
+                or evidence_source not in {"witnessed", "told", "overheard", "inferred"}:
+            return None
+        row = {
+            "op": "belief_acquire", "holder": holder, "statement": statement,
+            "stance": stance, "evidence_source": evidence_source,
+        }
+        teller = str(op.get("teller") or "").strip()
+        if teller:
+            row["teller"] = teller
+        return row
+    if kind != "fact_admit":
+        return op
+    statement = str(op.get("statement") or "").strip()
+    basis_source = str(op.get("basis_source") or "").strip().lower()
+    basis_text = str(op.get("basis_text") or "")
+    source_text = card if basis_source == "card" else prompt if basis_source == "opening" else ""
+    if statement and basis_text and basis_text in source_text:
+        digest = hashlib.sha256(
+            f"{basis_source}\0{basis_text}".encode("utf-8")
+        ).hexdigest()
+        return {
+            "op": "fact_admit", "statement": statement,
+            "cause": f"genesis:{basis_source}:sha256:{digest}",
+            "authority": "genesis", "basis_source": basis_source,
+            "basis_text": basis_text,
+        }
+    # A failed objective-fact proposal may retain only an explicitly named actor's belief.
+    holder = str(op.get("holder") or "").strip()
+    if holder and statement:
+        return {
+            "op": "belief_acquire", "holder": holder, "statement": statement,
+            "stance": "believes", "evidence_source": "inferred",
+        }
+    return None
+
+
 def _parse_ops(raw, speaker: str = "", player_name: str = "",
-               narrator_speaker: bool = False) -> list[dict]:
+               narrator_speaker: bool = False, card: str = "",
+               prompt: str = "") -> list[dict]:
     if not raw:
         return []
     text = _FENCE.sub("", raw)
@@ -579,9 +650,18 @@ def _parse_ops(raw, speaker: str = "", player_name: str = "",
         return []
     out = []
     for op in doc[:MAX_OPS]:
-        v = validate_op(_coerce(op))
+        v = _normalize_genesis_knowledge(_coerce(op), card, prompt)
         if v is None:
             continue
+        # Model JSON may propose scene detail and exact card-grounded knowledge, but it is
+        # never the privileged genesis authority that admits immutable world events.  Any
+        # genesis event must be constructed by deterministic code outside this parser.
+        if v.get("op") == "world_event_admit":
+            continue
+        if v.get("op") not in {"belief_acquire", "fact_admit"}:
+            v = validate_op(v)
+            if v is None:
+                continue
         # Stage B never mints players: the Player Card has its own dedicated track
         # (seed_player / the Creator) and is the USER's character — an assist model reading
         # a card that talks about "the Player" would happily invent one (2026-07-06 live
@@ -602,7 +682,7 @@ def _parse_ops(raw, speaker: str = "", player_name: str = "",
         narrator = speaker.strip().lower() if narrator_speaker else ""
         if narrator:
             ref_keys = ("name", "char", "entity", "from_char", "to_char", "subject",
-                        "partner", "learner", "teller")
+                        "partner", "learner", "holder", "teller")
             if any(str(v.get(key, "")).strip().lower() == narrator for key in ref_keys):
                 continue
             if isinstance(v.get("participants"), list):
@@ -620,7 +700,7 @@ def _parse_ops(raw, speaker: str = "", player_name: str = "",
     refs: list[str] = []
     for o in out:
         for k in ("char", "entity", "from_char", "to_char", "subject", "partner",
-                  "learner", "teller"):
+                  "learner", "holder", "teller"):
             v = str(o.get(k, "") or "").strip()
             if v and v.lower() not in named and v.lower() not in [r.lower() for r in refs]:
                 refs.append(v)

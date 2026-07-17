@@ -28,9 +28,9 @@ WORLD = {
             "home": "Iron Gate",
         },
         {
-            "name": "Captain Lyra",
+            "name": "Captain Sera",
             "role": "watch captain",
-            "desc": "Captain Lyra commands the relief watch.",
+            "desc": "Captain Sera commands the relief watch.",
             "home": "Iron Gate",
         },
         {
@@ -40,7 +40,7 @@ WORLD = {
             "home": "Archive Hall",
         },
     ],
-    "aspects": ["Known figures: Captain Lyra oversees the western relief watch."],
+    "aspects": ["Known figures: Captain Sera oversees the western relief watch."],
     "opening_scene": (
         "At Iron Gate, Marshal Varo stands beneath the portcullis with spear in hand. "
         "Marshal Varo waits for the Player to cross the first iron line."
@@ -72,7 +72,7 @@ def test_exact_npc_named_in_opening_scene_gets_one_turn_zero_presence_op():
 def test_shared_home_and_names_outside_opening_scene_do_not_gain_presence():
     presence = _presence_ops(creator.world_to_ops(WORLD))
 
-    assert not any(op.get("entity") == "captain_lyra" for op in presence), (
+    assert not any(op.get("entity") == "captain_sera" for op in presence), (
         "sharing Marshal Varo's authored home must not imply opening-scene presence"
     )
     assert not any(op.get("entity") == "archivist_neris" for op in presence), (
@@ -137,7 +137,7 @@ def test_explicit_absence_does_not_stage_presence_or_overmatch_other_negation():
 def test_coordinated_plural_absence_keeps_every_offstage_npc_out_of_opening_presence():
     scene = (
         "Marshal Varo stands at Iron Gate. "
-        "Captain Lyra and Archivist Neris are elsewhere and not present."
+        "Captain Sera and Archivist Neris are elsewhere and not present."
     )
 
     assert _presence_ops(creator.world_to_ops(dict(WORLD, opening_scene=scene))) == [

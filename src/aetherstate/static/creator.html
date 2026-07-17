@@ -41,6 +41,21 @@ textarea{resize:vertical;min-height:64px}
 .field{min-width:0}
 .list .item{display:flex;gap:8px;margin-bottom:7px;align-items:flex-start}
 .list .item input{flex:1}
+.limit-counter{float:right;color:var(--dim);font-size:10.5px;font-variant-numeric:tabular-nums;font-weight:500}
+.limit-counter.near{color:var(--warn)}.limit-counter.over{color:var(--bad);font-weight:700}
+.limit-box{flex:1;min-width:0}.limit-box input,.limit-box textarea{width:100%}
+.limit-box .limit-counter{display:block;float:none;text-align:right;margin-top:2px;line-height:1.15}
+.list .item.struct-row,.list .item.definition-row{display:block;background:var(--panel2);border:1px solid var(--edge);
+ border-radius:8px;padding:10px;margin-bottom:9px;position:relative}
+.struct-row .row,.definition-row .row{margin-bottom:8px}.struct-row .row:last-child,.definition-row .row:last-child{margin-bottom:0}
+.struct-row label,.definition-row label{font-size:10.5px}.row-tools{display:flex;justify-content:flex-end;margin-top:5px}
+.world-structures{display:grid;gap:12px}.world-structures details{background:var(--bg);border:1px solid var(--edge);border-radius:8px;padding:8px 10px}
+.world-structures summary{color:var(--fg);font-weight:650}.world-structures details[open] summary{margin-bottom:9px}
+.review-block{background:var(--panel2);border:1px solid var(--edge);border-radius:8px;padding:9px 11px;margin:7px 0}
+.review-block h4{font-size:11.5px;color:var(--acc);margin:0 0 5px;text-transform:uppercase;letter-spacing:.35px}
+.review-prose{white-space:pre-wrap;overflow-wrap:anywhere;margin:3px 0;color:var(--fg)}
+.review-row{padding:5px 0;border-bottom:1px solid var(--edge);overflow-wrap:anywhere}.review-row:last-child{border-bottom:0}
+.review-label{color:var(--dim);font-size:11.5px}
 .resource-head,.list .item.resource-row{display:grid;grid-template-columns:minmax(150px,1fr) 82px 82px 62px 36px;gap:8px;align-items:center}
 .resource-head{font-size:10.5px;color:var(--dim);padding:0 0 3px;text-transform:uppercase;letter-spacing:.45px}
 .list .item.resource-row input{min-width:0;width:100%}
@@ -100,7 +115,7 @@ summary:hover{color:var(--fg)}
   <div class="spacer"></div>
   <span id="draftChip" class="chip" title="Your work is auto-saved in this browser — a refresh or reopen won't lose it" style="display:none">draft saved ✓</span>
   <button id="newDraft" class="chip" title="Start a completely fresh world and character without changing live sessions or saved presets">＋ New draft</button>
-  <select id="modelSel" class="chip" title="AI model used for auto-fill"><option value="">model: auto</option></select>
+  <select id="modelSel" class="chip" title="Main story model used for every AI auto-fill"><option value="">main model: auto</option></select>
   <span id="specChip" class="chip">spec: …</span>
   <select id="sessSel" class="chip" title="Optional apply-to-session target. You do NOT need this to make a Narrator card — the card carries its own world+character seed."><option value="">session: …</option></select>
   <button id="sessRefresh" class="chip" title="Refresh the session list (keeps everything you've typed)" style="cursor:pointer;font-weight:700">↻</button>
@@ -119,48 +134,74 @@ summary:hover{color:var(--fg)}
         <div class="field"><label>World / campaign name</label><input id="w_name" placeholder="e.g. The Shattered Reach"></div>
         <div class="field"><label>Genre</label><select id="w_genre"></select></div>
       </div>
-      <div class="field" style="margin-bottom:12px"><label>Setting / premise — any length</label>
-        <textarea id="w_setting" placeholder="Write as much or as little as you like — one line or pages of lore. Everything you write is treated as canon and the AI builds the rest around it. Leave blank to let the AI invent freely."></textarea></div>
+      <div class="field" style="margin-bottom:12px"><label>Setting / premise <span class="limit-counter" data-count-for="w_setting"></span></label>
+        <textarea id="w_setting" maxlength="8000" data-limit="8000" placeholder="Write one line or several pages of lore. Everything you write is treated as canon and the AI builds the rest around it. Leave blank to let the AI invent freely."></textarea></div>
       <div class="row c3">
         <div class="field"><label>In-world date</label><input id="w_date" placeholder="Year 1042…"></div>
         <div class="field"><label>Time of day</label><select id="w_time"></select></div>
         <div class="field"><label>Tone</label><input id="w_tone" placeholder="heroic, grim, noir…"></div>
       </div>
-      <div class="field"><label>Creative direction / notes — anything goes, the AI follows it</label>
-        <textarea id="w_notes" placeholder="Optional, free-form: themes, inspirations, genre blends, twists, content you want…"></textarea></div>
+      <div class="field"><label>Creative direction / instructions <span class="limit-counter" data-count-for="w_notes"></span></label>
+        <textarea id="w_notes" maxlength="32768" data-limit="32768" placeholder="Optional instructions sent to the main AI: themes, inspirations, genre blends, required details, exclusions, and writing direction."></textarea></div>
     </div>
 
     <div class="card">
       <h2>Factions & Places <small>optional — blanks get filled</small></h2>
       <div class="row c2">
-        <div><label>Factions / powers</label><div id="w_factions" class="list"></div>
+        <div><label>Factions / powers <span class="limit-counter" data-row-count-for="w_factions"></span></label><div id="w_factions" class="list"></div>
           <button class="mini" onclick="addLine('w_factions')">+ faction</button></div>
-        <div><label>Key locations</label><div id="w_locations" class="list"></div>
+        <div><label>Key locations <span class="limit-counter" data-row-count-for="w_locations"></span></label><div id="w_locations" class="list"></div>
           <button class="mini" onclick="addLine('w_locations')">+ location</button></div>
       </div>
     </div>
 
     <div class="card">
-      <h2>Notable NPCs</h2>
+      <h2>Notable NPCs <small><span class="limit-counter" data-row-count-for="w_npcs"></span></small></h2>
       <div id="w_npcs" class="list"></div>
       <button class="mini" onclick="addNpc()">+ NPC</button>
     </div>
 
     <div class="card">
-      <h2>World aspects & lore <small>magic / tech / cosmology — one per line</small></h2>
+      <h2>World aspects & lore <small>magic / tech / cosmology — one per line · <span class="limit-counter" data-row-count-for="w_aspects"></span></small></h2>
       <div id="w_aspects" class="list"></div>
       <button class="mini" onclick="addLine('w_aspects')">+ aspect</button>
       <div class="row c2" style="margin-top:14px">
-        <div class="field"><label>Opening scene</label><textarea id="w_scene" placeholder="Where does play begin?"></textarea></div>
-        <div class="field"><label>Opening quest / hook</label><textarea id="w_quest" placeholder="The first thing pulling the player forward."></textarea></div>
+        <div class="field"><label>Opening scene <span class="limit-counter" data-count-for="w_scene"></span></label><textarea id="w_scene" maxlength="8000" data-limit="8000" placeholder="Where does play begin?"></textarea></div>
+        <div class="field"><label>Opening quest / hook <span class="limit-counter" data-count-for="w_quest"></span></label><textarea id="w_quest" maxlength="8000" data-limit="8000" placeholder="The first thing pulling the player forward."></textarea></div>
       </div>
     </div>
 
     <div class="card">
-      <h2>Custom details &amp; lore <small>your own categories — magic systems, history, cosmology, laws. Kept as retrievable lore</small></h2>
+      <h2>Custom details &amp; lore <small>your own categories — magic systems, history, cosmology, laws. Kept as retrievable lore · <span class="limit-counter" data-row-count-for="w_extras"></span></small></h2>
       <div id="w_extras" class="list"></div>
       <button class="mini" onclick="addExtra('w_extras')">+ add a detail category</button>
-      <div class="hint">Each detail is a label (e.g. <i>Magic System</i>, <i>The Sundering</i>) and its text. Add as many as you like — the engine surfaces them when they're relevant, so a big world stays token-cheap.</div>
+      <div class="hint">Each detail is a label (e.g. <i>Magic System</i>, <i>The Sundering</i>) and up to 8,000 characters of text. The engine surfaces it when relevant, so a big world stays token-cheap.</div>
+    </div>
+
+    <div class="card">
+      <h2>Living-world structures <small>AI-generated rows stay visible and editable before save</small></h2>
+      <div class="hint">These rows become frozen world setup. Fronts are code-advanced clocks, loot tiers seed grounded drops, and routes set travel time.</div>
+      <div class="world-structures">
+        <details open>
+          <summary>Faction fronts <span class="limit-counter" data-row-count-for="w_fronts"></span></summary>
+          <div id="w_fronts" class="list"></div>
+          <button class="mini" onclick="addFront()">+ front</button>
+        </details>
+        <details>
+          <summary>Loot tables</summary>
+          <div class="row c2">
+            <div><label>Minion <span class="limit-counter" data-row-count-for="w_loot_minion"></span></label><div id="w_loot_minion" class="list"></div><button class="mini" onclick="addLootRow('minion')">+ minion loot</button></div>
+            <div><label>Standard <span class="limit-counter" data-row-count-for="w_loot_standard"></span></label><div id="w_loot_standard" class="list"></div><button class="mini" onclick="addLootRow('standard')">+ standard loot</button></div>
+            <div><label>Elite <span class="limit-counter" data-row-count-for="w_loot_elite"></span></label><div id="w_loot_elite" class="list"></div><button class="mini" onclick="addLootRow('elite')">+ elite loot</button></div>
+            <div><label>Boss <span class="limit-counter" data-row-count-for="w_loot_boss"></span></label><div id="w_loot_boss" class="list"></div><button class="mini" onclick="addLootRow('boss')">+ boss loot</button></div>
+          </div>
+        </details>
+        <details>
+          <summary>Travel routes <span class="limit-counter" data-row-count-for="w_routes"></span></summary>
+          <div id="w_routes" class="list"></div>
+          <button class="mini" onclick="addRoute()">+ route</button>
+        </details>
+      </div>
     </div>
 
     <div class="actions">
@@ -190,10 +231,10 @@ summary:hover{color:var(--fg)}
         <div class="field"><label>Species / race</label><input id="c_species" placeholder="Human, or freestyle — AI authors traits"></div>
         <div class="field"><label>Class / concept</label><input id="c_concept" placeholder="e.g. Storm-Touched Skald"></div>
       </div>
-      <div class="field" style="margin-bottom:12px"><label>Appearance / description <span class="aes-opt">— what others see when they meet you</span></label>
-        <textarea id="c_appearance" placeholder="Face, build, dress, notable marks… leave blank and the AI writes it to fit the world."></textarea></div>
-      <div class="field" style="margin-bottom:12px"><label>Creative direction / notes — anything goes, the AI follows it</label>
-        <textarea id="c_notes" placeholder="Optional, free-form: backstory beats, vibe, powers you want, how they talk…"></textarea></div>
+      <div class="field" style="margin-bottom:12px"><label>Appearance / description <span class="aes-opt">— what others see when they meet you</span><span class="limit-counter" data-count-for="c_appearance"></span></label>
+        <textarea id="c_appearance" maxlength="4000" data-limit="4000" placeholder="Face, build, dress, notable marks… leave blank and the AI writes it to fit the world."></textarea></div>
+      <div class="field" style="margin-bottom:12px"><label>Creative direction / instructions <span class="limit-counter" data-count-for="c_notes"></span></label>
+        <textarea id="c_notes" maxlength="32768" data-limit="32768" placeholder="Optional instructions sent to the main AI: backstory beats, voice, required mechanics, gear, and exclusions."></textarea></div>
       <div class="hint">Type as much or as little as you like — leave the rest blank and the AI fills it to fit the world.</div>
     </div>
 
@@ -220,9 +261,9 @@ summary:hover{color:var(--fg)}
           <div class="hint">Give a custom skill or ability a <b>category</b> to make your own sheet sections — e.g. <i>Spells</i>, <i>Cyber-Ware</i>, <i>Disciplines</i>. Costs use whole amounts from 1–10,000 and may combine bars with <b>+</b>, e.g. <i>2 Ash Focus + 1 Mana</i>. Blank means no cost; a missing bar blocks save instead of changing the mechanic.</div>
           <datalist id="aes_cats"><option value="Spells"><option value="Cyber-Ware"><option value="Disciplines"><option value="Techniques"><option value="Maneuvers"><option value="Powers"><option value="Rituals"><option value="Gadgets"><option value="Mutations"><option value="Hexes"></datalist>
           <datalist id="aes_resources"><option value="HP"><option value="stamina"><option value="mana"></datalist>
-          <label>Custom skills</label><div id="c_cskills" class="list"></div>
+          <label>Custom skills <span class="limit-counter" data-row-count-for="c_cskills"></span></label><div id="c_cskills" class="list"></div>
           <button class="mini" onclick="addCustomSkill()">+ custom skill</button>
-          <label style="margin-top:12px">Custom abilities</label><div id="c_cabil" class="list"></div>
+          <label style="margin-top:12px">Custom abilities <span class="limit-counter" data-row-count-for="c_cabil"></span></label><div id="c_cabil" class="list"></div>
           <button class="mini" onclick="addCustomAbil()">+ custom ability</button>
         </div>
       </details>
@@ -231,7 +272,7 @@ summary:hover{color:var(--fg)}
         <div class="field"><label>Max HP</label><input id="c_hp" type="number" value="20" min="1" max="9999"></div>
       </div>
       <div style="margin-top:14px">
-        <label>Custom resource bars <span class="aes-opt">— spendable pools for your skills and abilities</span></label>
+        <label>Custom resource bars <span class="aes-opt">— spendable pools for your skills and abilities</span><span class="limit-counter" data-row-count-for="c_resources"></span></label>
         <div class="hint">Name the pool, set its starting and maximum values, and pick its HUD color. Example: <i>Ash Focus</i> 4 / 8.</div>
         <div class="resource-head" aria-hidden="true"><span>Name</span><span>Current</span><span>Maximum</span><span>Color</span><span></span></div>
         <div id="c_resources" class="list"></div>
@@ -240,7 +281,7 @@ summary:hover{color:var(--fg)}
     </div>
 
     <div class="card">
-      <h2>Starting gear <small>name · slot (leave "auto" to let the engine guess) · what it does — seeded as real instances at save</small></h2>
+      <h2>Starting gear <small>name · slot (leave "auto" to let the engine guess) · what it does — seeded as real instances at save · <span class="limit-counter" data-row-count-for="c_gear_rows"></span></small></h2>
       <div class="hint">Pin a <b>slot</b> when the auto-guess gets it wrong, and give a piece an
         <b>effect</b> — it doesn't have to be a dice bonus; "turns every entrance into a weapon"
         or "hums with old grief" rides the ledger so the story honors it.</div>
@@ -249,10 +290,10 @@ summary:hover{color:var(--fg)}
     </div>
 
     <div class="card">
-      <h2>Custom details &amp; backstory <small>your own categories — history, bonds, code, secrets. Kept as retrievable lore</small></h2>
+      <h2>Custom details &amp; backstory <small>your own categories — history, bonds, code, secrets. Kept as retrievable lore · <span class="limit-counter" data-row-count-for="c_extras"></span></small></h2>
       <div id="c_extras" class="list"></div>
       <button class="mini" onclick="addExtra('c_extras')">+ add a detail category</button>
-      <div class="hint">Each detail is a label (e.g. <i>Backstory</i>, <i>Code of Honor</i>, <i>Secret</i>) and its text. Add as many as you wish — they ground the character and surface when relevant.</div>
+      <div class="hint">Each detail is a label (e.g. <i>Backstory</i>, <i>Code of Honor</i>, <i>Secret</i>) and up to 8,000 characters of text. Up to 20 details ground the character and surface when relevant.</div>
     </div>
 
     <div class="actions">
@@ -295,6 +336,12 @@ let SID = QS.get("session") || "";
 let REG = null, SPEC = "none", WORLD_CACHE = null, WORLD_ID = "", PRESETS = [];
 
 const $ = id => document.getElementById(id);
+const CREATOR_LIMITS=Object.freeze({ordinaryRows:20,gearRows:32,frontRows:8,routeRows:24,
+  lootRows:12,direction:32768,longProse:8000,rowProse:4000,namedRow:2000});
+const LIST_LIMITS=Object.freeze({w_factions:20,w_locations:20,w_npcs:20,w_aspects:20,
+  w_extras:20,w_fronts:8,w_routes:24,w_loot_minion:12,w_loot_standard:12,w_loot_elite:12,
+  w_loot_boss:12,c_cskills:20,c_cabil:20,c_resources:20,c_gear_rows:32,c_extras:20});
+
 function toast(msg, kind){ const t=$("toast"); t.textContent=msg; t.className="toast show "+(kind||"");
   setTimeout(()=>{t.className="toast";}, 2600); }
 async function api(path, opts){ const r = await fetch(path, Object.assign({headers:{"Content-Type":"application/json"}}, opts||{}));
@@ -302,6 +349,25 @@ async function api(path, opts){ const r = await fetch(path, Object.assign({heade
 function statMod(v){ if(!REG) return 0; return REG.mod_policy==="direct" ? v : Math.floor((v-10)/2); }
 function fmt(n){ return (n>=0?"+":"")+n; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function fmtLimit(n){ return Number(n||0).toLocaleString("en-US"); }
+function rowCount(hostId){ const host=$(hostId); return host?host.querySelectorAll(".item").length:0; }
+function refreshListCount(hostId){ const max=LIST_LIMITS[hostId], count=rowCount(hostId);
+  if(!max) return; document.querySelectorAll(`[data-row-count-for="${hostId}"]`).forEach(el=>{
+    el.textContent=`${count} / ${max} rows`; el.classList.toggle("near",count>=Math.ceil(max*.9));
+    el.classList.toggle("over",count>max); }); }
+function refreshAllListCounts(){ for(const id of Object.keys(LIST_LIMITS)) refreshListCount(id); }
+function mayAddRow(hostId, announce){ const max=LIST_LIMITS[hostId]; if(!max||rowCount(hostId)<max) return true;
+  if(announce!==false) toast(`This list is limited to ${max} rows.`,"bad"); return false; }
+function refreshLimitCounter(field){ if(!field||!field.dataset) return;
+  const max=Number(field.dataset.limit||0); if(!max) return; field.maxLength=max;
+  const targets=[]; if(field.id) targets.push(...document.querySelectorAll(`[data-count-for="${field.id}"]`));
+  const box=field.closest&&field.closest(".limit-box"); if(box){ const local=box.querySelector(".limit-counter"); if(local) targets.push(local); }
+  const n=String(field.value||"").length;
+  for(const el of new Set(targets)){ el.textContent=`${fmtLimit(n)} / ${fmtLimit(max)}`;
+    el.classList.toggle("near",n>=Math.ceil(max*.9)); el.classList.toggle("over",n>max); }
+}
+function refreshLimitCounters(scope){ (scope||document).querySelectorAll("[data-limit]").forEach(refreshLimitCounter); }
+function limitedControl(control,max){ return `<div class="limit-box">${control}<span class="limit-counter">0 / ${fmtLimit(max)}</span></div>`; }
 function relTime(sec){ if(!sec) return ""; const d=Date.now()/1000-sec;
   if(d<60) return "just now"; if(d<3600) return Math.floor(d/60)+"m ago";
   if(d<86400) return Math.floor(d/3600)+"h ago"; return Math.floor(d/86400)+"d ago"; }
@@ -320,7 +386,7 @@ function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({world
   const c=$("draftChip"); if(c) c.style.display=""; }catch(e){} }
 function scheduleDraft(){ clearTimeout(_draftT); _draftT=setTimeout(saveDraft, 600); }
 function removeDraftRow(btn){ const row=btn&&btn.closest?btn.closest(".item"):null;
-  if(row){ row.remove(); scheduleDraft(); } }
+  if(row){ row.remove(); refreshAllListCounts(); scheduleDraft(); } }
 function clearCreatorDraft(){
   clearTimeout(_draftT); try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
   WORLD_CACHE=null;
@@ -358,35 +424,100 @@ function showTab(name){
 function _autoTitle(scope){ scope.querySelectorAll("input:not([title])").forEach(i=>{
   i.dataset.autotitle="1"; i.title=i.value; }); }
 document.addEventListener("input", e=>{ const t=e.target;
-  if(t && t.tagName==="INPUT" && t.dataset.autotitle==="1") t.title=t.value; }, true);
+  if(t && t.tagName==="INPUT" && t.dataset.autotitle==="1") t.title=t.value;
+  refreshLimitCounter(t); }, true);
 function addLine(hostId, val){
+  if(!mayAddRow(hostId,val==null)) return;
+  const max=hostId==="w_aspects"?CREATOR_LIMITS.rowProse:CREATOR_LIMITS.namedRow;
   const host=$(hostId); const d=document.createElement("div"); d.className="item";
-  d.innerHTML=`<input value="${(val||"").replace(/"/g,'&quot;')}"><button class="mini x" onclick="removeDraftRow(this)">✕</button>`;
-  host.appendChild(d); _autoTitle(d);
+  d.innerHTML=limitedControl(`<input maxlength="${max}" data-limit="${max}" value="${attrEsc(val||"")}">`,max)+
+    `<button class="mini x" onclick="removeDraftRow(this)">✕</button>`;
+  host.appendChild(d); _autoTitle(d); refreshLimitCounters(d); refreshListCount(hostId);
 }
 function readLines(hostId){ return [...$(hostId).querySelectorAll("input")].map(i=>i.value.trim()).filter(Boolean); }
 // free-form custom detail categories (Bean 2026-07-07): label + text -> retrievable lore
-function addExtra(hostId, e){ e=e||{}; const host=$(hostId); const d=document.createElement("div"); d.className="item";
-  d.innerHTML=`<input placeholder="label (e.g. Magic System)" value="${(e.label||'').replace(/"/g,'&quot;')}" style="flex:0 0 34%">
-    <input placeholder="detail — write as much as you like" value="${(e.text||'').replace(/"/g,'&quot;')}" style="flex:1">
+function addExtra(hostId, e){ if(!mayAddRow(hostId,e==null)) return; e=e||{}; const host=$(hostId); const d=document.createElement("div"); d.className="item";
+  d.innerHTML=`<div class="limit-box" style="flex:0 0 34%"><input maxlength="60" data-limit="60" placeholder="label (e.g. Magic System)" value="${attrEsc(e.label||'')}"><span class="limit-counter"></span></div>
+    <div class="limit-box"><textarea rows="2" maxlength="8000" data-limit="8000" placeholder="detail — up to 8,000 characters">${esc(e.text||'')}</textarea><span class="limit-counter"></span></div>
     <button class="mini x" onclick="removeDraftRow(this)">✕</button>`;
-  host.appendChild(d); _autoTitle(d);
+  host.appendChild(d); _autoTitle(d); refreshLimitCounters(d); refreshListCount(hostId);
 }
 function readExtras(hostId){ return [...$(hostId).querySelectorAll(".item")].map(it=>{
-  const el=it.querySelectorAll("input"); return {label:el[0].value.trim(), text:el[1].value.trim()};
+  const el=it.querySelectorAll("input,textarea"); return {label:el[0].value.trim(), text:el[1].value.trim()};
 }).filter(e=>e.label||e.text); }
 function fillExtras(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(e=>addExtra(hostId,e)); }
-function addNpc(n){ n=n||{}; const host=$("w_npcs"); const d=document.createElement("div"); d.className="item";
-  d.innerHTML=`<input placeholder="name" value="${(n.name||'').replace(/"/g,'&quot;')}" style="flex:0 0 18%">
-    <input placeholder="role" value="${(n.role||'').replace(/"/g,'&quot;')}" style="flex:0 0 20%">
-    <input placeholder="short description" value="${(n.desc||'').replace(/"/g,'&quot;')}">
-    <input placeholder="home (a location)" title="Where this NPC is usually found — anchors them: they only surface in play at or near this place, until the story moves them." value="${(n.home||'').replace(/"/g,'&quot;')}" style="flex:0 0 18%">
-    <button class="mini x" onclick="removeDraftRow(this)">✕</button>`;
-  host.appendChild(d); _autoTitle(d);
+function addNpc(n){ if(!mayAddRow("w_npcs",n==null)) return; n=n||{}; const host=$("w_npcs"); const d=document.createElement("div"); d.className="item struct-row";
+  d.innerHTML=`<div class="row c3"><div><label>Name</label><input data-field="name" maxlength="80" value="${attrEsc(n.name||'')}"></div>
+    <div><label>Role</label><input data-field="role" maxlength="120" value="${attrEsc(n.role||'')}"></div>
+    <div><label>Home location</label><input data-field="home" maxlength="120" title="Where this NPC is usually found — anchors them until the story moves them." value="${attrEsc(n.home||'')}"></div></div>
+    <label>Description</label>${limitedControl(`<textarea data-field="desc" maxlength="4000" data-limit="4000" rows="2" placeholder="What makes this NPC distinct and playable">${esc(n.desc||'')}</textarea>`,4000)}
+    <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove NPC</button></div>`;
+  host.appendChild(d); _autoTitle(d); refreshLimitCounters(d); refreshListCount("w_npcs");
 }
 function readNpcs(){ return [...$("w_npcs").querySelectorAll(".item")].map(it=>{
-  const i=it.querySelectorAll("input"); return {name:i[0].value.trim(), role:i[1].value.trim(), desc:i[2].value.trim(), home:i[3].value.trim()};
+  const get=k=>(it.querySelector(`[data-field="${k}"]`)||{}).value?.trim()||"";
+  return {name:get("name"), role:get("role"), desc:get("desc"), home:get("home")};
 }).filter(n=>n.name); }
+
+// Living-world structures used to survive only in WORLD_CACHE, so generated rows disappeared
+// from the Player's review/edit flow. The visible controls now own the same normalized shapes.
+function addFront(front){ if(!mayAddRow("w_fronts",front==null)) return; const f=front||{};
+  const d=document.createElement("div"); d.className="item struct-row front-row";
+  const spawn=f.spawn_eligibility;
+  d.innerHTML=`<div class="row c4"><div><label>Front</label><input data-field="name" maxlength="120" value="${attrEsc(f.name||'')}" placeholder="The storm cult awakens"></div>
+    <div><label>Faction</label><input data-field="faction" maxlength="64" value="${attrEsc(f.faction||'')}" placeholder="optional owner"></div>
+    <div><label>Segments (3–12)</label><input data-field="segments" type="number" min="3" max="12" value="${Math.max(3,Math.min(12,Math.trunc(+(f.segments??6)||6)))}"></div>
+    <div><label>Pace (1–3)</label><input data-field="pace" type="number" min="1" max="3" value="${Math.max(1,Math.min(3,Math.trunc(+(f.pace??1)||1)))}"></div></div>
+    <div class="row c2"><div><label>Duration after completion</label><input data-field="event_duration_turns" type="number" min="1" max="100" value="${f.event_duration_turns==null?'':Math.max(1,Math.min(100,Math.trunc(+f.event_duration_turns||1)))}" placeholder="blank = persistent"></div>
+    <div><label>Future faction eligibility</label><select data-field="spawn_eligibility"><option value="" ${typeof spawn!=="boolean"?'selected':''}>unchanged</option><option value="true" ${spawn===true?'selected':''}>allow on completion</option><option value="false" ${spawn===false?'selected':''}>block on completion</option></select></div></div>
+    <label>Consequence</label>${limitedControl(`<textarea data-field="consequence" rows="2" maxlength="4000" data-limit="4000" placeholder="What becomes true when this clock completes">${esc(f.consequence||'')}</textarea>`,4000)}
+    <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove front</button></div>`;
+  $("w_fronts").appendChild(d); refreshLimitCounters(d); refreshListCount("w_fronts");
+}
+function readFronts(){ return [...$("w_fronts").querySelectorAll(".front-row")].map(it=>{
+  const get=k=>(it.querySelector(`[data-field="${k}"]`)||{}).value??"";
+  const name=String(get("name")).trim(); if(!name) return null;
+  const row={name,faction:String(get("faction")).trim(),segments:Math.max(3,Math.min(12,Math.trunc(+get("segments")||6))),
+    pace:Math.max(1,Math.min(3,Math.trunc(+get("pace")||1))),consequence:String(get("consequence")).trim()};
+  if(String(get("event_duration_turns")).trim()) row.event_duration_turns=Math.max(1,Math.min(100,Math.trunc(+get("event_duration_turns")||1)));
+  const spawn=String(get("spawn_eligibility")); if(spawn==="true"||spawn==="false") row.spawn_eligibility=spawn==="true";
+  return row;
+}).filter(Boolean); }
+function fillFronts(rows){ $("w_fronts").innerHTML=""; (rows||[]).forEach(addFront); refreshListCount("w_fronts"); }
+
+const LOOT_TIERS=["minion","standard","elite","boss"];
+function addLootRow(tier,entry){ tier=String(tier||"").toLowerCase(); const hostId=`w_loot_${tier}`;
+  if(!LOOT_TIERS.includes(tier)||!mayAddRow(hostId,entry==null)) return; const e=typeof entry==="string"?{name:entry}:(entry||{});
+  const chance=Number.isFinite(+e.chance)?Math.max(0,Math.min(1,+e.chance)):1;
+  const d=document.createElement("div"); d.className="item struct-row loot-row";
+  d.innerHTML=`<div class="row c4"><div><label>Item</label><input data-field="name" maxlength="80" value="${attrEsc(e.name||'')}" placeholder="grounded ${tier} drop"></div>
+    <div><label>Chance (0–1)</label><input data-field="chance" type="number" min="0" max="1" step="0.05" value="${chance}"></div>
+    <div><label>Minimum qty</label><input data-field="qty_min" type="number" min="1" max="99" value="${Math.max(1,Math.min(99,Math.trunc(+(e.qty_min??e.qty??1)||1)))}"></div>
+    <div><label>Maximum qty</label><input data-field="qty_max" type="number" min="1" max="99" value="${Math.max(1,Math.min(99,Math.trunc(+(e.qty_max??e.qty??1)||1)))}"></div></div>
+    <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove loot</button></div>`;
+  $(hostId).appendChild(d); refreshListCount(hostId);
+}
+function readLoot(){ const out={}; for(const tier of LOOT_TIERS){ const rows=[...$(`w_loot_${tier}`).querySelectorAll(".loot-row")].map(it=>{
+    const get=k=>(it.querySelector(`[data-field="${k}"]`)||{}).value??""; const name=String(get("name")).trim(); if(!name) return null;
+    return {name,qty_min:Math.max(1,Math.min(99,Math.trunc(+get("qty_min")||1))),qty_max:Math.max(1,Math.min(99,Math.trunc(+get("qty_max")||1))),
+      chance:Math.max(0,Math.min(1,Number.isFinite(+get("chance"))?+get("chance"):1))}; }).filter(Boolean);
+    if(rows.length) out[tier]=rows; } return out; }
+function fillLoot(loot){ for(const tier of LOOT_TIERS){ const hostId=`w_loot_${tier}`; $(hostId).innerHTML="";
+    const rows=loot&&Array.isArray(loot[tier])?loot[tier]:[]; rows.forEach(row=>addLootRow(tier,row)); refreshListCount(hostId); } }
+
+function addRoute(route){ if(!mayAddRow("w_routes",route==null)) return; const r=route||{};
+  const d=document.createElement("div"); d.className="item struct-row route-row";
+  d.innerHTML=`<div class="row c3"><div><label>From</label><input data-field="a" maxlength="80" value="${attrEsc(r.a||r.from||'')}" placeholder="location"></div>
+    <div><label>To</label><input data-field="b" maxlength="80" value="${attrEsc(r.b||r.to||'')}" placeholder="location"></div>
+    <div><label>Travel segments (1–4)</label><input data-field="segments" type="number" min="1" max="4" value="${Math.max(1,Math.min(4,Math.trunc(+(r.segments??1)||1)))}"></div></div>
+    <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove route</button></div>`;
+  $("w_routes").appendChild(d); refreshListCount("w_routes");
+}
+function readRoutes(){ return [...$("w_routes").querySelectorAll(".route-row")].map(it=>{
+  const get=k=>String((it.querySelector(`[data-field="${k}"]`)||{}).value??"").trim(); const a=get("a"),b=get("b");
+  return a&&b?{a,b,segments:Math.max(1,Math.min(4,Math.trunc(+get("segments")||1)))}:null;
+}).filter(Boolean); }
+function fillRoutes(rows){ $("w_routes").innerHTML=""; (rows||[]).forEach(addRoute); refreshListCount("w_routes"); }
 
 // ---- starting gear rows (2026-07-10, Bean): name · slot · what-it-does. A blank slot lets the
 // engine's recognizer guess; a set slot PINS it (the manual failsafe). The effect is prose — it
@@ -395,19 +526,19 @@ const GEAR_SLOTS_UI=[["","auto"],["head","Head"],["face","Face"],["neck","Neck"]
   ["body","Body"],["cape","Cape"],["arms","Arms"],["hands","Hands"],["mainhand","Main Hand"],
   ["offhand","Off Hand"],["waist","Waist"],["legs","Legs"],["feet","Feet"],["back","Back"],
   ["accessory1","Trinket I"],["accessory2","Trinket II"]];
-function addGearRow(g){ g=g||{}; const host=$("c_gear_rows"); const d=document.createElement("div"); d.className="item";
+function addGearRow(g){ if(!mayAddRow("c_gear_rows",g==null)) return; g=g||{}; const host=$("c_gear_rows"); const d=document.createElement("div"); d.className="item";
   const name = typeof g==="string" ? g : (g.name||"");
   const slot = (typeof g==="object" && g) ? (g.slot||"") : "";
   const eff  = (typeof g==="object" && g) ? (g.effect||g.aura||g.prose||"") : "";
   const opts = GEAR_SLOTS_UI.map(([v,l])=>`<option value="${v}" ${slot===v?'selected':''}>${l}</option>`).join("");
-  d.innerHTML=`<input placeholder="item name" value="${String(name).replace(/"/g,'&quot;')}" style="flex:1;min-width:110px">
+  d.innerHTML=`<input placeholder="item name" maxlength="80" value="${attrEsc(name)}" style="flex:1;min-width:110px">
     <select title="which slot it occupies — 'auto' lets the engine guess" style="flex:0 0 92px">${opts}</select>
-    <input placeholder="what it does — prose/glamour/lore (optional)" value="${String(eff).replace(/"/g,'&quot;')}" style="flex:2;min-width:150px">
+    ${limitedControl(`<textarea rows="2" maxlength="4000" data-limit="4000" placeholder="what it does — prose/glamour/lore (optional)">${esc(eff)}</textarea>`,4000)}
     <button class="mini x" onclick="removeDraftRow(this)">✕</button>`;
-  host.appendChild(d);
+  host.appendChild(d); refreshLimitCounters(d); refreshListCount("c_gear_rows");
 }
 function readGear(){ return [...$("c_gear_rows").querySelectorAll(".item")].map(it=>{
-  const el=it.querySelectorAll("input,select");
+  const el=it.querySelectorAll("input,select,textarea");
   const name=el[0].value.trim(); if(!name) return null;
   const slot=el[1].value, eff=el[2].value.trim();
   if(!slot && !eff) return name;                 // a bare name stays a plain string (heuristic slots it)
@@ -482,7 +613,7 @@ function refreshResourceChoices(){ const host=$("aes_resources"); if(!host) retu
   const seen=new Set(); host.innerHTML=rows.filter(r=>{const k=`${r.id}|${r.name}`; if(seen.has(k)) return false; seen.add(k); return true;})
     .map(r=>`<option value="${attrEsc(r.name)}" label="${attrEsc(r.id)}"></option>`).join("");
 }
-function addCustomResource(rid,spec){ spec=spec||{}; rid=String(rid||spec.id||"");
+function addCustomResource(rid,spec){ if(!mayAddRow("c_resources",rid==null&&spec==null)) return; spec=spec||{}; rid=String(rid||spec.id||"");
   const name=String(spec.name||rid.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())||"");
   const resourceId=customSkillId(rid||name), minMax=(resourceId==="stamina"||resourceId==="mana")?0:1;
   const max=Math.max(minMax,Math.min(10000,Math.trunc(+(spec.max??1)||0)));
@@ -494,7 +625,7 @@ function addCustomResource(rid,spec){ spec=spec||{}; rid=String(rid||spec.id||""
     <input data-field="max" aria-label="maximum resource" type="number" min="${minMax}" max="10000" value="${max}">
     <input data-field="color" aria-label="resource color" type="color" value="${color}">
     <button class="mini x" aria-label="remove resource" onclick="removeCustomResource(this)">✕</button>`;
-  $("c_resources").appendChild(d); refreshResourceChoices();
+  $("c_resources").appendChild(d); refreshResourceChoices(); refreshListCount("c_resources");
 }
 function removeCustomResource(btn){ removeDraftRow(btn); refreshResourceChoices(); validateResourceContract(true); }
 function resourceIdFor(label){ const raw=String(label||"").trim(); if(!raw) return "";
@@ -528,24 +659,27 @@ function validateResourceContract(announce=false){ try{ readCustomResources();
     for(const input of document.querySelectorAll("[data-resource-cost]")) readCostInput(input);
     return true;
   }catch(e){ if(announce) showCreatorValidation(e); return false; } }
-function addCustomSkill(s){ s=s||{}; const host=$("c_cskills"); const opts=Object.keys(REG.stats).map(k=>`<option ${s.keyed_stat===k?'selected':''}>${k}</option>`).join("");
-  const d=document.createElement("div"); d.className="item";
-  d.innerHTML=`<input placeholder="skill name" value="${(s.name||'').replace(/"/g,'&quot;')}" style="flex:1">
-    <select style="flex:0 0 84px">${opts}</select>
-    <input type="number" title="base mod" value="${s.base_mod||0}" style="flex:0 0 56px">
-    <input type="number" title="skill rank (0-5)" min="0" max="5" value="${Math.max(0,Math.min(5,Math.trunc(+s._rank||0)))}" style="flex:0 0 56px">
-    <input data-resource-cost placeholder="cost(s)" list="aes_resources" title="${attrEsc(resourceCostHelp("Optional skill spend"))}" value="${attrEsc(costStr(s.cost))}" oninput="validateResourceContract()" style="flex:0 0 142px">
-    <input placeholder="category" title="optional group — e.g. Spells, Cyber-Ware, Disciplines" value="${(s.group||'').replace(/"/g,'&quot;')}" style="flex:0 0 108px" list="aes_cats">
-    <button class="mini x" onclick="removeDraftRow(this)">✕</button>`;
-  // The visible row is intentionally compact. Stash the full authored def (governs/desc/cost/
-  // requires_ability) so the save round-trip stops degrading it (2026-07-09; the ability
-  // rows got this in 1.9.0, the skill rows never did). Edited inputs still win below.
+function addCustomSkill(s){ if(!mayAddRow("c_cskills",s==null)) return; s=s||{}; const host=$("c_cskills"); const opts=Object.keys(REG.stats).map(k=>`<option ${s.keyed_stat===k?'selected':''}>${k}</option>`).join("");
+  const d=document.createElement("div"); d.className="item definition-row";
+  const governs=Array.isArray(s.governs)?s.governs.join(", "):String(s.governs||"");
+  d.innerHTML=`<div class="row c3"><div><label>Skill name</label><input data-field="name" maxlength="60" placeholder="skill name" value="${attrEsc(s.name||'')}"></div>
+    <div><label>Keyed stat</label><select data-field="keyed_stat">${opts}</select></div>
+    <div><label>Base modifier</label><input data-field="base_mod" type="number" min="-5" max="10" value="${s.base_mod||0}"></div></div>
+    <div class="row c3"><div><label>Starting rank (0–5)</label><input data-field="rank" type="number" title="skill rank (0-5)" min="0" max="5" value="${Math.max(0,Math.min(5,Math.trunc(+s._rank||0)))}"></div>
+    <div><label>Resource cost</label><input data-field="cost" data-resource-cost placeholder="cost(s)" list="aes_resources" title="${attrEsc(resourceCostHelp("Optional skill spend"))}" value="${attrEsc(costStr(s.cost))}" oninput="validateResourceContract()"></div>
+    <div><label>Category</label><input data-field="group" maxlength="24" placeholder="e.g. Disciplines" title="optional HUD group" value="${attrEsc(s.group||'')}" list="aes_cats"></div></div>
+    <div><label>Governs <span class="aes-opt">— up to 12 attempt verbs, comma separated</span></label><input data-field="governs" maxlength="500" placeholder="compare, qualify, reconstruct" value="${attrEsc(governs)}"></div>
+    <div style="margin-top:8px"><label>Description</label>${limitedControl(`<textarea data-field="desc" rows="2" maxlength="4000" data-limit="4000" placeholder="What this skill covers and what makes it distinct">${esc(s.desc||'')}</textarea>`,4000)}</div>
+    <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove skill</button></div>`;
+  // Keep fields without a dedicated editor (id/requires_ability/max_rank) in the frozen source
+  // snapshot. Every visible field below owns its value, so clearing it cannot revive stale AI prose.
   try{ d.dataset.def = JSON.stringify(s); }catch(e){}
-  host.appendChild(d);
+  host.appendChild(d); refreshLimitCounters(d); refreshListCount("c_cskills");
 }
 function readCustomSkills(){ return [...$("c_cskills").querySelectorAll(".item")].map(it=>{
-  const el=it.querySelectorAll("input,select");
+  const el=it.querySelectorAll("input,select,textarea");
   let base={}; try{ base=JSON.parse(it.dataset.def||"{}")||{}; }catch(e){}
+  ["name","keyed_stat","base_mod","_rank","cost","group","governs","desc"].forEach(k=>delete base[k]);
   const o=Object.assign({}, base, {name:el[0].value.trim(), keyed_stat:el[1].value, base_mod:+el[2].value||0});
   const rank=Math.max(0,Math.min(5,Math.trunc(+((el[3]||{}).value)||0)));
   const frozenMax=Number.isFinite(+o.max_rank)?Math.max(1,Math.min(10,Math.trunc(+o.max_rank))):5;
@@ -553,6 +687,9 @@ function readCustomSkills(){ return [...$("c_cskills").querySelectorAll(".item")
   delete o._rank; delete o.cost;
   const cost=readCostInput(el[4]); if(Object.keys(cost).length) o.cost=cost;
   if(el[5] && el[5].value.trim()) o.group=el[5].value.trim(); else delete o.group;
+  const governs=String((el[6]||{}).value||"").split(/[,\n]+/).map(x=>x.trim()).filter(Boolean);
+  if(governs.length) o.governs=governs;
+  o.desc=String((el[7]||{}).value||"").trim();
   return o;
 }).filter(s=>s.name); }
 function readCustomSkillRanks(){ const ranks={}; for(const it of $("c_cskills").querySelectorAll(".item")){
@@ -567,34 +704,36 @@ const MECHS=[["","mech: auto"],["edge","edge — extra die, keep best"],["ward",
   ["mod","mod — flat +N"],["basis","basis — unlocks a gated skill"]];
 function costStr(c){ if(!c||typeof c!=="object") return "";
   return Object.entries(c).map(([rid,amount])=>`${amount} ${resourceLabel(rid)}`).join(" + "); }
-function addCustomAbil(a){ a=a||{}; const host=$("c_cabil"); const d=document.createElement("div"); d.className="item";
+function addCustomAbil(a){ if(!mayAddRow("c_cabil",a==null)) return; a=a||{}; const host=$("c_cabil"); const d=document.createElement("div"); d.className="item definition-row";
   const pm=a.passive_mod||{}; const amt = a.magnitude!=null?a.magnitude:(pm.amount!=null?pm.amount:(a.resolution_mod!=null?a.resolution_mod:1));
   const applies = Array.isArray(a.applies_to)?a.applies_to[0]:(a.applies_to&&a.applies_to!=="all"?a.applies_to:(pm.skill||""));
   const mech=(a.mechanic||"").toLowerCase();
   const kindOpt=k=>`<option value="${k}" ${ (a.kind||'passive')===k?'selected':''}>${k}</option>`;
-  d.innerHTML=`<input placeholder="ability name" value="${(a.name||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:120px">
-    <select title="passive: always on · active: invoked on a roll, pays cost · basis: the key that unlocks a gated skill" style="flex:0 0 78px">${["passive","active","basis"].map(kindOpt).join("")}</select>
-    <select title="HOW it bends the dice — auto infers from the effect text" style="flex:0 0 92px">${MECHS.map(([v,l])=>`<option value="${v}" ${mech===v?'selected':''}>${l.split(" — ")[0]||"auto"}</option>`).join("")}</select>
-    <input placeholder="applies to skill" title="the skill this ability bends (name or id) — needed for one-tap rolls and 'I use X' detection" value="${(applies||'').replace(/"/g,'&quot;')}" style="flex:0 0 118px">
-    <input type="number" title="magnitude — extra dice / bonus size" value="${amt}" style="flex:0 0 52px">
-    <input data-resource-cost placeholder="cost(s)" list="aes_resources" title="${attrEsc(resourceCostHelp("Optional active spend"))}" value="${attrEsc(costStr(a.cost))}" oninput="validateResourceContract()" style="flex:0 0 142px">
-    <input type="number" placeholder="cd" title="cooldown in turns (actives)" value="${a.cooldown_turns!=null?a.cooldown_turns:''}" style="flex:0 0 46px">
-    <input placeholder="effect (prose)" value="${(a.effect||'').replace(/"/g,'&quot;')}" style="flex:1;min-width:140px">
-    <input placeholder="category" title="optional group — e.g. Spells, Cyber-Ware, Disciplines" value="${(a.group||'').replace(/"/g,'&quot;')}" style="flex:0 0 90px" list="aes_cats">
-    <button class="mini x" onclick="removeDraftRow(this)">✕</button>`;
+  d.innerHTML=`<div class="row c3"><div><label>Ability name</label><input data-field="name" maxlength="60" placeholder="ability name" value="${attrEsc(a.name||'')}"></div>
+    <div><label>Kind</label><select data-field="kind" title="passive: always on · active: invoked on a roll, pays cost · basis: unlocks a gated skill">${["passive","active","basis"].map(kindOpt).join("")}</select></div>
+    <div><label>Mechanic</label><select data-field="mechanic" title="How it bends the dice — auto infers from effect text">${MECHS.map(([v,l])=>`<option value="${v}" ${mech===v?'selected':''}>${l.split(" — ")[0]||"auto"}</option>`).join("")}</select></div></div>
+    <div class="row c3"><div><label>Applies to skill</label><input data-field="applies_to" maxlength="80" title="Skill name or id used for one-tap rolls and use detection" value="${attrEsc(applies||'')}"></div>
+    <div><label>Magnitude</label><input data-field="magnitude" type="number" min="-20" max="20" title="extra dice or bonus size" value="${amt}"></div>
+    <div><label>Resource cost</label><input data-field="cost" data-resource-cost placeholder="cost(s)" list="aes_resources" title="${attrEsc(resourceCostHelp("Optional active spend"))}" value="${attrEsc(costStr(a.cost))}" oninput="validateResourceContract()"></div></div>
+    <div class="row c2"><div><label>Cooldown turns</label><input data-field="cooldown_turns" type="number" min="0" max="999" placeholder="0" value="${a.cooldown_turns!=null?a.cooldown_turns:''}"></div>
+    <div><label>Effect</label>${limitedControl(`<textarea data-field="effect" rows="2" maxlength="4000" data-limit="4000" placeholder="What happens when this ability matters">${esc(a.effect||'')}</textarea>`,4000)}</div></div>
+    <div class="row c2"><div><label>Category</label><input data-field="group" maxlength="24" placeholder="e.g. Spells" title="optional HUD group" value="${attrEsc(a.group||'')}" list="aes_cats"></div>
+    <div><label>Description</label>${limitedControl(`<textarea data-field="desc" rows="2" maxlength="4000" data-limit="4000" placeholder="What this ability is in the fiction">${esc(a.desc||'')}</textarea>`,4000)}</div></div>
+    <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove ability</button></div>`;
   try{ d.dataset.def = JSON.stringify(a); }catch(e){}   // full def survives the round-trip
-  host.appendChild(d);
+  host.appendChild(d); refreshLimitCounters(d); refreshListCount("c_cabil");
 }
 function readCustomAbils(){ return [...$("c_cabil").querySelectorAll(".item")].map(it=>{
-  const el=it.querySelectorAll("input,select");
+  const el=it.querySelectorAll("input,select,textarea");
   let base={}; try{ base=JSON.parse(it.dataset.def||"{}")||{}; }catch(e){}
   // the row inputs OWN these fields — the stash only contributes what the row can't show
   // (id/desc/requires_ability…), so clearing an input never resurrects a stale value
   ["mechanic","applies_to","magnitude","cost","cooldown_turns","passive_mod",
-   "resolution_mod","group","kind","effect","name"].forEach(k=>delete base[k]);
-  // 0 name · 1 kind · 2 mechanic · 3 applies-to · 4 magnitude · 5 cost · 6 cooldown · 7 effect · 8 group
+   "resolution_mod","group","kind","effect","desc","name"].forEach(k=>delete base[k]);
+  // 0 name · 1 kind · 2 mechanic · 3 applies-to · 4 magnitude · 5 cost · 6 cooldown · 7 effect · 8 group · 9 description
   const kind=el[1].value, mech=el[2].value, applies=el[3].value.trim(), amt=+el[4].value||0;
   const o=Object.assign({}, base, {name:el[0].value.trim(), kind, effect:el[7].value.trim()});
+  o.desc=String((el[9]||{}).value||"").trim();
   if(mech) o.mechanic=mech;
   if(applies) o.applies_to=applies;
   if(amt) o.magnitude=amt;
@@ -631,9 +770,9 @@ function refreshPoints(){ const spent=Object.entries(statVals).reduce((a,[k,v])=
 
 let skillRanks = {};
 // ---- genre packs (2026-07-06): the curated preset floor follows the WORLD's genre. A pack
-// hides fantasy-flavored registry entries (Spellcraft on a sci-fi sheet — regression test) and
+// hides fantasy-flavored registry entries (Spellcraft on a sci-fi sheet — live playtest) and
 // adds genre-true ones; picked pack entries are frozen into per-character defs at save.
-function currentGenre(){ return (WORLD_CACHE&&WORLD_CACHE.genre) || $("w_genre").value || "high_fantasy"; }
+function currentGenre(){ return $("w_genre").value || (WORLD_CACHE&&WORLD_CACHE.genre) || "high_fantasy"; }
 function activePack(){ return (REG.genre_packs||{})[currentGenre()] || null; }
 function presetSkills(){ const p=activePack(); if(!p) return REG.skills;
   const out={}; const hide=new Set(p.hide_skills||[]);
@@ -701,14 +840,12 @@ function worldDoc(){ const d = {
   date:$("w_date").value.trim(), time:$("w_time").value, tone:$("w_tone").value.trim(),
   factions:readLines("w_factions"), locations:readLines("w_locations"), npcs:readNpcs(),
   aspects:readLines("w_aspects"), opening_scene:$("w_scene").value.trim(), opening_quest:$("w_quest").value.trim(),
-  extras:readExtras("w_extras"), notes:$("w_notes").value.trim() };
-  // Phase 1/2 sections with no form rows yet (loot / fronts / routes) ride from the last
-  // authored/loaded doc — without this they silently VANISHED at save/card time and the
-  // living-world freeze never saw them (found live 2026-07-09).
+  extras:readExtras("w_extras"), loot:readLoot(), fronts:readFronts(), routes:readRoutes(),
+  notes:$("w_notes").value.trim() };
+  // Parent lineage is metadata rather than an editable structure. Generated fronts, loot, and
+  // routes are read from their visible controls above, so Player edits cannot be shadowed by cache.
   if(WORLD_CACHE){ if(/^world_[0-9a-f]{32}$/.test(WORLD_CACHE.parent_world_id||""))
-      d.parent_world_id=WORLD_CACHE.parent_world_id;
-    for(const k of ["loot","fronts","routes"]){ const v=WORLD_CACHE[k];
-    if(v && (Array.isArray(v)?v.length:Object.keys(v).length)) d[k]=v; } }
+      d.parent_world_id=WORLD_CACHE.parent_world_id; }
   return d; }
 function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks[k]>0) skills[k]=skillRanks[k]; }
   // Pack entries aren't registry rows: everything USED from the genre pack ships as a custom
@@ -746,9 +883,11 @@ function applyWorld(w){ if(!w) return; const genreBefore=currentGenre(); WORLD_C
   fillList("w_factions", w.factions); fillList("w_locations", w.locations); fillList("w_aspects", w.aspects);
   $("w_npcs").innerHTML=""; (w.npcs||[]).forEach(addNpc);
   $("w_scene").value=w.opening_scene||""; $("w_quest").value=w.opening_quest||"";
-  if(Array.isArray(w.extras)) fillExtras("w_extras", w.extras);
+  fillExtras("w_extras", Array.isArray(w.extras)?w.extras:[]);
+  fillFronts(w.fronts); fillLoot(w.loot); fillRoutes(w.routes);
+  refreshLimitCounters(document); refreshAllListCounts();
   scheduleDraft(); }
-function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); }
+function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); refreshListCount(hostId); }
 function applyPlayer(p){ if(!p) return;
   $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
   $("c_species").value=p.species||""; $("c_appearance").value=p.appearance||""; $("c_concept").value=p.concept||""; $("c_level").value=p.level||1;
@@ -769,25 +908,26 @@ function applyPlayer(p){ if(!p) return;
     addCustomSkill(Object.assign({id:sid},def,{_rank:+ranks[sid]||+ranks[rid]||0}));
   });
   if(p.defs&&p.defs.abilities) Object.values(p.defs.abilities).forEach(addCustomAbil);
-  if(Array.isArray(p.extras)) fillExtras("c_extras", p.extras);
+  fillExtras("c_extras", Array.isArray(p.extras)?p.extras:[]);
+  refreshLimitCounters(document); refreshAllListCounts();
   refreshSkillMods(); scheduleDraft(); }
 
 // ---- AI authoring (2026-07-06: an AI failure shows the reason and leaves the form
 // alone — templates are an explicit button now, never a silent substitute)
-async function authorWorld(){ const b=$("w_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take a minute)";
-  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode:"world", doc:worldDoc(), model:$("modelSel").value||undefined})});
-    if(r.source==="llm"){ applyWorld(r.doc); toast(`World authored by AI ✨ (${r.model||"auto"})`, "ok"); }
+async function authorWorld(){ const draft=worldDoc(); const b=$("w_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take several minutes)";
+  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode:"world", doc:draft, model:$("modelSel").value||undefined})});
+    if(r.source==="llm"){ applyWorld(Object.assign({},r.doc,{notes:draft.notes})); toast(`World authored by the main AI ✨ (${r.model||"auto"})`, "ok"); }
     else toast("AI fill failed: "+(r.detail||"unknown")+" — your form is untouched", "bad");
   }catch(e){ toast("Authoring failed: "+e.message, "bad"); }
   b.disabled=false; b.textContent="✨ Auto-fill blanks with AI"; }
-async function authorPlayer(){ const b=$("c_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take a minute)";
-  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode:"player", doc:playerDoc(), world:WORLD_CACHE||worldDoc(), model:$("modelSel").value||undefined})});
-    if(r.source==="llm"){ applyPlayer(r.doc); toast(`Character authored by AI ✨ (${r.model||"auto"})`, "ok"); }
+async function authorPlayer(){ const draft=playerDoc(); const b=$("c_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take several minutes)";
+  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode:"player", doc:draft, world:worldDoc(), model:$("modelSel").value||undefined})});
+    if(r.source==="llm"){ applyPlayer(Object.assign({},r.doc,{notes:draft.notes})); toast(`Character authored by the main AI ✨ (${r.model||"auto"})`, "ok"); }
     else toast("AI fill failed: "+(r.detail||"unknown")+" — your form is untouched", "bad");
   }catch(e){ if(e.creatorField) showCreatorValidation(e,"Authoring blocked: "); else toast("Authoring failed: "+e.message, "bad"); }
   b.disabled=false; b.textContent="✨ Auto-fill blanks with AI"; }
 async function fillOffline(mode){
-  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode, offline:1, doc:mode==="world"?worldDoc():playerDoc(), world:WORLD_CACHE||worldDoc()})});
+  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode, offline:1, doc:mode==="world"?worldDoc():playerDoc(), world:worldDoc()})});
     if(mode==="world") applyWorld(r.doc); else applyPlayer(r.doc);
     toast(mode==="world"?"Blanks filled from the genre template":"Blanks filled from registry defaults", "ok");
   }catch(e){ if(e.creatorField) showCreatorValidation(e,"Fill blocked: "); else toast("Fill failed: "+e.message, "bad"); } }
@@ -824,7 +964,15 @@ async function deletePreset(kind){
 
 // ---- session review (2026-07-06: SEE what the session actually has committed)
 function chipRow(label, arr){ return arr&&arr.length?`<div style="margin:6px 0"><span style="color:var(--dim);font-size:12px">${label}:</span> `+
-  arr.map(x=>`<span class="chip" style="background:var(--panel2);border:1px solid var(--edge);border-radius:7px;padding:2px 8px;font-size:12px;display:inline-block;margin:2px">${String(x).replace(/</g,"&lt;")}</span>`).join(" ")+`</div>`:""; }
+  arr.map(x=>`<span class="chip" style="background:var(--panel2);border:1px solid var(--edge);border-radius:7px;padding:2px 8px;font-size:12px;display:inline-block;margin:2px">${esc(x)}</span>`).join(" ")+`</div>`:""; }
+function reviewProse(label,text){ return text?`<div class="review-block"><h4>${esc(label)}</h4><div class="review-prose">${esc(text)}</div></div>`:""; }
+function reviewRows(label,rows){ rows=(rows||[]).filter(Boolean); if(!rows.length) return "";
+  return `<div class="review-block"><h4>${esc(label)}</h4>`+rows.map(row=>{
+    row=typeof row==="string"?{prose:row}:(row||{}); const title=row.title?`<b>${esc(row.title)}</b>`:"";
+    const meta=row.meta?` <span class="review-label">${esc(row.meta)}</span>`:"";
+    const prose=row.prose?`<div class="review-prose">${esc(row.prose)}</div>`:"";
+    return `<div class="review-row">${title}${meta}${prose}</div>`;
+  }).join("")+`</div>`; }
 async function renderReview(){
   const host=$("rv_body"); if(!SID){ host.textContent="No session selected — pick one in the header."; return; }
   host.textContent="Loading…";
@@ -834,22 +982,38 @@ async function renderReview(){
     const s=st.state||{};
     let h="";
     const w=pre.world;
-    if(w){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:4px 0 8px">🌍 World — ${(w.name||"(unnamed)").replace(/</g,"&lt;")}${w.genre?` <span style="color:var(--dim)">(${w.genre})</span>`:""}</h3>`;
-      if(w.setting) h+=`<p style="margin:4px 0;color:var(--fg)">${w.setting.replace(/</g,"&lt;")}</p>`;
-      if(w.date||w.time) h+=`<div style="color:var(--dim);font-size:12px">${[w.date,w.time].filter(Boolean).join(" · ")}</div>`;
-      h+=chipRow("factions", w.factions)+chipRow("locations", w.locations)
-        +chipRow("npcs", (w.npcs||[]).map(n=>n.name+(n.role?` — ${n.role}`:"")))
-        +chipRow("aspects", w.aspects);
-      if(w.opening_scene) h+=`<div style="margin:6px 0;font-size:12.5px"><span style="color:var(--dim)">opening scene:</span> ${w.opening_scene.replace(/</g,"&lt;")}</div>`;
-      if(w.opening_quest) h+=`<div style="margin:6px 0;font-size:12.5px"><span style="color:var(--dim)">opening quest:</span> ${w.opening_quest.replace(/</g,"&lt;")}</div>`;
+    if(w){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:4px 0 8px">🌍 World — ${esc(w.name||"(unnamed)")}${w.genre?` <span style="color:var(--dim)">(${esc(w.genre)})</span>`:""}</h3>`;
+      h+=chipRow("calendar",[w.date,w.time,w.tone].filter(Boolean));
+      h+=reviewProse("Setting",w.setting)+reviewRows("Factions",w.factions)+reviewRows("Locations",w.locations);
+      h+=reviewRows("Notable NPCs",(w.npcs||[]).map(n=>({title:n.name,meta:[n.role,n.home&&`home: ${n.home}`].filter(Boolean).join(" · "),prose:n.desc})));
+      h+=reviewRows("World aspects",w.aspects);
+      h+=reviewRows("Custom world lore",(w.extras||[]).map(x=>({title:x.label||"Note",prose:x.text})));
+      h+=reviewProse("Opening scene",w.opening_scene)+reviewProse("Opening quest",w.opening_quest);
+      h+=reviewRows("Faction fronts",(w.fronts||[]).map(f=>({title:f.name,
+        meta:[f.faction,`${f.segments||6} segments`, `pace ${f.pace||1}`,
+          f.event_duration_turns!=null?`${f.event_duration_turns} turn duration`:"persistent",
+          f.spawn_eligibility===true?"allows future faction spawns":(f.spawn_eligibility===false?"blocks future faction spawns":"eligibility unchanged")].filter(Boolean).join(" · "),
+        prose:f.consequence})));
+      const loot=[]; for(const [tier,rows] of Object.entries(w.loot||{})) for(const x of rows||[]) loot.push({title:x.name,
+        meta:`${tier} · qty ${x.qty_min??x.qty??1}-${x.qty_max??x.qty??1} · chance ${x.chance??1}`});
+      h+=reviewRows("Loot tables",loot);
+      h+=reviewRows("Travel routes",(w.routes||[]).map(r=>({title:`${r.a||r.from||"?"} ↔ ${r.b||r.to||"?"}`,meta:`${r.segments||1} travel segment${r.segments===1?"":"s"}`})));
     } else h+=`<div class="hint">No world seeded in this session yet.</div>`;
     const p=pre.player;
-    if(p){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:16px 0 8px">🧑 Player — ${(pre.player_name||"Player").replace(/</g,"&lt;")}${p.level?` · level ${p.level}`:""}${p.concept?` · ${String(p.concept).replace(/</g,"&lt;")}`:""}</h3>`;
+    if(p){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:16px 0 8px">🧑 Player — ${esc(pre.player_name||p.name||"Player")}${p.level?` · level ${esc(p.level)}`:""}${p.concept?` · ${esc(p.concept)}`:""}</h3>`;
+      h+=chipRow("identity",[p.sex,p.pronouns,p.species].filter(Boolean));
+      h+=reviewProse("Appearance",p.appearance);
       h+=chipRow("stats", Object.entries(p.stats||{}).map(([k,v])=>`${k} ${v}`));
       h+=chipRow("skills", Object.entries(p.skills||{}).filter(([,v])=>v>0).map(([k,v])=>`${k} r${v}`));
       h+=chipRow("abilities", p.abilities||[]);
       const defs=p.defs||{};
-      h+=chipRow("custom (frozen)", [...Object.values(defs.skills||{}),...Object.values(defs.abilities||{})].map(x=>x.name).filter(Boolean));
+      h+=reviewRows("Custom skills",Object.values(defs.skills||{}).map(x=>({title:x.name,
+        meta:[x.keyed_stat,x.max_rank&&`max rank ${x.max_rank}`,x.group,(x.governs||[]).length&&`governs: ${(x.governs||[]).join(", ")}`].filter(Boolean).join(" · "),prose:x.desc})));
+      h+=reviewRows("Custom abilities",Object.values(defs.abilities||{}).map(x=>({title:x.name,
+        meta:[x.kind,x.mechanic,x.applies_to&&`applies to ${Array.isArray(x.applies_to)?x.applies_to.join(", "):x.applies_to}`,x.group].filter(Boolean).join(" · "),
+        prose:[x.effect,x.desc].filter(Boolean).join("\n")})));
+      h+=reviewRows("Starting gear",(p.gear||[]).map(x=>typeof x==="string"?{title:x}:{title:x.name,meta:x.slot?`slot: ${x.slot}`:"auto slot",prose:x.effect||x.aura||x.prose}));
+      h+=reviewRows("Custom character lore",(p.extras||[]).map(x=>({title:x.label||"Note",prose:x.text})));
       const resources=p.resources||{}, hp=resources.hp||p.hp;
       if(hp&&hp.max) h+=`<div style="font-size:12.5px;color:var(--dim)">HP ${hp.current??hp.cur??hp.max}/${hp.max}</div>`;
       h+=chipRow("resources", Object.entries(resources).filter(([id])=>id!=="hp").map(([id,r])=>{
@@ -946,12 +1110,12 @@ async function switchRpg(){ try{ await api("/aether/specialization", {method:"PO
 function renderSpec(){ const c=$("specChip"); c.textContent="spec: "+SPEC; c.className="chip "+(SPEC==="rpg"?"rpg":"none");
   $("specBanner").style.display = SPEC==="rpg" ? "none" : "flex"; }
 
-// ---- model menu (detected server-side at the configured endpoints; fail-open)
+// ---- MAIN-model menu (assist/helper models are never Creator authoring targets)
 async function loadModels(){
   try{ const m = await api("/aether/creator/models");
     const ids=[...new Set((m.endpoints||[]).flatMap(e=>e.models||[]))];
     const sel=$("modelSel");
-    sel.innerHTML=`<option value="">model: auto</option>`+ids.map(i=>`<option value="${i.replace(/"/g,'&quot;')}">${i}</option>`).join("");
+    sel.innerHTML=`<option value="">main model: auto</option>`+ids.map(i=>`<option value="${i.replace(/"/g,'&quot;')}">${i}</option>`).join("");
     const saved=localStorage.getItem("aether_creator_model")||"";
     if(saved && ids.includes(saved)) sel.value=saved;
     sel.onchange=()=>localStorage.setItem("aether_creator_model", sel.value);
@@ -984,6 +1148,7 @@ async function boot(){
   }catch(e){} }                                          // claimed "off" while the proxy ran rpg)
   genreChanged(false);                       // refresh the hint without erasing restored draft ranks
   renderSpec();
+  refreshLimitCounters(document); refreshAllListCounts();
   wireDraftAutosave();
   $("sessRefresh").onclick=()=>{ loadSessions().then(()=>toast("Session list refreshed — your work is intact","ok")); };
   $("newDraft").onclick=clearCreatorDraft;

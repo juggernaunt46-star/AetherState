@@ -29,7 +29,7 @@ PLAYERLEX_MATCH_SCORE = 100
 
 _FINGERPRINT_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _ENTRY_ID_RE = re.compile(r"playerlex_([0-9a-f]{32})\Z")
-_LEX_IDS = frozenset({"capability", "referent", "scene", "action"})
+_LEX_IDS = frozenset({"capability", "referent", "scene", "action", "claim"})
 
 
 def _approval_source_id(candidate: Mapping[str, Any]) -> str | None:

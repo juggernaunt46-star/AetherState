@@ -1,4 +1,4 @@
-# Curated stats (the public contract / S1: six-stat default). Each keys the skills below.
+# Curated stats (doc 06 §3.2 / S1: six-stat default). Each keys the skills below.
 [STR]
 name = "Strength"
 default = 10

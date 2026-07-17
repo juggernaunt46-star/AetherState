@@ -1,4 +1,4 @@
-"""Compression items 2-5 (the mechanics contract, verified 2026-07-09).
+"""Compression items 2-5 (plan doc 13, ratified 2026-07-09).
 
 Item 2: [injection].briefing_style compact knob (+[KEY] legend on the contract; verbose
 default renders exactly as before). Item 3: fact lifecycle — near-restatement supersede,
@@ -31,12 +31,14 @@ def _session(cfg):
 def test_fact_near_restatement_supersedes():
     cfg = _rpg_cfg()
     store, sid, bid = _session(cfg)
-    apply_delta(store, sid, bid, 1, [{"op": "reveal_fact", "learner": "Bean",
+    apply_delta(store, sid, bid, 1, [{"op": "fact_admit",
                                       "statement": "The harbor gate is sealed at night",
-                                      "source": "witnessed"}], "user", cfg)
-    apply_delta(store, sid, bid, 2, [{"op": "reveal_fact", "learner": "Bean",
+                                      "cause": "creator:test:harbor-gate",
+                                      "authority": "creator"}], "user", cfg)
+    apply_delta(store, sid, bid, 2, [{"op": "fact_admit",
                                       "statement": "The harbor gate is sealed at night now",
-                                      "source": "witnessed"}], "user", cfg)
+                                      "cause": "creator:test:harbor-gate",
+                                      "authority": "creator"}], "user", cfg)
     st = current_state(store, bid)
     facts = st["facts"]
     assert len(facts) == 2
@@ -46,9 +48,10 @@ def test_fact_near_restatement_supersedes():
     assert retired[0]["statement"] == "The harbor gate is sealed at night"
     assert retired[0]["superseded_by"] in facts
     # DISTINCT facts about the same subject never auto-retire (precision over recall)
-    apply_delta(store, sid, bid, 3, [{"op": "reveal_fact", "learner": "Bean",
+    apply_delta(store, sid, bid, 3, [{"op": "fact_admit",
                                       "statement": "The harbor gate was built by dwarves",
-                                      "source": "told"}], "user", cfg)
+                                      "cause": "creator:test:harbor-gate",
+                                      "authority": "creator"}], "user", cfg)
     st = current_state(store, bid)
     assert sum(1 for f in st["facts"].values()
                if f.get("retired_turn") is None) == 2
@@ -57,9 +60,10 @@ def test_fact_near_restatement_supersedes():
 def test_fact_retire_op_and_authority():
     cfg = _rpg_cfg()
     store, sid, bid = _session(cfg)
-    apply_delta(store, sid, bid, 1, [{"op": "reveal_fact", "learner": "Bean",
+    apply_delta(store, sid, bid, 1, [{"op": "fact_admit",
                                       "statement": "Greta owes the Iron Pact money",
-                                      "source": "overheard"}], "user", cfg)
+                                      "cause": "creator:test:iron-pact-debt",
+                                      "authority": "creator"}], "user", cfg)
     r = apply_delta(store, sid, bid, 2, [{"op": "fact_retire",
                                           "statement": "Greta owes Iron Pact money"}],
                     "user", cfg)
@@ -74,9 +78,10 @@ def test_fact_retire_op_and_authority():
 def test_l10_premises_skip_retired_facts():
     cfg = _rpg_cfg()
     store, sid, bid = _session(cfg)
-    apply_delta(store, sid, bid, 1, [{"op": "reveal_fact", "learner": "Bean",
+    apply_delta(store, sid, bid, 1, [{"op": "fact_admit",
                                       "statement": "The bridge is out",
-                                      "source": "witnessed"}], "user", cfg)
+                                      "cause": "creator:test:bridge-state",
+                                      "authority": "creator"}], "user", cfg)
     apply_delta(store, sid, bid, 2, [{"op": "fact_retire",
                                       "statement": "The bridge is out"}], "user", cfg)
     prem = linter._ledger_premises(current_state(store, bid))

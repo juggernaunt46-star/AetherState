@@ -1,5 +1,5 @@
 """§F — large-scale battle: micro dice slice + macro battle in prose, waves-when-losing
-(the mechanics contract §F, Bean 2026-07-10).
+(plan doc 13 §F, Bean 2026-07-10).
 
 Covers: the battle ledger + ops (battle_start / tide_set / battle_wave / battle_end), the
 clamped one-step-per-turn tide, the code-owned momentum -> tide label, the battle referee
@@ -152,16 +152,16 @@ def test_battle_and_tide_tags_parse():
     store, sid, bid = _seeded(cfg)
     st = current_state(store, bid)
     ops = tier0.parse_battle_tags(
-        "It's a rout. [battle | Siege of Stonefield | Orc | elite]\n"
+        "It's a rout. [battle | Siege of Dunmoor | Orc | elite]\n"
         "[tide | losing | the west gate has fallen]", st)
     start = next(o for o in ops if o["op"] == "battle_start")
-    assert start["name"] == "Siege of Stonefield" and start["threat"] == "elite" \
+    assert start["name"] == "Siege of Dunmoor" and start["threat"] == "elite" \
         and start["foe"] == "Orc"
     assert {"op": "tide_set", "tide": "losing", "why": "the west gate has fallen"} in ops
 
 
 def test_valid_battle_tide_and_ally_channels_never_trigger_an_ignored_tag_nudge():
-    text = ("[battle | Siege of Stonefield | Orc | elite]\n"
+    text = ("[battle | Siege of Dunmoor | Orc | elite]\n"
             "[tide | losing | the west gate has fallen]\n"
             "[ally | Marshal Varo | elite | spear]")
 
@@ -173,9 +173,9 @@ def test_ooc_battle_commands():
     store, sid, bid = _seeded(cfg)
     st = current_state(store, bid)
     r1 = tier0.run({"messages": [{"role": "user",
-                                  "content": "((aether.battle Siege of Stonefield)) go"}]},
+                                  "content": "((aether.battle Siege of Dunmoor)) go"}]},
                    "new_turn", False, st, cfg)
-    assert {"op": "battle_start", "name": "Siege of Stonefield"} in r1.user_ops
+    assert {"op": "battle_start", "name": "Siege of Dunmoor"} in r1.user_ops
     r2 = tier0.run({"messages": [{"role": "user",
                                   "content": "((aether.battle tide winning)) yes"}]},
                    "new_turn", False, st, cfg)

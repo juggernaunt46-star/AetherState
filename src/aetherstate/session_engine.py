@@ -187,7 +187,7 @@ class SessionEngine:
         # chat reload / CHAT_CHANGED, so a stamped turn can fall BELOW the real head after a
         # page refresh. Trusting it verbatim landed the roll/ops on an early turn while the
         # [DIRECTIVE] rendered at the true head (meta.turn) -> the resolution silently vanished.
-        # 2026-07-10 (Arinvale): forward jumps are no longer honored either — the extension's
+        # 2026-07-10 (Eranmor): forward jumps are no longer honored either — the extension's
         # counter also ticks on continues / stopped generations that never reach the proxy,
         # which SKIPPED indices (live session recorded turns 1,3,4,5) and desynced every
         # turn-arithmetic surface (cooldown maturation, regen, mastery caps). Once a branch

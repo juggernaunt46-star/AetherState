@@ -1,9 +1,9 @@
-"""Curated stat / skill / ability registry + deterministic resolution (the public contract, 05 §5.2).
+"""Curated stat / skill / ability registry + deterministic resolution (doc 06 §3, 05 §5.2).
 
 The frozen-before-rolled core of RPG mode: stats, skills and abilities have EXPLICIT definitions
 (keyed stat, modifier, rank ceiling, bounded ability effects). Authoring is NOT banned — freestyle
 ideas are allowed and land as a FROZEN registry snapshot first (the Q27 assist-authored -> snapshot
-loop, the public contract; RPG-1 ships hand-authored TOML + reject-on-unknown, the loop lands later). At
+loop, doc 09 §1; RPG-1 ships hand-authored TOML + reject-on-unknown, the loop lands later). At
 *resolution* nothing is freestyle: the model may *reference* a registry id and *propose* a check;
 code maps the proposal to a REGISTERED skill or rejects it (unknown ids never mint a mechanic at
 roll time — Bean's constraint, as amended by the snapshot directive).
@@ -176,7 +176,7 @@ class Registry:
     stats: dict = field(default_factory=dict)
     skills: dict = field(default_factory=dict)
     abilities: dict = field(default_factory=dict)
-    items: dict = field(default_factory=dict)      # RPG-2: item TEMPLATES (the public contract)
+    items: dict = field(default_factory=dict)      # RPG-2: item TEMPLATES (doc 06 §3.5)
     effects: dict = field(default_factory=dict)    # RPG-3: Status/Condition PRESETS (effects.toml)
     loot: dict = field(default_factory=dict)       # Phase 1: tier -> loot rows (loot.toml) —
     #                                                the defeat-roll FLOOR; a Creator-frozen
@@ -186,7 +186,7 @@ class Registry:
     @property
     def slots(self) -> set:
         """Gear-slot vocabulary: the built-in default set + per-table meta.toml `extra_slots`
-        (the public contract O5). Membership is baked into item_equip at _enrich, never read at replay."""
+        (doc 07 O5). Membership is baked into item_equip at _enrich, never read at replay."""
         return GEAR_SLOTS | {str(s) for s in self.extra_slots}
 
     # -- lookups -----------------------------------------------------------------
@@ -199,7 +199,7 @@ class Registry:
             return v
         return math.floor((v - 10) / 2)           # dnd5e default
 
-    # -- per-character snapshot overlay (Q27 assist-authored -> snapshot, the public contract) -----
+    # -- per-character snapshot overlay (Q27 assist-authored -> snapshot, doc 09 §1) -----
     # A player may own FROZEN per-character definitions under player["defs"]["skills"|
     # "abilities"|"stats"] — a mastery-evolved variant or a freestyle-authored unique. These
     # WIN over the global registry for that id, and an id present ONLY here still resolves —
@@ -261,7 +261,7 @@ class Registry:
     def resolve_effect(self, token: str) -> Optional[str]:
         """id | display name -> effect PRESET id, or None (= open vocabulary, no preset).
         Unlike skills, an unknown effect is NOT rejected — RPG-3's floor/ceiling split
-        (the public contract): presets carry engine-side mechanics; open names still ground in the
+        (doc 05 §5.4): presets carry engine-side mechanics; open names still ground in the
         ledger, they just carry none."""
         t = str(token or "").strip().lower()
         if not t:
@@ -278,7 +278,7 @@ class Registry:
 
     def has_ability(self, player: Optional[dict], ability_id: str) -> bool:
         """Does THIS character know `ability_id`? The eligibility gate's basis test
-        (the public contract / RPG-3): checks the card's abilities list and the per-character frozen
+        (doc 10 / RPG-3): checks the card's abilities list and the per-character frozen
         defs, matching id or display name (snapshot-first, same as resolution)."""
         if not player:
             return False
@@ -311,8 +311,8 @@ class Registry:
         return total
 
     def effective_mod(self, player: dict, skill_id: str) -> int:
-        """stat_mod(keyed_stat) + base_mod + rank + passive-ability mods (the public contract)
-        + the mastery bracket bonus (RPG-5, the public contract — the curated evolution floor).
+        """stat_mod(keyed_stat) + base_mod + rank + passive-ability mods (doc 06 §2.2)
+        + the mastery bracket bonus (RPG-5, doc 10 §4 — the curated evolution floor).
         The skill definition is resolved snapshot-first (per-character freeze wins)."""
         s = self.skill_entry(skill_id, player)
         keyed = str(s.get("keyed_stat", "")).upper()
@@ -395,7 +395,7 @@ def load(cfg=None) -> Registry:
 
 def skill_cost(entry: dict) -> dict:
     """Normalized resource cost {resource: amount>0} from a skill/ability def (RPG-5,
-    the public contract). Costs are declared in the registry / frozen defs — never by the model
+    doc 10 §5.4). Costs are declared in the registry / frozen defs — never by the model
     mid-roll. Empty dict = free (worlds without pools play exactly as before)."""
     c = (entry or {}).get("cost")
     out: dict[str, int] = {}
@@ -411,7 +411,7 @@ def skill_cost(entry: dict) -> dict:
 
 
 def gear_skill_mod(state: dict, eid: str, skill_id: str) -> int:
-    """Sum of EQUIPPED-gear mods naming `skill_id` for `eid` (the public contract: gear mods are part
+    """Sum of EQUIPPED-gear mods naming `skill_id` for `eid` (doc 06 §2.2: gear mods are part
     of the effective check mod). Reads only the baked per-instance `mods_snapshot` — pure state,
     replay-safe, µs (editing a template never changes an already-minted item's contribution)."""
     total = 0

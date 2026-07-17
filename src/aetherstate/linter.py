@@ -255,23 +255,26 @@ def _l7_belief_leak(state, text, user_eids, advisory, v):
         return
     aware: dict[str, set] = {}
     for key, b in beliefs.items():
-        eid, _, fid = key.partition("|")
-        aware.setdefault(fid, set()).add(eid)
+        key_eid, _, key_identity = key.partition("|")
+        eid = str(b.get("holder") or key_eid)
+        identity = str(b.get("proposition_id") or key_identity)
+        aware.setdefault(identity, set()).add(eid)
         if b.get("teller"):
-            aware[fid].add(b["teller"])
+            aware[identity].add(str(b["teller"]))
     names = _char_names(state, set())
     speech = [(e, s, d) for e, s, d in _attributions(text, names) if e not in user_eids]
     if not speech:
         return
     for fid, f in facts.items():
-        if not f.get("is_secret"):
+        if not (f.get("is_secret") or f.get("visibility") == "hidden"):
             continue
+        identity = str(f.get("proposition_id") or fid)
         tokens = {w for w in re.findall(r"[a-z]{5,}", str(f.get("statement", "")).lower())
                   if w not in _STOP}
         if not tokens:
             continue
         for eid, snippet, dialogue in speech:
-            if eid in aware.get(fid, set()):
+            if eid in aware.get(identity, set()):
                 continue
             if tokens & set(re.findall(r"[a-z]{5,}", dialogue.lower())):
                 v.append(Violation("L7", "med", (eid, fid),
@@ -547,7 +550,7 @@ def _one_instance_one_place(state, v, *, heal=True):
                     lst.remove(x)
 
 
-# ============ RPG Phase 1: combatant_alive (the mechanics contract) — death comes from the ledger ======
+# ============ RPG Phase 1: combatant_alive (plan doc 13) — death comes from the ledger ======
 # The War Room's anti-fudging net: a combatant dies ONLY when code detects HP 0 (combatant_
 # defeat). Narration killing a combatant whose row is alive is a contradiction — same family
 # as outcome_match: conservative proximity binding, prose-facing, precision over recall.

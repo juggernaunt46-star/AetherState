@@ -371,7 +371,7 @@ def test_positive_observation_survives_without_attack_adjunct():
 
 
 def test_direction_or_place_never_becomes_a_foe():
-    """Briarhold/Irongate: an attack whose object is a direction/place mints NO foe, even with a
+    """Thornhale/Redgate: an attack whose object is a direction/place mints NO foe, even with a
     present NPC in the scene who is NOT the one attacked."""
     cfg = _rpg_cfg(True)
     res = _run("I strike toward the far corner with my blade", cfg, _combat_state(),

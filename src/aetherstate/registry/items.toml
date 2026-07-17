@@ -1,4 +1,4 @@
-# Curated item templates (the public contract) — the Template+Instance foundation of Gear/Inventory.
+# Curated item templates (doc 06 §3.5) — the Template+Instance foundation of Gear/Inventory.
 # Templates are IMMUTABLE reference data; play mints INSTANCES with unique ids, and the mint op
 # bakes the template's mods/slot/covers/on_consume into the instance (replay purity — editing
 # this file never rewrites a minted item). `worn` decides Gear vs Inventory: worn => a named

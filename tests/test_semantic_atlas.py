@@ -79,13 +79,14 @@ def test_catalog_pages_every_lex_qualified_concept_without_clipping(atlas: Seman
             break
 
     identities = [(row["lex_id"], row["concept_id"]) for row in concepts]
-    assert len(concepts) == 311
-    assert len(set(identities)) == 311
+    assert len(concepts) == 327
+    assert len(set(identities)) == 327
     assert {lex_id for lex_id, _concept_id in identities} == {
         "capability",
         "referent",
         "scene",
         "action",
+        "claim",
     }
 
 

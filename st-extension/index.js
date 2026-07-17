@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — combat-reference/composer build + narrating-lifecycle (2026-07-15)");
+  console.log("[AetherState] Companion loaded — combat-reference/composer build + world-overlay (2026-07-17)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -944,6 +944,17 @@
   let lastHudView = null;             // cache the last /hud payload so tab-switching never refetches
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const uniqueDisplayProse = (values) => {
+    const out = [], seen = new Set();
+    for (const raw of values || []) {
+      if (typeof raw !== "string") continue;
+      const text = raw.trim();
+      const key = text.replace(/\s+/g, " ").toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key); out.push(text);
+    }
+    return out;
+  };
 
   // ---- display-only ledger-tag hider (2026-07-07): the DM emits bracketed protocol tags
   // ([hp | ...], [scene | ...], and often invented ones) that the ENGINE parses from the raw
@@ -1169,6 +1180,24 @@
   }
   function sec(title, ic, html) { return `<div class="aes-sec"><div class="aes-sec-h"><span class="ic">${ic}</span>${esc(title)}</div>${html}</div>`; }
   function sechdr(t) { return `<div class="aes-sec-h" style="margin-top:8px">${esc(t)}</div>`; }
+  function signedWorldModifier(value) {
+    if (value == null || typeof value === "boolean" || String(value).trim() === "") return "";
+    const n = Number(value);
+    return Number.isFinite(n) ? `${n >= 0 ? "+" : ""}${n}` : "";
+  }
+  function worldEffectLine(label, value, cls = "") {
+    if (value == null || String(value).trim() === "") return "";
+    return `<div class="aes-world-effect${cls ? " " + cls : ""}"><b>${esc(label)}:</b> ${esc(value)}</div>`;
+  }
+  function capabilityAvailability(value) {
+    if (value === false) {
+      return `<div class="aes-world-effect unavailable"><b>Unavailable due to world change</b></div>`;
+    }
+    if (value === true) {
+      return `<div class="aes-world-effect available"><b>Available under current world conditions</b></div>`;
+    }
+    return "";
+  }
   // Tabbed HUD (2026-07-07): a persistent vitals strip + a tab bar so the whole tracked sheet
   // is organized, not dumped in one scroll. Char · Skills · Abilities · Gear (paper-doll) ·
   // Status · World. The player always sees vitals; the detail lives one tap away.
@@ -1362,7 +1391,7 @@
       if ((c.worn || []).length) r += `<div class="aes-kv"><span class="aes-dim">wearing</span> ${c.worn.map(esc).join(", ")}</div>`;
       if ((c.exposed || []).length) r += `<div class="aes-kv"><span class="aes-dim">exposed</span> ${c.exposed.map(esc).join(", ")}</div>`;
       if ((dr.goals || []).length) r += `<div class="aes-kv"><span class="aes-dim">goals</span> ${dr.goals.map(esc).join(" · ")}</div>`;
-      return r + `</div>`;
+      return r + worldEffectLine("World condition", c.world_condition, "actor") + `</div>`;
     }).join("");
     return sec("Cast", "👥", rows);
   }
@@ -1587,17 +1616,19 @@
         h += sechdr(solo ? "Skills \u2014 tap to roll" : g);
         h += `<div class="aes-rollbtns">${groups[g].map((s) => {
           const basisGated = s.gated && !s.basis_met;
+          const worldUnavailable = s.eligible === false;
           const cost = rollCostStatus(p, [s.cost]);
           const unaffordable = cost.has && !cost.affordable;
-          const blocked = basisGated || unaffordable;
+          const blocked = basisGated || worldUnavailable || unaffordable;
           const reasons = [];
           if (basisGated) {
             reasons.push("needs " + (s.basis_name || "a basis") + " \u2014 this would be a non-move");
           }
+          if (worldUnavailable) reasons.push("unavailable due to world change");
           if (cost.has) reasons.push(`costs ${cost.text}` + (unaffordable
             ? ` \u2014 cannot pay${cost.shortage ? " (have/need " + cost.shortage + ")" : ""}` : ""));
           if (!blocked) reasons.unshift("set draft check ((aether.check " + s.id + "))");
-          return `<button class="aes-rollbtn${blocked ? " gated" : ""}${unaffordable ? " unaffordable" : ""}"${rollGateAttrs(blocked)} title="${esc(reasons.join(" · "))}" onclick="window.aetherTryRoll(this,'${esc(s.id)}')">${esc(s.label)} <span class="m">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span>${rollCostHtml(cost)}${unaffordable ? `<span class="aes-cost-state">cannot pay</span>` : ""}</button>`;
+          return `<button class="aes-rollbtn${blocked ? " gated" : ""}${worldUnavailable ? " world-unavailable" : ""}${unaffordable ? " unaffordable" : ""}"${rollGateAttrs(blocked)} title="${esc(reasons.join(" · "))}" onclick="window.aetherTryRoll(this,'${esc(s.id)}')">${esc(s.label)} <span class="m">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span>${rollCostHtml(cost)}${worldUnavailable ? `<span class="aes-cost-state">unavailable due to world change</span>` : ""}${unaffordable ? `<span class="aes-cost-state">cannot pay</span>` : ""}</button>`;
         }).join("")}</div>`;
       }
     }
@@ -1609,8 +1640,9 @@
         const cost = rollCostStatus(p, [skill && skill.cost, a.cost]);
         const unaffordable = cost.has && !cost.affordable;
         const skillGated = !!(skill && skill.gated && !skill.basis_met);
+        const worldUnavailable = a.eligible === false || !!(skill && skill.eligible === false);
         if (a.applies_id) {
-          const blocked = !!a.on_cd || skillGated || unaffordable;
+          const blocked = !!a.on_cd || skillGated || worldUnavailable || unaffordable;
           const reasons = [];
           if (a.on_cd) {
             reasons.push(`${a.name} is recharging (${a.on_cd}t) — a roll now would go WITHOUT it`);
@@ -1618,18 +1650,19 @@
           if (skillGated) {
             reasons.push(`needs ${skill.basis_name || "a basis"} — this would be a non-move`);
           }
+          if (worldUnavailable) reasons.push("unavailable due to world change");
           if (cost.has) reasons.push(`total cost ${cost.text}` + (unaffordable
             ? ` — cannot pay${cost.shortage ? " (have/need " + cost.shortage + ")" : ""}` : ""));
           if (!blocked) reasons.unshift(`upgrade ${a.applies_id} draft with ${a.name}; total cost is shown once`);
-          return `<button class="aes-rollbtn act${blocked ? " gated" : ""}${unaffordable ? " unaffordable" : ""}"${rollGateAttrs(blocked)} title="${esc(reasons.join(" · "))}" onclick="window.aetherTryRoll(this,'${esc(a.applies_id)}','${esc(a.id)}')">\u2726 ${esc(a.name)} <span class="m">on ${esc(a.applies_to)}</span>${rollCostHtml(cost)}${unaffordable ? `<span class="aes-cost-state">cannot pay</span>` : ""}</button>`;
+          return `<button class="aes-rollbtn act${blocked ? " gated" : ""}${worldUnavailable ? " world-unavailable" : ""}${unaffordable ? " unaffordable" : ""}"${rollGateAttrs(blocked)} title="${esc(reasons.join(" · "))}" onclick="window.aetherTryRoll(this,'${esc(a.applies_id)}','${esc(a.id)}')">\u2726 ${esc(a.name)} <span class="m">on ${esc(a.applies_to)}</span>${rollCostHtml(cost)}${worldUnavailable ? `<span class="aes-cost-state">unavailable due to world change</span>` : ""}${unaffordable ? `<span class="aes-cost-state">cannot pay</span>` : ""}</button>`;
         }
-        return `<span class="aes-pill${unaffordable ? " bad" : ""}">\u2726 ${esc(a.name)} <span class="aes-tag">any check \u2014 type \u2018use ${esc(a.id)}\u2019</span>${rollCostHtml(cost)}${unaffordable ? `<span class="aes-cost-state">cannot pay</span>` : ""}</span>`;
+        return `<span class="aes-pill${worldUnavailable || unaffordable ? " bad" : ""}">\u2726 ${esc(a.name)} <span class="aes-tag">any check \u2014 type \u2018use ${esc(a.id)}\u2019</span>${rollCostHtml(cost)}${worldUnavailable ? `<span class="aes-cost-state">unavailable due to world change</span>` : ""}${unaffordable ? `<span class="aes-cost-state">cannot pay</span>` : ""}</span>`;
       }).join("")}</div>`;
     }
     const pass = abils.filter((a) => !a.active);
     if (pass.length) {
       h += sechdr("Passive abilities \u2014 always on");
-      h += `<div class="aes-rows">${pass.map((a) => `<span class="aes-pill">${esc(a.name)} <span class="aes-tag">${a.applies_to === "all checks" ? "all checks" : "on " + esc(a.applies_to)}</span></span>`).join("")}</div>`;
+      h += `<div class="aes-rows">${pass.map((a) => `<span class="aes-pill${a.eligible === false ? " bad" : ""}">${esc(a.name)} <span class="aes-tag">${a.applies_to === "all checks" ? "all checks" : "on " + esc(a.applies_to)}</span>${a.eligible === false ? `<span class="aes-cost-state">unavailable due to world change</span>` : ""}</span>`).join("")}</div>`;
     }
     h += sechdr("Custom roll");
     h += `<div class="aes-roll-custom"><input id="aes_roll_custom" type="text" spellcheck="false" placeholder="skill name or slug" value="${esc(rollDraft)}" oninput="window.aetherRollDraft(this)" onkeydown="if(event.key==='Enter'){event.preventDefault();window.aetherInsertCustom();}"><button class="aes-rollbtn" onclick="window.aetherInsertCustom()">Insert</button></div>`;
@@ -1650,7 +1683,9 @@
     return h || `<div class="aes-hud-empty">No character detail recorded yet.</div>`;
   }
   function skillRowHtml(s) {
-    return `<div class="aes-skill"><span class="aes-skl"><b>${esc(s.label)}</b> <span class="m big">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></span><span class="aes-skmeta">${s.keyed_stat ? esc(s.keyed_stat) : ""}${s.bracket ? " · " + esc(s.bracket) : ""}${s.mastery ? " · m" + esc(s.mastery) : ""}${s.cost ? " · costs " + esc(s.cost) : ""}${s.gated ? (s.basis_met ? ` · <span class="aes-tag ok">✦ ${esc(s.basis_name)}</span>` : ` · <span class="aes-tag bad">needs ${esc(s.basis_name || "a basis")}</span>`) : ""}</span></div>`;
+    const prose = uniqueDisplayProse([s.desc]);
+    const governs = Array.isArray(s.governs) ? uniqueDisplayProse(s.governs) : [];
+    return `<div class="aes-skill${s.eligible === false ? " unavailable" : ""}"><span class="aes-skl"><b>${esc(s.label)}</b> <span class="m big">${s.mod >= 0 ? "+" : ""}${esc(s.mod)}</span></span><span class="aes-skmeta">${s.keyed_stat ? esc(s.keyed_stat) : ""}${s.bracket ? " · " + esc(s.bracket) : ""}${s.mastery ? " · m" + esc(s.mastery) : ""}${s.cost ? " · costs " + esc(s.cost) : ""}${s.gated ? (s.basis_met ? ` · <span class="aes-tag ok">✦ ${esc(s.basis_name)}</span>` : ` · <span class="aes-tag bad">needs ${esc(s.basis_name || "a basis")}</span>`) : ""}</span>${prose.map((line) => `<div class="aes-abil-desc">${esc(line)}</div>`).join("")}${governs.length ? `<div class="aes-skmeta">Used for: ${governs.map(esc).join(", ")}</div>` : ""}${capabilityAvailability(s.eligible)}</div>`;
   }
   // group skills by their free-form category (Bean 2026-07-07): "Spells", "Cyber-Ware", etc.
   // Ungrouped skills fall under the default "Skills" heading.
@@ -1693,10 +1728,11 @@
   function renderAbility(a) {
     const badge = a.active ? `<span class="aes-tag act">ACTIVE</span>` : `<span class="aes-tag">passive</span>`;
     const bits = [];
+    const prose = uniqueDisplayProse([a.effect, a.desc]);
     bits.push(a.applies_to && a.applies_to !== "all checks" ? "on " + esc(a.applies_to) : "any check");
     if (a.cost) bits.push("costs " + esc(a.cost));
     if (a.cooldown) bits.push(a.on_cd ? `recharging ${esc(a.on_cd)}t` : `cooldown ${esc(a.cooldown)}t`);
-    return `<div class="aes-abil ${a.active ? "act" : ""} ${a.on_cd ? "cd" : ""}"><div class="aes-abil-h"><b>${esc(a.name)}</b> ${badge}</div>${a.mechanic_label ? `<div class="aes-abil-mech">${esc(a.mechanic_label)}</div>` : ""}${bits.length ? `<div class="aes-abil-meta">${bits.join(" · ")}</div>` : ""}${a.desc ? `<div class="aes-abil-desc">${esc(a.desc)}</div>` : ""}</div>`;
+    return `<div class="aes-abil ${a.active ? "act" : ""} ${a.on_cd ? "cd" : ""}${a.eligible === false ? " unavailable" : ""}"><div class="aes-abil-h"><b>${esc(a.name)}</b> ${badge}</div>${a.mechanic_label ? `<div class="aes-abil-mech">${esc(a.mechanic_label)}</div>` : ""}${bits.length ? `<div class="aes-abil-meta">${bits.join(" · ")}</div>` : ""}${prose.map((line) => `<div class="aes-abil-desc">${esc(line)}</div>`).join("")}${capabilityAvailability(a.eligible)}</div>`;
   }
   // a sensible free slot for stowed gear (2026-07-09): its native slot when free, else the
   // first empty of a type-appropriate preference list — so every stowed piece has an equip
@@ -1714,7 +1750,7 @@
   function stowedRows(p, hdr) {
     const stow = p.stowed_gear || [];
     if (!stow.length) return "";
-    return sechdr(hdr) + stow.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => { const sl = freeSlotFor(p, i); return `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "\u00d7 " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: sl }], "wear/wield \u2192 " + sl, "mini")}</span>`; }).join(" ")}</div>`).join("");
+    return sechdr(hdr) + stow.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => { const sl = freeSlotFor(p, i); return `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "\u00d7 " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${i.aura ? `<span class="aes-aura">✦ ${esc(i.aura)}</span>` : ""}${actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: sl }], "wear/wield \u2192 " + sl, "mini")}</span>`; }).join(" ")}</div>`).join("");
   }
   function tabGear(v, p) {
     // Gear = weapons, armor, tools, accessories, bags. Equipped on the paper-doll; the rest
@@ -1759,6 +1795,118 @@
     else h += `<div class="aes-kv" style="opacity:.55">none active — you're unharmed and unafflicted</div>`;
     return h;
   }
+  function knowledgeRows(knowledge, key) {
+    const rows = knowledge && Array.isArray(knowledge[key]) ? knowledge[key] : [];
+    return rows.filter((row) => row && typeof row === "object" && !Array.isArray(row));
+  }
+  function knowledgeTone(value, kind) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (kind === "stance") {
+      if (["knows", "knowledge", "certain"].includes(normalized)) return "known";
+      if (["doubts", "doubt", "disbelieves"].includes(normalized)) return "doubt";
+      if (["rumor", "rumour", "hearsay"].includes(normalized)) return "rumor";
+      return "belief";
+    }
+    if (["active", "accepted", "current", "admission"].includes(normalized)) return "current";
+    if (["scheduled", "scheduled_terminal"].includes(normalized)) return "scheduled";
+    return "history";
+  }
+  function knowledgeStatusLabel(value) {
+    const status = String(value || "").trim();
+    const normalized = status.toLowerCase();
+    if (["expiry", "expired", "expired_by_duration"].includes(normalized)) return "expired";
+    if (["reversal", "reversed"].includes(normalized)) return "reversed";
+    if (["supersession", "superseded"].includes(normalized)) return "superseded";
+    if (normalized === "scheduled_terminal") return "scheduled history";
+    if (normalized === "winning_terminal") return "history record";
+    if (normalized === "terminal_conflict_lost") return "history conflict";
+    return status || "history";
+  }
+  function renderKnowledge(v) {
+    const knowledge = v && v.knowledge && typeof v.knowledge === "object"
+      ? v.knowledge : {};
+    const claims = knowledgeRows(knowledge, "claims");
+    const epistemics = knowledgeRows(knowledge, "epistemics");
+    const facts = knowledgeRows(knowledge, "facts");
+    const events = knowledgeRows(knowledge, "events");
+    if (!claims.length && !epistemics.length && !facts.length && !events.length) return "";
+
+    const groups = [];
+    if (claims.length) groups.push(`<div class="aes-knowledge-group claims">
+      <div class="aes-knowledge-h">What was said</div>
+      <div class="aes-knowledge-note">A claim records speech or attribution. It is not automatically true.</div>
+      ${claims.map((claim) => {
+        const speaker = claim.speaker || claim.source || "unknown source";
+        const addressee = claim.addressee ? ` to <b>${esc(claim.addressee)}</b>` : "";
+        const claimClass = claim.class || claim.claim_class || "said";
+        const proposition = claim.proposition || claim.statement || claim.proposition_id || "proposition not available";
+        const polarity = claim.polarity || claim.proposition_polarity || "polarity not specified";
+        const modality = claim.modality || "modality not specified";
+        return `<div class="aes-knowledge-row claim"><div><b>${esc(speaker)}</b>${addressee} <span class="aes-knowledge-kind">${esc(claimClass)}</span></div><div class="aes-knowledge-statement">${esc(proposition)}</div><div class="aes-knowledge-meta">${esc(polarity)} · ${esc(modality)}</div></div>`;
+      }).join("")}
+    </div>`);
+
+    if (epistemics.length) groups.push(`<div class="aes-knowledge-group epistemics">
+      <div class="aes-knowledge-h">Who knows, believes, doubts, or treats it as rumor</div>
+      ${epistemics.map((record) => {
+        const stance = record.stance || "believes";
+        const statement = record.statement || record.proposition_id || "proposition not available";
+        const source = record.source ? `<div class="aes-knowledge-meta">evidence: ${esc(record.source)}</div>` : "";
+        return `<div class="aes-knowledge-row epistemic"><div><b>${esc(record.holder || "unknown actor")}</b> <span class="aes-knowledge-stance ${knowledgeTone(stance, "stance")}">${esc(stance)}</span></div><div class="aes-knowledge-statement">${esc(statement)}</div>${source}</div>`;
+      }).join("")}
+    </div>`);
+
+    if (facts.length) groups.push(`<div class="aes-knowledge-group facts">
+      <div class="aes-knowledge-h">Accepted facts</div>
+      ${facts.map((fact) => {
+        const status = fact.status || "accepted";
+        const statement = fact.statement || fact.proposition_id || "fact not available";
+        const meta = [fact.authority ? `authority: ${esc(fact.authority)}` : "", fact.cause ? `cause: ${esc(fact.cause)}` : ""].filter(Boolean).join(" · ");
+        return `<div class="aes-knowledge-row fact"><div><span class="aes-knowledge-status ${knowledgeTone(status, "status")}">${esc(knowledgeStatusLabel(status))}</span></div><div class="aes-knowledge-statement">${esc(statement)}</div>${meta ? `<div class="aes-knowledge-meta">${meta}</div>` : ""}</div>`;
+      }).join("")}
+    </div>`);
+
+    if (events.length) groups.push(`<div class="aes-knowledge-group events">
+      <div class="aes-knowledge-h">Admitted world events and history</div>
+      ${events.map((event) => {
+        const status = event.status || "history";
+        const statement = event.what_happened || event.statement || event.id || "event not available";
+        const cause = event.cause_visible === true && event.cause
+          ? String(event.cause) : "cause not known";
+        const domains = Array.isArray(event.affected_domains)
+          ? event.affected_domains.filter((domain) => typeof domain === "string" || typeof domain === "number")
+          : [];
+        const affected = domains.length ? domains.map(esc).join(", ") : "history only";
+        const relation = event.relation_target ? ` · relates to ${esc(event.relation_target)}` : "";
+        return `<div class="aes-knowledge-row event"><div><span class="aes-knowledge-status ${knowledgeTone(status, "status")}">${esc(knowledgeStatusLabel(status))}</span></div><div class="aes-knowledge-statement">${esc(statement)}</div><div class="aes-knowledge-meta">why: ${esc(cause)} · affected: ${affected}${relation}</div></div>`;
+      }).join("")}
+    </div>`);
+
+    return sec("Claims & Events", "\u25c8", `<div class="aes-knowledge">${groups.join("")}</div>`);
+  }
+  function renderQuest(q) {
+    const worldUnavailable = q.available === false;
+    const availability = worldUnavailable
+      ? `<div class="aes-world-effect unavailable"><b>Unavailable due to world change</b></div>`
+      : (q.available === true
+        ? `<div class="aes-world-effect available"><b>Available under current world conditions</b></div>`
+        : "");
+    const outcome = q.status !== "active"
+      ? " — " + esc(String(q.status || "inactive").toUpperCase())
+      : (q.note ? " — " + esc(q.note) : "");
+    return `<div class="aes-quest${q.status !== "active" ? " done" : ""}${worldUnavailable ? " unavailable" : ""}"><b>${esc(q.name)}</b>${q.stakes ? " (" + esc(q.stakes) + ")" : ""}${outcome}${availability}</div>`;
+  }
+  function renderSocialEntry(row, faction = false) {
+    const modifier = signedWorldModifier(row.reputation_modifier);
+    const circumstance = faction
+      ? worldEffectLine("World circumstance", row.world_circumstance, "faction") : "";
+    return `<div class="aes-social${faction ? " faction" : ""}"><div>${faction ? "⚑ " : ""}<b>${esc(row.name)}</b>${row.tier ? ` <span class="m">${esc(row.tier)}</span>` : ""}</div>${modifier ? worldEffectLine("Reputation modifier", modifier, "reputation") : ""}${circumstance}</div>`;
+  }
+  function renderRelationship(row) {
+    const dims = Array.isArray(row.dims) ? row.dims : [];
+    const modifier = signedWorldModifier(row.world_modifier);
+    return `<div class="aes-relationship"><div class="aes-kv"><b>${esc(row.a)} → ${esc(row.b)}</b> ${dims.map((d) => `<span class="aes-dim">${esc(d.dim)} ${d.val >= 0 ? "+" : ""}${esc(d.val)}</span>`).join(" ")}</div>${modifier ? worldEffectLine("World modifier", modifier, "relationship") : ""}</div>`;
+  }
   function tabWorld(v, p) {
     const parts = [], s = v.scene || {};
     const sceneBits = [];
@@ -1767,12 +1915,16 @@
     if (tod) sceneBits.push("🕓 " + esc(tod));
     if (s.phase) sceneBits.push("phase " + esc(s.phase));
     if ((s.present || []).length) sceneBits.push("👥 " + s.present.map(esc).join(", "));
-    if (sceneBits.length) parts.push(sec("Scene", "🗺", `<div class="aes-kv">${sceneBits.join(" · ")}</div>`));
+    const sceneOverlay = worldEffectLine("World circumstance", s.world_circumstance, "world") +
+      worldEffectLine("Location circumstance", s.location_circumstance, "location");
+    if (sceneBits.length || sceneOverlay) parts.push(sec("Scene", "🗺", `${sceneBits.length ? `<div class="aes-kv">${sceneBits.join(" · ")}</div>` : ""}${sceneOverlay}`));
+    const knowledge = renderKnowledge(v);
+    if (knowledge) parts.push(knowledge);
     if ((v.cast || []).length) parts.push(renderCast(v.cast));
-    if ((v.quests || []).length) parts.push(sec("Quests", "🎯", v.quests.map((q) => `<div class="aes-quest ${q.status !== "active" ? "done" : ""}"><b>${esc(q.name)}</b>${q.stakes ? " (" + esc(q.stakes) + ")" : ""}${q.status !== "active" ? " — " + esc(q.status.toUpperCase()) : (q.note ? " — " + esc(q.note) : "")}</div>`).join("")));
-    const rel = [...(v.relations || []).map((r) => `<span class="aes-pill">${esc(r.name)} <span class="m">${esc(r.tier)}</span></span>`), ...(v.factions || []).map((f) => `<span class="aes-pill">⚑ ${esc(f.name)} <span class="m">${esc(f.tier)}</span></span>`)];
+    if ((v.quests || []).length) parts.push(sec("Quests", "🎯", v.quests.map(renderQuest).join("")));
+    const rel = [...(v.relations || []).map((r) => renderSocialEntry(r)), ...(v.factions || []).map((f) => renderSocialEntry(f, true))];
     if (rel.length) parts.push(sec("Relations & Factions", "♥", `<div class="aes-rows">${rel.join("")}</div>`));
-    if ((v.relationships || []).length) parts.push(sec("Relationships", "🔗", v.relationships.map((r) => `<div class="aes-kv"><b>${esc(r.a)} → ${esc(r.b)}</b> ${r.dims.map((d) => `<span class="aes-dim">${esc(d.dim)} ${d.val >= 0 ? "+" : ""}${esc(d.val)}</span>`).join(" ")}</div>`).join("")));
+    if ((v.relationships || []).length) parts.push(sec("Relationships", "🔗", v.relationships.map(renderRelationship).join("")));
     if (Object.keys(v.world_flags || {}).length) parts.push(sec("World", "🌍", `<div class="aes-rows">${Object.entries(v.world_flags).map(([k, val]) => `<span class="aes-pill">${esc(k)}=${esc(String(val))}</span>`).join("")}</div>`));
     if ((v.fronts || []).length) parts.push(sec("Agendas", "⏳", v.fronts.map((f) => {
       const segs = Math.max(1, f.segments | 0), fill = Math.min(segs, f.filled | 0);

@@ -264,7 +264,7 @@ def test_seed_survives_the_png_roundtrip():
 def test_seed_payload_trims_pathological_sizes_but_keeps_fidelity():
     big = dict(_WORLD, setting="x" * 99999, aspects=["a" * 9000] * 200)
     seed = narrator.seed_payload(big, None)
-    assert len(seed["world"]["setting"]) <= 4000            # capped, not reshaped
+    assert len(seed["world"]["setting"]) <= 8000            # capped, not reshaped
     assert len(seed["world"]["aspects"]) <= 48
     assert seed["world"]["name"] == "Gallowmere"            # small fields untouched
 
@@ -281,6 +281,58 @@ async def test_session_free_card_build_from_form(client):
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
     assert _extract_chara(png)["data"]["extensions"]["aetherstate"]["seed"]["world"]["name"] \
         == "Gallowmere"
+
+
+async def test_session_free_card_normalizes_full_docs_and_never_embeds_directions(client):
+    setting = (
+        "Claimfall Harbor preserves exact testimony while keeping reports distinct from truth. "
+        * 80
+        + "The complete world setting ends at this sentinel."
+    )
+    appearance = (
+        "Kael wears a rain-dark civic coat and a brass witness seal without magical authority. "
+        * 35
+        + "His complete appearance ends at this sentinel."
+    )
+    assert 4000 < len(setting) < 8000
+    assert 2500 < len(appearance) < 4000
+    world_direction = "PRIVATE WORLD DIRECTION MUST NOT ENTER THE CARD."
+    player_direction = "PRIVATE CHARACTER DIRECTION MUST NOT ENTER THE CARD."
+
+    response = await client.post("/aether/narrator-card", json={
+        "world": {
+            "name": "Longform Claimfall",
+            "genre": "dark_fantasy",
+            "setting": setting,
+            "notes": world_direction,
+        },
+        "player": {
+            "name": "Kael",
+            "concept": "civic witness",
+            "appearance": appearance,
+            "extras": [{
+                "label": "Method",
+                "text": "He labels statements, beliefs, doubts, rumors, and accepted facts.",
+            }],
+            "notes": player_direction,
+        },
+    })
+
+    assert response.status_code == 200
+    png = base64.b64decode(response.json()["png_b64"])
+    card = _extract_chara(png)
+    seed = card["data"]["extensions"]["aetherstate"]["seed"]
+    assert seed["world"]["setting"] == setting
+    assert seed["player"]["appearance"] == appearance
+    assert seed["player"]["extras"] == [{
+        "label": "Method",
+        "text": "He labels statements, beliefs, doubts, rumors, and accepted facts.",
+    }]
+    serialized = json.dumps(card, ensure_ascii=False)
+    assert world_direction not in serialized
+    assert player_direction not in serialized
+    assert "notes" not in seed["world"]
+    assert "notes" not in seed["player"]
 
 
 async def test_seed_route_is_idempotent_and_non_clobbering(client):

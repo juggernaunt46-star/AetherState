@@ -19,7 +19,7 @@ def _mk():
 def test_presence_and_move_never_mint_a_place_or_skill():
     cfg, store, sid, bid = _mk()
     apply_delta(store, sid, bid, 1,
-                [{"op": "presence", "entity": "Arinvale", "present": True}], "extraction", cfg)
+                [{"op": "presence", "entity": "Eranmor", "present": True}], "extraction", cfg)
     apply_delta(store, sid, bid, 1,
                 [{"op": "move_entity", "entity": "Stormcall", "to_location": "tower"}],
                 "extraction", cfg)
@@ -64,7 +64,7 @@ def test_user_source_presence_move_never_auto_create():
     # presence/move must be refer-only there too — dropped, not minted.
     cfg, store, sid, bid = _mk()
     r = apply_delta(store, sid, bid, 1, [
-        {"op": "presence", "entity": "Arinvale", "present": True},
+        {"op": "presence", "entity": "Éranmor", "present": True},
         {"op": "move_entity", "entity": "Stormcall", "to_location": "tower"},
     ], "user", cfg)
     assert r.applied == [], "a place/skill was auto-created via a user-source scene op"

@@ -120,7 +120,7 @@ def observe_text(store, cfg, session_id: str, branch_id: str, turn: int, text: s
     return created
 
 
-# ---- RPG-4: persistent procedural generation for PLACES (the public contract) -----------------
+# ---- RPG-4: persistent procedural generation for PLACES (doc 05 §9) -----------------
 # The narrator invents a place once; the engine persists it once; every revisit — under
 # any name variant — resolves to the same row (state.canonical_location). Never regenerated.
 _LOC_PREPS = {"at", "in", "into", "inside", "near", "toward", "towards", "beneath",

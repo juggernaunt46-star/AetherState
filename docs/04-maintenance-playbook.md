@@ -190,7 +190,7 @@ proxy runs deterministically in-process.
 | `test_p6_cadence.py` | cadence/debounce/batching |
 | `test_l3_sessions.py`, `test_l3_accuracy.py`, `test_session_flow.py` | L3 identity accuracy |
 | `test_capability_glossary.py` | sealed translation, frozen-definition compiler, provenance, tamper rejection, and deterministic rebuild |
-| `test_semantic_atlas.py` | complete 311-meaning catalog, Lex-qualified collisions, deterministic search/paging, exact lookup, seal revalidation, and cursor binding |
+| `test_semantic_atlas.py` | complete 327-meaning catalog, Lex-qualified collisions, deterministic search/paging, exact lookup, seal revalidation, and cursor binding |
 | `test_playerlex.py` | explicit all-Lex local approval/provenance, names/aliases/patterns, exact spans, stale refusal, v1 migration, exact storage objects, correction/removal, reopen, API, and Console controls |
 | `test_playerlex_live_recognition.py` | exact-source live fan-in, typed ambiguity/collisions, prose-free receipt, retry isolation, base-path retention, and no direct mechanics/world authority |
 | `test_player_lessons*.py` | both closed lesson lifecycles, exact schemas, narration/intent field and anchor rules, informed Console consent, local record-only intent prose, exact-anchor-only safe action/target interpretation with actor refusal, separate fresh/frozen receipt paths, replay/fork/current-revision duplicate isolation, truth-gate inertness, bounded narrator transfer without prompt prewarm, header-only delivery evidence, immutable application evidence, authority denial, and secure removal/provider-limit wording |

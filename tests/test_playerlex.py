@@ -17,6 +17,7 @@ from aetherstate.playerlex import (
     PlayerLexNotFoundError,
     PlayerLexRetryableRemovalError,
     PlayerLexValidationError,
+    _SCHEMA_STATEMENTS,
     _V1_ROW_COLUMNS,
     _V1_SCHEMA_STATEMENTS,
     _folded_text_with_source_spans,
@@ -287,8 +288,8 @@ def test_catalog_search_paging_alias_genre_and_exact_lookup(atlas: SemanticAtlas
             cursor = page["next_cursor"]
             if cursor is None:
                 break
-        assert len(concepts) == 311
-        assert len({(row["lex_id"], row["concept_id"]) for row in concepts}) == 311
+        assert len(concepts) == 327
+        assert len({(row["lex_id"], row["concept_id"]) for row in concepts}) == 327
 
         alias = service.list_concepts("restore machine", lex_id="capability", limit=10)["concepts"]
         genre = service.list_concepts("fireball blast", lex_id="capability", limit=10)["concepts"]
@@ -1357,6 +1358,93 @@ def test_exact_v1_schema_migrates_entries_corruption_and_tombstones(
         connection.close()
 
 
+def test_exact_v2_four_lex_schema_migrates_to_claimlex_and_preserves_rows_tokens_and_tombstones(
+    atlas: SemanticAtlas,
+):
+    source = sqlite3.connect(":memory:", check_same_thread=False)
+    source.row_factory = sqlite3.Row
+    try:
+        source_service = PlayerLex(source, atlas)
+        approved = source_service.approve(
+            kind="alias",
+            surface="Four Lex Approval",
+            lex_id="capability",
+            concept_id="skill.stealth",
+        )
+        removed = source_service.approve(
+            kind="alias",
+            surface="Four Lex Retired",
+            lex_id="capability",
+            concept_id="skill.investigation",
+        )
+        approved_row = source.execute(
+            "SELECT * FROM playerlex_entries WHERE entry_id=?",
+            (approved["entry_id"],),
+        ).fetchone()
+        columns = tuple(item[1] for item in source.execute("PRAGMA table_info(playerlex_entries)"))
+        approved_values = tuple(approved_row[column] for column in columns)
+        removed_token = source.execute(
+            "SELECT storage_token FROM playerlex_entries WHERE entry_id=?",
+            (removed["entry_id"],),
+        ).fetchone()[0]
+        assert source_service.remove(removed["entry_id"])
+        assert source.execute(
+            "SELECT 1 FROM playerlex_retired_storage_tokens WHERE storage_token=?",
+            (removed_token,),
+        ).fetchone() is not None
+    finally:
+        source.close()
+
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+    try:
+        previous_schema = _SCHEMA_STATEMENTS[0].replace(
+            "'capability', 'referent', 'scene', 'action', 'claim'",
+            "'capability', 'referent', 'scene', 'action'",
+        )
+        for statement in (previous_schema, *_SCHEMA_STATEMENTS[1:]):
+            connection.execute(statement)
+        placeholders = ", ".join("?" for _ in columns)
+        connection.execute(
+            f"INSERT INTO playerlex_entries ({', '.join(columns)}) VALUES ({placeholders})",
+            approved_values,
+        )
+        connection.execute(
+            "INSERT INTO playerlex_retired_storage_tokens(storage_token) VALUES(?)",
+            (removed_token,),
+        )
+        connection.commit()
+
+        migrated = PlayerLex(connection, atlas)
+        entry = next(
+            item for item in migrated.list_entries() if item["entry_id"] == approved["entry_id"]
+        )
+        assert entry["surface"] == "Four Lex Approval"
+        assert entry["lex_id"] == "capability"
+        assert connection.execute(
+            "SELECT storage_token FROM playerlex_entries WHERE entry_id=?",
+            (approved["entry_id"],),
+        ).fetchone()[0] == approved_row["storage_token"]
+        assert connection.execute(
+            "SELECT 1 FROM playerlex_retired_storage_tokens WHERE storage_token=?",
+            (removed_token,),
+        ).fetchone() is not None
+
+        claim = atlas.search(lex_id="claim", limit=1)["concepts"][0]
+        claim_entry = migrated.approve(
+            kind="alias",
+            surface="ClaimLex Approval",
+            lex_id="claim",
+            concept_id=claim["concept_id"],
+        )
+        assert claim_entry["lex_id"] == "claim"
+        assert "'claim'" in connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='playerlex_entries'"
+        ).fetchone()[0]
+    finally:
+        connection.close()
+
+
 def test_exact_v1_schema_migrates_rows_with_default_tuple_row_factory(
     glossary: CapabilityGlossary,
 ):
@@ -1717,7 +1805,9 @@ def test_console_exposes_playerlex_approval_correction_removal_and_proposal_cont
     assert "expected_meaning_fingerprint" in html
     assert "expected_approval_revision" in html
     assert "expected_corrupt_version" in html
-    assert 'if(t!=="PlayerLex")await load()' in html
+    assert 'const PRIVILEGED_STATE_TABS=new Set(["Overview","Edit"])' in html
+    assert 'if(t==="Player Lessons"||t==="PlayerLex"){S=null;J=null' in html
+    assert "await load(PRIVILEGED_STATE_TABS.has(t))" in html
     assert "encodeURIComponent(PL_EDIT)" in html
     assert "encodeURIComponent(id)" in html
     assert "playerLexSearchQueue" in html

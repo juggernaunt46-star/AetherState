@@ -1,4 +1,4 @@
-"""RPG-5: the recording gaps (regression test 2026-07-06 G1-G8) + the doc-10 progression capstone.
+"""RPG-5: the recording gaps (playtest 2026-07-06 G1-G8) + the doc-10 progression capstone.
 
 Covers: the R10 world-tag protocol (scene/item/quest/affinity/hp), the organic item
 channel (template floor, mechanics-free ceiling, stack-not-dupe), the quest ledger
@@ -382,7 +382,7 @@ def test_defeat_robbed_drops_carried_items():
     assert r.applied
 
 
-# ------------------------------ 2026-07-07 regression test fix pack ----------------------
+# ------------------------------ 2026-07-07 live playtest fix pack ----------------------
 def test_quest_near_dupe_merges_and_updates_resolve():
     cfg = _rpg_cfg()
     store, sid, bid = _seeded(cfg)

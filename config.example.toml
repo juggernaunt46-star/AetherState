@@ -55,7 +55,16 @@ prewarm = false        # true = at chat-open, quietly re-send the chat's last pr
                        # "system_merge" breaks the cache prefix every turn.
 
 # ------------------------------------------------------------------
-# HELPER model — the one that TRACKS state in the background.
+# CREATOR — cold-path world and character auto-fill through the MAIN model.
+# Creator auto-fill always uses the configured MAIN endpoint, never the helper model.
+# Incomplete output is rejected instead of being repaired into a half-written draft.
+[creator]
+max_tokens = 32768       # world + character auto-fill output budget (old 9000 cut replies)
+timeout_s = 600          # cold-path only; complete large worlds may take several minutes
+validation_retries = 1   # retry one empty, truncated, invalid, or incomplete response
+
+# ------------------------------------------------------------------
+# HELPER model — tracks state in the background and is never used for Creator auto-fill.
 # Can be the same service as above, or a small local model (Llama 3.1 8B is plenty).
 [[assist.endpoints]]
 name = "helper"
@@ -125,7 +134,7 @@ nli_threshold = 0.85  # L10: minimum contradiction confidence (0.0-1.0) before a
 # ------------------------------------------------------------------
 # SESSION / turn engine. These rarely need tuning; the one user-facing knob:
 # [session]
-# reserve_lost_turns = true    # 1.15.0 (Arinvale): if a turn's reply is lost upstream (the
+# reserve_lost_turns = true    # 1.15.0 (Eranmor): if a turn's reply is lost upstream (the
 #                              # generation returns empty) and you re-send the SAME message, the
 #                              # engine RE-SERVES the roll it already settled instead of rolling a
 #                              # fresh one — no double dice, no double clock/cost/cooldown. The
@@ -190,7 +199,7 @@ name = "none"         # none | rpg
 #                           # code-owned momentum is the tide, and fresh WAVES press the War
 #                           # Room until it turns. The [BATTLE] line + a HUD chip surface it.
 #                           # Off = no [battle]/[tide]/waves. (needs war_room)
-# foe_floor = true          # 1.15.0 (Arinvale floor): the Player ATTACKING a target the DM's
+# foe_floor = true          # 1.15.0 (Eranmor floor): the Player ATTACKING a target the DM's
 #                           # own last reply narrated (but never tagged [foe]) stages it as an
 #                           # enemy combatant and opens combat — the engine no longer needs the
 #                           # DM to remember the [foe] tag for a fight to start. Body parts and

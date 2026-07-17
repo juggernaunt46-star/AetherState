@@ -1,4 +1,4 @@
-# AetherState RPG registry — loot tables (Phase 1 combat / War Room, the mechanics contract).
+# AetherState RPG registry — loot tables (Phase 1 combat / War Room, plan doc 13).
 # The FLOOR for the deterministic defeat-time loot roll: one table per threat tier.
 # A Creator/assist-frozen state["loot"] table (loot_table op) WINS over these rows at
 # combatant_spawn bake time; a user override dir (<data_dir>/registry/loot.toml) merges

@@ -1,4 +1,4 @@
-"""Phase 0b — notables gate + anti-main-character + L11 (the mechanics contract, verified 2026-07-09).
+"""Phase 0b — notables gate + anti-main-character + L11 (plan doc 13, ratified 2026-07-09).
 
 Covers: home anchors (creator -> frozen set_attribute), the R5 arrival gate (assistant-text
 basis only — player speculation stages no one), [NEARBY] rendering (anchor matches the scene;

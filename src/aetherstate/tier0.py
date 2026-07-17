@@ -226,7 +226,7 @@ def _parse_check(rest: str, res: Tier0Result, *, source_offset: Optional[int] = 
                 continue
             except ValueError:
                 pass
-        if tk == "scope" and i + 1 < len(toks):        # RPG-3: scope-gated power (the public contract)
+        if tk == "scope" and i + 1 < len(toks):        # RPG-3: scope-gated power (doc 10)
             scope = toks[i + 1].lower()
             i += 2
             continue
@@ -4043,9 +4043,9 @@ def _find_active_ability(reg, player: dict, ref: str):
     return None, None
 
 
-# ---- Phase 1 (the mechanics contract): the player's strike — code-derived damage ------------------
+# ---- Phase 1 (plan doc 13): the player's strike — code-derived damage ------------------
 _STRIKE_FACTOR = {"crit_success": 3, "success": 2, "partial": 1}   # x weapon magnitude
-# 2026-07-10 (Briarhold live, ROOT CAUSE of the recurring "phantom combat" bug): the old
+# 2026-07-10 (Thornhale live, ROOT CAUSE of the recurring "phantom combat" bug): the old
 # `\b(stab|cast|bash|…)\w*\b` matched ORDINARY WORDS — "stab"->"STABLE", "cast"->"CASTLE"/"casting",
 # "bash"->"bashful", "cut"->"cutlery" — so walking to a stable fired the combat FLOOR, a phantom
 # foe was staged, and its [WAR]/[OPPOSITION]/[DIRECTIVE] wrecked a peaceful scene (the LLM then
@@ -4348,7 +4348,7 @@ def _attack_token_is_abstract_payload(text: str, start: int, end: int) -> bool:
 
 # the foe is usually the object of a TARGETING preposition ("stab into <foe>", "cut at <foe>") —
 # those objects are tried before a bare attack-verb object, which can lead with a direction or
-# the Player's own weapon (2026-07-10 Irongate: "lunge FROM the pines and stab MY SHORTSWORD…").
+# the Player's own weapon (2026-07-10 Redgate: "lunge FROM the pines and stab MY SHORTSWORD…").
 _TARGET_PREP_RE = re.compile(r"\b(?:at|into|onto|upon|through|toward|towards)\s+", re.IGNORECASE)
 
 
@@ -5230,7 +5230,7 @@ def _bind_targets(res: Tier0Result, state: dict, text: str, entity_aware: bool =
         c["target"] = hit
 
 
-# 2026-07-10 (Arinvale): the DM emitted "[TAGS] scene_active | ..." / "[AWAIT]" lines —
+# 2026-07-10 (Eranmor): the DM emitted "[TAGS] scene_active | ..." / "[AWAIT]" lines —
 # invented grammar the engine silently ignored, and nothing ever corrected it. Bracket
 # lines whose head is neither a real channel nor an engine-block echo are collected so the
 # NEXT prompt carries a one-line protocol corrective (compose renders it; self-clearing).
@@ -5272,7 +5272,7 @@ def _scan_off_protocol(text: str) -> list[str]:
     return seen[:4]
 
 
-# 2026-07-10 (Arinvale floor, pillar 6): the DM narrated a horde for three straight replies
+# 2026-07-10 (Eranmor floor, pillar 6): the DM narrated a horde for three straight replies
 # and never emitted [foe] — combat.active stayed false and the whole War Room was
 # structurally unreachable. When the Player ATTACKS a target whose name the DM's OWN last
 # reply narrated (the fiction is the in-world basis, exactly the parse_foe_tags argument),
@@ -5284,7 +5284,7 @@ _FLOOR_STOP = {"the", "and", "that", "this", "with", "from", "into", "onto", "th
                # clause boundaries are grammar, not nouns ("slash its neck BEFORE it pounces")
                "before", "after", "until", "while", "when", "once", "unless", "although",
                "because", "if", "whether", "whereas",
-               # directions / adverbs are never a foe (Briarhold: "slip OUT" staged foe 'Out')
+               # directions / adverbs are never a foe (Thornhale: "slip OUT" staged foe 'Out')
                "out", "off", "up", "down", "back", "away", "aside", "here", "there", "around",
                "inside", "outside", "past", "forward", "onward", "toward", "towards", "over",
                "under", "behind", "ahead", "left", "right", "then", "again", "still", "just"}
@@ -5293,7 +5293,7 @@ _BODY_PARTS = {"head", "face", "neck", "throat", "chest", "arm", "arms", "leg", 
                "shoulders", "knee", "knees", "foot", "feet", "skull", "heart", "gut",
                "belly", "waist", "hip", "hips", "wrist", "ankle", "jaw", "chin", "brow",
                "temple", "ribs", "spine", "flank", "wing", "tail", "maw", "mouth"}
-# 2026-07-10 (Irongate live): "stab my SHORTSWORD into the nearest cutthroat" staged the weapon
+# 2026-07-10 (Redgate live): "stab my SHORTSWORD into the nearest cutthroat" staged the weapon
 # as a foe — the object of an attack verb often leads with the Player's own weapon/gear. Generic
 # held-item words (plus the Player's actual owned gear tokens) are skipped BEFORE the target run.
 _HELD_WORDS = {"sword", "shortsword", "longsword", "greatsword", "blade", "knife", "dagger",
@@ -5334,7 +5334,7 @@ def _attack_object_spans(user_text: str) -> list:
 def _present_cast(state: dict, peid) -> list:
     """Present, non-player character/npc entities: (eid, name, name-token set). The grounded
     cast a strike can land on — a target should be a REAL on-scene person, never a token run off
-    the prose (Briarhold: 'Out'/'Pines'/'Shortsword' were a direction, a place, a weapon)."""
+    the prose (Thornhale: 'Out'/'Pines'/'Shortsword' were a direction, a place, a weapon)."""
     out = []
     for eid, e in (state.get("entities") or {}).items():
         if not isinstance(e, dict) or eid == peid:
@@ -5488,7 +5488,7 @@ def _floor_stage_foe(res: Tier0Result, state: dict, user_text: str,
         for it in (state.get("items") or {}).values():   # the Player's actual owned item words
             if isinstance(it, dict) and it.get("owner") == peid:
                 held |= {w for w in _norm_phrase(str(it.get("name", ""))).split() if len(w) >= 3}
-    for e in (state.get("entities") or {}).values():  # a LOCATION is never a foe (Irongate live:
+    for e in (state.get("entities") or {}).values():  # a LOCATION is never a foe (Redgate live:
         if isinstance(e, dict) and e.get("kind") == "location":   # "lunge from the pines")
             held |= {w for w in _norm_phrase(str(e.get("name", ""))).split() if len(w) >= 3}
     dm_low = " " + _norm_phrase(dm_text) + " "
@@ -5583,13 +5583,13 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
     GATE, roll real dice, compute the PbtA tier, and emit a `check` rule op (with the
     effective mod / dice / naturals / scope arithmetic baked for audit + replay).
     Deterministic arithmetic — hot-path-legal (invariant 2). Unknown skills are REJECTED
-    with a visible notice (nothing freestyle — the public contract).
+    with a visible notice (nothing freestyle — doc 05 §5.2).
 
-    The gate (RPG-3, the public contract): a skill whose definition carries `requires_ability` has NO
+    The gate (RPG-3, doc 10): a skill whose definition carries `requires_ability` has NO
     in-world basis until the character owns that ability — declaring it is a NON-MOVE
     (notice, no op, no roll), never a failed roll. Freedom is routed, not blocked: earn
     the ability in-world (ability_grant) and the same declaration becomes a real check.
-    Scope (the public contract): `scope minor|standard|major|epic|mythic` scales the attempt against
+    Scope (doc 10): `scope minor|standard|major|epic|mythic` scales the attempt against
     MASTERY (= skill rank): each scope step past the rank costs -2 AND lowers the tier
     ceiling one step (floor: partial). A thin skill may attempt something enormous — the
     roll is punishing and the ceiling low; deep mastery makes it plausible."""
@@ -5607,7 +5607,7 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
         registered_sid = reg.resolve_skill(c["skill"], player)
         if registered_sid is None:
             res.notices.append(f"unknown skill '{c['skill']}': add it to the registry "
-                               "(nothing freestyle; the public contract section 5.2)")
+                               "(nothing freestyle; doc 05 section 5.2)")
             continue
         if c.get("_semantic_abstain"):
             # Construction safety and capability ownership are independent diagnostics.  An
@@ -5638,7 +5638,7 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
         sid = registered_sid   # snapshot-first: a freestyle/evolved skill resolves too
         if sid is None:
             res.notices.append(f"unknown skill '{c['skill']}': add it to the registry "
-                               f"(nothing freestyle — the public contract)")
+                               f"(nothing freestyle — doc 05 §5.2)")
             continue
         entry = reg.skill_entry(sid, player)
         need = str(entry.get("requires_ability") or "").strip()
@@ -5646,14 +5646,14 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
             label = reg.skill_label(sid, player)
             aname = str((reg.merged_abilities(player).get(need) or {}).get("name", need))
             res.notices.append(f"no in-world basis: {label} requires {aname} — not a roll. "
-                               f"You cannot declare power; acquire it in-world first (the public contract)")
+                               f"You cannot declare power; acquire it in-world first (doc 10)")
             continue
         pd = registry.parse_dice(dice)
         if pd is None:
             res.notices.append(f"bad dice spec: {dice}")
             continue
         n_keep, sides, flat = pd
-        cost = registry.skill_cost(entry)       # RPG-5 (the public contract): the resource gate —
+        cost = registry.skill_cost(entry)       # RPG-5 (doc 10 §5.4): the resource gate —
         provisional: dict[str, int] = {}        # reserve the FULL skill cost before any active
         skill_held, short = _reserve_cost(
             player,
@@ -5688,7 +5688,7 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
                 shaped.append(str(adef.get("name", aid)))
                 applied_passive_ids.append(str(aid))
         surge_mod, surge_lift, use_mod, onfail, pay_ability, cd_set = 0, 0, 0, None, {}, {}
-        blocked: list[dict] = []                    # 2026-07-10 (Arinvale): a DECLARED active
+        blocked: list[dict] = []                    # 2026-07-10 (Eranmor): a DECLARED active
         #                                             that didn't ride is baked onto the op so
         #                                             the [DIRECTIVE] tells the narrator "plain
         #                                             attempt, not the technique" (and the HUD
@@ -5767,7 +5767,7 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
         cap = None
         over = 0
         scope = c.get("scope")
-        if scope is not None:                       # RPG-3: scope-gated power (the public contract)
+        if scope is not None:                       # RPG-3: scope-gated power (doc 10)
             srank = _SCOPE_RANK.get(scope)
             if srank is None:
                 res.notices.append(f"unknown scope '{scope}' (minor|standard|major|epic|"
@@ -5827,12 +5827,12 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
                 cd_set[oaid] = now + int(oadef["cooldown_turns"])
             shaped.append(fired)
             executed_active_ids.append(str(oaid))
-        if over >= 3:                               # RPG-5 (the public contract): reaching THAT far past
+        if over >= 3:                               # RPG-5 (doc 10 §8): reaching THAT far past
             forced = "crit_fail" if over >= 4 else "fail"   # mastery fails outright — surge
             if registry.CHECK_TIERS.index(tier) > registry.CHECK_TIERS.index(forced):
                 tier = forced                       # can't beat the wall; deep mastery can
             res.notices.append(f"scope '{scope}' is far beyond {sid} mastery — "
-                               f"the attempt fails outright (the public contract)")   # "Alter Reality" rule
+                               f"the attempt fails outright (doc 10 §8)")   # "Alter Reality" rule
 
         op = {"op": "check", "skill": sid, "result": total, "tier": tier,
               "_mod": eff, "_declared_mod": int(c["mod"]),
@@ -5906,7 +5906,7 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
         # explicitly targeted utility check from becoming a strike.
         floor_hit = bool(pending_foe and tgt and tgt == pending_foe.get("cid"))
         if tgt and (_war_room(state, cfg) or floor_hit):   # code-derived damage — outcome
-            from .state import resolve_combatant       # tier x weapon magnitude (verified)
+            from .state import resolve_combatant       # tier x weapon magnitude (ratified)
             if floor_hit:
                 cid, fname, is_enemy = pending_foe["cid"], pending_foe["name"], True
             else:
@@ -5934,7 +5934,7 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
         res.rule_ops.append(op)
         if strike is not None:
             res.rule_ops.append(strike)
-        if player_eid:                              # RPG-5 (the public contract): use grows mastery —
+        if player_eid:                              # RPG-5 (doc 10 §4): use grows mastery —
             amt = MASTERY_TICKS.get(tier, 0)        # code-side, scene-capped in the reducer
             if amt:
                 mastery = {"op": "master_tick", "char": player_eid,
@@ -5942,7 +5942,7 @@ def _resolve_checks(res: Tier0Result, state: dict, cfg, rng: random.Random,
                 if semantic_ref:
                     mastery["_semantic_frame_ref"] = semantic_ref
                 res.rule_ops.append(mastery)
-            if tier == "crit_fail":                 # RPG-5 (the public contract/§8): a crit-fail leaves
+            if tier == "crit_fail":                 # RPG-5 (doc 10 §5/§8): a crit-fail leaves
                 consequence = {                     # a mark; overreach bites back harder
                     "op": "effect_add", "char": player_eid,
                     "effect": "Backlash" if over else "Strained", "kind": "status"}
@@ -6391,7 +6391,7 @@ _CONCEAL = {"invisible", "invisibility", "hidden", "cloaked", "unseen", "conceal
 _GRAND = re.compile(
     r"\b(ritual|reality[- ]?warp\w*|unmake\w*|unwrite\w*|erase\w*|obliterate\w*|annihilate\w*|"
     r"disintegrate\w*|apocalyp\w*|cataclysm\w*|godlike|unbeing|banish\w*)\b", re.IGNORECASE)
-STEALTH_KILL_XP = 40                    # curated (the public contract XP scale); a named/tracked target +20
+STEALTH_KILL_XP = 40                    # curated (doc 10 XP scale); a named/tracked target +20
 GRAND_KILL_XP = 60
 
 
@@ -6445,12 +6445,18 @@ def _kill_intent(res: Tier0Result, state: dict, cfg, user_text: str,
 
     def _kill_ops(reason: str, xp: int) -> None:
         bonus = 20 if tent.get("kind") == "npc" or tent.get("role") else 0
+        statement = f"{pname} killed {tname} ({reason})"
+        cause_occurrence_ref = "sha256:" + hashlib.sha256(
+            f"tier0-kill\0{peid}\0{tid}\0{reason}".encode("utf-8")
+        ).hexdigest()
         ops = [
             {"op": "effect_add", "char": tid, "effect": "Slain", "kind": "condition",
              "valence": "negative"},
             {"op": "presence", "entity": tid, "present": False},
             {"op": "award_exp", "char": peid, "amount": int(xp) + bonus, "reason": reason},
-            {"op": "reveal_fact", "statement": f"{pname} killed {tname} ({reason})"},
+            {"op": "fact_admit", "statement": statement,
+             "cause": f"tier0-kill:{semantic_ref or cause_occurrence_ref}:{reason}",
+             "authority": "rule"},
         ]
         if semantic_ref:
             for op in ops:
@@ -6494,7 +6500,7 @@ def _kill_intent(res: Tier0Result, state: dict, cfg, user_text: str,
         f"fight, or wield something world-ending.")
 
 
-# ---- R9: the effect tag protocol (RPG-3, the public contract) --------------------------------
+# ---- R9: the effect tag protocol (RPG-3, doc 05 §5.4) --------------------------------
 # The channel AI-Roguelite never had: the narrating model marks a Status/Condition change
 # inline and the ENGINE commits it to the ledger. Tags are proposals (extraction-source
 # authority: clamped, quarantined visibly); the prose itself is never the truth.
@@ -6549,11 +6555,11 @@ def _parse_effect_tags(text: str, state: dict) -> list[dict]:
     return ops
 
 
-# ---- R10: the world tag protocol (RPG-5, regression test 2026-07-06 G1-G5) -------------------
+# ---- R10: the world tag protocol (RPG-5, playtest 2026-07-06 G1-G5) -------------------
 # The R9 spine extended to the rest of the ledger: the narrating model marks scene moves,
 # item acquisitions/losses, quest beats, standing shifts, and harm inline; the ENGINE
 # commits them (extraction-source authority: clamped, quarantined visibly). This is the
-# recording floor the sci-fi regression test proved missing — 27 turns where the [SCENE] block
+# recording floor the sci-fi playtest proved missing — 27 turns where the [SCENE] block
 # lied, items lived only in prose, and quest tags parsed to nothing.
 _SCENE_TAG_RE = re.compile(
     r"\[\s*scene\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]",
@@ -6570,12 +6576,13 @@ _AFFINITY_TAG_RE = re.compile(
 _HP_TAG_RE = re.compile(
     r"\[\s*hp\s*\|\s*([^|\[\]]+?)\s*\|\s*([+-]?\d+)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]",
     re.IGNORECASE)
-# Phase 1 (the mechanics contract): the DM's combat channels. [foe] introduces an unnamed EXTRA (or
+# Phase 1 (plan doc 13): the DM's combat channels. [foe] introduces an unnamed EXTRA (or
 # stages a known NPC) as a combatant — parsed separately (parse_foe_tags) because spawning
 # is PRIVILEGED: the pipeline validates it and re-sources it as a rule-owned operation.
 # [clash] records an NPC-vs-NPC fight: prose resolves it, the LEDGER remembers it (no dice).
 _FOE_TAG_RE = re.compile(
-    r"\[\s*foe\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]",
+    r"\[\s*foe\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?"
+    r"(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]",
     re.IGNORECASE)
 _FOE_COHORT_RE = re.compile(
     r"^(?P<name>.+?)\s+[x×](?P<count>\d+)\s*$", re.IGNORECASE)
@@ -6597,7 +6604,7 @@ _TIDE_TAG_RE = re.compile(
 _CLASH_TAG_RE = re.compile(
     r"\[\s*clash\s*\|\s*([^|\[\]]+?)\s+vs\.?\s+([^|\[\]]+?)\s*"
     r"(?:\|\s*([^|\[\]]+?)\s*)?(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
-# Phase 2 (the mechanics contract): the living-world channels. [time] is the DM's clock ceiling —
+# Phase 2 (plan doc 13): the living-world channels. [time] is the DM's clock ceiling —
 # a named segment or +N, CLAMPED to at most two segments at parse (the engine owns pace);
 # [rumor] surfaces a hidden faction front (reveal only — advancement stays code-side).
 _TIME_TAG_RE = re.compile(
@@ -6769,8 +6776,9 @@ def _parse_world_tags(text: str, state: dict) -> list[dict]:
 
 def parse_foe_tags(text: str, state: dict) -> list[dict]:
     """Phase 1: the DM's combat-spawn tags in a settled reply -> combatant_spawn ops.
-    `[foe | <name> | <tier?> | <armament?>]` stages the ENEMY side; `[ally | <name> |
-    <tier?> | <armament?>]` (2026-07-10, Bean: "3v3 is missing") brings a present COMPANION
+    `[foe | <name> | <tier?> | <armament?> | faction:<known faction>?]` stages the ENEMY
+    side; `[ally | <name> | <tier?> | <armament?>]` (2026-07-10, Bean: "3v3 is missing")
+    brings a present COMPANION
     onto the player's side — the symmetric channel the DM never had. Spawning is PRIVILEGED,
     so these are NOT extraction proposals — the caller (pipeline) applies them source='rule'
     after this validation: the narrator supplied an in-world combatant record, while the ENGINE
@@ -6796,11 +6804,32 @@ def parse_foe_tags(text: str, state: dict) -> list[dict]:
                          .get(live) or {}).get("side") == side:
                 continue                         # DM re-tagged a LIVE combatant -> no twin (2026-07-11)
             op: dict = {"op": "combatant_spawn", "name": name, "side": side}
-            for seg in (m.group(2), m.group(3)):
+            explicit_faction = None
+            invalid_faction = False
+            segments = [m.group(2), m.group(3)]
+            if side == "enemy":
+                segments.append(m.group(4))
+            for index, seg in enumerate(segments):
                 if not seg:
                     continue
                 seg = seg.strip()
-                if seg.lower() in THREAT_TIERS:
+                faction_match = re.fullmatch(r"faction\s*:\s*(.+)", seg, re.IGNORECASE)
+                if faction_match and side == "enemy":
+                    if index != 2:
+                        invalid_faction = True
+                        continue
+                    faction_ref = faction_match.group(1).strip()
+                    faction_id = resolve_entity_ref(state, faction_ref)
+                    faction_row = (state.get("entities") or {}).get(faction_id or "")
+                    if explicit_faction is not None or not faction_ref \
+                            or not isinstance(faction_row, dict) \
+                            or faction_row.get("kind") != "faction":
+                        invalid_faction = True
+                    else:
+                        explicit_faction = faction_id
+                elif side == "enemy" and index == 2:
+                    invalid_faction = True
+                elif seg.lower() in THREAT_TIERS:
                     op["tier"] = seg.lower()
                 elif len(seg) <= 60:
                     op["armament"] = re.sub(r"^(?:uses|wields|carries|armed with)\s+", "", seg,
@@ -6809,6 +6838,20 @@ def parse_foe_tags(text: str, state: dict) -> list[dict]:
             if eid and (state.get("entities", {}).get(eid) or {}).get("kind") \
                     in ("character", "npc"):
                 op["char"] = eid                 # a KNOWN cast member fights as themselves
+                if side == "enemy":
+                    stored_faction = ((state.get("attributes") or {}).get(eid) or {}).get("faction")
+                    stored_faction_id = resolve_entity_ref(state, stored_faction) \
+                        if stored_faction else None
+                    if stored_faction_id and ((state.get("entities") or {}).get(
+                            stored_faction_id) or {}).get("kind") == "faction":
+                        if explicit_faction is not None \
+                                and explicit_faction != stored_faction_id:
+                            invalid_faction = True
+                        explicit_faction = stored_faction_id
+            if invalid_faction:
+                continue
+            if explicit_faction is not None:
+                op["faction"] = explicit_faction
             ops.append(op)
             n += 1
             if n >= 3:                           # the 3v3 cap starts at the parser (per side)
@@ -6883,6 +6926,11 @@ def parse_combat_tags(text: str, state: dict, *, allow_large_battle: bool = True
         return [*ordinary, *tides]
 
     tag, count_match = counted[0]
+    if tag.group(4) or any(
+        re.fullmatch(r"faction\s*:\s*.+", (segment or "").strip(), re.IGNORECASE)
+        for segment in (tag.group(2), tag.group(3))
+    ):
+        return [*ordinary, *tides]  # faction is not versioned into queued cohort waves
     base_name = count_match.group("name").strip()
     try:
         total = int(count_match.group("count"))
@@ -7367,11 +7415,14 @@ def run(
         semantic_frame = attack_frames[0] if attack_frames else _primary_action_frame(
             res.semantic_turn
         )
-        if semantic_frames and meaning is not None:
+        claim_frames = list(res.semantic_turn.claim_frames if res.semantic_turn else ())
+        if (semantic_frames or claim_frames) and meaning is not None:
             res.rule_ops.append({
                 "op": "semantic_meaning_commit",
                 "meaning": meaning.receipt_dict(),
             })
+        for claim_frame in claim_frames:
+            res.rule_ops.append({"op": "claim_record", "frame": claim_frame})
         for frame in semantic_frames:
             binding = semantic_bindings.get(frame.frame_id)
             if binding is not None:
@@ -7480,7 +7531,7 @@ def run(
                     and semantic_frame is None:
                 sp = _floor_stage_foe(res, state, action_user, last_assistant,
                                       entity_aware=entity_aware)
-                if sp is not None:               # Arinvale floor: the attacked, DM-narrated
+                if sp is not None:               # Eranmor floor: the attacked, DM-narrated
                     res.rule_ops.append(sp)      # target opens the War Room itself —
                     band = _floor_group_extras(state, last_assistant, sp)   # the whole named
                     res.rule_ops.extend(band)    # band, not just the one struck (Bean 2026-07-10)
@@ -7591,12 +7642,12 @@ def run(
                 res.notices.append(
                     "Brace was declared, but the committed enemy move is not braceable")
 
-    # 2026-07-10 (Arinvale): invented bracket grammar in the DM's last reply -> a one-line
+    # 2026-07-10 (Eranmor): invented bracket grammar in the DM's last reply -> a one-line
     # corrective on the next prompt (compose renders it; silent both-ways failure no more)
     if is_new and last_assistant and rpg:
         res.off_protocol = _scan_off_protocol(last_assistant)
 
-    # R9 — effect tag protocol (RPG only, the public contract) + R10 — world tag protocol (RPG-5:
+    # R9 — effect tag protocol (RPG only, doc 05 §5.4) + R10 — world tag protocol (RPG-5:
     # scene / items / quests / affinity / HP). LEGACY lag-1 path only: the DM's LAST reply,
     # echoed back in this request, is scanned here (one turn behind the narration). Under
     # live_recalc (the default, Bean 2026-07-07) the COLD path parses the FRESH reply the

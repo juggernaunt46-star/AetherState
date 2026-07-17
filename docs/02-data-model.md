@@ -329,7 +329,7 @@ Shipped libraries: `core_drama`, `erp_tension`, `erp_escalation`, `erp_aftercare
 
 Gated by `[specialization].name == "rpg"` (see `03 §4`); a `none` session is byte-identical to
 pre-RPG behaviour. RPG-0 adds one runtime state key and one privileged op; RPG-2 adds the item
-plane (§7.6). Affinity/factions and their ops land with RPG-3 (the public contract).
+plane (§7.6). Affinity/factions and their ops land with RPG-3 (doc 06 §1).
 
 ### 7.1 Runtime state key (additive to `empty_state()`)
 
@@ -383,7 +383,7 @@ hand-authored partial seeds retain merge behavior so historical journals replay 
 `[QUEST]` (over the existing per-character `goal` ops) when specialization is `rpg` and the
 block is listed in `[specialization].blocks`; each is omitted when its data is absent (same
 conditional pattern as `[CONSENT]`). `render_guard` gains a Dungeon-Master framing gated by
-`[specialization].dm_guard`. Render exemplar: the public contract; full block catalog: the public contract
+`[specialization].dm_guard`. Render exemplar: doc 06 §2.3; full block catalog: doc 05 §6.
 
 
 ### 7.4 RPG-1 — curated mechanics & the `check` op (phase RPG-1)
@@ -437,7 +437,7 @@ subject within a small window; `partial` is lenient — only crits conflict). `m
 `high` on a persisting override (store-wins re-ask). Gated by a shared `_rpg_active(state, cfg)`
 (Player Card + `specialization=rpg`) and live-scene only; `rules_off` code `outcome_match`.
 
-### 7.6 Items — Template+Instance (phase RPG-2, the public contract)
+### 7.6 Items — Template+Instance (phase RPG-2, doc 06 §3.5 / 07 §7)
 
 **Runtime keys** (additive to `empty_state()`): `"items": {}` (instance_id →
 `{template_id, name, qty, loc, owner, mods_snapshot, minted_turn, slot?/covers?/on_consume?/
@@ -514,7 +514,7 @@ Tags stay in the prose (they teach the protocol by example); hide them cosmetica
 regex script if desired. The narrator learns the grammar from the `[TAGS]` section appended to the
 `[RULES]` contract (with a compact preset slice, re-sent every request — rollover-proof).
 
-**The eligibility gate (R8, the public contract).** Before dice: *is there an in-world basis at all?* A skill
+**The eligibility gate (R8, doc 10).** Before dice: *is there an in-world basis at all?* A skill
 whose registry/def entry carries `requires_ability` is a NON-MOVE without that ability — visible
 notice, no op, no roll ("you cannot declare power; you acquire it in-world"). Freedom is routed,
 not blocked: earn the ability (quest → `ability_grant`), and the same declaration becomes a real
@@ -560,7 +560,7 @@ affinity shifts ripple to the NPC's faction (membership = the entity's `faction`
 rounded away from zero — emitted as journaled RULE-source `affinity_adj` ops
 (`state.faction_cascade_ops`), never a hidden reducer side-effect. Cascades never chain.
 
-**Render (rpg-gated blocks, the public contract).** `[FACTIONS] Iron Covenant: Ally (at_war=yes)` — tier
+**Render (rpg-gated blocks, doc 05 §6).** `[FACTIONS] Iron Covenant: Ally (at_war=yes)` — tier
 label + circumstances. `[RELATIONS] Mira: Warm · Seraphine: Devoted ♥soulmate` — PRESENT NPCs +
 all bonded characters (a demoted bond shows its label: `Seraphine: Devoted (beloved)`).
 `[WORLD] plague=spreading` — global flags. All absent under `none` and when empty.
@@ -647,7 +647,7 @@ un-staged) · `[item gained | <char> | <Item> | <qty?>]` / `[item lost | <char> 
 - `hp_adj{char,delta,reason?}` — the bounded consequence channel: per-op swing clamped at
   `_enrich` to ±max(5, hp.max//4) (baked `_delta`), floor 0 / cap max.
 
-**Progression (the public contract) — ALL PRIVILEGED (rule/user/genesis; extraction rejected):**
+**Progression (doc 10) — ALL PRIVILEGED (rule/user/genesis; extraction rejected):**
 - `award_exp{char,amount,reason?}` — code-awarded only: quest completion by stakes
   (25/75/150), goal completion (15), positive standing-tier crossings ≥Ally (30) — values in
   `XP_AWARDS`. `xp_level`: cumulative 50·L·(L−1) curve (L2=100, L3=300…).
@@ -669,7 +669,7 @@ un-staged) · `[item gained | <char> | <Item> | <qty?>]` / `[item lost | <char> 
 - `progression_ops(state, applied, hardcore)` runs post-apply on BOTH paths (pipeline hot
   µs-arithmetic + jobs post-batch), returning journaled rule ops — never reducer side-effects.
 
-**Resources (the public contract).** Registry and frozen per-character skill/ability definitions may carry a
+**Resources (doc 10 §6).** Registry and frozen per-character skill/ability definitions may carry a
 multi-pool `cost = {resource_id: N, ...}`. Creator preserves each whole-number amount exactly in
 1..10000, rejects duplicate/unknown/removed/explicitly disabled pool references, and treats an
 omitted or blank cost as genuinely free (there is no implicit `stamina:2` fallback). HP, stamina,
@@ -707,7 +707,7 @@ or `Backlash` (−2 all, 4t) when the check overreached scope; scope `over ≥ 3
 the attempt outright (ceiling — a natural crit_fail stays worse), per the Alter-Reality rule.
 
 **dm-rules/3.** A resolved check settles THIS attempt NOW — no stalling into negotiation, no
-premise-nullifying, no deferral (two regression tests of directive-dodging). [TAGS] grew the
+premise-nullifying, no deferral (two live playtests of directive-dodging). [TAGS] grew the
 full R10 grammar with an affinity example and the "real harm = hp tag" rule.
 
 **Director additions.** `rpg_adventure` beat pack (profile default): stale-quest push, wounded
@@ -882,7 +882,7 @@ name-mention floor reveals a hidden front whose name appears in the reply. Volat
 consequence NOW), `[FRONTS]` (revealed, unfilled standings). Director: binds `front`
 (fronts filled 1–4 turns ago) + the `rpg_adventure.front_fallout` beat.
 
-**Visibility (verified).** Rumor-gating applies to the HUD/briefing ONLY: `hud_view().
+**Visibility (ratified).** Rumor-gating applies to the HUD/briefing ONLY: `hud_view().
 fronts` renders revealed clocks (consequence hidden until fill), the ST World tab shows
 them as pip bars under "Agendas"; `state_summary` carries `fronts`/`routes` RAW from turn
 one — the Console never hides. Knobs: `living_world` (off = 1.13 behavior), `clock_turns`.

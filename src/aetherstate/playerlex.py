@@ -33,7 +33,7 @@ CORRUPT_ENTRY_SCHEMA = "playerlex-corrupt-entry/1"
 PROPOSAL_SCHEMA = "playerlex-recognition-proposal/1"
 CANDIDATE_SCHEMA = "playerlex-recognition-candidate/1"
 ENTRY_KINDS = frozenset({"name", "alias", "authoring_pattern"})
-LEX_IDS = frozenset({"capability", "referent", "scene", "action"})
+LEX_IDS = frozenset({"capability", "referent", "scene", "action", "claim"})
 APPROVAL_METHOD = "local_control_api"
 MAX_SURFACE_CHARS = 240
 MAX_PROPOSAL_CHARS = 2000
@@ -123,7 +123,7 @@ _SCHEMA_STATEMENTS = (
         kind TEXT NOT NULL CHECK (kind IN ('name', 'alias', 'authoring_pattern')),
         surface TEXT NOT NULL,
         normalized_surface TEXT NOT NULL,
-        lex_id TEXT NOT NULL CHECK (lex_id IN ('capability', 'referent', 'scene', 'action')),
+        lex_id TEXT NOT NULL CHECK (lex_id IN ('capability', 'referent', 'scene', 'action', 'claim')),
         concept_id TEXT NOT NULL,
         meaning_fingerprint TEXT NOT NULL,
         approval_revision INTEGER NOT NULL CHECK (approval_revision >= 1),
@@ -585,7 +585,9 @@ def _authoring_pattern(
 
 def _validate_lex_id(lex_id: object) -> str:
     if not isinstance(lex_id, str) or lex_id not in LEX_IDS:
-        raise PlayerLexValidationError("lex_id must be capability, referent, scene, or action")
+        raise PlayerLexValidationError(
+            "lex_id must be capability, referent, scene, action, or claim"
+        )
     return lex_id
 
 
@@ -735,6 +737,8 @@ class PlayerLex:
                             self._connection.execute(statement)
                     elif self._v1_schema_is_exact():
                         self._migrate_v1_schema()
+                    elif self._v2_four_lex_schema_is_exact():
+                        self._migrate_v2_four_lex_schema()
                     else:
                         self._verify_schema()
                     self._verify_schema()
@@ -925,6 +929,40 @@ class PlayerLex:
             and self._persistent_playerlex_schema_objects() == _EXPECTED_PERSISTENT_SCHEMA_OBJECTS
             and not self._temporary_playerlex_schema_objects_exist()
         )
+
+    def _v2_four_lex_schema_is_exact(self) -> bool:
+        """Recognize only the immediately previous sealed table before widening ClaimLex."""
+        table_sql = self._schema_sql("table", "playerlex_entries")
+        if table_sql is None or self._temporary_playerlex_schema_objects_exist():
+            return False
+        previous = _SCHEMA_STATEMENTS[0].replace(
+            "'capability', 'referent', 'scene', 'action', 'claim'",
+            "'capability', 'referent', 'scene', 'action'",
+        )
+        return (
+            _normalized_schema_sql(table_sql) == _normalized_schema_sql(previous)
+            and self._persistent_playerlex_schema_objects() == _EXPECTED_PERSISTENT_SCHEMA_OBJECTS
+        )
+
+    def _migrate_v2_four_lex_schema(self) -> None:
+        """Atomically preserve every row/token while widening the exact Lex constraint."""
+        rows = self._connection.execute(
+            f"SELECT {_SELECT_COLUMNS} FROM playerlex_entries ORDER BY storage_token"
+        ).fetchall()
+        columns = (_STORAGE_TOKEN, *_ROW_COLUMNS)
+        preserved = [dict(zip(columns, row, strict=True)) for row in rows]
+        self._connection.execute("DROP TABLE playerlex_entries")
+        for statement in _SCHEMA_STATEMENTS:
+            self._connection.execute(statement)
+        placeholders = ", ".join("?" for _ in columns)
+        column_sql = ", ".join(
+            "storage_token" if item == _STORAGE_TOKEN else item for item in columns
+        )
+        for values in preserved:
+            self._connection.execute(
+                f"INSERT INTO playerlex_entries ({column_sql}) VALUES ({placeholders})",
+                tuple(values[item] for item in columns),
+            )
 
     @staticmethod
     def _v1_record_from_values(values: Mapping[str, Any]) -> dict[str, Any]:

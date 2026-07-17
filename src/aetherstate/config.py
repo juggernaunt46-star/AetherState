@@ -26,7 +26,7 @@ class ServerConfig(BaseModel):
     log_polling: bool = False        # 2026-07-09: access-log the extension's hud/status
     #                                  polling GETs too (default off — they drowned real
     #                                  events at ~1 line/second)
-    turn_trace: bool = False         # local structured per-turn diagnostics; local launchers
+    turn_trace: bool = False         # local structured per-turn diagnostics; personal launchers
     #                                  force this on without changing standalone/server defaults
     turn_trace_max_mb: int = 16      # one JSONL segment; old segments rotate, never grow forever
     turn_trace_backups: int = 3      # retained rotated segments in addition to the active file
@@ -49,7 +49,7 @@ class UpstreamConfig(BaseModel):
     probe_ttl_days: int = 7
     idle_timeout_s: int = 0          # 0 = no proxy-imposed stream timeout (09 U6)
     max_parse_mb: int = 20
-    # ---- Phase 0a: KV-cache / prompt-caching enablement (the mechanics contract, 2026-07-09) ----
+    # ---- Phase 0a: KV-cache / prompt-caching enablement (plan doc 13, 2026-07-09) ----
     cache_key: bool = True           # add prompt_cache_key=<session id> to requests the
     #                                  engine ENRICHES (untouched requests stay byte-identical;
     #                                  a client-sent key always wins) — routes every turn of a
@@ -61,6 +61,19 @@ class UpstreamConfig(BaseModel):
     #                                  enriched prompt once (max_tokens=1) so the first real
     #                                  message hits a warm prefix — pays one full-price
     #                                  prefill to buy first-turn latency; cooldown-limited
+
+
+class CreatorConfig(BaseModel):
+    """Cold-path main-model authoring quality and completion limits.
+
+    Creator responses are much larger than extraction deltas: one complete world includes
+    locations, NPCs, loot, fronts, and routes, while one complete Player sheet includes all
+    stats and frozen custom definitions.  The old 9k hard-coded ceiling truncated both.
+    """
+
+    max_tokens: int = Field(default=32768, ge=16384, le=131072)
+    timeout_s: float = Field(default=600.0, ge=60.0, le=1800.0)
+    validation_retries: int = Field(default=1, ge=1, le=2)
 
 
 class StampConfig(BaseModel):
@@ -75,7 +88,7 @@ class SessionConfig(BaseModel):
     adopt_min_lcp: int = 6           # unknown external id needs this much chain evidence (08 S4/S5)
     align_k: int = 3                 # consecutive content matches to verify alignment (08 B1)
     checkpoint_every_turns: int = 20  # state_at replay spine (03 SS3.3)
-    reserve_lost_turns: bool = True  # 2026-07-10 (Arinvale): a new turn whose user text is
+    reserve_lost_turns: bool = True  # 2026-07-10 (Eranmor): a new turn whose user text is
     #                                  byte-identical to the PREVIOUS turn's, when that turn's
     #                                  reply settled EMPTY (lost stream), RE-SERVES the settled
     #                                  rolls on its [DIRECTIVE] instead of re-rolling — one
@@ -247,7 +260,7 @@ class AssistConfig(BaseModel):
 
 
 class SpecializationConfig(BaseModel):
-    """Q27 / the public contract: narrative-mode profile. name='none' is byte-identical to pre-RPG
+    """Q27 / doc 05: narrative-mode profile. name='none' is byte-identical to pre-RPG
     behaviour (invariant 3 — non-RPG sessions never see RPG blocks or the DM guard). When
     name='rpg' the built-in RPG_PROFILE supplies lower-priority DEFAULTS for OTHER sections
     (injection priorities today; beats/knobs as later phases land); the user's own config
@@ -269,7 +282,7 @@ class SpecializationConfig(BaseModel):
     #                                  become a code-authored safe result. Pure RP and `none` keep
     #                                  the ordinary transparent stream.
     blocks: list[str] = ["PLAYER", "EFFECTS", "GEAR", "INVENTORY", "FACTIONS",
-                         "RELATIONS", "NEARBY", "QUEST", "WORLD", "DIRECTIVE"]   # the public contract
+                         "RELATIONS", "NEARBY", "QUEST", "WORLD", "DIRECTIVE"]   # doc 05 §6
     #                      catalog (+ NEARBY: 0b home anchors, 2026-07-09)
     dm_guard: bool = True            # DM/Game-Master framing of the Q12 user guard (05 §3.2)
     dice: str = "2d6"                # D1 resolution dice knob   (consumed at RPG-1)
@@ -298,9 +311,9 @@ class SpecializationConfig(BaseModel):
     enemy_rolls: bool = True         # R8c (2026-07-09, Bean): pre-roll ONE enemy-action die
     #                                  per turn and hand it to the DM via [OPPOSITION] — foes
     #                                  attack on real dice, resolved BEFORE the reply streams
-    hardcore: bool = False           # RPG-5 (the public contract): defeat_resolve routes to DEATH —
+    hardcore: bool = False           # RPG-5 (doc 10 §7): defeat_resolve routes to DEATH —
     #                                  permadeath; off = contextual non-lethal outcomes
-    war_room: bool = True            # Phase 1 (the mechanics contract, verified 2026-07-09): combatant
+    war_room: bool = True            # Phase 1 (plan doc 13, ratified 2026-07-09): combatant
     #                                  instances (extras + tracked NPCs, 3v3), code-derived
     #                                  player strike damage, [ALLY] dice, code-detected
     #                                  defeat -> XP + frozen loot, the [WAR] board, the
@@ -311,7 +324,7 @@ class SpecializationConfig(BaseModel):
     #                                  battle lives in PROSE; a code-owned tide (losing/holding/
     #                                  winning) the DM reports via [tide], and fresh WAVES press
     #                                  the War Room until it turns. off = no [BATTLE]/waves.
-    foe_floor: bool = True           # 2026-07-10 (Arinvale floor): the Player ATTACKING a
+    foe_floor: bool = True           # 2026-07-10 (Eranmor floor): the Player ATTACKING a
     #                                  target the DM's own last reply narrated (but never
     #                                  tagged [foe]) stages it as an enemy combatant — the
     #                                  War Room opens even with a zero-protocol narrator.
@@ -334,7 +347,7 @@ class SpecializationConfig(BaseModel):
     #                                  it a real roll (success = silent kill + XP), or a grand
     #                                  working (epic/mythic scope, ritual/reality-warp) kills by
     #                                  prose + XP. Off = the model narrates kills unchecked.
-    living_world: bool = True        # Phase 2 (the mechanics contract, verified 2026-07-09): the
+    living_world: bool = True        # Phase 2 (plan doc 13, ratified 2026-07-09): the
     #                                  living-world referee — travel consumes clock segments,
     #                                  idle turns auto-advance the clock, authored faction
     #                                  fronts tick deterministically and FILL into world
@@ -348,7 +361,7 @@ class SpecializationConfig(BaseModel):
     #                                  on request; empty = download-only (never writes out)
 
 
-# Built-in RPG specialization profile (Q27 / the public contract): lower-priority DEFAULTS overlaid
+# Built-in RPG specialization profile (Q27 / doc 05 §7): lower-priority DEFAULTS overlaid
 # UNDER the user's config when [specialization].name == 'rpg' (see _apply_specialization).
 # Every value here is a default a table may override; the overlay only fills gaps, so the
 # effective precedence is user-override > profile > base-default. Non-RPG loads never touch
@@ -368,13 +381,13 @@ RPG_PROFILE: dict[str, Any] = {
         # A bigger budget (Bean 07-07) keeps the state blocks AND the contract from colliding
         # at the default 1200 (the contract alone is ~1k tokens). The user's own value wins.
         "max_tokens": 2400,
-        # 2026-07-10 (Arinvale): volatile state sits DIRECTLY above the Player's newest
+        # 2026-07-10 (Eranmor): volatile state sits DIRECTLY above the Player's newest
         # message — depth 3 put the [DIRECTIVE] before the previous exchange in reading
         # order, and GLM burned reasoning deciding whether it was stale ("the [DIRECTIVE]
         # mentioned earlier... from before"). depth 1 also moves the provider prompt-cache
         # cut later (longer stable prefix). The user's own value wins.
         "depth": 1,
-        # RPG header-class ranking (the public contract): directive very high so it is never
+        # RPG header-class ranking (doc 05 §6): directive very high so it is never
         # budget-dropped, player_card high, then quest/relations/factions/gear/inventory/
         # world. A superset of the base priorities so no base class is lost on override.
         "priorities": {
@@ -404,6 +417,7 @@ class PrivacyConfig(BaseModel):
 class Config(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     upstream: UpstreamConfig = Field(default_factory=UpstreamConfig)
+    creator: CreatorConfig = Field(default_factory=CreatorConfig)
     stamp: StampConfig = Field(default_factory=StampConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     injection: InjectionConfig = Field(default_factory=InjectionConfig)
@@ -457,7 +471,7 @@ def _merge(base: dict, extra: dict) -> dict:
 
 def _apply_specialization(user: dict) -> dict:
     """Overlay the built-in profile UNDER the user's config so precedence is
-    user-override > profile > base-default (the public contract). No-op unless [specialization].name
+    user-override > profile > base-default (doc 05 §7). No-op unless [specialization].name
     resolves to a known profile. Never raises (invariant 1: config never blocks startup)."""
     try:
         name = str((user.get("specialization") or {}).get("name", "none")).lower()
@@ -473,7 +487,7 @@ def _apply_specialization(user: dict) -> dict:
 def load_config(path: str | Path | None, *, read_only: bool = False) -> Config:
     """Never raises. Return a valid config, optionally without any writable source binding.
 
-    ``read_only`` is for isolated integration tests that borrow the external connection settings.  It
+    ``read_only`` is for isolated live tests that borrow the personal connection settings.  It
     still reads the named file (or its existing last-known-good fallback), but never refreshes the
     backup, never retains a Console persistence target, and disables every Console config save.
     """

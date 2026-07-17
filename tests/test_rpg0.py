@@ -1,4 +1,4 @@
-"""RPG-0 fixtures (Q27 / the public contract phase RPG-0): the [specialization] framework + overlay
+"""RPG-0 fixtures (Q27 / doc 05 §9 phase RPG-0): the [specialization] framework + overlay
 resolver, the Player Card record + [PLAYER] block, [QUEST] over existing goal ops, the DM
 guard framing, and the /aether/specialization route. Exit criteria:
   - overlay precedence: user-override > profile > base-default;
@@ -22,7 +22,7 @@ from tests.mock_upstream import Reply
 
 # ------------------------------ config overlay (framework) --------------------------
 def test_overlay_precedence_user_beats_profile_beats_default(tmp_path):
-    """The heart of the framework: user-override > profile > base-default (the public contract)."""
+    """The heart of the framework: user-override > profile > base-default (doc 05 §7)."""
     assert "quest" not in Config().injection.priorities                # base default (none)
 
     p = tmp_path / "config.toml"
@@ -195,7 +195,7 @@ def test_rpg_blocks_render_only_under_rpg():
     cfg.specialization.name = "rpg"
     h = render_header(_rpg_state(), cfg)
     assert "[PLAYER] Kael · Lv7 · HP 42/50 · Stamina 6/6" in h
-    # effective check mods, precomputed (the public contract): stealth DEX12(+1)+rank3; persuasion rank5
+    # effective check mods, precomputed (doc 06 §2.3): stealth DEX12(+1)+rank3; persuasion rank5
     assert "Stats: STR14 DEX12" in h and "Skills: Stealth+4 Persuasion+5" in h
     assert "Abilities: Power Strike" in h
     assert "[QUEST] Find the amulet · Rescue the caravan" in h
@@ -387,7 +387,7 @@ def test_dm_contract_v2_in_fiction_and_known_vs_present():
     """dm-rules/2 (2026-07-06): no out-of-character endings; state-block NPCs are known,
     not on-scene."""
     from aetherstate.prompts import DM_CONTRACT_VERSION, DM_RULES_CONTRACT, rules_contract
-    assert DM_CONTRACT_VERSION == "dm-rules/18"
+    assert DM_CONTRACT_VERSION == "dm-rules/19"
     assert "stranger" in DM_RULES_CONTRACT                  # 0b: anti-main-character
     assert "[NEARBY]" in DM_RULES_CONTRACT                  # 0b: home anchors
     assert "HOSTILES ACT" in DM_RULES_CONTRACT              # R8c: enemies act on real dice

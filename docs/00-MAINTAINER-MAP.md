@@ -10,6 +10,8 @@
 > - `02-data-model.md` — the state dict, the op vocabulary, the authority matrix, the DB schema.
 > - `03-config-and-api.md` — every config key, every HTTP route, the ST extension contract.
 > - `04-maintenance-playbook.md` — task recipes ("I want to add an op", "fix extraction", …),
+> - ClaimLex/ClaimFrame, typed knowledge, immutable World Event Records, and WorldOverlay are
+>   documented in the public module, data-model, API, and maintenance references below.
 >   testing, invariants, glossary.
 > The public [README](../README.md) gives the Player-facing overview of the Semantic Atlas,
 > PlayerLex, Player Lessons, and their authority and privacy boundaries. This maintainer set
@@ -108,7 +110,7 @@ Grouped by plane and role. Full detail per module in `01-module-reference.md`.
 | `enemy_kits.py` | Deterministic cross-genre enemy kit grammar, frozen intent selection, fingerprints, grounding, and canonical matching. |
 | `capability_glossary.py` | Cold-path CapabilityLex: 265 concepts across 31 genres, conservative Concept Facets/meaning fingerprints, and immutable `capability-definition/1` preview/freeze. |
 | `semantic_fabric.py` | LexFabric recognition-only composition of CapabilityLex, ReferentLex, SceneLex, and ActionLex with exact spans, ambiguity, constructions, meaning fingerprints, and content-free receipts. |
-| `semantic_atlas.py` | Verified searchable/paged catalog over all 311 exact Lex-qualified meanings without authority. |
+| `semantic_atlas.py` | Verified searchable/paged catalog over all 327 exact Lex-qualified meanings without authority. |
 | `playerlex.py` | Local explicit Player-approved names, aliases, and anchored authoring patterns bound to exact Lex-qualified Atlas fingerprints; full-casefold span matching, dual-mode optimistic correction, forged/corrupt-row quarantine, exact v2 schema/migration verification, retry-safe secure DB/WAL removal, and recognition-only proposals. |
 | `playerlex_recognition.py` | Strict RPG live fan-in from current PlayerLex proposals to the compiled LexFabric receipt; rejects an invalid overlay row, otherwise fails open to unchanged shared recognition, re-derives valence from sealed meaning, and creates no candidate or mechanic. |
 | `player_lessons.py` | Separate local Player Lessons service: explicit narration and intent lifecycles, optional narration anchors, required ActionLex/action or ReferentLex/target intent anchors, local record-only intent notes, separate frozen selection/delivery/application receipts, and retry-safe secure DB/WAL removal. |

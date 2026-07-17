@@ -47,7 +47,7 @@ def _meaning(
 ) -> dict:
     return {
         "meaning_ref": _fp({"meaning": seed}),
-        "actor_id": "player.arinvale",
+        "actor_id": "player.eranmor",
         "capability_id": capability_id,
         "invoked_capability_ids": [],
         "action_class": action_class,
@@ -98,7 +98,7 @@ def _contract() -> dict:
     return build_narration_truth_contract(
         packet,
         known_entities=[
-            {"entity_id": "player.arinvale", "label": "Arinvale", "scope": "current"},
+            {"entity_id": "player.eranmor", "label": "Eranmor", "scope": "current"},
             {"entity_id": "guard", "label": "Ash Guard", "scope": "current"},
         ],
         opposition_facts=[
@@ -109,8 +109,8 @@ def _contract() -> dict:
                 "construction_ref": _fp({"construction": "guard-hit"}),
                 "actor_id": "guard",
                 "actor_label": "Ash Guard",
-                "target_id": "player.arinvale",
-                "target_label": "Arinvale",
+                "target_id": "player.eranmor",
+                "target_label": "Eranmor",
                 "move_id": "heavy_commitment",
                 "move_label": "Heavy Commitment",
                 "outcome": "hit",
@@ -179,7 +179,7 @@ def _qualitative_contract(
     assert len(outcomes) == len(targets)
     rows = []
     known = [
-        {"entity_id": "player.arinvale", "label": "Arinvale", "scope": "current"},
+        {"entity_id": "player.eranmor", "label": "Eranmor", "scope": "current"},
     ]
     for index, (outcome, target_id) in enumerate(zip(outcomes, targets)):
         rows.append(
@@ -242,7 +242,7 @@ def _zero_impact_weapon_contract() -> dict:
     return build_narration_truth_contract(
         packet,
         known_entities=[
-            {"entity_id": "player.arinvale", "label": "Arinvale", "scope": "current"},
+            {"entity_id": "player.eranmor", "label": "Eranmor", "scope": "current"},
             {"entity_id": "guard", "label": "Ash Guard", "scope": "current"},
         ],
         lifecycle_binding={
@@ -274,7 +274,7 @@ def _unresolved_attempt_contract() -> dict:
     return build_narration_truth_contract(
         packet,
         known_entities=[
-            {"entity_id": "player.arinvale", "label": "Arinvale", "scope": "current"},
+            {"entity_id": "player.eranmor", "label": "Eranmor", "scope": "current"},
             {"entity_id": "guard", "label": "Ash Guard", "scope": "current"},
         ],
         lifecycle_binding={
@@ -352,7 +352,7 @@ def test_default_and_alternate_multi_occurrence_selection_render_exact_proof_gra
     again = render_narration_plan_selection(plan, alternate)
 
     assert default_artifact.text != alternate_artifact.text
-    assert default_artifact.text.splitlines()[0].startswith("Arinvale")
+    assert default_artifact.text.splitlines()[0].startswith("Eranmor")
     assert alternate_artifact == again
     assert [row["occurrence_ref"] for row in alternate_artifact.expected_graph["claims"]] \
         == [row["occurrence_ref"] for row in plan["clauses"]]
@@ -451,7 +451,7 @@ def test_claim_free_settled_skill_event_gets_bounded_qualitative_narration():
 
     assert contract["expected_claims"] == []
     assert plan["required_occurrence_refs"] == ["settlement.skill.0"]
-    assert "Arinvale" in rendered.text
+    assert "Eranmor" in rendered.text
     assert "Brace check" in rendered.text
     assert "success" in rendered.text
     assert "Brace" in rendered.text
@@ -509,10 +509,10 @@ def test_targeted_qualitative_event_preserves_exact_actor_target_and_result():
     )
     claim = rendered.expected_graph["claims"][0]
 
-    assert "Arinvale" in rendered.text
+    assert "Eranmor" in rendered.text
     assert "Ash Guard" in rendered.text
     assert "partial success" in rendered.text
-    assert claim["actor_id"] == "player.arinvale"
+    assert claim["actor_id"] == "player.eranmor"
     assert claim["subject_ids"] == ["guard"]
     assert claim["detail"] == "brace:skill_check:partial:impact_none"
 
@@ -526,7 +526,7 @@ def test_zero_impact_weapon_attempt_gets_result_without_invented_harm():
     )
 
     assert contract["expected_claims"] == []
-    assert "Arinvale" in rendered.text
+    assert "Eranmor" in rendered.text
     assert "weapon attack" in rendered.text
     assert "Ash Guard" in rendered.text
     assert "failure" in rendered.text
