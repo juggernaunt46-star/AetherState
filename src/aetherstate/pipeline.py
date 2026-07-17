@@ -2394,7 +2394,8 @@ class Pipeline:
         if doc is None:
             return None
         now = time.monotonic()
-        if now - self._prewarm_at.get(session_id, 0.0) < promptcache.PREWARM_COOLDOWN_S:
+        prior = self._prewarm_at.get(session_id)
+        if prior is not None and now - prior < promptcache.PREWARM_COOLDOWN_S:
             return None
         self._prewarm_at[session_id] = now
         return doc

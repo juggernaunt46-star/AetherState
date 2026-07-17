@@ -159,10 +159,15 @@ async def test_prewarm_default_off(client, mock_upstream):
     assert len(mock_upstream.requests) == 1    # no prewarm request went upstream
 
 
-async def test_prewarm_fires_on_chat_changed_with_cooldown(client, mock_upstream, cfg):
+async def test_prewarm_fires_on_chat_changed_with_cooldown(
+    client, mock_upstream, cfg, monkeypatch
+):
     cfg.upstream.prewarm = True
     mock_upstream.enqueue(Reply())             # the real (enriched) turn
     await client.post("/v1/chat/completions", json=_payload())
+    # Simulate a freshly booted host whose monotonic clock is below the cooldown.
+    # No prior timestamp means this is still the first eligible prewarm.
+    monkeypatch.setattr("aetherstate.promptcache.PREWARM_COOLDOWN_S", 10**18)
     mock_upstream.enqueue(Reply())             # the prewarm's upstream reply
     r = await client.post("/aether/hint", json={"event": "chat_changed",
                                                 "session": "chat-cache"})
