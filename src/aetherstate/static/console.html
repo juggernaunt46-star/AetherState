@@ -125,7 +125,12 @@ const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const uniqueDisplayProse=values=>{const out=[],seen=new Set();for(const raw of values||[]){
  if(typeof raw!=="string")continue;const text=raw.trim(),key=text.replace(/\s+/g," ").toLowerCase();
  if(!key||seen.has(key))continue;seen.add(key);out.push(text)}return out};
-const j=async(u,o)=>{const r=await fetch(u,o);return r.json()};
+const ownerInspectionRoute=u=>/^\/aether\/session\/[^/]+\/(?:state|journal)(?:\?|$)/.test(u);
+async function refreshOwnerInspection(){const r=await fetch("/aether/console",{credentials:"same-origin"});
+ if(!r.ok)throw new Error("owner/debug inspection could not be refreshed")}
+const j=async(u,o,retried=false)=>{const r=await fetch(u,o);
+ if(r.status===403&&ownerInspectionRoute(u)&&!retried){await refreshOwnerInspection();return j(u,o,true)}
+ const d=await r.json();if(!r.ok)throw new Error(d.error||`request failed (${r.status})`);return d};
 function toast(msg,bad){const t=$("#toast");t.textContent=msg;
  t.style.borderColor=bad?"var(--bad)":"var(--acc)";t.style.display="block";
  clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",3500)}
@@ -136,9 +141,10 @@ async function ops(list){if(!sid)return toast("no session yet — open a chat fi
   toast(`applied ${d.applied||0}`+(rej?` · rejected: ${rej}`:""),!d.applied&&rej);
   await load();render()}catch(e){toast("error: "+e,1)}}
 /* ---------- data ---------- */
+const sessionDisplay=x=>x.label||[x.world_name,x.player_name].filter(Boolean).join(" · ")||(x.external_id||x.session_id).slice(0,20);
 async function sessions(){const d=await j("/aether/sessions");const s=d.sessions||[];
  $("#sess").innerHTML=s.length?s.map(x=>`<option value="${x.session_id}" ${x.session_id===sid?"selected":""}>`+
-  `${esc(x.label||(x.external_id||x.session_id).slice(0,20))} · t${x.head_turn??"?"}</option>`).join("")
+  `${esc(sessionDisplay(x))} · t${x.head_turn??"?"}</option>`).join("")
   :`<option value="">no sessions yet</option>`;
  if(!sid&&s.length)sid=s[0].session_id;return s}
 let J=null;   /* RPG-4: journal tail for the activity feed */

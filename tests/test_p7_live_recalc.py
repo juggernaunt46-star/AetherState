@@ -230,6 +230,35 @@ def test_live_recalc_authorizes_foe_first_cohort_and_activates_war_room():
     assert pipe.recent_notices(sid) == []
 
 
+def test_live_recalc_keeps_literal_foe_when_optional_faction_is_explicitly_uncertain():
+    """An uncertain qualifier grants no faction and cannot erase the visible hostile actor."""
+    from aetherstate.hud import hud_view
+
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    ctx = PostContext(sid, bid, 1, "new_turn", speaker="Narrator")
+    reply = (
+        "A gaunt raider reaches for the fallen guide.\n"
+        "[foe | Ash Husk | standard | claws | faction:Ash Court?]"
+    )
+
+    pipe.on_response(ctx, _json_reply(reply), "application/json")
+
+    state = current_state(store, bid)
+    enemies = [
+        row for row in state["combat"]["combatants"].values()
+        if row.get("side") == "enemy"
+    ]
+    assert len(enemies) == 1
+    assert enemies[0]["name"] == "Ash Husk"
+    assert "faction" not in enemies[0]
+    assert state["combat"]["pending_intent"]["actor"] == enemies[0]["id"]
+    view = hud_view(state, cfg)["war_room"]
+    assert view["active"] is True
+    assert view["intent"]["actor_name"] == "Ash Husk"
+
+
 def test_live_recalc_rejects_noncontiguous_cohort_with_visible_notice(caplog):
     cfg = _rpg_cfg()
     store, sid, bid = _seed_player(cfg)

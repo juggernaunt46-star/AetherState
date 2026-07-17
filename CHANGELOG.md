@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Fixed stale Console tabs so owner/debug access refreshes after a service restart instead of
+  crashing Overview, and made the session picker prefer readable world and Player names.
+- Kept a literal narrator-introduced foe when its optional faction is explicitly uncertain; the
+  uncertain qualifier grants no faction authority, while the enemy can still activate War Room.
+
 ## 1.23.0 — 2026-07-17
 
 - Added ClaimLex recognition and typed Claim Records that keep speech, attribution, belief,

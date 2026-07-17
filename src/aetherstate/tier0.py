@@ -6819,6 +6819,12 @@ def parse_foe_tags(text: str, state: dict) -> list[dict]:
                         invalid_faction = True
                         continue
                     faction_ref = faction_match.group(1).strip()
+                    if faction_ref.endswith("?"):
+                        # The narrator explicitly marked this optional qualifier as uncertain.
+                        # It grants no faction authority, but the independent literal hostile
+                        # actor remains admissible. Active WorldOverlay policy may still reject
+                        # the resulting factionless spawn at the reducer boundary.
+                        continue
                     faction_id = resolve_entity_ref(state, faction_ref)
                     faction_row = (state.get("entities") or {}).get(faction_id or "")
                     if explicit_faction is not None or not faction_ref \
