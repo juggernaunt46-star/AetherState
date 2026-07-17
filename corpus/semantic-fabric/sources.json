@@ -1,0 +1,75 @@
+{
+  "schema": "semantic-fabric-sources/1",
+  "sources": [
+    {
+      "id": "local.action_frame_vertical",
+      "kind": "local_implementation",
+      "label": "AetherState canonical ActionFrame vertical",
+      "note": "Existing actor, capability, target, possession, locus, polarity, modality, evidence, and ambiguity contract.",
+      "url": "local:src/aetherstate/semantic.py"
+    },
+    {
+      "id": "local.state_vocabularies",
+      "kind": "local_implementation",
+      "label": "AetherState state and extraction vocabularies",
+      "note": "Preserved body, contact, position, relationship, presence, location, item, and effect authority vocabularies.",
+      "url": "local:src/aetherstate/state.py"
+    },
+    {
+      "id": "local.tier0_vocabularies",
+      "kind": "local_implementation",
+      "label": "AetherState Tier-0 semantic vocabularies",
+      "note": "Preserved body-part, object-part, armament-head, action, target, and referent behavior being migrated into the shared fabric.",
+      "url": "local:src/aetherstate/tier0.py"
+    },
+    {
+      "id": "web.framenet",
+      "kind": "linguistic_reference",
+      "label": "Berkeley FrameNet",
+      "note": "Frame-semantic precedent for lexical units, frame elements, and valence rather than unstructured synonym lists.",
+      "url": "https://framenet.icsi.berkeley.edu/fndrupal/about"
+    },
+    {
+      "id": "web.propbank",
+      "kind": "linguistic_reference",
+      "label": "PropBank predicate-argument resource",
+      "note": "Predicate senses and argument relations used as a compact role-structure reference.",
+      "url": "https://propbank.github.io/"
+    },
+    {
+      "id": "web.universal_dependencies",
+      "kind": "linguistic_reference",
+      "label": "Universal Dependencies v2 relation inventory",
+      "note": "Cross-linguistic distinctions for subjects, objects, obliques, names, compounds, apposition, and modifiers.",
+      "url": "https://universaldependencies.org/u/dep/"
+    },
+    {
+      "id": "web.universal_dependencies_names",
+      "kind": "linguistic_reference",
+      "label": "Universal Dependencies proper-name guidance",
+      "note": "Distinguishes proper-name tokens, multiword names, acronyms, and compositional named phrases.",
+      "url": "https://universaldependencies.org/u/pos/PROPN.html"
+    },
+    {
+      "id": "web.universal_dependencies_possession",
+      "kind": "linguistic_reference",
+      "label": "Universal Dependencies English possessive nominal modifier",
+      "note": "Separates possessive nominal modifiers from noun compounds and quotative phrases.",
+      "url": "https://universaldependencies.org/en/dep/nmod-poss.html"
+    },
+    {
+      "id": "web.verbnet",
+      "kind": "linguistic_reference",
+      "label": "University of Colorado VerbNet",
+      "note": "Verb classes described by thematic roles, selection preferences, syntactic frames, and semantic subevents.",
+      "url": "https://verbs.colorado.edu/verbnet/"
+    },
+    {
+      "id": "web.wordnet",
+      "kind": "linguistic_reference",
+      "label": "Princeton WordNet documentation",
+      "note": "Lexical senses and semantic relations including synonymy, hypernymy, meronymy, and holonymy.",
+      "url": "https://wordnet.princeton.edu/documentation"
+    }
+  ]
+}

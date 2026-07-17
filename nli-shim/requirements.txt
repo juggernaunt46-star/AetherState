@@ -1,0 +1,21 @@
+# Dependencies for the AetherState local grounded fact-checker / NLI shim (server.py).
+# A CPU build of torch is plenty — the model scores short sentence pairs.
+#   Windows:      pip install torch            (already the CPU build)
+#   Linux/macOS:  pip install torch --index-url https://download.pytorch.org/whl/cpu
+#
+# The model is chosen with NLI_BACKEND; setup-nli.bat / setup-nli.sh install the right set for you.
+#
+# factcg  (default) — FactCG-DeBERTa-v3-Large, MIT, top sub-1B fact-checker:
+torch
+transformers>=4.40
+sentencepiece            # DeBERTa-v3 / T5 tokenizers need this (not needed for the roberta `nli` path)
+#
+# minicheck — MiniCheck-Flan-T5-Large, MIT (adds, on top of torch + sentencepiece):
+#   pip install "minicheck @ git+https://github.com/Liyan06/MiniCheck.git@main" "accelerate>=0.26.0"
+#
+# nli  (legacy) — roberta-large-mnli, a 3-way NLI cross-encoder: only `torch` + `transformers`
+#   (roberta uses a BPE tokenizer, so `sentencepiece` is not required for that path).
+#
+# Optional: only needed if HuggingFace model downloads fail SSL verification behind a
+# TLS-intercepting corporate proxy / antivirus. Harmless to install; server.py uses it if present.
+# truststore

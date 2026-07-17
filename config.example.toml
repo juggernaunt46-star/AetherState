@@ -1,0 +1,233 @@
+# AetherState configuration — copied to aetherstate-data/config.toml on first run.
+# TIP: you don't have to edit this file at all. The Console
+# (http://127.0.0.1:9130/aether/console) Connection tab fills in endpoints and
+# keys for you and saves them here.
+
+[server]
+# host = "127.0.0.1"
+# port = 9130
+# turn_trace = false   # direct-server default. Start-AetherState and the verified personal
+#                      # play stack force this on so ordinary play retains diagnostics.
+# turn_trace_max_mb = 16  # active turn-trace.jsonl segment size before rotation
+# turn_trace_backups = 3  # retained .1/.2/.3 segments in addition to the active file
+# log_polling = false  # 1.9.0: also access-log the extension's hud/status polling GETs
+#                      # (off by default — they drown real events at ~1 line/second)
+
+# ------------------------------------------------------------------
+# MAIN model — the one that WRITES your story.
+# base_url includes the version segment, same rule as SillyTavern custom endpoints.
+[upstream]
+base_url = ""     # e.g. "https://api.openai.com/v1", "https://api.your-provider.com/v1",
+                  #      "http://127.0.0.1:11434/v1" (Ollama), "http://127.0.0.1:5001/v1" (KoboldCpp)
+model = ""        # DEFAULT model for engine-initiated calls only (Creator auto-fill, chat-open
+                  # genesis) before any chat request has flowed. The relay NEVER uses it — your
+                  # frontend names its own model per request. Set it from Console -> Connection.
+api_key = ""      # FALLBACK ONLY. AetherState is a transparent proxy: the key your frontend
+                  # (e.g. SillyTavern) sends in its connection profile is forwarded upstream
+                  # AS-IS and ALWAYS WINS. This key is used ONLY when the frontend sends no
+                  # Authorization header at all (rare — SillyTavern always sends one), plus for
+                  # the Console's Connect test. So if you're getting 401s, fix the key in your
+                  # frontend's connection profile, not here.
+                  # SECURITY: a key set here is stored in plaintext. Prefer keeping it out
+                  # of the file entirely via the env var  AETHERSTATE_UPSTREAM__API_KEY=sk-...
+                  # (env overrides the file and is never written back to disk). The Console
+                  # locks config.toml down on save — 0600 perms on POSIX, an owner-only NTFS
+                  # ACL (icacls) on Windows — and still: keep it out of synced folders
+                  # (OneDrive/Dropbox). The key is never echoed by any route or written to logs.
+disable_narrator_reasoning = true
+                  # Venice only, typed narrator chats only. true hard-disables reasoning on the
+                  # live response path for lower and steadier latency. Creator/background model
+                  # work is unaffected. Set false to let the frontend/provider choose.
+
+# ---- Prompt caching (KV-cache) — most providers cache prompts by token prefix ----
+cache_key = true       # tag enriched requests with prompt_cache_key=<session id> so every
+                       # turn of a conversation lands on the same warm cache server (big
+                       # input-cost + prefill-latency cut on providers that support it).
+                       # Requests AetherState doesn't touch are never tagged.
+include_usage = false  # true = ask a STREAMING upstream to report token usage (adds one
+                       # standard usage chunk to the stream) so cache hit-rates show in
+                       # the Console. Off by default: it changes what your frontend sees.
+prewarm = false        # true = at chat-open, quietly re-send the chat's last prompt with
+                       # max_tokens=1 so your first message hits a warm cache. Trades one
+                       # full-price prefill for first-turn latency; at most 1 per 4 min.
+                       # NOTE: keep volatile text out of the prompt HEAD for caching to
+                       # pay off — [injection].placement="depth" (the default) is right;
+                       # "system_merge" breaks the cache prefix every turn.
+
+# ------------------------------------------------------------------
+# HELPER model — the one that TRACKS state in the background.
+# Can be the same service as above, or a small local model (Llama 3.1 8B is plenty).
+[[assist.endpoints]]
+name = "helper"
+base_url = ""
+api_key = ""
+model = ""        # e.g. "zai-org-glm-5-2", or your local model's id
+tier = "small"    # nano | small | medium — small keeps prompts compact for local 7-13B models
+max_concurrent = 1
+
+[assist.groups]
+extraction = "assist"          # who tracks state: off | rules (no LLM) | main | assist
+memory_reflection = "assist"
+embeddings = "off"
+linter_nli = "rules"           # prose-vs-ledger contradiction check (L10): off | rules (the
+#                                deterministic L1-L9 rules only, no model — the default, and
+#                                byte-identical to 1.0) | assist (a LOCAL FactCG/MiniCheck / 3-way NLI
+#                                model behind an OpenAI-compatible shim — the recommended path) |
+#                                main (a big judge; point it at a DIFFERENT endpoint than your
+#                                narrator — self-judging inflates scores). assist/main flag ONLY
+#                                contradictions of committed facts, never new detail you author.
+director_selection = "rules"
+lore_gen = "off"
+
+# OPTIONAL per-group endpoint override (Q8). Give a group the NAME of one of the [[assist.endpoints]]
+# above to send THAT job to THAT endpoint when its mode is "assist". Omit a line (or leave it blank)
+# to use the FIRST endpoint — the classic behaviour, byte-identical to 1.0. Lets e.g. the L10
+# contradiction check run on a LOCAL NLI box while memory_reflection uses a cloud model, at once.
+# Editable live in the Console (Connection tab → "Assist routing") and the SillyTavern panel.
+# [assist.group_endpoints]
+# linter_nli = "nli-local"
+# memory_reflection = "cloud-chat"
+
+[extraction]
+cadence_turns = 1     # update state every N turns (1 = every turn)
+intake_chars = 12000  # how much recent chat each update reads (characters)
+live_recalc = true    # true (default): the NEWEST reply is ingested the instant it finishes —
+#                       its world-tags commit and extraction runs on its OWN turn. false = the
+#                       old lag-1 behaviour (state reflected the reply BEFORE the last one).
+# thinking = "auto"   # auto | on | off — reasoning models: off saves tokens, on buys quality
+
+[manual_override]
+enabled = false       # true = organic values (arousal, relationships, drives) become editable
+
+[user_guard]
+name = ""             # your persona's name — keeps the model from speaking in your voice
+
+[consent]
+safewords = []        # e.g. ["red"] — any of these in YOUR message freezes the scene instantly
+
+[linter]
+# The consistency linter: L1-L9 deterministic continuity rules + L10, the optional NLI
+# ledger-contradiction check (see [assist.groups].linter_nli above). rules_off silences rules by
+# name — e.g. ["L10"] to turn the NLI check off, ["L6"] to drop the timeline check.
+rules_off = []
+nli_threshold = 0.85  # L10: minimum contradiction confidence (0.0-1.0) before a corrective note is
+#                       staged. Local checkers (FactCG/MiniCheck/MNLI) over-fire on RP prose — keep
+#                       ~0.85-0.9; a chat-judge (main) can go lower. linter_nli = assist|main only.
+
+# ------------------------------------------------------------------
+# BRIEFING SIZE (compression, 1.12). The state briefing already scopes itself to the scene
+# (absent NPCs' detail stays in the ledger, out of the prompt). For long campaigns you can
+# additionally switch to dense notation — same facts, fewer tokens, with a one-line [KEY]
+# legend taught on the DM contract:
+# [injection]
+# briefing_style = "verbose"   # verbose (default, full words) | compact (dense notation)
+
+# ------------------------------------------------------------------
+# SESSION / turn engine. These rarely need tuning; the one user-facing knob:
+# [session]
+# reserve_lost_turns = true    # 1.15.0 (Arinvale): if a turn's reply is lost upstream (the
+#                              # generation returns empty) and you re-send the SAME message, the
+#                              # engine RE-SERVES the roll it already settled instead of rolling a
+#                              # fresh one — no double dice, no double clock/cost/cooldown. The
+#                              # [DIRECTIVE] says the reply was lost in transit. Off = re-sending a
+#                              # lost turn rolls again (pre-1.15 behavior)
+
+# ------------------------------------------------------------------
+# NARRATIVE MODE (Q27 / RPG specialization). Leave as "none" for normal chat-RP — that is
+# byte-identical to not having this section at all. Set "rpg" to turn the character card
+# into a Dungeon Master: it runs the world, NPCs and factions, YOUR character becomes a
+# tracked Player Card ([PLAYER]/[QUEST] blocks appear), and the guard reframes to a
+# Game-Master framing. Switch live with  /aether-spec rpg  (or the Console). When "rpg" a
+# built-in profile fills defaults for other sections (e.g. injection priorities); anything
+# you set below still wins.
+[specialization]
+name = "none"         # none | rpg
+# narration_pre_display_guard = true  # RPG only: privately checks mechanically authoritative
+#                                      # replies before display; pure RP still streams normally
+# blocks = ["PLAYER", "EFFECTS", "GEAR", "INVENTORY", "FACTIONS", "RELATIONS", "QUEST", "WORLD", "DIRECTIVE"]
+# dm_guard = true     # Game-Master framing of the persona guard
+# dice = "2d6"        # resolution dice (RPG-1): 2d6 | 3d6 | 2d10 | 1d20 (overrides the registry)
+# tiers = "pbta3"     # resolution tier model (RPG-1)
+# nemesis_enabled = false   # RPG-3b: turn on the single-nemesis linter guard (one_nemesis)
+# faction_cascade = 0.1     # RPG-3b: NPC->faction affinity ripple (negatives halved; 0 = off)
+# contract = "full"         # RPG-4: DM rules-contract size — "compact" for weak/local models
+#                           # (same non-negotiables in ~40 tokens; part of the degradation ladder)
+# auto_compact_contract = false  # A1 (1.19.0): auto-flip the contract to its compact form on
+#                           # calm, established turns (full stays for the first contract_full_turns
+#                           # turns and every combat turn). The big per-turn token + reasoning cut;
+#                           # opt-in, so an rpg session is byte-identical until you enable it.
+# contract_full_turns = 3   # A1: keep the FULL contract for this many opening turns (0 = from turn 1)
+# combat_opening_primer = true  # Private, non-canonical worked narration examples on the
+#                           # opening combat requests only. They teach exact multi-roll-to-prose
+#                           # mapping and are forbidden from appearing in the story. Disable live
+#                           # to compare the same combat path without the experiment.
+# enemy_rolls = true        # Code-owned enemy actions: War Room foes freeze a small grounded kit,
+#                           # visibly commit one coming intent, then resolve only that intent on the
+#                           # Player's next distinct action. Retries/swipes re-serve, never reroll.
+# hardcore = false          # RPG-5: defeat becomes DEATH (permadeath). Off = contextual
+#                           # non-lethal outcomes (captured / wake safe / robbed / rescued)
+# living_world = true       # Phase 2 (1.14.0): the living world — travel between canon
+#                           # locations costs day-segments (route_set edges override the
+#                           # 1-segment default), idle turns advance the clock, and authored
+#                           # faction FRONTS (agenda clocks) tick deterministically and FILL
+#                           # into world events. Rumor-gated: hidden from the HUD/briefing
+#                           # until the fiction mentions them; the Console always shows all.
+# clock_turns = 6           # Phase 2: idle auto-tick — advance one time segment after this
+#                           # many turns with no real time passing (0 disables; travel and
+#                           # the DM's [time] tag still move the clock)
+# war_room = true           # Phase 1 (1.13.0): the full combat loop — combatant instances
+#                           # with exact HP (extras via the DM's [foe] tag; known NPCs fight
+#                           # as themselves and KEEP their wounds), 3v3 with allies on their
+#                           # own pre-rolled [ALLY] dice, code-derived player strike damage,
+#                           # code-detected defeat -> XP + frozen loot, the [WAR] board, the
+#                           # [clash | A vs B | how | outcome] NPC-fight record, and the War
+#                           # Room HUD lane. Off = pre-1.13 combat (R8c + [hp] tags only)
+# large_battle = true       # §F (1.21.0): large-scale battle — the Player fights their MICRO
+#                           # 3v3 slice on the dice while the MACRO battle (army-on-army, the
+#                           # rest of the field) lives in PROSE. The DM opens one with
+#                           # [battle | <name> | <foe?> | <tier?>] and reports how it goes with
+#                           # [tide | winning|holding|losing | why] (clamped one step/turn); a
+#                           # code-owned momentum is the tide, and fresh WAVES press the War
+#                           # Room until it turns. The [BATTLE] line + a HUD chip surface it.
+#                           # Off = no [battle]/[tide]/waves. (needs war_room)
+# foe_floor = true          # 1.15.0 (Arinvale floor): the Player ATTACKING a target the DM's
+#                           # own last reply narrated (but never tagged [foe]) stages it as an
+#                           # enemy combatant and opens combat — the engine no longer needs the
+#                           # DM to remember the [foe] tag for a fight to start. Body parts and
+#                           # ungrounded names never spawn (no in-world basis). Off = the DM
+#                           # must tag [foe] to stage an opponent
+# intent_floor = true       # 1.18.0: the pure-code semantic REFLEX floor (no model, no network).
+#                           # (a) a light stemmer + curated intent lexicon so natural phrasings
+#                           # roll the skill they MEAN ("sweet-talk"/"haggle" -> persuasion,
+#                           # "sneaked" -> stealth) — not just literal skill/`governs` words;
+#                           # (b) the entity-aware target picker: a strike resolves to a PRESENT
+#                           # cast member, never a stray word (ends the 'Out'/'Pines'/'Shortsword'
+#                           # phantom-foe class). Live-switchable from the Console + ST panel.
+#                           # Off = the exact-match keyword floor (1.17.0 behavior)
+# narrator_card_dir = ""    # optional: a SillyTavern characters dir (e.g.
+#                           # ".../SillyTavern/data/default-user/characters"). When set, the
+#                           # Creator's "Generate Narrator card" button installs a world-named
+#                           # card there so you SEE which world you're playing; empty = the
+#                           # browser just downloads the PNG for a manual Characters -> Import.
+#
+# RPG-4 location registry: under rpg, scene locations CANONICALIZE — a revisit under any name
+# variant ("Gilded Lantern" vs "The Gilded Lantern") resolves to the same location entity
+# (aliases learned automatically; visits counted); free prose pasted as a location is trimmed
+# to its name head. Places the narrator invents are discovered and persisted ONCE (never
+# regenerated). A `none` session is completely untouched by all of this.
+#
+# RPG-1 mechanics (curated stats/skills/abilities): declare an explicit skill-check inline with
+#   ((aether.check <skill> [+N|-N] [vs DC] [scope minor|standard|major|epic|mythic]))
+# The engine maps <skill> to the curated registry, rolls real dice, resolves a PbtA tier, and
+# injects a [DIRECTIVE] the narrator must honour (the `outcome_match` linter rule flags a
+# narration that contradicts the roll). Unknown skills are rejected — nothing freestyle. The
+# shipped registry lives in the package (registry/*.toml); extend or override it per-table via
+#   <data_dir>/registry/{meta,stats,skills,abilities,items,effects}.toml
+#
+# RPG-3b social plane: the player's standing with NPCs and factions is a reason-tagged ledger
+# ([RELATIONS]/[FACTIONS] render the TIER label: Nemesis..Neutral..Devoted); world circumstances
+# ride [WORLD]. In-chat edits (rpg only):
+#   ((aether.set affinity.<name> <±N>))         — needs [manual_override] enabled
+#   ((aether.set world.<key> <value|none>))     — none/null/clear removes the flag
+#   ((aether.set player.soulmate <name|none>))  /  player.nemesis
+# Soulmate/nemesis are unique bonds: promoting a new one demotes the incumbent (label kept).

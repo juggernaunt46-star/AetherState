@@ -1,0 +1,334 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import sys
+from types import SimpleNamespace
+
+from aetherstate.__main__ import _configure_turn_trace_file
+from aetherstate import compose
+from aetherstate.config import Config
+from aetherstate.pipeline import (
+    Pipeline,
+    PostContext,
+    _diagnostic_narrator_packet,
+)
+from aetherstate.session_engine import SessionEngine
+from aetherstate.store import Store
+
+
+def test_cli_attaches_trace_after_uvicorn_reconfigures_logging(
+        tmp_path, monkeypatch) -> None:
+    import aetherstate.__main__ as cli
+    import aetherstate.app as app_module
+    import aetherstate.config as config_module
+
+    cfg = Config()
+    cfg.server.data_dir = str(tmp_path)
+    cfg.server.turn_trace = True
+    parent = logging.getLogger("aetherstate")
+    pipeline_logger = logging.getLogger("aetherstate.pipeline")
+    original_handlers = list(parent.handlers)
+    original_level = pipeline_logger.level
+
+    class FakeConfig:
+        def __init__(self, app, **kwargs) -> None:
+            self.app = app
+            self.kwargs = kwargs
+            # Match the important part of uvicorn's dictionary reconfiguration:
+            # handlers attached before Config construction do not survive it.
+            for handler in list(parent.handlers):
+                parent.removeHandler(handler)
+                handler.close()
+
+    class FakeServer:
+        def __init__(self, server_config) -> None:
+            self.server_config = server_config
+
+        def run(self) -> None:
+            pipeline_logger.setLevel(logging.INFO)
+            pipeline_logger.info(
+                "TURN_TRACE %s",
+                json.dumps({"event": "response", "turn": 2}),
+            )
+            for handler in parent.handlers:
+                handler.flush()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "uvicorn",
+        SimpleNamespace(Config=FakeConfig, Server=FakeServer),
+    )
+    monkeypatch.setattr(app_module, "create_app", lambda _cfg: object())
+    monkeypatch.setattr(config_module, "load_config", lambda _path, **_kwargs: cfg)
+    monkeypatch.setattr(sys, "argv", ["aetherstate", "--config", str(tmp_path / "x.toml")])
+
+    try:
+        cli.main()
+        lines = (tmp_path / "turn-trace.jsonl").read_text(encoding="utf-8").splitlines()
+        assert [json.loads(line) for line in lines] == [{"event": "response", "turn": 2}]
+    finally:
+        pipeline_logger.setLevel(original_level)
+        for handler in list(parent.handlers):
+            parent.removeHandler(handler)
+            handler.close()
+        for handler in original_handlers:
+            parent.addHandler(handler)
+
+
+def test_turn_trace_file_contains_only_json_payloads(tmp_path) -> None:
+    parent = logging.getLogger("aetherstate")
+    logger = logging.getLogger("aetherstate.state")
+    prior_level = logger.level
+    handler = _configure_turn_trace_file(tmp_path)
+    try:
+        logger.setLevel(logging.INFO)
+        logger.info("ordinary diagnostic")
+        logger.info("TURN_TRACE %s", json.dumps({"turn": 3, "applied": ["damage"]}))
+        handler.flush()
+    finally:
+        logger.setLevel(prior_level)
+        parent.removeHandler(handler)
+        handler.close()
+
+    lines = (tmp_path / "turn-trace.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in lines] == [
+        {"turn": 3, "applied": ["damage"]}
+    ]
+
+
+def test_turn_trace_appends_across_process_sessions(tmp_path) -> None:
+    parent = logging.getLogger("aetherstate")
+    logger = logging.getLogger("aetherstate.pipeline")
+    prior_level = logger.level
+    try:
+        logger.setLevel(logging.INFO)
+        for turn in (1, 2):
+            handler = _configure_turn_trace_file(tmp_path)
+            try:
+                logger.info("TURN_TRACE %s", json.dumps({"event": "request", "turn": turn}))
+                handler.flush()
+            finally:
+                parent.removeHandler(handler)
+                handler.close()
+    finally:
+        logger.setLevel(prior_level)
+
+    lines = (tmp_path / "turn-trace.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["turn"] for line in lines] == [1, 2]
+
+
+def test_turn_trace_rotates_instead_of_growing_without_bound(tmp_path) -> None:
+    parent = logging.getLogger("aetherstate")
+    logger = logging.getLogger("aetherstate.pipeline")
+    prior_level = logger.level
+    handler = _configure_turn_trace_file(tmp_path, max_bytes=180, backup_count=2)
+    try:
+        logger.setLevel(logging.INFO)
+        for turn in range(8):
+            logger.info("TURN_TRACE %s", json.dumps({
+                "event": "response", "turn": turn, "padding": "x" * 90,
+            }))
+        handler.flush()
+    finally:
+        logger.setLevel(prior_level)
+        parent.removeHandler(handler)
+        handler.close()
+
+    assert (tmp_path / "turn-trace.jsonl").is_file()
+    assert (tmp_path / "turn-trace.jsonl.1").is_file()
+    assert not (tmp_path / "turn-trace.jsonl.3").exists()
+    assert all(path.stat().st_size <= 180 for path in tmp_path.glob("turn-trace.jsonl*"))
+
+
+def test_narrator_diagnostic_keeps_engine_blocks_but_not_player_prose() -> None:
+    packet = (
+        compose.TURN_PACKET_START
+        + "\n[DIRECTIVE] Settle exactly one recorded strike.\n"
+        + compose.TURN_PACKET_END
+    )
+    doc = {"messages": [
+        {"role": "system", "content": packet},
+        {"role": "user", "content": (
+            "[AETHER P0]\n"
+            "[CURRENT REQUEST DIRECTIVE — attached to the Player's newest message]\n"
+            "[DIRECTIVE] The strike is already settled.\n"
+            "[AETHER P1]\n"
+            "[PLAYER'S NEWEST MESSAGE — respond to this now]\n"
+            "private-player-prose-must-not-be-retained"
+        )},
+    ]}
+
+    evidence = _diagnostic_narrator_packet(doc)
+    serialized = json.dumps(evidence, ensure_ascii=False)
+
+    assert [row["kind"] for row in evidence["narrator_blocks"]] == [
+        "turn_packet", "current_directive",
+    ]
+    assert "Settle exactly one recorded strike" in serialized
+    assert "private-player-prose-must-not-be-retained" not in serialized
+
+
+def test_narrator_diagnostic_redacts_a_code_generated_local_response() -> None:
+    local_story = "The exact code-generated opening sentence."
+    packet = (
+        compose.TURN_PACKET_START
+        + f"\n[DIRECTIVE] Exact complete enemy prose: {local_story}\n"
+        + compose.TURN_PACKET_END
+    )
+
+    evidence = _diagnostic_narrator_packet(
+        {"messages": [{"role": "system", "content": packet}]},
+        redacted_texts=(local_story,),
+    )
+    serialized = json.dumps(evidence, ensure_ascii=False)
+
+    assert local_story not in serialized
+    assert "LOCAL RESPONSE REDACTED" in serialized
+    assert evidence["narrator_redactions"] == [{
+        "chars": len(local_story),
+        "sha256": hashlib.sha256(local_story.encode("utf-8")).hexdigest(),
+    }]
+
+
+def test_narrator_diagnostic_redacts_rendered_player_lessons_component() -> None:
+    private_marker = "PRIVATE_PLAYER_LESSON_CONTENT_91D7B3"
+    title = "Private pacing preference"
+    do_text = f"Use close sensory detail. {private_marker}"
+    avoid_text = "Avoid summarizing the Player's emotional state."
+    rendered_lessons = compose.render_player_lessons([{
+        "lesson_id": "lesson-private-diagnostic",
+        "title": title,
+        "do_text": do_text,
+        "avoid_text": avoid_text,
+    }])
+    packet = (
+        compose.TURN_PACKET_START
+        + "\n[DIRECTIVE] Preserve settled engine truth.\n"
+        + rendered_lessons
+        + "\n"
+        + compose.TURN_PACKET_END
+    )
+
+    evidence = _diagnostic_narrator_packet(
+        {"messages": [{"role": "system", "content": packet}]},
+    )
+    serialized = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
+
+    leaked = [
+        value for value in (title, do_text, avoid_text, private_marker)
+        if value in serialized
+    ]
+    assert leaked == []
+    component_sha256 = hashlib.sha256(rendered_lessons.encode("utf-8")).hexdigest()
+    assert f"[PLAYER LESSONS REDACTED sha256:{component_sha256}]" in serialized
+    assert {
+        "chars": len(rendered_lessons),
+        "sha256": component_sha256,
+    } in evidence["narrator_redactions"]
+
+
+def test_response_trace_has_lineage_journal_state_and_no_credentials(caplog) -> None:
+    cfg = Config()
+    cfg.server.turn_trace = True
+    cfg.upstream.api_key = "sk-private-credential"
+    store = Store(":memory:")
+    session_id, branch_id = store.create_session(external_id="diagnostic-test")
+    store.journal(
+        branch_id,
+        4,
+        4,
+        [{"op": "scene_set", "location": "vault"}],
+        "rule",
+    )
+    pipeline = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    ctx = PostContext(
+        session_id,
+        branch_id,
+        4,
+        "new_turn",
+        request_model="diagnostic-model",
+    )
+
+    with caplog.at_level(logging.INFO, logger="aetherstate.pipeline"):
+        pipeline.record_response_trace(
+            ctx,
+            source="upstream",
+            status=200,
+            headers_ms=12.25,
+            first_chunk_ms=24.5,
+            total_ms=40.75,
+            byte_count=123,
+            content_sha256="a" * 64,
+            content_type="application/json; charset=utf-8",
+        )
+
+    message = next(
+        record.getMessage() for record in caplog.records
+        if record.getMessage().startswith("TURN_TRACE ")
+    )
+    payload = json.loads(message.removeprefix("TURN_TRACE "))
+    serialized = json.dumps(payload)
+
+    assert payload["event"] == "response"
+    assert payload["session"] == session_id
+    assert payload["branch"] == branch_id
+    assert payload["lineage"]["branch_id"] == branch_id
+    assert payload["journal"][0]["ops"] == [{"op": "scene_set", "location": "vault"}]
+    assert payload["state"]["scene"]["location_id"] == "vault"
+    assert payload["latency_ms"] == {"headers": 12.25, "first_chunk": 24.5, "total": 40.75}
+    assert payload["response"]["narration_guard_replaced"] is False
+    assert payload["response"]["narration_guard_reason_codes"] == []
+    assert "sk-private-credential" not in serialized
+    assert "authorization" not in serialized.lower()
+
+
+def test_response_trace_records_content_free_narration_guard_replacement(caplog) -> None:
+    cfg = Config()
+    cfg.server.turn_trace = True
+    store = Store(":memory:")
+    session_id, branch_id = store.create_session(external_id="guard-receipt-test")
+    pipeline = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    rejected_candidate = "The rejected candidate kills Hollowed #1 with the private test phrase."
+    ctx = PostContext(
+        session_id,
+        branch_id,
+        1,
+        "new_turn",
+        request_model="diagnostic-model",
+        narration_guard_replaced=True,
+        narration_guard_reasons=(
+            "unsettled_combatant_impact",
+            "unsettled_combatant_defeat",
+            rejected_candidate,
+        ),
+    )
+
+    with caplog.at_level(logging.INFO, logger="aetherstate.pipeline"):
+        pipeline.record_response_trace(
+            ctx,
+            source="upstream_guard",
+            status=200,
+            headers_ms=10.0,
+            first_chunk_ms=20.0,
+            total_ms=30.0,
+            byte_count=80,
+            content_sha256="b" * 64,
+            content_type="application/json",
+        )
+
+    message = next(
+        record.getMessage() for record in caplog.records
+        if record.getMessage().startswith("TURN_TRACE ")
+    )
+    payload = json.loads(message.removeprefix("TURN_TRACE "))
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert payload["response"]["narration_guard_replaced"] is True
+    assert payload["response"]["narration_guard_reason_codes"] == [
+        "unsettled_combatant_impact",
+        "unsettled_combatant_defeat",
+    ]
+    assert rejected_candidate not in serialized
+    assert rejected_candidate not in caplog.text

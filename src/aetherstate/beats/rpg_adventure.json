@@ -1,0 +1,107 @@
+[
+  {
+    "beat_id": "rpg_adventure.quest_stale",
+    "name": "Stale quest",
+    "binds": "quest",
+    "preconditions": {
+      "all": [
+        {
+          "path": "quest.{quest}.status",
+          "op": "==",
+          "value": "active"
+        },
+        {
+          "path": "quest.{quest}.stale_turns",
+          "op": ">=",
+          "value": 8
+        }
+      ]
+    },
+    "note_template": "'{quest_name}' has idled too long — move it: a lead surfaces, a rival acts first, or a deadline lands. Advance it through the world, not exposition.",
+    "priority": 55,
+    "cooldown_turns": 8
+  },
+  {
+    "beat_id": "rpg_adventure.wounded",
+    "name": "Wounded player",
+    "binds": "none",
+    "preconditions": {
+      "all": [
+        {
+          "path": "player.hp_frac",
+          "op": "<=",
+          "value": 0.35
+        },
+        {
+          "path": "player.hp_frac",
+          "op": ">",
+          "value": 0
+        }
+      ]
+    },
+    "note_template": "The Player is badly hurt — let the world SEE it: NPCs react, tasks get harder, rest tempts. Danger is sharper now; do not wave it away.",
+    "priority": 58,
+    "cooldown_turns": 6
+  },
+  {
+    "beat_id": "rpg_adventure.aftermath",
+    "name": "Defeat aftermath",
+    "binds": "none",
+    "preconditions": {
+      "all": [
+        {
+          "path": "player.defeated_ago",
+          "op": ">=",
+          "value": 1
+        },
+        {
+          "path": "player.defeated_ago",
+          "op": "<=",
+          "value": 3
+        }
+      ]
+    },
+    "note_template": "The Player was just defeated — the consequences still hang in the air. Someone remembers; something was lost; word travels. Let the aftermath shape this scene.",
+    "priority": 56,
+    "cooldown_turns": 10
+  },
+  {
+    "beat_id": "rpg_adventure.no_quest",
+    "name": "Hook wanted",
+    "binds": "none",
+    "preconditions": {
+      "all": [
+        {
+          "path": "quest.active_count",
+          "op": "==",
+          "value": 0
+        },
+        {
+          "path": "session.turn",
+          "op": ">=",
+          "value": 3
+        }
+      ]
+    },
+    "note_template": "No objective is on the table. Seed a hook worth chasing — a request, a rumor, a debt called in — and mark it with a [quest | <Name> | new | <detail>] tag when the Player bites.",
+    "priority": 50,
+    "cooldown_turns": 12
+  },
+  {
+    "beat_id": "rpg_adventure.front_fallout",
+    "name": "The world moved",
+    "binds": "front",
+    "preconditions": {
+      "all": [
+        {
+          "path": "session.turn",
+          "op": ">=",
+          "value": 0
+        }
+      ]
+    },
+    "note_template": "The '{front_name}' agenda has come to a head: {front_consequence}. Its fallout is still landing — let NPCs carry the news, prices shift, doors close or open. The world did not wait for the Player; show that.",
+    "priority": 62,
+    "cooldown_turns": 5
+  }
+]

@@ -1,0 +1,965 @@
+{
+  "ambiguities": [],
+  "authority": "recognition_only",
+  "constructions": [
+    {
+      "completion": "scope_and_authority_class_required",
+      "construction_id": "scene.assertion.copular",
+      "features": {
+        "does_not_default_to_world_truth": true
+      },
+      "fingerprint": "sha256:5c9fd3ff92b406dd72b16814b0d91a788345e553b99a36056bb889fe3a1284a6",
+      "kind": "assertion",
+      "markers": [
+        "is",
+        "are",
+        "was",
+        "were"
+      ],
+      "optional_roles": [
+        "location",
+        "time",
+        "polarity"
+      ],
+      "required_roles": [
+        "subject",
+        "predicate"
+      ],
+      "source_ids": [
+        "web.universal_dependencies",
+        "web.propbank"
+      ]
+    },
+    {
+      "completion": "entity_and_scope_required",
+      "construction_id": "scene.assertion.existential",
+      "features": {
+        "does_not_mint_identity": true,
+        "proposes_presence": true
+      },
+      "fingerprint": "sha256:95b02ed18f98aa9909f8a6ade6ead97eb9260bf6bdd71aa893f2121b9c013d33",
+      "kind": "assertion",
+      "markers": [
+        "there is",
+        "there are",
+        "there was",
+        "there were"
+      ],
+      "optional_roles": [
+        "location",
+        "time",
+        "polarity"
+      ],
+      "required_roles": [
+        "entity"
+      ],
+      "source_ids": [
+        "web.universal_dependencies"
+      ]
+    },
+    {
+      "completion": "attitude_predicate_required",
+      "construction_id": "scene.cognition.content_clause",
+      "features": {
+        "content_is_not_world_truth": true
+      },
+      "fingerprint": "sha256:34d25ea01942068d05a0ce50cba639c6d901607db0d63752528951c5676310da",
+      "kind": "cognition",
+      "markers": [
+        "that",
+        "whether",
+        "if"
+      ],
+      "optional_roles": [
+        "evidence",
+        "confidence"
+      ],
+      "required_roles": [
+        "experiencer",
+        "content"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.verbnet"
+      ]
+    },
+    {
+      "completion": "speaker_binding_required",
+      "construction_id": "scene.discourse.direct_quote",
+      "features": {
+        "quoted_content_is_not_world_truth": true
+      },
+      "fingerprint": "sha256:002b525037d36be117a2fd619d583190315996cb473c1abdc56c5ded02c1e60d",
+      "kind": "discourse",
+      "markers": [
+        "\"",
+        "“",
+        "”"
+      ],
+      "optional_roles": [
+        "recipient",
+        "topic"
+      ],
+      "required_roles": [
+        "speaker",
+        "message"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.verbnet"
+      ]
+    },
+    {
+      "completion": "source_and_content_required",
+      "construction_id": "scene.discourse.reported_content",
+      "features": {
+        "content_is_testimony": true
+      },
+      "fingerprint": "sha256:08dd559ee4f1d5334f3a2144ad0f7a0cb9791a52a802efd59eeca584487fb38f",
+      "kind": "discourse",
+      "markers": [
+        "that",
+        "according to"
+      ],
+      "optional_roles": [
+        "recipient",
+        "topic"
+      ],
+      "required_roles": [
+        "source",
+        "content"
+      ],
+      "source_ids": [
+        "web.propbank",
+        "web.verbnet"
+      ]
+    },
+    {
+      "completion": "noncurrent_scope_required",
+      "construction_id": "scene.modality.future_or_plan",
+      "features": {
+        "committed_as_current": false
+      },
+      "fingerprint": "sha256:5b3dd1f417aba030c194c644ba038d43a3f27fda43b4e48c449fbadea27c843b",
+      "kind": "modality",
+      "markers": [
+        "will",
+        "going to",
+        "plan to",
+        "plans to",
+        "intend to",
+        "intends to",
+        "about to"
+      ],
+      "optional_roles": [
+        "actor",
+        "time"
+      ],
+      "required_roles": [
+        "event"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.verbnet"
+      ]
+    }
+  ],
+  "description": "What language asserts about presence, absence, place, movement, quotation, memory, belief, observation, and anticipated events.",
+  "entries": [
+    {
+      "completion": "experiencer_and_content_required",
+      "concept_id": "scene.cognition.belief",
+      "false_friends": [
+        "think tank",
+        "assume command"
+      ],
+      "features": {
+        "assertion_class": "belief_or_interpretation",
+        "content_is_not_world_truth": true
+      },
+      "fingerprint": "sha256:87eb90d1ac3bd5a412580aadf18fae804d7d46572692fe6b12ee8023b8e38d59",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "cognition",
+      "label": "Belief, suspicion, or interpretation",
+      "meaning_fingerprint": "sha256:ea4aecda378f2eb10323f888d7a94956f985331ca44bf787953b711736d7a2b4",
+      "optional_roles": [
+        "evidence",
+        "confidence"
+      ],
+      "required_roles": [
+        "experiencer",
+        "content"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "believe",
+        "believes",
+        "believed",
+        "think",
+        "thinks",
+        "thought",
+        "suspect",
+        "suspects",
+        "suspected",
+        "assume",
+        "assumes",
+        "assumed",
+        "seems",
+        "appears to"
+      ]
+    },
+    {
+      "completion": "experiencer_and_content_required",
+      "concept_id": "scene.cognition.memory",
+      "false_friends": [
+        "memory address",
+        "recall the product"
+      ],
+      "features": {
+        "assertion_class": "character_memory",
+        "content_is_not_world_truth": true
+      },
+      "fingerprint": "sha256:1d587775e9790e364fde226647c2ac660007ef96ce02de11fa1210aeb0015805",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "cognition",
+      "label": "Memory or recollection",
+      "meaning_fingerprint": "sha256:1de8fca84bfbefb0a204e66c3e110d0f203d5bd8304e34c371fb4bebbfe65178",
+      "optional_roles": [
+        "source",
+        "time"
+      ],
+      "required_roles": [
+        "experiencer",
+        "content"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "remember",
+        "remembers",
+        "remembered",
+        "recall",
+        "recalls",
+        "recalled",
+        "recollect",
+        "recollects",
+        "recollected",
+        "forgot",
+        "forgets",
+        "forgotten"
+      ]
+    },
+    {
+      "completion": "quoted_or_reported_content_required",
+      "concept_id": "scene.discourse.quotation",
+      "false_friends": [
+        "say the password field",
+        "ask price"
+      ],
+      "features": {
+        "assertion_class": "speech_event",
+        "quoted_content_is_not_world_truth": true
+      },
+      "fingerprint": "sha256:0e0804a0aa44b741d7469480abe86901a310e59cdaaf1cc80cf8d99cd4b0b2c4",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "discourse",
+      "label": "Direct quotation",
+      "meaning_fingerprint": "sha256:fc76525d6b31254cd0089cf4f0aae5315810b6184e6ae59737041c9e6cbfa3a2",
+      "optional_roles": [
+        "recipient",
+        "topic",
+        "manner"
+      ],
+      "required_roles": [
+        "speaker",
+        "message"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.propbank"
+      ],
+      "terms": [
+        "say",
+        "says",
+        "said",
+        "ask",
+        "asks",
+        "asked",
+        "reply",
+        "replies",
+        "replied",
+        "shout",
+        "shouts",
+        "shouted",
+        "whisper",
+        "whispers",
+        "whispered"
+      ]
+    },
+    {
+      "completion": "speaker_and_content_required",
+      "concept_id": "scene.discourse.report",
+      "false_friends": [
+        "report for duty",
+        "claim the reward"
+      ],
+      "features": {
+        "assertion_class": "testimony",
+        "content_is_not_world_truth": true
+      },
+      "fingerprint": "sha256:9f589c46bcf74a5bd83b2308dbbdeaa29c0c42b81e71bae3cea972dc222cca72",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "discourse",
+      "label": "Reported speech or testimony",
+      "meaning_fingerprint": "sha256:da2dda23c96c600960ab737efbb89c9df0873c1fe21d19930f20fb7b0db37797",
+      "optional_roles": [
+        "recipient",
+        "topic",
+        "source"
+      ],
+      "required_roles": [
+        "speaker",
+        "content"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.propbank"
+      ],
+      "terms": [
+        "tell",
+        "tells",
+        "told",
+        "claim",
+        "claims",
+        "claimed",
+        "report",
+        "reports",
+        "reported",
+        "testify",
+        "testifies",
+        "testified",
+        "according to"
+      ]
+    },
+    {
+      "completion": "future_or_intent_scope_required",
+      "concept_id": "scene.event.anticipated",
+      "false_friends": [
+        "coming apart",
+        "way of life"
+      ],
+      "features": {
+        "assertion_class": "anticipated_event",
+        "committed_as_current": false
+      },
+      "fingerprint": "sha256:3cd9c775572c7843de6a9b0219c49586eaa3d93b698209649588720098fd6cb4",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "modality",
+      "label": "Planned, predicted, or anticipated event",
+      "meaning_fingerprint": "sha256:9764e1bf0f7decfbd060b3b5bb16727d0aa087816284ed62fe4cc6255e644f65",
+      "optional_roles": [
+        "actor",
+        "time",
+        "source",
+        "destination"
+      ],
+      "required_roles": [
+        "event"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.verbnet"
+      ],
+      "terms": [
+        "will arrive",
+        "is coming",
+        "are coming",
+        "on the way",
+        "expected to arrive",
+        "about to"
+      ]
+    },
+    {
+      "completion": "experiencer_and_stimulus_required",
+      "concept_id": "scene.evidence.observation",
+      "false_friends": [
+        "see to it",
+        "hear a case",
+        "notice period"
+      ],
+      "features": {
+        "assertion_class": "observation_evidence",
+        "proves_hidden_truth": false
+      },
+      "fingerprint": "sha256:0c2bc862b4c7f2a9aff00f5328fd1b9e2c5be08d2ea33c6bfaa52a75d109878a",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "evidence",
+      "label": "Observation or sensory evidence",
+      "meaning_fingerprint": "sha256:c13acdddb31b39f5a639a8d94ab9c9a97881c616c590cc3a5da194c11cf135db",
+      "optional_roles": [
+        "instrument",
+        "location",
+        "time"
+      ],
+      "required_roles": [
+        "experiencer",
+        "stimulus"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "see",
+        "sees",
+        "saw",
+        "hear",
+        "hears",
+        "heard",
+        "notice",
+        "notices",
+        "noticed",
+        "observe",
+        "observes",
+        "observed",
+        "witness",
+        "witnesses",
+        "witnessed"
+      ]
+    },
+    {
+      "completion": "both_referents_required",
+      "concept_id": "scene.location.adjacency",
+      "false_friends": [
+        "by means of",
+        "next to impossible"
+      ],
+      "features": {
+        "assertion_class": "spatial_candidate",
+        "relation": "adjacent_to"
+      },
+      "fingerprint": "sha256:676fd6c7dc9f87f2ea16b96e17a1e52357dc4c9f8d538099e35f68bc3f637ef9",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "location",
+      "label": "Adjacency or proximity",
+      "meaning_fingerprint": "sha256:83a71f1470fd682c879b85222fb0987344ff60dd2c84d919f936bc6e7e5a9220",
+      "optional_roles": [
+        "distance",
+        "time"
+      ],
+      "required_roles": [
+        "figure",
+        "ground"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "near",
+        "beside",
+        "next to",
+        "alongside",
+        "adjacent to",
+        "by"
+      ]
+    },
+    {
+      "completion": "both_referents_required",
+      "concept_id": "scene.location.containment",
+      "false_friends": [
+        "in spite of",
+        "in order to"
+      ],
+      "features": {
+        "assertion_class": "spatial_candidate",
+        "relation": "contained_by"
+      },
+      "fingerprint": "sha256:37fd4eaedf8d3be5721517bc30c641d38ed4aa01be41f5910c8dbe2e512dba03",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "location",
+      "label": "Containment or interior location",
+      "meaning_fingerprint": "sha256:dc69017f32201d195569991cf0fad3402db8a7507195cc938540f93e774dd652",
+      "optional_roles": [
+        "time"
+      ],
+      "required_roles": [
+        "theme",
+        "container"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "in",
+        "inside",
+        "within",
+        "aboard"
+      ]
+    },
+    {
+      "completion": "both_referents_required",
+      "concept_id": "scene.location.support",
+      "false_friends": [
+        "on purpose",
+        "under discussion",
+        "over time"
+      ],
+      "features": {
+        "assertion_class": "spatial_candidate",
+        "relation": "topological"
+      },
+      "fingerprint": "sha256:8b60e630b1f7f59b41252a57cbd0dbc27f44904e97f19907902f1cc059be97e3",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "location",
+      "label": "Surface, support, or vertical relation",
+      "meaning_fingerprint": "sha256:dbc7d55aa322cc13cd2ffcae9b15186fb5a48eacccd5f6f0876385955cec4c83",
+      "optional_roles": [
+        "contact",
+        "distance",
+        "time"
+      ],
+      "required_roles": [
+        "figure",
+        "ground"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "on",
+        "upon",
+        "under",
+        "beneath",
+        "below",
+        "over",
+        "above"
+      ]
+    },
+    {
+      "completion": "actor_event_and_noncurrent_scope_required",
+      "concept_id": "scene.modality.plan",
+      "false_friends": [
+        "floor plan",
+        "mean value",
+        "intended recipient"
+      ],
+      "features": {
+        "assertion_class": "intended_event",
+        "committed_as_current": false,
+        "time_scope": "future"
+      },
+      "fingerprint": "sha256:822f386a1357e253d6347da8745fc85fc3b3a62c136a37625201635265197098",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "modality",
+      "label": "Plan or intention",
+      "meaning_fingerprint": "sha256:0ccc33c36dbabe6c247247d6a134e7a2101991b806425f0d73dcd5b47b912504",
+      "optional_roles": [
+        "time",
+        "condition",
+        "source"
+      ],
+      "required_roles": [
+        "actor",
+        "event"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.verbnet"
+      ],
+      "terms": [
+        "plan to",
+        "plans to",
+        "planned to",
+        "intend to",
+        "intends to",
+        "intended to",
+        "mean to",
+        "means to",
+        "meant to"
+      ]
+    },
+    {
+      "completion": "actual_current_event_required",
+      "concept_id": "scene.motion.arrival",
+      "false_friends": [
+        "arrive at a conclusion",
+        "enter a value",
+        "appear likely"
+      ],
+      "features": {
+        "assertion_class": "event_candidate",
+        "presence_after": true
+      },
+      "fingerprint": "sha256:0b22c43709cf048428f957af44193afff5696f982a4cef222de8f9bc305d6bad",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "motion",
+      "label": "Arrival into current scope",
+      "meaning_fingerprint": "sha256:14bcb86ef3ff14ab95232cb22a636509a352cc51e245dd72b255954099e0f716",
+      "optional_roles": [
+        "source",
+        "path",
+        "time"
+      ],
+      "required_roles": [
+        "theme",
+        "destination"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "arrive",
+        "arrives",
+        "arrived",
+        "enter",
+        "enters",
+        "entered",
+        "come in",
+        "comes in",
+        "came in",
+        "appear",
+        "appears",
+        "appeared"
+      ]
+    },
+    {
+      "completion": "actual_current_event_required",
+      "concept_id": "scene.motion.departure",
+      "false_friends": [
+        "leave a mark",
+        "exit code",
+        "goes out of fashion"
+      ],
+      "features": {
+        "assertion_class": "event_candidate",
+        "presence_after": false
+      },
+      "fingerprint": "sha256:e6b63888a4d0ee55ab5e65dcef81fc638b6111b5dd73a96d0ee808c7505e571a",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "motion",
+      "label": "Departure from current scope",
+      "meaning_fingerprint": "sha256:21cba0d2838d6f5ea26f099ac4c7780e1a52a34e2099bdb78f444f6b33f753aa",
+      "optional_roles": [
+        "destination",
+        "path",
+        "time"
+      ],
+      "required_roles": [
+        "theme",
+        "source"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "leave",
+        "leaves",
+        "left",
+        "depart",
+        "departs",
+        "departed",
+        "go out",
+        "goes out",
+        "went out",
+        "exit",
+        "exits",
+        "exited"
+      ]
+    },
+    {
+      "completion": "entity_and_current_scope_required",
+      "concept_id": "scene.presence.absent",
+      "false_friends": [
+        "gone quiet",
+        "absent-minded"
+      ],
+      "features": {
+        "assertion_class": "observation_candidate",
+        "presence": false,
+        "time_scope": "current"
+      },
+      "fingerprint": "sha256:d66ddd1a79a36e613a341cdbe2bd4270572a3802ca7603839a61f8a68ffb4712",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "presence",
+      "label": "Current absence assertion",
+      "meaning_fingerprint": "sha256:a43f2b1e334867479affc3f1b6dbafdf4707f38f1e5eabc92d4f0d6a7f0c378f",
+      "optional_roles": [
+        "location",
+        "time"
+      ],
+      "required_roles": [
+        "entity"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "is absent",
+        "are absent",
+        "is gone",
+        "are gone",
+        "is not here",
+        "are not here",
+        "nowhere in sight"
+      ]
+    },
+    {
+      "completion": "entity_and_current_scope_required",
+      "concept_id": "scene.presence.present",
+      "false_friends": [
+        "present the evidence",
+        "present tense"
+      ],
+      "features": {
+        "assertion_class": "observation_candidate",
+        "presence": true,
+        "time_scope": "current"
+      },
+      "fingerprint": "sha256:68ae4610b24e3aeffedc3d74098106d812db745296e667eb2ad3e6f30ab8c0c0",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "presence",
+      "label": "Current presence assertion",
+      "meaning_fingerprint": "sha256:94087d5b9367143f4d00729a1fef4e42f063f34ff0f012f44d518f851bfbeadb",
+      "optional_roles": [
+        "location",
+        "time"
+      ],
+      "required_roles": [
+        "entity"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "is here",
+        "are here",
+        "stands here",
+        "waits here",
+        "remains here",
+        "present in the scene"
+      ]
+    },
+    {
+      "completion": "motion_predicate_required",
+      "concept_id": "scene.route.transit",
+      "false_friends": [
+        "according to",
+        "from memory",
+        "past experience"
+      ],
+      "features": {
+        "assertion_class": "route_candidate",
+        "requires_event": true
+      },
+      "fingerprint": "sha256:bd326acb9dcb0d0e1303574a2708f11082e8cffaefd6c3fbf1061fc4e301eb4e",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "route",
+      "label": "Path, route, or transit assertion",
+      "meaning_fingerprint": "sha256:60d87d82c30a715d2df8ca4ec5b6b9cfca4734c9c094e6b65e5a6a7fbb7729dd",
+      "optional_roles": [
+        "source",
+        "destination"
+      ],
+      "required_roles": [
+        "theme",
+        "path"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "through",
+        "across",
+        "along",
+        "via",
+        "toward",
+        "towards",
+        "from",
+        "to",
+        "past"
+      ]
+    },
+    {
+      "completion": "event_scope_required",
+      "concept_id": "scene.time.future",
+      "false_friends": [
+        "future perfect",
+        "next-day delivery"
+      ],
+      "features": {
+        "assertion_class": "time_scope",
+        "committed_as_current": false,
+        "time_scope": "future"
+      },
+      "fingerprint": "sha256:031ccb5573c13f94a9644b97d7d003686a53010fc807855320bea4f081cd3ca5",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "time_scope",
+      "label": "Future time scope",
+      "meaning_fingerprint": "sha256:84917082d53a8ac683288cddfe2d822adb792ce4fc52afa5949e5af4a7b15cf3",
+      "optional_roles": [
+        "time",
+        "duration",
+        "source"
+      ],
+      "required_roles": [
+        "event"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.universal_dependencies"
+      ],
+      "terms": [
+        "tomorrow",
+        "next morning",
+        "next day",
+        "next week",
+        "in the future"
+      ]
+    },
+    {
+      "completion": "event_scope_required",
+      "concept_id": "scene.time.past",
+      "false_friends": [
+        "earlier edition",
+        "previously owned title"
+      ],
+      "features": {
+        "assertion_class": "time_scope",
+        "committed_as_current": false,
+        "time_scope": "past"
+      },
+      "fingerprint": "sha256:aaeeabc7831cb34a225cbaf1db67fe2bfe90f8801bc70b4438523ec5516b650c",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "time_scope",
+      "label": "Past time scope",
+      "meaning_fingerprint": "sha256:d72029242a8811b2983c879a28a40d9c749e00bc4802bd5f999e5e3365c2b94d",
+      "optional_roles": [
+        "time",
+        "duration",
+        "source"
+      ],
+      "required_roles": [
+        "event"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.universal_dependencies"
+      ],
+      "terms": [
+        "yesterday",
+        "earlier",
+        "previously",
+        "formerly",
+        "last night",
+        "last week",
+        "ago"
+      ]
+    },
+    {
+      "completion": "event_scope_required",
+      "concept_id": "scene.time.present",
+      "false_friends": [
+        "present a case",
+        "current account"
+      ],
+      "features": {
+        "assertion_class": "time_scope",
+        "time_scope": "current"
+      },
+      "fingerprint": "sha256:a194f849d72c37160cf486b7ae995a3ec93e6bf96b230e1194e6734f3b073525",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "time_scope",
+      "label": "Current time scope",
+      "meaning_fingerprint": "sha256:6c24f04f497ed63958f94bfc6a4284ccde21c54db998f4d6f1b304d66c3d2ea9",
+      "optional_roles": [
+        "time",
+        "duration",
+        "source"
+      ],
+      "required_roles": [
+        "event"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.universal_dependencies"
+      ],
+      "terms": [
+        "now",
+        "currently",
+        "right now",
+        "at present"
+      ]
+    }
+  ],
+  "fingerprint": "sha256:e7599fad038cdf10b18ae12e74be96fcee9c516cda86e7910b2460e0454a8ec1",
+  "lex_id": "scene",
+  "schema": "semantic-translation-memory/2",
+  "version": 2
+}

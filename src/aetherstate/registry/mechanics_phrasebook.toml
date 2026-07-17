@@ -1,0 +1,58 @@
+schema = 1
+
+[[construction]]
+id = "bargain.press_for_terms"
+action = "social_bargain"
+skill = "persuasion"
+target_slot = "person"
+templates = [
+  "press {person} for {terms}",
+  "push {person} for {terms}",
+  "lean on {person} for {terms}",
+  "talk {person} down to {terms}",
+  "drive a bargain with {person}",
+  "hold out for {terms}",
+]
+
+[[construction]]
+id = "weapon.penetrating_attack"
+action = "weapon_attack"
+skill = "swordplay"
+target_slot = "person"
+instrument_slot = "weapon"
+attack = true
+templates = [
+  "bury {weapon} in {person}",
+  "sink {weapon} into {person}",
+  "drive {weapon} into {person}",
+  "put {weapon} through {person}",
+  "put {weapon} into {person}",
+  "run {weapon} through {person}",
+  "run {weapon} into {person}",
+]
+
+[[construction]]
+id = "weapon.slashing_attack"
+action = "weapon_attack"
+skill = "swordplay"
+attack = true
+templates = [
+  "slash at",
+  "slash across",
+  "cut at",
+  "cut across",
+  "hack at",
+  "chop at",
+]
+
+[[construction]]
+id = "grapple.takedown"
+action = "grapple"
+skill = "athletics"
+target_slot = "person"
+attack = true
+templates = [
+  "wrestle {person} to the ground",
+  "take {person} to the ground",
+  "throw {person} to the ground",
+]

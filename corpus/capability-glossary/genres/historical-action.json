@@ -1,0 +1,2315 @@
+{
+  "schema": "aetherstate-genre-glossary-cluster/1",
+  "cluster": "historical_action",
+  "genres": [
+    {
+      "id": "steampunk_victorian",
+      "label": "Steampunk-Victorian",
+      "aliases": [
+        "steampunk",
+        "Victorian steampunk",
+        "gaslamp adventure",
+        "clockwork adventure"
+      ],
+      "facets": [
+        "industrial invention",
+        "gaslamp occult",
+        "airship adventure",
+        "clockwork automata",
+        "Victorian society",
+        "labor and imperial conflict"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.committed_strike",
+            "terms": [
+              "clockwork blade-arm strike",
+              "steam-driven hammer blow",
+              "pneumatic cannon shot"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "aetheric force screen",
+              "deployable brass shield",
+              "boilerplate cover"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "family.sustain",
+            "terms": [
+              "clockwork self-repair",
+              "field-service the automaton",
+              "tune the mechanism"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.blinded",
+            "terms": [
+              "soot-blinded",
+              "steam-blinded",
+              "eyes full of coal smoke"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "skill.piloting",
+            "terms": [
+              "helm the airship",
+              "pilot the dirigible",
+              "fly the aerostat"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "scalding steam cloud",
+              "electrified factory floor",
+              "rotary-gun firing lane"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy clockwork sentry",
+              "release mechanical spider",
+              "unpack brass turret"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.heat",
+            "terms": [
+              "boiler heat",
+              "thermal load",
+              "engine overheating"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.boiler_pressure",
+            "terms": [
+              "steam pressure",
+              "boiler pressure",
+              "working pressure"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.steampunk",
+            "terms": [
+              "steam-powered apparatus",
+              "clockwork mechanism",
+              "galvanic engine",
+              "pneumatic device"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.investigation",
+            "terms": [
+              "inspect the mechanism",
+              "trace the industrial sabotage",
+              "investigate the gaslamp murder"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.repair",
+            "terms": [
+              "repair the boiler",
+              "replace a gear train",
+              "patch the airship engine"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.research",
+            "terms": [
+              "develop the prototype",
+              "industrial research program",
+              "patent race"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "Engineer, inventor, or artificer is an occupation, not automatic device ownership.",
+        "Brass, gears, goggles, and corsets are aesthetic evidence, not capabilities.",
+        "An airship does not grant personal flight.",
+        "Clockwork does not imply an armed automaton."
+      ],
+      "source_urls": [
+        "https://sf-encyclopedia.com/entry/steampunk",
+        "https://johnharper.itch.io/lady-blackbird",
+        "https://bladesinthedark.com/index.php/actions-attributes",
+        "https://sf-encyclopedia.com/entry/space_1889"
+      ],
+      "source_ids": [
+        "web.babd810d1a4f3fc85f8fddab18432f6f0332f6164965159f7373b95835309a62",
+        "web.b896509a98fd2867522c591ff6f50d2a7607715f4db91e8de73d9598329c2592",
+        "web.338817d228e9d98e9524cd1aa1b1c2b4e672a03c4fb501db20d5421a06e775a7",
+        "web.87c707ce208c123a674846ffbdb2ad0dabb89c7c6fcf407c021a78be43a995c7"
+      ]
+    },
+    {
+      "id": "dieselpunk_world_war",
+      "label": "Dieselpunk-World War",
+      "aliases": [
+        "dieselpunk",
+        "world-war retrofuture",
+        "pulp war",
+        "deco war"
+      ],
+      "facets": [
+        "trench retrofantasy",
+        "interwar pulp",
+        "Art Deco retrofuture",
+        "total war",
+        "resistance and occupation",
+        "armored and air warfare",
+        "occult war"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.sweep_burst",
+            "terms": [
+              "machine-gun burst",
+              "strafing run",
+              "automatic-fire sweep"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.reactive_defense",
+            "terms": [
+              "return fire",
+              "dive into the trench",
+              "abandon the burning tank"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.inspired",
+            "terms": [
+              "rallied by the signal flare",
+              "crew confidence restored",
+              "resistance cell inspired"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.suppressed",
+            "terms": [
+              "pinned by machine-gun fire",
+              "suppressed in the trench",
+              "unable to leave cover"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.vehicle_disabled",
+            "terms": [
+              "tank mobility kill",
+              "disabled armored car",
+              "aircraft engine disabled"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.vehicle_travel",
+            "terms": [
+              "armored advance",
+              "tank column movement",
+              "motor convoy",
+              "fighter sortie"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "suppressive fire",
+              "minefield",
+              "barbed-wire killing ground",
+              "bombardment zone"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "emplace gun team",
+              "deploy field gun",
+              "send in armored support"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.ammo",
+            "terms": [
+              "belt ammunition",
+              "artillery shells",
+              "bomb load",
+              "vehicle ammunition"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.fuel",
+            "terms": [
+              "diesel fuel",
+              "aviation fuel",
+              "motor pool fuel"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "field supplies",
+              "spare parts",
+              "campaign materiel"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.morale",
+            "terms": [
+              "unit morale",
+              "crew morale",
+              "resistance morale"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.vehicle_integrity",
+            "terms": [
+              "tank integrity",
+              "airframe condition",
+              "vehicle structural integrity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.combustion",
+            "terms": [
+              "diesel engine",
+              "internal-combustion war machine",
+              "motorized armor"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.tactics",
+            "terms": [
+              "read the trench line",
+              "plan the armored thrust",
+              "coordinate air support"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.fortification",
+            "terms": [
+              "dig a trench",
+              "sandbag the position",
+              "build an anti-tank obstacle"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.mass_battle",
+            "terms": [
+              "continental war",
+              "armored offensive",
+              "strategic bombing campaign",
+              "resistance uprising"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "Fire support is not elemental fire.",
+        "Tank crew does not imply personal ownership of a tank.",
+        "A gas mask or chemical resistance does not grant a gas weapon.",
+        "Suppressive fire is positional control, not merely damage.",
+        "Battery may mean an artillery unit rather than stored charge."
+      ],
+      "source_urls": [
+        "https://sf-encyclopedia.com/entry/dieselpunk",
+        "https://www.iwm.org.uk/history/how-the-second-world-war-was-fought-from-the-air",
+        "https://www.iwm.org.uk/history/the-vital-role-of-tanks-in-the-second-world-war",
+        "https://freeleaguepublishing.com/shop/twilight-2000/core-set/"
+      ],
+      "source_ids": [
+        "web.82f46d62411ef5af799197f94ed9f999e1f619881b7d8d78990db4ea1a0b9a04",
+        "web.423714c09bc4566a32f1cb1b77ff2d9d38f3e7c0021a7ebc67926d9a51a4a6e4",
+        "web.6a7409db37d84c624f61495298ed05c391ed9c5e00c9a1a0b3dfae7d9710b9f2",
+        "web.cc029803172b411c8d0d3651563e2c8b68969ec00abd073b0adfa59ebdbcb1e7"
+      ]
+    },
+    {
+      "id": "crime_noir",
+      "label": "Crime-Noir",
+      "aliases": [
+        "crime noir",
+        "film noir",
+        "detective noir",
+        "neo-noir"
+      ],
+      "facets": [
+        "private-eye mystery",
+        "police procedural",
+        "organized crime",
+        "heist",
+        "institutional corruption",
+        "courtroom crime",
+        "tech noir"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "close-range revolver shot",
+              "sap strike",
+              "gangland knife attack"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.reactive_defense",
+            "terms": [
+              "dive behind the bar",
+              "return fire from cover",
+              "counter the ambush"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "ability.silver_tongue",
+            "terms": [
+              "smooth-talking confidence",
+              "convincing cover story",
+              "hard-boiled charm"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "medium"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.wanted",
+            "terms": [
+              "wanted by homicide",
+              "subject of a manhunt",
+              "price on their head"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "family.reposition",
+            "terms": [
+              "getaway-car maneuver",
+              "cut through the alley",
+              "shake the pursuing sedan"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.conceal_ambush",
+            "terms": [
+              "stakeout concealment",
+              "shadow the suspect",
+              "wait in the darkened office"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "call authorized backup",
+              "bring in the crew",
+              "place a surveillance team"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.law_heat",
+            "terms": [
+              "police heat",
+              "heat from the law",
+              "law-enforcement attention",
+              "pressure from the department"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.evidence",
+            "terms": [
+              "case evidence",
+              "clue chain",
+              "admissible proof"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.firearm",
+            "terms": [
+              "concealed revolver",
+              "service pistol",
+              "sawed-off shotgun"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.investigation",
+            "terms": [
+              "work the crime scene",
+              "test the alibi",
+              "inspect forensic evidence"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.evidence",
+            "terms": [
+              "collect case evidence",
+              "build the clue chain",
+              "preserve proof"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.interrogation",
+            "terms": [
+              "interrogate the suspect",
+              "question the witness",
+              "press for a confession"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "skill.deception",
+            "terms": [
+              "run a con",
+              "maintain the cover story",
+              "bluff the mob"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.disguise",
+            "terms": [
+              "assume a false identity",
+              "wear a police disguise",
+              "impersonate the courier"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.repair",
+            "terms": [
+              "service the getaway car",
+              "repair the wiretap",
+              "restore the darkroom equipment"
+            ],
+            "baseline": "gap_filled",
+            "priority": "medium"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "mob influence",
+              "city-hall corruption",
+              "police-department leverage",
+              "control the racket"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "Narrated evidence is not automatically collected evidence.",
+        "Heat is police attention here, not thermal energy.",
+        "Mark may mean a victim of a con rather than a combat status.",
+        "Muscle may mean an enforcer rather than anatomy.",
+        "A contact is a social relation, not a summoned ally."
+      ],
+      "source_urls": [
+        "https://pelgranepress.com/gumshoe/files/GUMSHOE%20SRD%20CC%20version.pdf",
+        "https://pelgranepress.com/2023/03/08/a-taxonomy-of-investigations/",
+        "https://bladesinthedark.com/heat",
+        "https://www.bfi.org.uk/features/how-get-into-film-noir-master-robert-siodmak"
+      ],
+      "source_ids": [
+        "web.f5195cf0e47e4e718ad853c8035a43cef37dbc60d572ef7a1122632c1b36b3cc",
+        "web.af9df35574cd6ea4f2450e6cfe40b959c81de0731d81bd920b8ec919450c21cf",
+        "web.81852a3b1f913e750929382713a9bad7c4eb2616b508264ee08efcdc35a17209",
+        "web.341357ea118dfe2c9744b631cc03100bdf08a277379e029d9a4ee76583b973d7"
+      ]
+    },
+    {
+      "id": "western_frontier",
+      "label": "Western-Frontier",
+      "aliases": [
+        "western",
+        "frontier western",
+        "Old West",
+        "cowboy story"
+      ],
+      "facets": [
+        "cattle and ranch",
+        "gunslinger and outlaw",
+        "lawman and bounty hunter",
+        "homestead and mining",
+        "borderlands",
+        "rail and stagecoach",
+        "weird western"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.committed_strike",
+            "terms": [
+              "careful revolver shot",
+              "high-noon aimed shot",
+              "lever-rifle sharpshot"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.reactive_defense",
+            "terms": [
+              "dive behind the water trough",
+              "return fire from the saloon",
+              "cut free of the rope"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "ability.steady_hand",
+            "terms": [
+              "deadeye composure",
+              "steady gun hand",
+              "unwavering frontier aim"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.wanted",
+            "terms": [
+              "wanted dead or alive",
+              "bounty posted",
+              "outlaw under manhunt"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "skill.horsemanship",
+            "terms": [
+              "ride the trail",
+              "handle the remuda",
+              "mounted pursuit",
+              "cutting-horse maneuver"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.restraint",
+            "terms": [
+              "lariat restraint",
+              "rope the rustler",
+              "hogtie the captive"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "form an authorized posse",
+              "bring up the ranch hands",
+              "release the tracking dogs"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.ammo",
+            "terms": [
+              "revolver rounds",
+              "rifle cartridges",
+              "shotgun shells"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "trail supplies",
+              "camp provisions",
+              "horse feed"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.thirst",
+            "terms": [
+              "desert thirst",
+              "water need",
+              "canteen shortage"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.firearm",
+            "terms": [
+              "six-shooter",
+              "lever-action rifle",
+              "coach gun",
+              "frontier revolver"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.tracking",
+            "terms": [
+              "follow hoofprints",
+              "read the trail sign",
+              "track stolen cattle",
+              "hunt the outlaw trail"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "skill.survival",
+            "terms": [
+              "find desert water",
+              "make trail camp",
+              "weather a cattle drive",
+              "cross badlands"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.territory_control",
+            "terms": [
+              "defend the homestead claim",
+              "control the water rights",
+              "hold the cattle range",
+              "railroad land dispute"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "Wanted is a legal status, not desire.",
+        "Bounty hunter does not grant a supernatural quarry mark.",
+        "Frontier identity does not grant survival mastery.",
+        "Horsepower is not an animal.",
+        "Indigenous identity must never grant stereotyped skills or mysticism."
+      ],
+      "source_urls": [
+        "https://www.nps.gov/tapr/learn/historyculture/cowboys.htm",
+        "https://www.nps.gov/grko/learn/historyculture/traildrives.htm",
+        "https://home.nps.gov/poex/learn/historyculture/index.htm",
+        "https://www.rockstargames.com/reddeadonline/features/roles?active=trader"
+      ],
+      "source_ids": [
+        "web.f41449e5e9d62ec666d03a66dcd533f8080b17ca9f0b15e28eb4cabed7e10897",
+        "web.e856551572c4e69d5039fb195c090e02bddb50f1b341e05484e31d3c2e254ec3",
+        "web.f9e4b7d5171dcec1fba2d88255462f73ebadea93e3c65748b628eaea754b7386",
+        "web.421bb97102c3961dc92e2c0ecdc5defaaf2d54bd07c863808a1cc6b440ed9b66"
+      ]
+    },
+    {
+      "id": "pirate_nautical",
+      "label": "Pirate-Nautical",
+      "aliases": [
+        "pirate",
+        "nautical adventure",
+        "age-of-sail piracy",
+        "privateer story"
+      ],
+      "facets": [
+        "golden-age piracy",
+        "privateering",
+        "naval warfare",
+        "smuggling and trade",
+        "island treasure",
+        "coastal and river piracy",
+        "fantasy piracy"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "action.boarding",
+            "terms": [
+              "board the prize",
+              "boarding assault",
+              "storm the enemy deck",
+              "lead the boarding party"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "repel boarders",
+              "brace behind the gunwale",
+              "shield the helm crew"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.inspired",
+            "terms": [
+              "crew rallied by the captain",
+              "hearts lifted by the shanty",
+              "boarding party emboldened"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.entangled",
+            "terms": [
+              "caught in the rigging",
+              "snared by boarding line",
+              "wrapped in sailcloth"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "condition.flooding",
+            "terms": [
+              "taking on water",
+              "flooded hold",
+              "hull leak"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "skill.seafaring",
+            "terms": [
+              "take the helm",
+              "trim the sails",
+              "work the rigging",
+              "sail through heavy weather"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "skill.navigation",
+            "terms": [
+              "plot the sea route",
+              "take a celestial fix",
+              "navigate the shoals"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.displacement",
+            "terms": [
+              "ram the enemy hull",
+              "wash a sailor overboard",
+              "knock the ship off course"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "lower the boarding boats",
+              "deploy marines",
+              "release an authorized sea beast"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "ship provisions",
+              "fresh water stores",
+              "repair timber",
+              "voyage stores"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.ammo",
+            "terms": [
+              "cannon shot",
+              "powder charges",
+              "ship ammunition"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.morale",
+            "terms": [
+              "crew morale",
+              "boarding morale",
+              "mutiny pressure"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.vehicle_integrity",
+            "terms": [
+              "hull integrity",
+              "ship condition",
+              "mast structural integrity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.firearm",
+            "terms": [
+              "ship cannon",
+              "deck gun",
+              "flintlock pistol",
+              "swivel gun"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.command",
+            "terms": [
+              "command the crew",
+              "issue helm orders",
+              "rally the gun deck",
+              "enforce the ship articles"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.repair",
+            "terms": [
+              "patch the hull",
+              "splice the rigging",
+              "pump the bilge",
+              "jury-rig the mast"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.vehicle_integrity",
+            "terms": [
+              "assess hull integrity",
+              "track ship condition",
+              "structural damage control"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.territory_control",
+            "terms": [
+              "control the sea lane",
+              "hold the pirate haven",
+              "blockade the port",
+              "claim the captured prize"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "Captain is a title, not automatic sailing or command capability.",
+        "Privateer is legal status, not a skill package.",
+        "Hook hand and peg leg may be cosmetic or prosthetic rather than weapons.",
+        "Boarding means entering a vessel; rigging may mean ropes or cheating.",
+        "A sinking feeling is emotional unless vessel state is explicit."
+      ],
+      "source_urls": [
+        "https://2e.aonprd.com/Archetypes.aspx?ID=258",
+        "https://2e.aonprd.com/Rules.aspx?ID=1288",
+        "https://www.dndbeyond.com/sources/dnd/br-2024/equipment",
+        "https://www.seaofthieves.com/ships-of-fortune"
+      ],
+      "source_ids": [
+        "web.5da2a388a796dede6a80c36032e694e2f788ff2e36e584541db45f8de99922f3",
+        "web.967f0bffb033ed9e402aea2a431059ec614d46963d055933f47ef5cca78272d5",
+        "web.955164c6c5b5b63dda356763c15c2345bf79c3f06ffe2ac16913f3e6ff840012",
+        "web.e92758f3929b57dbcb6d35fbf10194028d8ac4787e7f74ac896458eb585c7ea4"
+      ]
+    },
+    {
+      "id": "samurai_feudal_japan",
+      "label": "Samurai-Feudal Japan",
+      "aliases": [
+        "samurai",
+        "feudal Japan",
+        "jidaigeki",
+        "chanbara"
+      ],
+      "facets": [
+        "Kamakura mounted warrior",
+        "Sengoku warfare",
+        "Edo retainer and court",
+        "formal duel",
+        "onna-musha",
+        "historical samurai",
+        "supernatural samurai"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "skill.swordplay",
+            "terms": [
+              "kenjutsu cut",
+              "iaijutsu draw-cut",
+              "katana duel",
+              "counter-cut"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.reactive_defense",
+            "terms": [
+              "katana parry",
+              "deflect the spear",
+              "counter-cut from stance",
+              "protect the lord"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.inspired",
+            "terms": [
+              "composed resolve",
+              "centered in kata",
+              "formation rallied"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.strained",
+            "terms": [
+              "strife-burdened",
+              "rattled composure",
+              "strained by obligation"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "condition.dishonored",
+            "terms": [
+              "dishonored",
+              "disgraced before the clan",
+              "loss of face"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "skill.horsemanship",
+            "terms": [
+              "mounted archery maneuver",
+              "samurai cavalry advance",
+              "control the warhorse"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "yari spear wall",
+              "hold the castle gate",
+              "formation-controlled approach"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy sworn retainers",
+              "position ashigaru support",
+              "call an authorized guardian spirit"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.reputation",
+            "terms": [
+              "clan renown",
+              "court standing",
+              "warrior reputation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.honor",
+            "terms": [
+              "personal honor",
+              "honorable standing",
+              "clan-defined honor"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.debt_obligation",
+            "terms": [
+              "lord-retainer obligation",
+              "oath debt",
+              "duty owed"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.martial",
+            "terms": [
+              "katana school",
+              "yari discipline",
+              "yumi training",
+              "naginata tradition"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.diplomacy",
+            "terms": [
+              "courtly rhetoric",
+              "negotiate clan obligation",
+              "mediate a retainer dispute",
+              "formal audience"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.honor",
+            "terms": [
+              "defend personal honor",
+              "judge honorable standing",
+              "restore clan honor"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "skill.crafting",
+            "terms": [
+              "maintain lacquered armor",
+              "repair bow fittings",
+              "prepare battlefield equipment"
+            ],
+            "baseline": "gap_filled",
+            "priority": "medium"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "clan influence",
+              "retainer network",
+              "shogunate court leverage",
+              "province alliance"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "Samurai rank does not grant sword mastery, honor immunity, or supernatural ki.",
+        "Ninja is not a synonym for samurai.",
+        "Daimyo and shogun are titles, not automatic command powers.",
+        "Sword possession does not grant every sword school.",
+        "Spirit may mean morale, temperament, ancestor, or supernatural entity."
+      ],
+      "source_urls": [
+        "https://www.fantasyflightgames.com/en/legend-of-the-five-rings-roleplaying-game/",
+        "https://images-cdn.fantasyflightgames.com/filer_public/dc/2f/dc2f92bb-bfd2-4f12-99eb-1d084491de65/l5r00_beta_rulebook.pdf",
+        "https://www.britishmuseum.org/blog/who-were-samurai",
+        "https://www.metmuseum.org/exhibitions/listings/2009/art-of-the-samurai"
+      ],
+      "source_ids": [
+        "web.1ee9f6e60906db9a3e50430ed21484cfd9200427510ef5e7ddb72de1622defe2",
+        "web.b2a929cda38cb501dc0c9cf2a7dd950311b628cfdc298730cbb1358cee75040a",
+        "web.3574ef1b97454038166f871351b72d7cb06ea9a24bc4f99951d180cdb6a50591",
+        "web.cc842826382945722edf2cd7cdbcb2bedad7c7bad0b9b6ee596c9c6abee84614"
+      ]
+    },
+    {
+      "id": "military_war",
+      "label": "Military-War",
+      "aliases": [
+        "military fiction",
+        "war story",
+        "combat operations",
+        "battlefield fiction"
+      ],
+      "facets": [
+        "infantry",
+        "armor and mechanized",
+        "artillery and air",
+        "reconnaissance and special operations",
+        "logistics and medicine",
+        "irregular warfare",
+        "campaign command"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.sweep_burst",
+            "terms": [
+              "machine-gun burst",
+              "automatic-fire sweep",
+              "fragmentation volley",
+              "strafing burst"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.reactive_defense",
+            "terms": [
+              "take cover",
+              "return fire",
+              "overwatch fire",
+              "intercept the attack"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.inspired",
+            "terms": [
+              "rallied unit",
+              "cohesion restored",
+              "troops inspired by command"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.suppressed",
+            "terms": [
+              "suppressed",
+              "pinned down",
+              "fixed by enemy fire",
+              "unable to leave cover"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "family.reposition",
+            "terms": [
+              "bounding movement",
+              "advance by bounds",
+              "tactical withdrawal",
+              "move to the flank"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "covering fire",
+              "lays down covering fire",
+              "suppression lane",
+              "minefield",
+              "interdiction fire"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy gun team",
+              "emplace support weapon",
+              "commit reserve squad",
+              "place observation drone"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.ammo",
+            "terms": [
+              "combat load",
+              "rifle ammunition",
+              "mortar rounds",
+              "crew-served ammunition"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.fuel",
+            "terms": [
+              "vehicle fuel",
+              "aviation fuel",
+              "generator fuel"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "combat supplies",
+              "medical supplies",
+              "campaign materiel"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.morale",
+            "terms": [
+              "unit morale",
+              "formation cohesion",
+              "crew fighting spirit"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.vehicle_integrity",
+            "terms": [
+              "vehicle integrity",
+              "airframe condition",
+              "armored hull integrity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.firearm",
+            "terms": [
+              "service rifle",
+              "machine gun",
+              "crew-served weapon",
+              "direct-fire weapon"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.command",
+            "terms": [
+              "issue squad orders",
+              "rally the platoon",
+              "coordinate supporting fires",
+              "command the formation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.fortification",
+            "terms": [
+              "entrench the position",
+              "prepare fighting positions",
+              "build field defenses",
+              "harden the patrol base"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.mass_battle",
+            "terms": [
+              "combined-arms battle",
+              "campaign offensive",
+              "fleet engagement",
+              "theater-level operation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "Soldier, medic, engineer, commander, and sniper labels do not grant equipment or authority.",
+        "Cover and concealment are distinct.",
+        "Suppressed may describe pinned personnel or a disabled weapon.",
+        "Fire support is not fire magic; command is not mind control.",
+        "A radio call does not prove artillery availability."
+      ],
+      "source_urls": [
+        "https://www.benning.army.mil/infantry/DoctrineSupplement/ATP3-21.8/",
+        "https://www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/chapter_04/section_09/page_0030/index.html",
+        "https://www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_b/DirectFireControl/FireControlMeasures/index.html",
+        "https://www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_h/ObstacleReduction/BreachingFundamentals/index.html",
+        "https://www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_c/IndirectFirePlanning/TacticalUsesofPlannedIndirectFires/index.html"
+      ],
+      "source_ids": [
+        "web.311be06aa8935fbb5fa292380f57376b3447c0fe7262f8dd19bef7c5a8f89d67",
+        "web.a9c1f3421a8bf1a8129a239596aa637f178a5233b83962626718149a0cba7a5f",
+        "web.0f136c22483f973db111f2c835cfae89ef9d052e188cfe5dc3c0d3459738769c",
+        "web.55a17e689bdd8b1610f06c277e25146a8cb4f9690a94469f7eac22fea9464b97",
+        "web.76fe6030532afdcc1f14aa8b328378f89f1f15b867dba3c6f647eeb0c8b8abc7"
+      ]
+    },
+    {
+      "id": "superhero_modern",
+      "label": "Superhero-Modern",
+      "aliases": [
+        "modern superhero",
+        "superhero",
+        "super-powered modern",
+        "comic-book hero"
+      ],
+      "facets": [
+        "street-level vigilante",
+        "public super-team",
+        "cosmic and alien",
+        "gadget and powered armor",
+        "mutant and experimental",
+        "magic hero",
+        "rescue and disaster",
+        "registration and identity"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "energy blast",
+              "super-strength punch",
+              "optic beam",
+              "powered-armor strike"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "force field",
+              "protective energy dome",
+              "interpose for a civilian",
+              "powered-armor shield"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.empowered",
+            "terms": [
+              "supercharged",
+              "temporarily power-boosted",
+              "team-empowered"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.stunned",
+            "terms": [
+              "dazed by the super-blow",
+              "staggered by the blast",
+              "reeling after impact"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.flight",
+            "terms": [
+              "cape flight",
+              "rocket-boot flight",
+              "winged flight",
+              "telekinetic flight"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.displacement",
+            "terms": [
+              "telekinetic shove",
+              "super-strength throw",
+              "concussive knockback",
+              "gravity pull"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.summoning",
+            "terms": [
+              "conjure energy construct",
+              "summon a declared entity",
+              "call a supernatural manifestation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "call authorized sidekick",
+              "deploy the hero team",
+              "release bonded creature"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.duplication",
+            "terms": [
+              "create duplicate",
+              "split into copies",
+              "manifest a physical double"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.charges",
+            "terms": [
+              "power-cell charge",
+              "gadget charges",
+              "suit energy reserve",
+              "limited power uses"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.mutation",
+            "terms": [
+              "mutant power",
+              "experimental alteration",
+              "metahuman mutation",
+              "innate genetic power"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "basis.device",
+            "terms": [
+              "hero gadget",
+              "powered suit device",
+              "specialized apparatus"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "basis.technology",
+            "terms": [
+              "advanced powered armor",
+              "alien technology",
+              "experimental machine"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "basis.magic",
+            "terms": [
+              "sorcerous hero power",
+              "enchanted relic",
+              "magic tradition"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "basis.training",
+            "terms": [
+              "peak training",
+              "martial discipline",
+              "investigative training"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.investigation",
+            "terms": [
+              "investigate the secret identity",
+              "trace the supervillain",
+              "analyze the crime pattern",
+              "search the hidden lair"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.repair",
+            "terms": [
+              "repair powered armor",
+              "rebuild the gadget",
+              "restore headquarters systems"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "primitive.objective",
+            "terms": [
+              "rescue civilians",
+              "contain the disaster",
+              "protect the city",
+              "stop the evacuation crisis"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "Hero, villain, vigilante, mutant, or alien labels do not grant powers.",
+        "A power descriptor such as cosmic, fire, divine, or technological does not define its effect.",
+        "Cape and costume do not grant flight or armor.",
+        "Invulnerable may be rhetoric rather than complete immunity.",
+        "A visual duplicate is not necessarily an authorized summon."
+      ],
+      "source_urls": [
+        "https://www.d20herosrd.com/6-powers/effects/effect-descriptions/",
+        "https://www.d20herosrd.com/6-powers/descriptors",
+        "https://www.d20herosrd.com/9-gamemastering/conditions",
+        "https://www.d20herosrd.com/7-gadgets-gear/",
+        "https://fate-srd.com/venture-city/making-your-character-and-powers"
+      ],
+      "source_ids": [
+        "web.c1ce12d8258709ec8fcd60f6fdf4ecc8a64d7662ca354ceb09d6d6a7089b6c77",
+        "web.262dfb17efb950e5da0baabd8c4bee53be9a11171017ad33f33c42629c90c600",
+        "web.7fac3111634d14b0cf6d34aa0fe5ac2cfbb449d719ecc79f549ebedfabd2ef21",
+        "web.57a264507e2deb9efe70571f2b4ec07c941bb0061749a1793015095aa647293b",
+        "web.00d83c9846612e504058f9fbdb0bd488de73777a6173606846527c9abcd081f5"
+      ]
+    },
+    {
+      "id": "alternate_history",
+      "label": "Alternate History",
+      "aliases": [
+        "alternate history",
+        "counterfactual history",
+        "alternative timeline",
+        "what-if history"
+      ],
+      "facets": [
+        "single divergence",
+        "incremental counterfactual",
+        "retrofuture",
+        "alternate political outcome",
+        "alternate military outcome",
+        "parallel timeline",
+        "time-created branch",
+        "secret history distinction"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "primitive.strike",
+            "terms": [
+              "timeline-local weapon attack",
+              "alternate-era rifle attack",
+              "local military strike"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "primitive.guard",
+            "terms": [
+              "timeline-local defense",
+              "alternate-era fortification response",
+              "local protective doctrine"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "primitive.empower",
+            "terms": [
+              "local institutional advantage",
+              "alternate industrial support",
+              "timeline-native strategic edge"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.mental_stress",
+            "terms": [
+              "counterfactual disorientation",
+              "timeline shock",
+              "historical dislocation stress"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.time_travel",
+            "terms": [
+              "authorized temporal jump",
+              "explicit timeline crossing",
+              "travel to the divergence point"
+            ],
+            "baseline": "gap_filled",
+            "priority": "medium"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "alternate border checkpoint",
+              "occupation zone",
+              "counterfactual exclusion area"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy timeline-local support unit",
+              "field alternate-history equipment",
+              "commit local reserve"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.authority",
+            "terms": [
+              "regime authority",
+              "occupation mandate",
+              "counterfactual political capital"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.technology",
+            "terms": [
+              "timeline-local technology",
+              "alternate industrial path",
+              "counterfactual weapon system"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.research",
+            "terms": [
+              "research historical records",
+              "compare historical accounts",
+              "trace a counterfactual consequence"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "world.timeline_divergence",
+            "terms": [
+              "identify the point of divergence",
+              "alternate-history branch",
+              "establish the Jonbar point"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "replicate alternate technology",
+              "follow the local industrial process",
+              "fabricate timeline-native equipment"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.governance",
+            "terms": [
+              "alternate regime rule",
+              "counterfactual state policy",
+              "govern the divergent nation",
+              "rewrite institutional order"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "world.timeline_divergence",
+            "terms": [
+              "committed timeline divergence",
+              "world's divergence point",
+              "alternate-history branch fact"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "Alternate-history genre does not grant time travel, portals, future knowledge, or advanced weapons.",
+        "An anachronism may be ordinary local technology.",
+        "Counterfactual, parallel world, time loop, and secret history are distinct.",
+        "A hypothetical what-if statement is not a committed world mutation.",
+        "Familiar historical names do not authorize imported biography."
+      ],
+      "source_urls": [
+        "https://sf-encyclopedia.com/entry/alternate_history",
+        "https://www.cambridge.org/core/books/cambridge-companion-to-science-fiction/alternate-history/0F1BC13ED87B380C9D0F6CA6D29174C1",
+        "https://plato.stanford.edu/archives/fall2024/entries/causation-counterfactual/",
+        "https://www.paradoxinteractive.com/games/millennia/about"
+      ],
+      "source_ids": [
+        "web.eb90d1fc105018cb8b96f791ec7f9c225346002b9ff8ddb566b4b2c3aea2de5f",
+        "web.b7840e478b3d654aa9a9f090577f7a9ea93f58084049e7ba387e8b59147eac4c",
+        "web.b7d425eceebe715fb5887398c96596bc15d74c1b508e56b2c70ce80c4a5828f7",
+        "web.e671021c06959e94c2da0f8b9294d037ef57521a663940899c2cfcb723a63bca"
+      ]
+    },
+    {
+      "id": "school_academy",
+      "label": "School-Academy",
+      "aliases": [
+        "school story",
+        "academy story",
+        "campus adventure",
+        "boarding school"
+      ],
+      "facets": [
+        "secondary school",
+        "university",
+        "boarding school",
+        "magic academy",
+        "military academy",
+        "superhero academy",
+        "clubs and sports",
+        "school mystery and horror"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "sparring strike",
+              "practice duel attack",
+              "authorized dueling spell"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "practice ward",
+              "training shield",
+              "protect a classmate"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "action.training",
+            "terms": [
+              "study session",
+              "receive tutoring",
+              "practice after class",
+              "faculty coaching"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.mental_stress",
+            "terms": [
+              "exam stress",
+              "academic pressure",
+              "overwhelmed by coursework"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.school_discipline",
+            "terms": [
+              "detention",
+              "academic probation",
+              "school suspension"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "skill.athletics",
+            "terms": [
+              "race across campus",
+              "climb the dorm wall",
+              "school sports movement",
+              "slip between classes"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "medium"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "restricted campus wing",
+              "curfew perimeter",
+              "faculty-only laboratory",
+              "warded examination hall"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "summon an authorized familiar",
+              "deploy a lab construct",
+              "release the training drone"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.time",
+            "terms": [
+              "study time",
+              "assignment deadline",
+              "class schedule",
+              "time before exams"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.academic_progress",
+            "terms": [
+              "course credit",
+              "academic progress",
+              "graduation progress"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "relationship.standing",
+            "terms": [
+              "friendship track",
+              "rivalry standing",
+              "classmate trust"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.training",
+            "terms": [
+              "academy training",
+              "course instruction",
+              "supervised practical",
+              "school-taught discipline"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.academics",
+            "terms": [
+              "take the exam",
+              "research the assignment",
+              "answer in class",
+              "complete the thesis"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "relationship.standing",
+            "terms": [
+              "build classmate trust",
+              "track a school rivalry",
+              "repair a friendship"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "laboratory practical",
+              "potion assignment",
+              "engineering project",
+              "build the class prototype"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "primitive.objective",
+            "terms": [
+              "pass the exam",
+              "graduate from the academy",
+              "win the house cup",
+              "solve the campus mystery"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.academic_progress",
+            "terms": [
+              "advance toward graduation",
+              "complete course credit",
+              "progress through the term"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.school_discipline",
+            "terms": [
+              "institutional probation",
+              "school suspension",
+              "disciplinary detention"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "Class may mean a course, scheduled session, social class, or RPG class.",
+        "Grade may mean an assessment, year level, rank, or material quality.",
+        "Club may mean a student organization or a weapon.",
+        "A student of magic does not know every spell.",
+        "Detention is institutional discipline, not physical restraint unless explicitly established."
+      ],
+      "source_urls": [
+        "https://renegadegamestudios.com/kids-on-brooms/",
+        "https://www.dndbeyond.com/sources/dnd/sacoc",
+        "https://marketplace.dndbeyond.com/TTRPG/strixhaven-a-curriculum-of-chaos",
+        "https://downloads.paizo.com/Strength%20of%20Thousands%20Players%20Guide.pdf"
+      ],
+      "source_ids": [
+        "web.58671bd8fd342240fb915253539ecc69241894a22a3d25971c8c478b35714f16",
+        "web.481b45550733ee6b636e1da65bde0ef7f14746d9735d6799ee539cc1602e068a",
+        "web.050d1f67b86e36bb66a8fa262637509475523959aebfaaa3255bc547a2681b13",
+        "web.88fa68174e99589de288f3a98e0095eef1454987f9bd40ad010f67a9b0f44c53"
+      ]
+    }
+  ],
+  "concept_requests": []
+}

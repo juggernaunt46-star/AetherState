@@ -1,0 +1,42 @@
+# Curated stats (the public contract / S1: six-stat default). Each keys the skills below.
+[STR]
+name = "Strength"
+default = 10
+min = 1
+max = 20
+desc = "Raw physical power. Keys melee and feats of force."
+
+[DEX]
+name = "Dexterity"
+default = 10
+min = 1
+max = 20
+desc = "Agility, precision, stealth, and ranged accuracy."
+
+[INT]
+name = "Intelligence"
+default = 10
+min = 1
+max = 20
+desc = "Reason, lore, and arcane academics."
+
+[CHA]
+name = "Charisma"
+default = 10
+min = 1
+max = 20
+desc = "Force of personality; persuasion and presence."
+
+[CUN]
+name = "Cunning"
+default = 10
+min = 1
+max = 20
+desc = "Guile, larceny, and reading a situation."
+
+[CON]
+name = "Constitution"
+default = 10
+min = 1
+max = 20
+desc = "Endurance, resilience, and staying power."

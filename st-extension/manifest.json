@@ -1,0 +1,12 @@
+{
+  "display_name": "AetherState Companion",
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Bean",
+  "version": "1.22.0",
+  "loading_order": 100,
+  "generate_interceptor": "aetherstateInterceptor",
+  "minimum_client_version": "1.12.0",
+  "homePage": "https://github.com/juggernaunt46-star/AetherState",
+  "auto_update": false
+}

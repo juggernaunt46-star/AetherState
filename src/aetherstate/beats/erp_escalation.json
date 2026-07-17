@@ -1,0 +1,53 @@
+[
+  {"beat_id": "erp_escalation.seek_consent_kiss", "name": "Seek consent: kiss", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "rel.{a}->{b}.desire", "op": ">=", "value": 60},
+     {"path": "scene.intimacy", "op": ">=", "value": 40},
+     {"path": "consent.{a}->{b}.kissing.level", "op": "in", "value": ["unknown", "hesitant"]}]},
+   "note_template": "Have {initiator} ask — plainly or playfully — before going further with a kiss. Let {partner} answer in their own voice.",
+   "priority": 58, "cooldown_turns": 8},
+  {"beat_id": "erp_escalation.seek_consent_touch", "name": "Seek consent: touch", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "consent.{a}->{b}.kissing.level", "op": "in", "value": ["granted", "enthusiastic"]},
+     {"path": "char.{a}.arousal", "op": ">=", "value": 40},
+     {"path": "consent.{a}->{b}.manual.level", "op": "in", "value": ["unknown", "hesitant"]}]},
+   "note_template": "Have {initiator} ask — plainly or playfully — before letting hands wander further. Let {partner} answer in their own voice.",
+   "priority": 56, "cooldown_turns": 8},
+  {"beat_id": "erp_escalation.first_kiss", "name": "First kiss", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "consent.{a}->{b}.kissing.level", "op": "in", "value": ["granted", "enthusiastic"]},
+     {"path": "rel.{a}->{b}.desire", "op": ">=", "value": 55},
+     {"path": "scene.intimacy", "op": ">=", "value": 45}]},
+   "note_template": "The moment is ripe — let {a} finally kiss {b}. Make it land with everything the buildup promised.",
+   "effects": [{"op": "scene_dial", "dial": "intimacy", "delta": 10}],
+   "priority": 60, "cooldown_turns": 8, "once_per_scene": true},
+  {"beat_id": "erp_escalation.hands", "name": "Hands", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "consent.{a}->{b}.kissing.level", "op": "in", "value": ["granted", "enthusiastic"]},
+     {"path": "consent.{a}->{b}.manual.level", "op": "in", "value": ["granted", "enthusiastic"]},
+     {"path": "char.{a}.arousal", "op": ">=", "value": 40}]},
+   "note_template": "Let {a}'s hands say what words haven't — deliberate, unhurried, attentive to how {b} answers.",
+   "effects": [{"op": "arousal", "char": "{b}", "delta": 10},
+               {"op": "scene_dial", "dial": "tension", "delta": 5}],
+   "priority": 55, "cooldown_turns": 6},
+  {"beat_id": "erp_escalation.deepen", "name": "Deepen", "binds": "pair",
+   "preconditions": {"all": [
+     {"path": "consent.{a}->{b}.manual.level", "op": "in", "value": ["granted", "enthusiastic"]},
+     {"path": "consent.{a}->{b}.oral_give.level", "op": "in", "value": ["granted", "enthusiastic"]},
+     {"path": "char.{a}.arousal", "op": ">=", "value": 60},
+     {"path": "scene.intimacy", "op": ">=", "value": 60}]},
+   "note_template": "Take {a} and {b} deeper into each other — slower, hotter, no rush toward the edge.",
+   "effects": [{"op": "arousal", "char": "{b}", "delta": 15}],
+   "priority": 55, "cooldown_turns": 6},
+  {"beat_id": "erp_escalation.peak", "name": "Peak", "binds": "pair",
+   "preconditions": {"all": [
+     {"any": [
+       {"path": "consent.{a}->{b}.vaginal.level", "op": "in", "value": ["granted", "enthusiastic"]},
+       {"path": "consent.{a}->{b}.anal.level", "op": "in", "value": ["granted", "enthusiastic"]}]},
+     {"path": "char.{a}.arousal", "op": ">=", "value": 70},
+     {"path": "char.{b}.arousal", "op": ">=", "value": 70},
+     {"path": "scene.intimacy", "op": ">=", "value": 70}]},
+   "note_template": "Let the crest come honestly — bodies first, words after. Stay in {b}'s responses as much as {a}'s.",
+   "effects": [{"op": "scene_dial", "dial": "tension", "delta": 10}],
+   "priority": 60, "cooldown_turns": 8, "phase_hint": "climax"}
+]

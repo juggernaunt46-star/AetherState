@@ -1,0 +1,381 @@
+{
+  "creator_classifications": [
+    "supported_and_frozen",
+    "narration_boundary",
+    "lore_only",
+    "rejected_grounding"
+  ],
+  "families": [
+    {
+      "current_channel": "hp",
+      "current_target": "player",
+      "function": "Immediate single-target harm",
+      "genre_manifestations": {
+        "dark_fantasy": "tainted claw",
+        "fantasy": "blade or bite",
+        "modern": "firearm or baton",
+        "post_apocalyptic": "scrap spear or infected maul",
+        "sci_fi": "pulse shot or servo strike"
+      },
+      "id": "direct_pressure",
+      "support": "executable_hp_only"
+    },
+    {
+      "current_channel": "hp",
+      "current_target": "player",
+      "function": "Greater harm with an accuracy, mobility, or timing cost",
+      "genre_manifestations": {
+        "dark_fantasy": "blood-fueled blow",
+        "fantasy": "heavy swing",
+        "modern": "aimed shot",
+        "post_apocalyptic": "mutant lunge",
+        "sci_fi": "charged beam"
+      },
+      "id": "committed_strike",
+      "support": "executable_hp_only"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Reduce or bypass armor after setup",
+      "genre_manifestations": {
+        "dark_fantasy": "ward fracture",
+        "fantasy": "armor-gap thrust",
+        "modern": "armor-piercing round",
+        "post_apocalyptic": "shaped charge",
+        "sci_fi": "phase cutter"
+      },
+      "id": "defense_breach",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Affect multiple targets at reduced precision",
+      "genre_manifestations": {
+        "dark_fantasy": "corpse-swarm surge",
+        "fantasy": "cleave or breath",
+        "modern": "automatic burst",
+        "post_apocalyptic": "shrapnel spray",
+        "sci_fi": "plasma fan"
+      },
+      "id": "sweep_burst",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Telegraph now and resolve later at high potency",
+      "genre_manifestations": {
+        "dark_fantasy": "ritual detonation",
+        "fantasy": "overhead smash",
+        "modern": "grenade timer",
+        "post_apocalyptic": "unstable warhead",
+        "sci_fi": "orbital lock"
+      },
+      "id": "delayed_impact",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Repeating harm until countered",
+      "genre_manifestations": {
+        "dark_fantasy": "wasting curse",
+        "fantasy": "burning or venom",
+        "modern": "fire or chemical agent",
+        "post_apocalyptic": "radiation or infection",
+        "sci_fi": "nanite corrosion"
+      },
+      "id": "persistent_exposure",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Prevent or tax movement or actions",
+      "genre_manifestations": {
+        "dark_fantasy": "grasping dead",
+        "fantasy": "grapple or web",
+        "modern": "cuffs or net",
+        "post_apocalyptic": "barbed trap",
+        "sci_fi": "gravitic snare"
+      },
+      "id": "restraint",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Push, pull, knock down, or separate",
+      "genre_manifestations": {
+        "dark_fantasy": "spectral drag",
+        "fantasy": "shield rush",
+        "modern": "concussive blast",
+        "post_apocalyptic": "vehicle ram",
+        "sci_fi": "tractor pulse"
+      },
+      "id": "displacement",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Reduce perception, accuracy, coordination, or resolve",
+      "genre_manifestations": {
+        "dark_fantasy": "terror or whispers",
+        "fantasy": "dust or feint",
+        "modern": "flashbang or smoke",
+        "post_apocalyptic": "toxin or dazzling flare",
+        "sci_fi": "sensor scramble"
+      },
+      "id": "impairment",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Make an area dangerous or costly to cross",
+      "genre_manifestations": {
+        "dark_fantasy": "blighted ground",
+        "fantasy": "spear wall or fire",
+        "modern": "suppressive fire",
+        "post_apocalyptic": "minefield or radiation pocket",
+        "sci_fi": "laser grid"
+      },
+      "id": "zone_denial",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Reduce harm to self, ally, or position",
+      "genre_manifestations": {
+        "dark_fantasy": "bone bulwark",
+        "fantasy": "shield or ward",
+        "modern": "riot shield or cover",
+        "post_apocalyptic": "scrap barricade",
+        "sci_fi": "force screen"
+      },
+      "id": "guard_barrier",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Trigger after or against an incoming action",
+      "genre_manifestations": {
+        "dark_fantasy": "pain transfer",
+        "fantasy": "parry or counterspell",
+        "modern": "duck or return fire",
+        "post_apocalyptic": "desperate block",
+        "sci_fi": "interceptor pulse"
+      },
+      "id": "reactive_defense",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Change range, elevation, flank, or engagement",
+      "genre_manifestations": {
+        "dark_fantasy": "shadow step",
+        "fantasy": "leap or charge",
+        "modern": "tactical roll",
+        "post_apocalyptic": "grapple line",
+        "sci_fi": "jump jets"
+      },
+      "id": "reposition",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Delay detection or gain first-action advantage",
+      "genre_manifestations": {
+        "dark_fantasy": "mist-form lurking",
+        "fantasy": "camouflage",
+        "modern": "stealth",
+        "post_apocalyptic": "rubble concealment",
+        "sci_fi": "optical cloak"
+      },
+      "id": "conceal_ambush",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Heal, repair, regenerate, or drain",
+      "genre_manifestations": {
+        "dark_fantasy": "life drain",
+        "fantasy": "healing or regrowth",
+        "modern": "field medicine",
+        "post_apocalyptic": "stimulant or cannibal regeneration",
+        "sci_fi": "repair swarm"
+      },
+      "id": "sustain",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Add a subordinate, device, or temporary hazard",
+      "genre_manifestations": {
+        "dark_fantasy": "raise corpse",
+        "fantasy": "summon or beast",
+        "modern": "drone or trap",
+        "post_apocalyptic": "scavenged bot or infected pack",
+        "sci_fi": "turret or hologram"
+      },
+      "id": "deploy",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Disable a move, item, channel, or concentration",
+      "genre_manifestations": {
+        "dark_fantasy": "sever pact",
+        "fantasy": "disarm or silence",
+        "modern": "jam weapon",
+        "post_apocalyptic": "foul mechanism",
+        "sci_fi": "EMP or hack"
+      },
+      "id": "disrupt",
+      "support": "corpus_future"
+    },
+    {
+      "current_channel": null,
+      "current_target": null,
+      "function": "Focus a target or increase danger over time",
+      "genre_manifestations": {
+        "dark_fantasy": "doom sign",
+        "fantasy": "hunter focus",
+        "modern": "laser designation",
+        "post_apocalyptic": "scent trail or frenzy",
+        "sci_fi": "targeting lock"
+      },
+      "id": "mark_escalate",
+      "support": "corpus_future"
+    }
+  ],
+  "required_genres": [
+    "sci_fi",
+    "modern",
+    "medieval",
+    "medieval_fantasy",
+    "high_fantasy",
+    "dark_fantasy",
+    "post_apocalyptic"
+  ],
+  "schema": "aetherstate-capability-corpus/1",
+  "semantic_axes": {
+    "availability": [
+      "range",
+      "line_of_sight",
+      "ammo",
+      "cooldown",
+      "terrain",
+      "target_state",
+      "ally_state"
+    ],
+    "basis": [
+      "anatomy",
+      "weapon",
+      "training",
+      "magic",
+      "psionic",
+      "mutation",
+      "cyberware",
+      "device",
+      "environment",
+      "ally"
+    ],
+    "cadence": [
+      "reliable",
+      "ammo",
+      "charges",
+      "cooldown",
+      "recharge",
+      "once_per_scene",
+      "setup",
+      "sustained"
+    ],
+    "counterplay": [
+      "cover",
+      "distance",
+      "brace",
+      "evade",
+      "block",
+      "interrupt",
+      "dispel",
+      "destroy_source",
+      "cleanse"
+    ],
+    "delivery": [
+      "self",
+      "touch",
+      "melee",
+      "reach",
+      "projectile",
+      "line",
+      "cone",
+      "burst",
+      "aura",
+      "zone",
+      "remote"
+    ],
+    "risk": [
+      "recoil",
+      "self_root",
+      "concentration",
+      "friendly_fire",
+      "overheating",
+      "collateral_damage"
+    ],
+    "target_rule": [
+      "nearest",
+      "exposed",
+      "isolated",
+      "clustered",
+      "marked",
+      "dangerous",
+      "objective"
+    ],
+    "tell": [
+      "posture",
+      "sound",
+      "light",
+      "heat",
+      "smell",
+      "weapon_handling",
+      "spoken_ritual"
+    ],
+    "timing": [
+      "action",
+      "reaction",
+      "passive",
+      "on_hit",
+      "on_injury",
+      "on_death",
+      "phase"
+    ]
+  },
+  "semantic_primitives": {
+    "afflict": "Apply persistent harm or a condition.",
+    "breach": "Defeat a protection or capability.",
+    "deploy": "Add an actor, device, trap, or temporary hazard.",
+    "displace": "Change position or posture.",
+    "empower": "Improve an ally or expose/weaken a target for allies.",
+    "guard": "Prevent, redirect, or answer harm.",
+    "information": "Change what can be perceived or targeted.",
+    "objective": "Pursue a non-damage encounter goal.",
+    "prepare": "Telegraph and set up a stronger later effect.",
+    "recover": "Restore or preserve capacity.",
+    "restrain": "Deny or constrain action or movement.",
+    "strike": "Immediate damage or wounds.",
+    "transform": "Change form, phase, stance, or operating mode.",
+    "traverse": "Gain positional advantage.",
+    "zone": "Create or alter dangerous space."
+  }
+}

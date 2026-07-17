@@ -1,0 +1,743 @@
+{
+  "registries": {
+    "abilities": {
+      "arcane_gift": {
+        "desc": "Grants the in-world basis for Spellcraft checks (without it, casting is a non-move).",
+        "effect": "The talent for magic is awake in you.",
+        "group": "spell",
+        "kind": "passive",
+        "mechanic": "basis",
+        "name": "Arcane Gift"
+      },
+      "keen_senses": {
+        "applies_to": "perception",
+        "desc": "Advantage on Perception: roll an extra die and keep the best. Steady, not flashy.",
+        "effect": "You notice what others miss — a second look you always get.",
+        "group": "talent",
+        "kind": "passive",
+        "magnitude": 1,
+        "mechanic": "edge",
+        "name": "Keen Senses"
+      },
+      "power_strike": {
+        "applies_to": "swordplay",
+        "cooldown_turns": 1,
+        "cost": {
+          "stamina": 2
+        },
+        "desc": "Spend 2 stamina: +3 to one melee check AND lift its ceiling — a big, risky swing.",
+        "effect": "A committed heavy blow that trades all guard for devastating force.",
+        "group": "technique",
+        "kind": "active",
+        "magnitude": 3,
+        "mechanic": "surge",
+        "name": "Power Strike",
+        "requires": {
+          "skill_rank": {
+            "swordplay": 1
+          }
+        }
+      },
+      "second_wind": {
+        "applies_to": "all",
+        "cooldown_turns": 2,
+        "cost": {
+          "stamina": 2
+        },
+        "desc": "On a FAILED check, spend 2 stamina to roll an extra die and keep the best — a second chance.",
+        "effect": "When a blow goes wide, you dig deep and find one more try in you.",
+        "group": "technique",
+        "kind": "active",
+        "magnitude": 1,
+        "mechanic": "extra_die",
+        "name": "Second Wind"
+      },
+      "silver_tongue": {
+        "applies_to": "persuasion",
+        "desc": "The humble tier: a flat +1 to Persuasion checks, always on.",
+        "effect": "Words come easily to you.",
+        "group": "talent",
+        "kind": "passive",
+        "magnitude": 1,
+        "mechanic": "mod",
+        "name": "Silver Tongue",
+        "passive_mod": {
+          "amount": 1,
+          "skill": "persuasion"
+        }
+      },
+      "steady_hand": {
+        "applies_to": "archery",
+        "desc": "Guard on Archery: you cannot critically fumble a shot (a crit-miss becomes a miss).",
+        "effect": "Your aim does not waver; the shot never betrays you.",
+        "group": "talent",
+        "kind": "passive",
+        "magnitude": 1,
+        "mechanic": "ward",
+        "name": "Steady Hand"
+      }
+    },
+    "effects": {
+      "backlash": {
+        "desc": "Power reached past mastery and bit back — burnout, recoil, wild energy.",
+        "duration": 4,
+        "kind": "status",
+        "mods": {
+          "all": -2
+        },
+        "name": "Backlash",
+        "valence": "negative"
+      },
+      "battered": {
+        "desc": "Beaten down and barely patched up; defeat lingers in every movement.",
+        "duration": 6,
+        "kind": "condition",
+        "mods": {
+          "all": -1
+        },
+        "name": "Battered",
+        "valence": "negative"
+      },
+      "bleeding": {
+        "desc": "An open wound; blood loss saps every effort.",
+        "duration": 6,
+        "kind": "status",
+        "mods": {
+          "all": -1
+        },
+        "name": "Bleeding",
+        "valence": "negative"
+      },
+      "blessed": {
+        "desc": "Favored by something greater.",
+        "kind": "condition",
+        "mods": {
+          "all": 1
+        },
+        "name": "Blessed",
+        "valence": "positive"
+      },
+      "blinded": {
+        "desc": "Sight lost or fouled.",
+        "duration": 3,
+        "kind": "status",
+        "mods": {
+          "archery": -2,
+          "perception": -3
+        },
+        "name": "Blinded",
+        "valence": "negative"
+      },
+      "burning": {
+        "desc": "On fire — pain and panic.",
+        "duration": 2,
+        "kind": "status",
+        "mods": {
+          "all": -1
+        },
+        "name": "Burning",
+        "valence": "negative"
+      },
+      "charmed": {
+        "desc": "Judgment bent by magic or wiles.",
+        "kind": "condition",
+        "name": "Charmed",
+        "valence": "neutral"
+      },
+      "chilled": {
+        "desc": "Numbing cold slows muscle and mind.",
+        "duration": 3,
+        "kind": "status",
+        "mods": {
+          "all": -1
+        },
+        "name": "Chilled",
+        "valence": "negative"
+      },
+      "cursed": {
+        "desc": "Marked by malign power; misfortune follows.",
+        "kind": "condition",
+        "mods": {
+          "all": -1
+        },
+        "name": "Cursed",
+        "valence": "negative"
+      },
+      "diseased": {
+        "desc": "Sickness has taken hold.",
+        "kind": "condition",
+        "mods": {
+          "all": -1
+        },
+        "name": "Diseased",
+        "valence": "negative"
+      },
+      "drunk": {
+        "desc": "In their cups — loose-tongued and unsteady.",
+        "kind": "condition",
+        "mods": {
+          "perception": -2,
+          "stealth": -1
+        },
+        "name": "Drunk",
+        "valence": "neutral"
+      },
+      "empowered": {
+        "desc": "Surging with borrowed strength.",
+        "duration": 3,
+        "kind": "status",
+        "mods": {
+          "all": 1
+        },
+        "name": "Empowered",
+        "valence": "positive"
+      },
+      "entangled": {
+        "desc": "Snared by webs, vines, or rope.",
+        "duration": 2,
+        "kind": "status",
+        "mods": {
+          "athletics": -2,
+          "stealth": -2
+        },
+        "name": "Entangled",
+        "valence": "negative"
+      },
+      "exhausted": {
+        "desc": "Run past the body's limits.",
+        "kind": "condition",
+        "mods": {
+          "all": -1
+        },
+        "name": "Exhausted",
+        "valence": "negative"
+      },
+      "hasted": {
+        "desc": "Supernaturally quick.",
+        "duration": 3,
+        "kind": "status",
+        "mods": {
+          "all": 1
+        },
+        "name": "Hasted",
+        "valence": "positive"
+      },
+      "inspired": {
+        "desc": "Heart lifted; hands steady.",
+        "kind": "condition",
+        "mods": {
+          "all": 1
+        },
+        "name": "Inspired",
+        "valence": "positive"
+      },
+      "poisoned": {
+        "desc": "Venom works through the body.",
+        "duration": 8,
+        "kind": "status",
+        "mods": {
+          "all": -1
+        },
+        "name": "Poisoned",
+        "valence": "negative"
+      },
+      "pregnant": {
+        "desc": "Carrying a child. Valence is theirs to define — a blessing, a burden, or simply a fact.",
+        "kind": "condition",
+        "name": "Pregnant",
+        "requires": "female",
+        "valence": "neutral"
+      },
+      "regenerating": {
+        "desc": "Wounds knit closed on their own.",
+        "duration": 5,
+        "kind": "status",
+        "name": "Regenerating",
+        "valence": "positive"
+      },
+      "shielded": {
+        "desc": "Warded against harm.",
+        "duration": 3,
+        "kind": "status",
+        "name": "Shielded",
+        "valence": "positive"
+      },
+      "slowed": {
+        "desc": "Limbs drag as if through water.",
+        "duration": 3,
+        "kind": "status",
+        "mods": {
+          "all": -1
+        },
+        "name": "Slowed",
+        "valence": "negative"
+      },
+      "starving": {
+        "desc": "Days without food.",
+        "kind": "condition",
+        "mods": {
+          "all": -1
+        },
+        "name": "Starving",
+        "valence": "negative"
+      },
+      "strained": {
+        "desc": "A critical failure left its mark — pulled muscle, rattled nerve, shaken focus.",
+        "duration": 3,
+        "kind": "status",
+        "mods": {
+          "all": -1
+        },
+        "name": "Strained",
+        "valence": "negative"
+      },
+      "stunned": {
+        "desc": "Reeling; barely able to act.",
+        "duration": 1,
+        "kind": "status",
+        "mods": {
+          "all": -3
+        },
+        "name": "Stunned",
+        "valence": "negative"
+      },
+      "terrified": {
+        "desc": "Fear rules them.",
+        "kind": "condition",
+        "mods": {
+          "all": -1
+        },
+        "name": "Terrified",
+        "valence": "negative"
+      },
+      "weakened": {
+        "desc": "Strength drained away.",
+        "duration": 4,
+        "kind": "status",
+        "mods": {
+          "athletics": -2,
+          "swordplay": -2
+        },
+        "name": "Weakened",
+        "valence": "negative"
+      }
+    },
+    "items": {
+      "grey_mantle": {
+        "desc": "A weathered grey travelling cloak.",
+        "mods": {
+          "stealth": 1
+        },
+        "name": "Grey Mantle",
+        "rarity": "common",
+        "slot": "cape",
+        "stackable": false,
+        "type": "clothing",
+        "worn": true
+      },
+      "healing_draught": {
+        "desc": "Restores a small amount of health.",
+        "max_stack": 10,
+        "name": "Healing Draught",
+        "on_consume": {
+          "heal": 8
+        },
+        "rarity": "common",
+        "stackable": true,
+        "type": "consumable",
+        "worn": false
+      },
+      "iron_helm": {
+        "covers": [
+          "head"
+        ],
+        "desc": "A dented iron helm.",
+        "mods": {
+          "armor": 1
+        },
+        "name": "Iron Helm",
+        "rarity": "common",
+        "slot": "head",
+        "stackable": false,
+        "type": "armor",
+        "worn": true
+      },
+      "lockpicks": {
+        "desc": "Slender picks for stubborn locks.",
+        "grants_check": "lockpicking",
+        "name": "Lockpicks",
+        "stackable": false,
+        "type": "tool",
+        "worn": false
+      },
+      "short_sword": {
+        "desc": "A plain, reliable short sword.",
+        "mods": {
+          "damage": "d6"
+        },
+        "name": "Short Sword",
+        "slot": "mainhand",
+        "stackable": false,
+        "type": "weapon",
+        "worn": true
+      },
+      "utility_belt": {
+        "capacity": 4,
+        "desc": "A sturdy belt with pouches.",
+        "is_container": true,
+        "name": "Utility Belt",
+        "slot": "waist",
+        "stackable": false,
+        "type": "container",
+        "worn": true
+      }
+    },
+    "loot": {
+      "boss": {
+        "entries": [
+          {
+            "chance": 1.0,
+            "name": "trove of coin"
+          },
+          {
+            "chance": 0.9,
+            "name": "signature relic"
+          },
+          {
+            "chance": 0.7,
+            "name": "Healing Draught",
+            "qty_max": 3,
+            "qty_min": 2
+          }
+        ]
+      },
+      "elite": {
+        "entries": [
+          {
+            "chance": 0.9,
+            "name": "heavy coin purse"
+          },
+          {
+            "chance": 0.5,
+            "name": "quality weapon"
+          },
+          {
+            "chance": 0.5,
+            "name": "Healing Draught",
+            "qty_max": 2,
+            "qty_min": 1
+          }
+        ]
+      },
+      "minion": {
+        "entries": [
+          {
+            "chance": 0.7,
+            "name": "a few coins",
+            "qty_max": 4,
+            "qty_min": 1
+          },
+          {
+            "chance": 0.25,
+            "name": "crude weapon"
+          }
+        ]
+      },
+      "standard": {
+        "entries": [
+          {
+            "chance": 0.8,
+            "name": "coin purse"
+          },
+          {
+            "chance": 0.35,
+            "name": "worn weapon"
+          },
+          {
+            "chance": 0.2,
+            "name": "Healing Draught"
+          }
+        ]
+      }
+    },
+    "mechanics_phrasebook": {
+      "construction": [
+        {
+          "action": "social_bargain",
+          "id": "bargain.press_for_terms",
+          "skill": "persuasion",
+          "target_slot": "person",
+          "templates": [
+            "press {person} for {terms}",
+            "push {person} for {terms}",
+            "lean on {person} for {terms}",
+            "talk {person} down to {terms}",
+            "drive a bargain with {person}",
+            "hold out for {terms}"
+          ]
+        },
+        {
+          "action": "weapon_attack",
+          "attack": true,
+          "id": "weapon.penetrating_attack",
+          "instrument_slot": "weapon",
+          "skill": "swordplay",
+          "target_slot": "person",
+          "templates": [
+            "bury {weapon} in {person}",
+            "sink {weapon} into {person}",
+            "drive {weapon} into {person}",
+            "put {weapon} through {person}",
+            "put {weapon} into {person}",
+            "run {weapon} through {person}",
+            "run {weapon} into {person}"
+          ]
+        },
+        {
+          "action": "weapon_attack",
+          "attack": true,
+          "id": "weapon.slashing_attack",
+          "skill": "swordplay",
+          "templates": [
+            "slash at",
+            "slash across",
+            "cut at",
+            "cut across",
+            "hack at",
+            "chop at"
+          ]
+        },
+        {
+          "action": "grapple",
+          "attack": true,
+          "id": "grapple.takedown",
+          "skill": "athletics",
+          "target_slot": "person",
+          "templates": [
+            "wrestle {person} to the ground",
+            "take {person} to the ground",
+            "throw {person} to the ground"
+          ]
+        }
+      ],
+      "schema": 1
+    },
+    "meta": {
+      "dice": "2d6",
+      "mod_policy": "dnd5e",
+      "tiers": "pbta3",
+      "version": "rpg-registry/1"
+    },
+    "skills": {
+      "archery": {
+        "base_mod": 0,
+        "desc": "Accuracy with ranged weapons.",
+        "governs": [
+          "shoot",
+          "bow",
+          "arrow",
+          "loose",
+          "aim",
+          "ranged"
+        ],
+        "keyed_stat": "DEX",
+        "max_rank": 5,
+        "name": "Archery"
+      },
+      "athletics": {
+        "base_mod": 0,
+        "desc": "Feats of body and motion.",
+        "governs": [
+          "climb",
+          "jump",
+          "swim",
+          "vault",
+          "grapple",
+          "run"
+        ],
+        "keyed_stat": "STR",
+        "max_rank": 5,
+        "name": "Athletics"
+      },
+      "brawl": {
+        "base_mod": 0,
+        "desc": "Fighting up close — fists, improvised weapons, or a blade in a pinch.",
+        "governs": [
+          "attack",
+          "strike",
+          "hit",
+          "punch",
+          "kick",
+          "grapple",
+          "swing",
+          "fight",
+          "melee",
+          "lunge",
+          "slam",
+          "tackle",
+          "bash",
+          "stab"
+        ],
+        "keyed_stat": "STR",
+        "max_rank": 5,
+        "name": "Brawl"
+      },
+      "lockpicking": {
+        "base_mod": 0,
+        "desc": "Opening stubborn locks.",
+        "governs": [
+          "pick",
+          "lockpick",
+          "unlock",
+          "jimmy",
+          "force the lock"
+        ],
+        "keyed_stat": "CUN",
+        "max_rank": 5,
+        "name": "Lockpicking"
+      },
+      "lore": {
+        "base_mod": 0,
+        "desc": "Knowledge of history, arcana, and the world.",
+        "governs": [
+          "recall",
+          "identify",
+          "decipher",
+          "read",
+          "study",
+          "recognize"
+        ],
+        "keyed_stat": "INT",
+        "max_rank": 5,
+        "name": "Lore"
+      },
+      "perception": {
+        "base_mod": 0,
+        "desc": "Noticing what others miss.",
+        "governs": [
+          "notice",
+          "spot",
+          "perceive",
+          "search",
+          "listen",
+          "watch"
+        ],
+        "keyed_stat": "CUN",
+        "max_rank": 5,
+        "name": "Perception"
+      },
+      "persuasion": {
+        "base_mod": 0,
+        "desc": "Winning people over with words.",
+        "governs": [
+          "convince",
+          "persuade",
+          "negotiate",
+          "charm",
+          "talk",
+          "plead",
+          "barter"
+        ],
+        "keyed_stat": "CHA",
+        "max_rank": 5,
+        "name": "Persuasion"
+      },
+      "spellcraft": {
+        "base_mod": 0,
+        "cost": {
+          "mana": 2
+        },
+        "desc": "Shaping magic. Requires the Arcane Gift — you cannot declare power; you acquire it.",
+        "governs": [
+          "cast",
+          "spell",
+          "channel",
+          "mana",
+          "weave",
+          "incant",
+          "conjure"
+        ],
+        "keyed_stat": "INT",
+        "max_rank": 5,
+        "name": "Spellcraft",
+        "requires_ability": "arcane_gift"
+      },
+      "stealth": {
+        "base_mod": 0,
+        "desc": "Avoiding detection.",
+        "governs": [
+          "sneaking",
+          "sneak",
+          "hiding",
+          "hide",
+          "moving silently",
+          "slip past",
+          "creep"
+        ],
+        "keyed_stat": "DEX",
+        "max_rank": 5,
+        "name": "Stealth"
+      },
+      "swordplay": {
+        "base_mod": 0,
+        "desc": "Fighting with blades.",
+        "governs": [
+          "melee",
+          "sword",
+          "blade",
+          "strike",
+          "parry",
+          "duel"
+        ],
+        "keyed_stat": "STR",
+        "max_rank": 5,
+        "name": "Swordplay"
+      }
+    },
+    "stats": {
+      "CHA": {
+        "default": 10,
+        "desc": "Force of personality; persuasion and presence.",
+        "max": 20,
+        "min": 1,
+        "name": "Charisma"
+      },
+      "CON": {
+        "default": 10,
+        "desc": "Endurance, resilience, and staying power.",
+        "max": 20,
+        "min": 1,
+        "name": "Constitution"
+      },
+      "CUN": {
+        "default": 10,
+        "desc": "Guile, larceny, and reading a situation.",
+        "max": 20,
+        "min": 1,
+        "name": "Cunning"
+      },
+      "DEX": {
+        "default": 10,
+        "desc": "Agility, precision, stealth, and ranged accuracy.",
+        "max": 20,
+        "min": 1,
+        "name": "Dexterity"
+      },
+      "INT": {
+        "default": 10,
+        "desc": "Reason, lore, and arcane academics.",
+        "max": 20,
+        "min": 1,
+        "name": "Intelligence"
+      },
+      "STR": {
+        "default": 10,
+        "desc": "Raw physical power. Keys melee and feats of force.",
+        "max": 20,
+        "min": 1,
+        "name": "Strength"
+      }
+    }
+  },
+  "schema": "aetherstate-rpg-registry-snapshot/1"
+}

@@ -1,0 +1,7 @@
+# RPG curated-registry meta (the public contract). Versioned so the rules-contract prompt and the
+# code share one vocabulary. `dice`/`tiers` here are DEFAULTS; when specialization=rpg the
+# profile knobs (cfg.specialization.dice / .tiers) win (D1 — one knob to switch systems).
+version = "rpg-registry/1"
+mod_policy = "dnd5e"    # dnd5e => floor((v-10)/2) ; direct => value used as-is
+dice = "2d6"            # resolution dice (D1): 2d6 | 3d6 | 2d10 | 1d20
+tiers = "pbta3"         # tier model: pbta3 (fail/partial/success + crits)

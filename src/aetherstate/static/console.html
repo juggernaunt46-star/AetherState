@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AetherState Console</title>
+<style>
+:root{--bg:#13141a;--panel:#1c1e27;--edge:#2b2e3b;--fg:#dde1ec;--dim:#8b90a5;--acc:#7aa2f7;
+ --ok:#9ece6a;--warn:#e0af68;--bad:#f7768e;--vio:#bb9af7;--r:9px}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{position:sticky;top:0;z-index:5;display:flex;gap:10px;align-items:center;
+ padding:9px 14px;background:var(--panel);border-bottom:1px solid var(--edge);flex-wrap:wrap}
+h1{font-size:15px;margin:0 8px 0 0;color:var(--acc)}
+nav{display:flex;gap:2px}
+nav button{background:none;border:none;color:var(--dim);padding:6px 11px;cursor:pointer;
+ font-size:13px;border-radius:6px}
+nav button.on{color:var(--fg);background:var(--edge)}
+select,input,textarea{background:var(--bg);color:var(--fg);border:1px solid var(--edge);
+ border-radius:6px;padding:5px 8px;font-size:13px;max-width:100%}
+main{padding:14px;max-width:1100px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);
+ padding:12px 14px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:12px}
+.pill{display:inline-block;padding:1px 9px;border-radius:9px;font-size:11.5px;margin:1px}
+.ok{background:#20301f;color:var(--ok)}.bad{background:#3a2030;color:var(--bad)}
+.warn{background:#38301c;color:var(--warn)}.dim{background:var(--edge);color:var(--dim)}
+.vio{background:#2c2440;color:var(--vio)}
+.bar{height:7px;border-radius:4px;background:var(--edge);overflow:hidden;flex:1;min-width:60px}
+.bar i{display:block;height:100%;border-radius:4px}
+.meter{display:flex;gap:8px;align-items:center;margin:3px 0;font-size:12.5px}
+.meter b{width:96px;font-weight:500;color:var(--dim);flex-shrink:0}
+.meter em{width:34px;font-style:normal;text-align:right;color:var(--dim);font-size:11.5px}
+button.act{background:var(--acc);color:#0f1117;border:none;border-radius:6px;
+ padding:6px 14px;cursor:pointer;font-weight:600;font-size:13px}
+button.mini{background:var(--edge);color:var(--fg);border:none;border-radius:5px;
+ padding:1px 8px;cursor:pointer;font-size:12px}
+button.mini:hover{background:var(--acc);color:#0f1117}
+button.danger{background:var(--bad);color:#14151a}
+button.good{background:var(--ok);color:#14151a}
+table{border-collapse:collapse;width:100%}
+td,th{padding:4px 9px;text-align:left;border-bottom:1px solid var(--edge);font-size:13px}
+th{color:var(--dim);font-weight:500}
+pre{white-space:pre-wrap;font-size:12px;background:var(--bg);padding:10px;border-radius:7px;
+ border:1px solid var(--edge);max-height:480px;overflow:auto}
+.row{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:7px 0}
+label.sw{display:inline-flex;gap:6px;align-items:center;cursor:pointer;color:var(--dim);font-size:13px}
+.hint{color:var(--dim);font-size:12px}
+h3{margin:2px 0 8px;font-size:13.5px;color:var(--acc)}
+h4{margin:0 0 6px;font-size:14px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:var(--edge);border-radius:7px;
+ padding:2px 8px;font-size:12px;margin:2px}
+.chip button{background:none;border:none;color:var(--bad);cursor:pointer;font-size:13px;padding:0}
+.formgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:9px}
+.field{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--dim)}
+.zones{display:flex;flex-wrap:wrap;gap:4px}
+.zones label,.mchar label{display:inline-flex;gap:4px;align-items:center;background:var(--bg);
+ border:1px solid var(--edge);border-radius:6px;padding:2px 7px;font-size:12px;cursor:pointer}
+.zones label:has(input:checked),.mchar label:has(input:checked){border-color:var(--acc);color:var(--fg)}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel);
+ border:1px solid var(--acc);border-radius:8px;padding:9px 18px;display:none;z-index:9;
+ max-width:80vw;font-size:13px}
+.opsel{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.opsel button{background:var(--bg);border:1px solid var(--edge);color:var(--dim);
+ border-radius:7px;padding:4px 11px;cursor:pointer;font-size:12.5px}
+.opsel button.on{border-color:var(--acc);color:var(--fg)}
+.plpicker{position:relative;min-width:300px;flex:1}
+.plpicker>input{width:100%}
+.plchoices{position:absolute;z-index:8;left:0;right:0;top:calc(100% + 3px);max-height:260px;
+ overflow:auto;background:var(--panel);border:1px solid var(--edge);border-radius:7px;box-shadow:0 8px 24px #0008}
+.plchoices:empty{display:none}
+.plchoices button{display:block;width:100%;padding:7px 9px;text-align:left;background:var(--panel);
+ color:var(--fg);border:0;border-bottom:1px solid var(--edge);cursor:pointer}
+.plchoices button:hover{background:var(--edge)}
+.lessonitem{border-top:1px solid var(--edge);padding:11px 0}
+.lessonitem:first-child{border-top:0;padding-top:2px}
+.lessoncopy{white-space:pre-wrap;background:var(--bg);border:1px solid var(--edge);border-radius:6px;
+ padding:7px 9px;margin:5px 0;color:var(--fg);width:100%}
+textarea.lessoncopy{min-height:86px}
+</style>
+</head>
+<body>
+<header>
+  <h1>AetherState</h1>
+  <nav id="tabs"></nav>
+  <span style="flex:1"></span>
+  <button class="act danger" id="btnFreeze" style="display:none">FREEZE</button>
+  <button class="act good" id="btnResume" style="display:none">RESUME</button>
+  <label class="sw" title="Allows edits that push things forward (consent up, drives up). Safety-direction edits are always allowed."><input type="checkbox" id="ovr"> override</label>
+  <select id="sess"></select>
+</header>
+<main id="view"></main>
+<div id="toast"></div>
+<script>
+"use strict";
+/* ---------- constants (mirror the engine's vocabulary) ---------- */
+const ZONES=["head","face","mouth","neck","shoulders","chest","breasts","nipples","back","arms",
+ "wrists","hands","waist","hips","ass","anus","genitals","thighs","legs","feet"];
+const WORN=["base_layer","top","bottom","outerwear","footwear","headwear","handwear","facewear",
+ "eyewear","neckwear","armor"];
+const CARRIED=["load_bearing","backpack","pouch","tool","weapon","ammunition","consumable",
+ "medical","electronics","accessory"];
+const PHASES=["setup","rising","climax","resolution"];
+const TIMES=["dawn","morning","midday","afternoon","evening","night","late_night"];
+const DIMS=["trust","affection","respect","desire","tension","fear","familiarity"];
+const CATS=["kissing","manual","oral_give","oral_receive","vaginal","anal","toys","restraint",
+ "impact","degradation","praise","exhibition","group","roleplay_scene","other"];
+const LEVELS=["unknown","hesitant","granted","enthusiastic","soft_limit","hard_limit","withdrawn"];
+const SIGNALS=["grant","enthusiastic","hesitant","refuse","withdraw"];
+const POSES=["standing","sitting","kneeling","straddling","lying_back","lying_front",
+ "on_all_fours","bent_over","held_carried"];
+const TOUCH=["touching","caressing","gripping","kissing","licking","sucking","penetrating",
+ "grinding","restraining","impact"];
+const FLAVORS=["romantic","possessive","protective","hostile","curious","ambition","reverent","other"];
+const TKINDS=["entity","act_category","substance","object","concept"];
+const TABS=["Player","PlayerLex","Player Lessons","Overview","Edit","Sessions","Connection","Status","Models","Raw"];
+/* ---------- app state ---------- */
+let tab="Player",sid="",S=null,editOp="scene_set",timer=null,PL=[],PL_EDIT="",
+ PL_CONCEPT=null,PL_CHOICES=[],PL_NEXT_CURSOR=null,PL_SEARCH_TIMER=null,PL_SEARCH_SEQ=0,
+ LESSONS=[],LESSON_EDIT="",LESSON_ANCHORS=[],LESSON_SELECTIONS=[],LESSON_SELECTION_ERROR="",
+ LESSON_APPLICATIONS=[],LESSON_APPLICATION_ERROR="",
+ LESSON_LOAD_SEQ=0,
+ RENDER_SEQ=0;
+const $=q=>document.querySelector(q);
+const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const j=async(u,o)=>{const r=await fetch(u,o);return r.json()};
+function toast(msg,bad){const t=$("#toast");t.textContent=msg;
+ t.style.borderColor=bad?"var(--bad)":"var(--acc)";t.style.display="block";
+ clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",3500)}
+async function ops(list){if(!sid)return toast("no session yet — open a chat first",1);
+ try{const d=await j(`/aether/session/${sid}/state`,{method:"PATCH",
+  headers:{"content-type":"application/json"},body:JSON.stringify({ops:list})});
+  const rej=(d.rejected||[]).map(r=>r.reason).join("; ");
+  toast(`applied ${d.applied||0}`+(rej?` · rejected: ${rej}`:""),!d.applied&&rej);
+  await load();render()}catch(e){toast("error: "+e,1)}}
+/* ---------- data ---------- */
+async function sessions(){const d=await j("/aether/sessions");const s=d.sessions||[];
+ $("#sess").innerHTML=s.length?s.map(x=>`<option value="${x.session_id}" ${x.session_id===sid?"selected":""}>`+
+  `${esc(x.label||(x.external_id||x.session_id).slice(0,20))} · t${x.head_turn??"?"}</option>`).join("")
+  :`<option value="">no sessions yet</option>`;
+ if(!sid&&s.length)sid=s[0].session_id;return s}
+let J=null;   /* RPG-4: journal tail for the activity feed */
+let HUD=null; /* 2026-07-07: the resolved player-facing view — SAME payload the ST HUD renders */
+async function load(){if(!sid){S=null;J=null;HUD=null;return}
+ try{S=await j(`/aether/session/${sid}/state`)}catch(e){S=null}
+ try{J=await j(`/aether/session/${sid}/journal?limit=25`)}catch(e){J=null}
+ try{HUD=await j(`/aether/session/${sid}/hud`)}catch(e){HUD=null}}
+const chars=()=>Object.entries(S?.state?.entities||{});
+const cnames=()=>chars().map(([id,e])=>[id,e.name||id]);
+const nameOf=id=>(S?.state?.entities?.[id]?.name)||id;
+/* ---------- header ---------- */
+function headerRefresh(){const f=S?.frozen;
+ $("#btnFreeze").style.display=S&&!f?"":"none";
+ $("#btnResume").style.display=S&&f?"":"none"}
+$("#btnFreeze").onclick=async()=>{await j(`/aether/session/${sid}/freeze`,{method:"POST"});await load();headerRefresh();render();toast("scene frozen — aftercare register active")};
+$("#btnResume").onclick=async()=>{await j(`/aether/session/${sid}/unfreeze`,{method:"POST"});await load();headerRefresh();render();toast("scene resumed")};
+$("#ovr").onchange=async e=>{await j("/aether/override",{method:"POST",
+ headers:{"content-type":"application/json"},body:JSON.stringify({enabled:e.target.checked})});
+ toast(e.target.checked?"manual override ON — forward edits allowed":"manual override OFF")};
+$("#sess").onchange=async e=>{sid=e.target.value;await load();headerRefresh();render()};
+/* ---------- widgets ---------- */
+const bar=(v,max,col)=>`<span class="bar"><i style="width:${max?Math.max(0,Math.min(100,100*v/max)):0}%;background:${col}"></i></span>`;
+const meter=(label,v,max,col)=>`<div class="meter"><b>${esc(label)}</b>${bar(v,max,col)}<em>${esc(v)}</em></div>`;
+const resourceLabel=(id,r)=>String((r&&r.name)||id||"").replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase());
+const resourceColor=(id,r)=>{const c=String((r&&r.color)||"");if(/^#[0-9a-f]{6}$/i.test(c))return c.toLowerCase();
+ return id==="hp"?"var(--bad)":id==="mana"?"var(--vio)":id==="stamina"?"var(--ok)":"var(--acc)"};
+const resourceMeter=(id,r)=>{if(!r||!r.max)return "";const cur=r.cur??r.current??r.max;
+ return `<div class="meter"><b>${esc(resourceLabel(id,r))}</b>${bar(cur,r.max,resourceColor(id,r))}<em>${esc(cur)}/${esc(r.max)}</em></div>`};
+const moodWord=v=>v>=45?"bright":v>=15?"warm":v>-15?"level":v>-45?"low":"dark";
+const energyWord=v=>v>=45?"charged":v>=15?"lively":v>-15?"steady":v>-45?"tired":"drained";
+/* ---------- Overview ---------- */
+function overview(){if(!S)return `<div class="card">No session selected — open a chat in
+ SillyTavern (or send one message) and it appears here.</div>`;
+ const st=S.state,sc=st.scene||{},ck=st.clock||{};
+ let h=`<div class="card"><h3>Scene</h3><div class="row">
+  <span class="pill vio">${esc(sc.location_id||"nowhere yet")}</span>
+  <span class="pill dim">${esc(sc.phase||"setup")}</span>
+  <span class="pill dim">day ${ck.day??1} · ${esc(ck.time_of_day||"?")}</span>
+  ${sc.mode&&sc.mode!=="live"?`<span class="pill warn">${esc(sc.mode)}</span>`:""}
+  ${S.frozen?`<span class="pill bad">FROZEN${S.state.frozen_reason?" · "+esc(S.state.frozen_reason):""}</span>`:""}
+  <span style="flex:1"></span><span class="hint">turn ${S.head_turn}</span></div>
+  ${meter("tension",sc.tension||0,100,"var(--bad)")}
+  ${meter("intimacy",sc.intimacy||0,100,"var(--vio)")}</div>`;
+ /* player card (RPG) — 2026-07-06: the committed Player Card is finally visible */
+ for(const [pid,p] of Object.entries(st.player||{})){
+  const pname=st.entities?.[pid]?.name||pid;
+  h+=`<div class="card"><h3>Player — ${esc(pname)}${p.level?` <span class="pill vio">lv ${p.level}</span>`:""}${p.concept?` <span class="pill dim">${esc(p.concept)}</span>`:""}</h3>`;
+  if(p.stats)h+=`<div class="row">`+Object.entries(p.stats).map(([k,v])=>`<span class="pill dim">${esc(k)} ${v}</span>`).join("")+`</div>`;
+  const sk=Object.entries(p.skills||{}).filter(([,v])=>v>0);
+  if(sk.length)h+=`<div class="row"><span class="hint">skills:</span>`+sk.map(([k,v])=>`<span class="pill vio">${esc(k)} r${v}</span>`).join("")+`</div>`;
+  if((p.abilities||[]).length)h+=`<div class="row"><span class="hint">abilities:</span>`+p.abilities.map(x=>`<span class="pill ok">${esc(x)}</span>`).join("")+`</div>`;
+  const defs=p.defs||{};const dn=[...Object.values(defs.skills||{}),...Object.values(defs.abilities||{})].map(x=>x.name).filter(Boolean);
+  if(dn.length)h+=`<div class="row"><span class="hint">custom (frozen):</span>`+dn.map(x=>`<span class="pill warn">${esc(x)}</span>`).join("")+`</div>`;
+  const hp=p.hp||p.resources?.hp;h+=resourceMeter("hp",hp);
+  for(const [id,r] of Object.entries(p.resources||{}))if(id!=="hp")h+=resourceMeter(id,r);
+  h+=`</div>`}
+ /* characters */
+ h+=`<div class="grid">`;
+ for(const [id,e] of chars()){const c=st.chars?.[id]||{};const a=c.arousal||{};const af=c.affect||{};
+  const worn=[],carried=[];
+  for(const [item,g] of Object.entries(st.clothing?.[id]||{})){
+   if(g.state==="removed"||g.state==="destroyed")continue;
+   ((g.category&&CARRIED.includes(g.category))?carried:worn).push([item,g])}
+  h+=`<div class="card"><div class="row" style="margin-top:0"><h4>${esc(e.name||id)}</h4>
+   ${e.present?`<span class="pill ok">present</span>`:`<span class="pill dim">away${e.location?" · "+esc(e.location):""}</span>`}
+   <span style="flex:1"></span>
+   <span class="hint">${moodWord(af.valence||0)} · ${energyWord(af.energy||0)}</span></div>`;
+  if((a.arousal||0)>0)h+=meter("arousal",a.arousal||0,100,"var(--warn)");
+  for(const [k,o] of Object.entries(c.obsessions||{}))
+   h+=`<div class="meter"><b title="${esc(k)}">☄ ${esc(o.target)}</b>${bar(o.intensity,100,"var(--vio)")}
+    <em>${o.intensity}</em><button class="mini" onclick='ops([{op:"obsession",char:${JSON.stringify(id)},target_kind:${JSON.stringify(o.target_kind)},target:${JSON.stringify(o.target)},delta:10}])'>+</button>
+    <button class="mini" onclick='ops([{op:"obsession",char:${JSON.stringify(id)},target_kind:${JSON.stringify(o.target_kind)},target:${JSON.stringify(o.target)},delta:-10}])'>−</button></div>`;
+  for(const [sub,cr] of Object.entries(c.cravings||{}))
+   h+=`<div class="meter"><b>♦ ${esc(sub)}</b>${bar(cr.level,100,"var(--bad)")}<em>${cr.level}</em>
+    <button class="mini" title="consume: −satisfaction" onclick='ops([{op:"craving",char:${JSON.stringify(id)},substance:${JSON.stringify(sub)},action:"consume"}])'>sate</button>
+    <button class="mini" onclick='ops([{op:"craving",char:${JSON.stringify(id)},substance:${JSON.stringify(sub)},action:"adjust",delta:10}])'>+</button></div>`
+   +((cr.dependency||0)>0?meter("└ dependency",cr.dependency,100,"var(--warn)"):"");
+  const effs=Object.entries(st.effects?.[id]||{});   /* RPG-3: Status/Condition ledger */
+  if(effs.length)h+=`<div class="row"><span class="hint">effects:</span>`+effs.map(([fk,f])=>{
+   const live=f.duration==null||(f.gained_turn||0)+f.duration>(st.meta?.turn??S.head_turn??0);
+   const glyph=f.valence==="negative"?"▼":f.valence==="positive"?"▲":"◆";
+   const col=f.valence==="negative"?"var(--bad)":f.valence==="positive"?"var(--ok)":"var(--dim)";
+   const tip=(f.kind||"condition")+(f.duration!=null?` · ${f.duration}t`:"")+(f.note?` · ${f.note}`:"")+(live?"":" · EXPIRED");
+   return `<span class="chip" title="${esc(tip)}"${live?"":' style="opacity:.45"'}><b style="color:${col}">${glyph}</b> ${esc(f.name||fk)}${(f.stacks||1)>1?" ×"+f.stacks:""}
+    <button title="remove" onclick='ops([{op:"effect_remove",char:${JSON.stringify(id)},effect:${JSON.stringify(fk)}}])'>×</button></span>`}).join("")+`</div>`;
+  if(worn.length)h+=`<div class="row"><span class="hint">worn:</span>`+worn.map(([item,g])=>
+   `<span class="chip" title="${esc((g.covers||[]).join(", ")||"covers nothing")}">${esc(item)}${g.state!=="worn"?" ("+esc(g.state)+")":""}
+    <button title="remove" onclick='ops([{op:"clothing",char:${JSON.stringify(id)},item:${JSON.stringify(item)},action:"remove"}])'>×</button></span>`).join("")+`</div>`;
+  if(carried.length)h+=`<div class="row"><span class="hint">carrying:</span>`+carried.map(([item])=>
+   `<span class="chip">${esc(item)}<button title="drop" onclick='ops([{op:"clothing",char:${JSON.stringify(id)},item:${JSON.stringify(item)},action:"remove"}])'>×</button></span>`).join("")+`</div>`;
+  const goals=(c.goals||[]).filter(g=>!g.done&&g.text!==undefined?true:typeof g==="string");
+  if(goals.length)h+=`<div class="hint">goals: ${goals.map(g=>esc(g.text||g)).join(" · ")}</div>`;
+  h+=`</div>`}
+ h+=`</div>`;
+ /* RPG-3b: affinity ledgers, bonds, factions, world flags */
+ const aff=Object.entries(st.affinity||{});
+ const pl0=Object.values(st.player||{})[0]||{};
+ if(aff.length||pl0.soulmate||pl0.nemesis){h+=`<div class="card"><h3>Relations (RPG)</h3>`;
+  const affTier=v=>v>=80?"Devoted":v>=40?"Ally":v>=10?"Warm":v>=-9?"Neutral":v>=-39?"Cold":v>=-79?"Hostile":"Nemesis";
+  const shown=new Set();
+  for(const [k,a] of aff){const b=k.split("->")[1];shown.add(b);
+   const val=a.value||0,tier=a.tier||affTier(val);
+   const bond=pl0.soulmate===b?"♥ soulmate":pl0.nemesis===b?"☠ nemesis":"";
+   const cls=val>=40?"ok":val<=-40?"bad":"dim";
+   const last=(a.ledger&&a.ledger.length)?a.ledger[a.ledger.length-1]:null;
+   h+=`<div class="row"><b style="font-weight:500">${esc(nameOf(b))}</b>
+    <span class="pill ${cls}" title="clamped ledger sum">${esc(tier)} · ${val}</span>
+    ${a.kind==="faction"?`<span class="pill dim">faction</span>`:""}
+    ${bond?`<span class="pill vio">${bond}</span>`:""}
+    ${(a.labels||[]).map(l=>`<span class="pill warn">${esc(l)}</span>`).join("")}
+    <button class="mini" title="needs override ON" onclick='ops([{op:"affinity_adj",target:${JSON.stringify(b)},delta:5,reason:"console nudge"}])'>+</button>
+    <button class="mini" title="needs override ON" onclick='ops([{op:"affinity_adj",target:${JSON.stringify(b)},delta:-5,reason:"console nudge"}])'>−</button>
+    ${last?`<span class="hint" title="latest ledger entry">t${last.turn}: ${last.delta>0?"+":""}${last.delta}${last.reason?" · "+esc(last.reason):""}</span>`:""}</div>`}
+  for(const [b,g] of [[pl0.soulmate,"♥ soulmate"],[pl0.nemesis,"☠ nemesis"]])
+   if(b&&![...shown].some(x=>x===b))h+=`<div class="row"><b style="font-weight:500">${esc(nameOf(b))}</b><span class="pill vio">${g}</span></div>`;
+  h+=`</div>`}
+ const facs=Object.entries(st.factions||{});const wflags=Object.entries(st.world||{});
+ if(facs.length||wflags.length){h+=`<div class="card"><h3>Factions &amp; world</h3>`;
+  for(const [fid,f] of facs){const circ=Object.entries(f.circumstances||{});
+   h+=`<div class="row"><b style="font-weight:500">${esc(f.name||nameOf(fid))}</b>`+
+    (circ.length?circ.map(([k,v])=>`<span class="chip">${esc(k)}=${esc(String(v))}
+     <button title="clear" onclick='ops([{op:"world_flag",key:${JSON.stringify(k)},value:null,faction:${JSON.stringify(fid)}}])'>×</button></span>`).join("")
+    :`<span class="hint">no standing circumstances</span>`)+`</div>`}
+  if(wflags.length)h+=`<div class="row"><span class="hint">world:</span>`+wflags.map(([k,v])=>
+   `<span class="chip">${esc(k)}=${esc(String(v))}
+    <button title="clear" onclick='ops([{op:"world_flag",key:${JSON.stringify(k)},value:null}])'>×</button></span>`).join("")+`</div>`;
+  h+=`</div>`}
+ /* relationships + consent */
+ const rels=Object.entries(st.relationships||{});
+ if(rels.length){h+=`<div class="card"><h3>Relationships</h3>`;
+  for(const [k,r] of rels){const [a,b]=k.split("->");
+   const top=Object.entries(r.dims||{}).filter(([,v])=>Math.abs(v)>=15)
+    .sort((x,y)=>Math.abs(y[1])-Math.abs(x[1])).slice(0,4);
+   h+=`<div class="row"><b style="font-weight:500">${esc(nameOf(a))} → ${esc(nameOf(b))}</b>`+
+    (top.length?top.map(([d,v])=>`<span class="pill ${v>=45?"vio":v<=-30?"bad":"dim"}">${d} ${v}</span>`).join(""):`<span class="hint">nothing strong yet</span>`)+`</div>`}
+  h+=`</div>`}
+ const cons=Object.entries(st.consent||{});
+ if(cons.length){h+=`<div class="card"><h3>Consent</h3><table><tr><th>between</th><th>act</th><th>level</th><th>cap</th></tr>`;
+  for(const [k,c] of cons){const [a,b,cat]=k.split("|");
+   const cls=["granted","enthusiastic"].includes(c.level)?"ok":["hard_limit","withdrawn"].includes(c.level)?"bad":"warn";
+   h+=`<tr><td>${esc(nameOf(a))} ↔ ${esc(nameOf(b))}</td><td>${esc(cat)}</td>
+    <td><span class="pill ${cls}">${esc(c.level)}</span></td><td>${c.max_intensity??"—"}</td></tr>`}
+  h+=`</table></div>`}
+ const mems=(st.memories||[]).slice(-6).reverse();
+ if(mems.length)h+=`<div class="card"><h3>Recent memories</h3>`+
+  mems.map(m=>`<div class="hint">t${m.turn} · ${esc(m.text)}</div>`).join("")+`</div>`;
+ /* RPG-4: visible roll + state-change feedback (the public contract inspectors) */
+ const je=(J&&J.entries)||[],jr=(J&&J.rolls)||[];
+ if(je.length||jr.length){h+=`<div class="card"><h3>Recent activity (RPG)</h3>`;
+  if(jr.length)h+=`<div class="row"><span class="hint">rolls:</span>`+jr.slice(-6).reverse().map(r=>
+   `<span class="chip">t${r.turn} · ${esc(String(r.spec))} → ${esc(String(r.result))}</span>`).join("")+`</div>`;
+  h+=je.slice(0,14).map(e=>{const b=Object.entries(e.brief||{}).map(([k,v])=>`${esc(k)}=${esc(String(v))}`).join(" · ");
+   return `<div class="hint">t${e.turn} · <b>${esc(e.op||"?")}</b> <span class="pill dim">${esc(e.source||"")}</span>${b?" · "+b:""}</div>`}).join("");
+  h+=`</div>`}
+ return h}
+/* ---------- Edit (guided forms) ---------- */
+const F={
+ scene_set:{g:"Scene",t:"Set scene",f:[["location","location","text"],["phase","phase","sel",PHASES],
+  ["participants","who is present","mchar"]]},
+ scene_dial:{g:"Scene",t:"Tension / intimacy",f:[["dial","dial","sel",["tension","intimacy"]],
+  ["delta","change by (±)","num"],["set","or set to","num"]]},
+ scene_mode:{g:"Scene",t:"Scene mode",f:[["mode","mode","sel",["live","flashback","dream"]]]},
+ time_advance:{g:"Scene",t:"Advance time",f:[["to_time_of_day","to","sel",TIMES]]},
+ entity_add:{g:"Characters",t:"Add character",f:[["name","name","text"]]},
+ presence:{g:"Characters",t:"Enter / leave",f:[["entity","who","char"],["present","present","check"]]},
+ move_entity:{g:"Characters",t:"Move",f:[["entity","who","char"],["to_location","to","text"]]},
+ mood:{g:"Characters",t:"Mood",f:[["char","who","char"],["valence","mood −100..100","num"],
+  ["energy","energy −100..100","num"]]},
+ arousal:{g:"Characters",t:"Arousal",f:[["char","who","char"],["delta","change by (±)","num"],
+  ["set","or set to","num"]]},
+ goal:{g:"Characters",t:"Goal",f:[["char","who","char"],["action","action","sel",["add","complete","abandon"]],
+  ["text","goal","text"]]},
+ clothing_don:{op:"clothing",g:"Gear",t:"Wear / carry item",f:[["char","who","char"],["item","item","text"],
+  ["category","category","sel",[...WORN,...CARRIED]],["covers","covers (worn only)","zones"]],
+  fix:{action:"don"}},
+ clothing_state:{op:"clothing",g:"Gear",t:"Open / remove / destroy",f:[["char","who","char"],
+  ["item","item","text"],["action","what happens","sel",["open","displace","remove","destroy"]]]},
+ obsession:{g:"Drives",t:"Obsession",f:[["char","who","char"],["target_kind","kind","sel",TKINDS],
+  ["target","fixated on","text"],["set","intensity 0-100","num"],["flavor","flavor","sel",FLAVORS]]},
+ craving_adj:{op:"craving",g:"Drives",t:"Craving level",f:[["char","who","char"],
+  ["substance","substance","text"],["delta","change by (±)","num"]],fix:{action:"adjust"}},
+ craving_consume:{op:"craving",g:"Drives",t:"Consume (sate)",f:[["char","who","char"],
+  ["substance","substance","text"]],fix:{action:"consume"}},
+ relationship_adj:{g:"Bonds & knowledge",t:"Relationship",f:[["from_char","from","char"],
+  ["to_char","toward","char"],["dimension","dimension","sel",DIMS],["delta","change ±30","num"]],
+  note:"how FROM feels about TOWARD"},
+ reveal_fact:{g:"Bonds & knowledge",t:"Fact / secret",f:[["learner","who learns","char"],
+  ["statement","the fact","text"],["source","how","sel",["told","witnessed","overheard","inferred"]],
+  ["is_secret","secret","check"]]},
+ memory_event:{g:"Bonds & knowledge",t:"Memory",f:[["text","what happened","text"],
+  ["participants","who","mchar"],["importance","importance 1-10","num"]]},
+ consent_set:{g:"Consent",t:"Set consent",f:[["subject","whose consent","char"],["partner","with","char"],
+  ["category","act","sel",CATS],["level","level","sel",LEVELS]],
+  note:"raising consent needs the override switch ON (header). Lowering is always allowed."},
+ consent_signal:{g:"Consent",t:"In-story signal",f:[["from_char","from","char"],["to_char","to","char"],
+  ["category","act","sel",CATS],["signal","signal","sel",SIGNALS]]},
+ position:{g:"Touch & position",t:"Position",f:[["participants","who","mchar"],["base","base","sel",POSES]]},
+ contact_start:{op:"contact",g:"Touch & position",t:"Start touch",f:[["from_char","from","char"],
+  ["to_char","to","char"],["type","type","sel",TOUCH],["intensity","intensity 0-3","num"]],fix:{action:"start"}},
+ contact_stop:{op:"contact",g:"Touch & position",t:"Stop touch",f:[["from_char","from","char"],
+  ["to_char","to","char"],["type","type","sel",TOUCH]],fix:{action:"stop"}},
+ affinity_adj:{g:"RPG",t:"Affinity ±",f:[["target","toward (NPC / faction)","char"],
+  ["delta","change ±15","num"],["reason","reason","text"]],
+  note:"the PLAYER's standing; manual edits need the override switch ON (header)"},
+ world_flag:{g:"RPG",t:"World flag",f:[["key","flag (snake_case)","text"],
+  ["value","value — empty clears","text"],["faction","scope to faction (optional)","char"]],
+  nulls:["value"],note:"standing world circumstance; renders in [WORLD] / [FACTIONS]"},
+ set_soulmate:{g:"RPG",t:"Soulmate",f:[["target","who — empty clears","char"]],nulls:["target"],
+  note:"unique bond: promoting demotes the incumbent to 'beloved' (linter checks Devoted ≥80)"},
+ set_nemesis:{g:"RPG",t:"Nemesis",f:[["target","who — empty clears","char"]],nulls:["target"],
+  note:"unique bond, no affinity floor"},
+};
+function editTab(){const groups={};for(const [k,d] of Object.entries(F))(groups[d.g]??=[]).push([k,d]);
+ let h=`<div class="card"><div class="opsel">`;
+ for(const [g,items] of Object.entries(groups))
+  h+=`<span class="hint" style="width:100%;margin-top:4px">${g}</span>`+
+   items.map(([k,d])=>`<button class="${k===editOp?"on":""}" onclick="editOp='${k}';render()">${d.t}</button>`).join("");
+ h+=`</div><div id="opform">${form(editOp)}</div>
+  <div class="row"><button class="act" onclick="applyForm()">apply</button>
+  <span class="hint">${F[editOp].note||""}</span></div></div>
+  <div class="card"><h3>Raw ops (power users)</h3><textarea id="raw" style="width:100%;min-height:90px"
+   placeholder='[{"op":"...", ...}]'></textarea>
+  <div class="row"><button class="act" onclick="applyRaw()">apply raw</button></div></div>`;
+ return h}
+function form(key){const d=F[key];let h=`<div class="formgrid">`;
+ for(const [k,label,type,opts] of d.f){
+  if(type==="text")h+=`<label class="field">${label}<input data-k="${k}"></label>`;
+  else if(type==="num")h+=`<label class="field">${label}<input data-k="${k}" type="number"></label>`;
+  else if(type==="check")h+=`<label class="field">${label}<input data-k="${k}" type="checkbox" style="width:18px;height:18px"></label>`;
+  else if(type==="sel")h+=`<label class="field">${label}<select data-k="${k}"><option value=""></option>`+
+   opts.map(o=>`<option>${o}</option>`).join("")+`</select></label>`;
+  else if(type==="char")h+=`<label class="field">${label}<select data-k="${k}"><option value=""></option>`+
+   cnames().map(([id,n])=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")+`</select></label>`;
+  else if(type==="mchar")h+=`<div class="field">${label}<div class="mchar" data-k="${k}">`+
+   cnames().map(([id,n])=>`<label><input type="checkbox" value="${esc(n)}">${esc(n)}</label>`).join("")+`</div></div>`;
+  else if(type==="zones")h+=`<div class="field" style="grid-column:1/-1">${label}<div class="zones" data-k="${k}">`+
+   ZONES.map(z=>`<label><input type="checkbox" value="${z}">${z}</label>`).join("")+`</div></div>`}
+ return h+`</div>`}
+function applyForm(){const d=F[editOp];const op={op:d.op||editOp,...(d.fix||{})};
+ for(const [k,,type] of d.f.map(f=>[f[0],f[1],f[2]])){
+  const el=document.querySelector(`#opform [data-k="${k}"]`);if(!el)continue;
+  if(type==="mchar"||type==="zones"){const v=[...el.querySelectorAll("input:checked")].map(i=>i.value);
+   if(v.length)op[k]=v}
+  else if(type==="check")op[k]=el.checked;
+  else if(type==="num"){if(el.value!=="")op[k]=Number(el.value)}
+  else if(el.value)op[k]=el.value}
+ for(const k of d.nulls||[])if(!(k in op))op[k]=null;  /* required-but-clearable fields */
+ ops([op])}
+function applyRaw(){try{ops(JSON.parse($("#raw").value))}catch(e){toast("bad JSON: "+e,1)}}
+/* ---------- other tabs ---------- */
+async function renameSession(sessid,cur){const name=prompt("Name this session:",cur||"");
+ if(name===null)return;
+ try{await j(`/aether/session/${sessid}/label`,{method:"POST",
+  headers:{"content-type":"application/json"},body:JSON.stringify({label:name})});
+  toast("renamed")}catch(e){toast("rename failed: "+e,1)}render()}
+async function deleteSession(sessid,name){
+ if(!confirm(`Delete session "${name}"?\n\nThis permanently removes it and all of its tracked state.`))return;
+ try{await j(`/aether/session/${sessid}`,{method:"DELETE"});
+  if(sid===sessid){sid=null;S=null}toast("session deleted")}catch(e){toast("delete failed: "+e,1)}render()}
+async function sessionsTab(){const s=await sessions();
+ return `<div class="card"><table><tr><th>name</th><th>id</th><th>frontend</th><th>turn</th><th></th><th>actions</th></tr>`+
+  s.map(x=>`<tr><td><b style="font-weight:500">${esc(x.label||"(unnamed)")}</b></td>
+   <td class="hint" title="${esc(x.session_id)}">${esc((x.external_id||x.session_id).slice(0,14))}</td>
+   <td>${esc(x.frontend||"?")}</td><td>${x.head_turn??"?"}</td>
+   <td>${x.frozen?'<span class="pill bad">FROZEN</span>':'<span class="pill ok">live</span>'}</td>
+   <td><button class="mini" onclick="sid='${x.session_id}';go('Overview')">open</button>
+    <button class="mini" onclick='renameSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||"")})'>rename</button>
+    <button class="mini" onclick='deleteSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||x.external_id||x.session_id)})'>delete</button></td></tr>`).join("")+
+  `</table><p class="hint">Rename a chat to give it a friendly name. Delete permanently removes a session and its tracked state. Freeze pauses a scene like a safeword.</p></div>`}
+/* ---- assist endpoints + per-group routing (Q8, 2026-07-08) ---- */
+function epRowHtml(e){e=e||{};return `<tr class="eprow">
+ <td><input class="ep-name" value="${esc(e.name||"")}" placeholder="name" style="width:88px"></td>
+ <td><input class="ep-url" value="${esc(e.base_url||"")}" placeholder="http://127.0.0.1:8199/v1" style="width:210px"></td>
+ <td><input class="ep-model" value="${esc(e.model||"")}" placeholder="model id" style="width:130px"></td>
+ <td><select class="ep-tier"><option ${e.tier==="nano"?"selected":""}>nano</option><option ${(!e.tier||e.tier==="small")?"selected":""}>small</option><option ${e.tier==="medium"?"selected":""}>medium</option></select></td>
+ <td><input class="ep-key" type="password" placeholder="${e.has_key?"••• keeps":"key (opt)"}" style="width:84px"></td>
+ <td><button class="mini" title="remove" onclick="this.closest('tr').remove()">✕</button></td></tr>`}
+function addEpRow(){document.querySelector("#eptbl tbody").insertAdjacentHTML("beforeend",epRowHtml({}))}
+async function saveEndpoints(){
+ const rows=[...document.querySelectorAll("#eptbl .eprow")].map(r=>({
+  name:r.querySelector(".ep-name").value.trim(),base_url:r.querySelector(".ep-url").value.trim(),
+  model:r.querySelector(".ep-model").value.trim(),tier:r.querySelector(".ep-tier").value,
+  api_key:r.querySelector(".ep-key").value})).filter(x=>x.name&&x.base_url);
+ try{const dd=await j("/aether/assist/endpoints",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({endpoints:rows})});
+  toast("saved "+dd.endpoints.length+" endpoint(s)"+(dd.persisted?" — persists":""));render()}
+ catch(e){toast("save failed: "+e,1)}}
+function routeRowHtml(g,mode,ep,names){
+ const modes=["off","rules","main","assist"].map(m=>`<option ${m===mode?"selected":""}>${m}</option>`).join("");
+ const epo=`<option value="">(default: first)</option>`+(names||[]).map(n=>`<option ${n===ep?"selected":""}>${esc(n)}</option>`).join("");
+ return `<tr><td>${g}</td>
+  <td><select onchange="routeMode('${g}',this.value)">${modes}</select></td>
+  <td><select onchange="routeEp('${g}',this.value)" ${mode==="assist"?"":"disabled"}>${epo}</select></td></tr>`}
+async function toggleIntent(el){try{const d=await j("/aether/specialization",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({intent_floor:el.checked})});toast("semantic intent floor "+(el.checked?"ON":"OFF")+(d.persisted?" — saved":""))}catch(e){el.checked=!el.checked;toast("failed: "+e,1)}}
+async function routeMode(g,v){try{await j("/aether/groups",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({[g]:v})});toast(g+" → "+v);render()}catch(e){toast("failed: "+e,1)}}
+async function routeEp(g,v){try{const dd=await j("/aether/groups",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({group_endpoints:{[g]:v}})});toast(g+" endpoint → "+(v||"(default)")+(dd.persisted?" — saved":""))}catch(e){toast("failed: "+e,1)}}
+async function connectionTab(){const d=await j("/aether/connection");const a=(d.assist&&d.assist[0])||{};
+ const stx=(await j("/aether/status")).extraction||{};const epNames=(stx.assist_endpoints||[]).map(e=>e.name);
+ setTimeout(()=>{listConn("upstream","up_url","up_key","up_models",d.upstream.model||"");
+                 listConn("assist","as_url","as_key","as_models",a.model||"")},0);
+ return `<div class="card"><h3>Main writer — the model that writes the story</h3>
+  <div class="formgrid">
+   <label class="field">Endpoint URL (OpenAI-compatible, include /v1)<input id="up_url" value="${esc(d.upstream.base_url||"")}"></label>
+   <label class="field">API key ${d.upstream.has_key?"(saved — blank keeps it)":""}<input id="up_key" type="password" placeholder="${d.upstream.has_key?"••••••":"paste key"}"></label></div>
+  <div class="row"><button class="act" onclick="testConn('upstream','up_url','up_key','up_models')">Connect / test</button>
+   <select id="up_models" style="min-width:220px"><option value="${esc(d.upstream.model||"")}">${esc(d.upstream.model||"(loading models…)")}</option></select>
+   <button class="act" onclick="saveConn('upstream','up_url','up_key','up_models')">Save</button>
+   <span class="hint" id="up_saved">${d.upstream.model?"saved model: "+esc(d.upstream.model):""}</span></div>
+  <p class="hint">SillyTavern picks the story model per request — the model chosen here is AetherState's own
+   DEFAULT (used by the Creator's auto-fill and chat-open genesis before any message has flowed). Saved keys stay
+   saved; leaving the key box blank keeps the stored key.</p></div>
+  <div class="card"><h3>Local helper — the mechanics (genesis, extraction, memory)</h3>
+  <div class="formgrid">
+   <label class="field">Endpoint URL<input id="as_url" value="${esc(a.base_url||"")}"></label>
+   <label class="field">API key ${a.has_key?"(saved — blank keeps it)":""}<input id="as_key" type="password" placeholder="${a.has_key?"••••••":"optional"}"></label></div>
+  <div class="row"><button class="act" onclick="testConn('assist','as_url','as_key','as_models')">Connect / test</button>
+   <select id="as_models" style="min-width:220px"><option value="${esc(a.model||"")}">${esc(a.model||"(loading models…)")}</option></select>
+   <button class="act" onclick="saveConn('assist','as_url','as_key','as_models')">Save</button>
+   <span class="hint" id="as_saved">${a.model?"saved model: "+esc(a.model):""}</span></div>
+  <p class="hint">Can be your local Llama OR any hosted OpenAI-compatible API. Connect, pick the model, Save. Changes apply immediately and are saved to config.</p></div>
+  <div class="card"><h3>Assist endpoints (helpers)</h3>
+   <p class="hint">Define one or more OpenAI-compatible helper endpoints, then route jobs to them below. A blank key keeps a saved one.</p>
+   <table id="eptbl"><thead><tr><th>name</th><th>endpoint URL</th><th>model</th><th>tier</th><th>key</th><th></th></tr></thead>
+   <tbody>${(d.assist||[]).map(epRowHtml).join("")}</tbody></table>
+   <div class="row"><button class="mini" onclick="addEpRow()">+ add endpoint</button>
+    <button class="act" onclick="saveEndpoints()">Save endpoints</button></div></div>
+  <div class="card"><h3>Assist routing — which helper does which job</h3>
+   <p class="hint">Each background job can use its OWN endpoint. Pick a mode; for <b>assist</b>, pick which endpoint. "(default: first)" uses the first endpoint — the classic behaviour. Lets e.g. the contradiction check (linter_nli) run on a LOCAL model while memory_reflection uses a cloud one, both at once.</p>
+   <table><tr><th>job</th><th>mode</th><th>endpoint (assist only)</th></tr>
+   ${["linter_nli","memory_reflection","embeddings"].filter(g=>g in (stx.groups||{})).map(g=>routeRowHtml(g,(stx.groups||{})[g],(stx.group_endpoints||{})[g]||"",epNames)).join("")}</table></div>`}
+async function listConn(target,urlId,keyId,selId,savedModel){
+ /* auto-populate the model menu with the SAVED key (server-side) so the saved pick is
+    visible + changeable without re-pasting anything (2026-07-06). */
+ try{const base=$("#"+urlId)?.value.trim();if(!base)return;
+  const d=await j("/aether/connection/models",{method:"POST",headers:{"content-type":"application/json"},
+   body:JSON.stringify({base_url:base,api_key:$("#"+keyId)?.value||"",target})});
+  const sel=$("#"+selId);if(!sel)return;
+  if(d.ok&&d.models&&d.models.length){
+   sel.innerHTML=`<option value="">(no default)</option>`+d.models.map(m=>`<option ${m===savedModel?"selected":""}>${esc(m)}</option>`).join("");
+   if(savedModel&&!d.models.includes(savedModel))sel.insertAdjacentHTML("afterbegin",`<option selected>${esc(savedModel)}</option>`)}
+ }catch(e){}}
+async function testConn(target,urlId,keyId,selId){const base=$("#"+urlId).value.trim();const key=$("#"+keyId).value;
+ if(!base){toast("enter an endpoint URL",1);return}
+ toast("connecting…");
+ const cur=$("#"+selId)?.value||"";
+ const d=await j("/aether/connection/models",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({base_url:base,api_key:key,target})});
+ const sel=$("#"+selId);
+ if(d.ok&&d.models&&d.models.length){sel.innerHTML=`<option value="">(no default)</option>`+d.models.map(m=>`<option ${m===cur?"selected":""}>${esc(m)}</option>`).join("");
+   if(d.auth_ok===false){toast("Endpoint reachable but the key was rejected (auth "+d.auth_status+"). Paste a valid key for THIS service, or Save one first — the saved key is used when the box is blank.",1)}
+   else{toast("connected + key verified — "+d.models.length+" models")}}
+ else{sel.innerHTML=`<option value="">(no models)</option>`;toast("connect failed: "+(d.error||("status "+d.status)),1)}}
+async function saveConn(target,urlId,keyId,selId){const base=$("#"+urlId).value.trim();const key=$("#"+keyId).value;
+ const body={target:target,base_url:base};if(key)body.api_key=key;
+ const sel=$("#"+selId);if(sel)body.model=sel.value||"";
+ const d=await j("/aether/connection",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+ /* no full re-render: the model list + picks stay exactly as they are (2026-07-06) */
+ if(d.ok){const label=$(target==="upstream"?"#up_saved":"#as_saved");
+  const m=target==="upstream"?(d.upstream?.model||""):((d.assist&&d.assist[0]&&d.assist[0].model)||"");
+  if(label)label.textContent=m?"saved model: "+m:"saved (no default model)";
+  if(key)$("#"+keyId).value="";
+  toast("saved"+(d.persisted?" — persists across restarts":" (this run only)"))}
+ else toast("save failed",1)}
+async function statusTab(){const d=await j("/aether/status");const cc=d.cache||{};
+ const ccPills=cc.with_usage
+  ?`<span class="pill ${cc.cached_tokens>0?"vio":"dim"}" title="cached / prompt tokens (whole run)">${cc.cached_tokens||0}/${cc.prompt_tokens||0} tok cached${cc.hit_rate_tokens!=null?" ("+Math.round(cc.hit_rate_tokens*100)+"%)":""}</span><span class="pill dim">${cc.hits||0}/${cc.with_usage} replies hit</span>`
+  :`<span class="pill dim">no usage data yet${cc.enabled&&!cc.include_usage?" — set [upstream].include_usage=true to measure":""}</span>`;
+ return `<div class="card"><h3>Proxy</h3><div class="row">
+  <span class="pill ok">${d.name} ${d.version}</span><span class="pill dim">${d.mode}</span>
+  <span class="pill dim">up ${Math.round(d.uptime_s/60)}m</span>
+  ${d.upstream_configured?"":'<span class="pill bad">upstream not configured</span>'}
+  <span class="pill dim">${d.sessions} session(s)</span></div>
+  <div class="row"><span class="hint">extraction ${d.extraction.mode}</span>
+  ${Object.entries(d.extraction.groups).map(([k,v])=>`<span class="pill ${v==="off"?"dim":"vio"}">${k}: ${v}</span>`).join("")}</div>
+  <div class="row"><span class="hint">proofreader</span>
+  ${Object.entries(d.linter.violations).length?Object.entries(d.linter.violations).map(([k,v])=>`<span class="pill warn">${k}×${v}</span>`).join(""):'<span class="pill ok">no violations logged</span>'}</div>
+  <div class="row"><span class="hint">director</span>
+  ${Object.entries(d.director.firings).length?Object.entries(d.director.firings).map(([k,v])=>`<span class="pill vio" title="${k}">${k.split(".").pop()}×${v}</span>`).join(""):'<span class="pill dim">no beats fired yet</span>'}</div>
+  <div class="row"><span class="hint">prompt cache</span>
+  ${cc.enabled?'<span class="pill ok">key on</span>':'<span class="pill dim">key off</span>'}
+  ${ccPills}
+  ${cc.prewarm?`<span class="pill vio" title="chat-open prewarm sent/failed">prewarm ×${cc.prewarms_sent||0}${cc.prewarm_fails?" ("+cc.prewarm_fails+" failed)":""}</span>`:""}</div>
+  <div class="hint" style="margin-top:6px">telemetry: ${d.telemetry}</div></div>`}
+async function modelsTab(){const d=await j("/aether/status");
+ return `<div class="card"><h3>Backends the engine has probed</h3><table>
+  <tr><th>backend</th><th>model</th><th>tier</th><th>notes</th></tr>`+
+  d.extraction.caps.map(c=>`<tr><td>${esc(c.base_url)}</td><td>${esc(c.model)}</td>
+   <td>rung ${c.rung}</td><td>${c.native?esc(c.native):""} ${c.failures?`<span class="pill warn">${c.failures} fails</span>`:""}</td></tr>`).join("")+
+  `</table><h3 style="margin-top:12px">Local helper</h3>`+
+  (d.extraction.assist_endpoints.length?
+   d.extraction.assist_endpoints.map(e=>`<div class="row"><span class="pill ok">${esc(e.name)}</span>
+    <span class="hint">${esc(e.model)} · ${esc(e.tier)}</span></div>`).join(""):
+   `<p class="hint">No local helper configured — everything still works; a local model adds
+    smarter memory, card-reading, and contradiction checks at zero API cost.</p>`)+`</div>`}
+/* ---------- Player dashboard (2026-07-07): renders the /hud payload — the SAME resolved
+   view the SillyTavern HUD shows, so nothing player-facing lives only in ST or only in 'raw' */
+/* ---------- PlayerLex: explicit local recognition preferences ---------- */
+function playerLexInvalidateSearch(){clearTimeout(PL_SEARCH_TIMER);PL_SEARCH_TIMER=null;PL_SEARCH_SEQ++}
+function playerLexReset(){playerLexInvalidateSearch();PL_EDIT="";PL_CONCEPT=null;PL_CHOICES=[];PL_NEXT_CURSOR=null}
+async function playerLexTab(){
+ playerLexReset();
+ const d=await j("/aether/playerlex");
+ if(d.error)return `<div class="card"><span class="pill bad">PlayerLex unavailable</span> ${esc(d.error)}</div>`;
+ PL=d.entries||[];const selected=PL_CONCEPT?playerLexConceptText(PL_CONCEPT):"";
+ let h=`<div class="card"><h3>PlayerLex <small>your local language</small></h3>
+  <p class="hint">PlayerLex recognizes meaning only. It cannot grant abilities, admit mechanics,
+  settle outcomes, or change world truth. Nothing is learned from chats automatically.</p>
+  <div class="row"><select id="plkind"><option value="name">Name</option><option value="alias">Alias</option><option value="authoring_pattern">Authoring pattern</option></select>
+  <input id="plsurface" style="min-width:260px;flex:1" maxlength="240" placeholder="Ghost Step or ghost-step to {destination}">
+  <select id="pllex" onchange="playerLexLexChanged()"><option value="capability">CapabilityLex</option><option value="referent">ReferentLex</option><option value="scene">SceneLex</option><option value="action">ActionLex</option></select>
+  <div class="plpicker"><input id="plconceptquery" value="${esc(selected)}" maxlength="120" autocomplete="off"
+   placeholder="Search IDs, labels, aliases, terms, or genre terms" oninput="playerLexSearchQueue()" onfocus="playerLexSearchQueue()">
+   <div class="plchoices" id="plchoices"></div></div>
+  <button class="act good" id="plsave" onclick="playerLexSave()">Approve locally</button>
+  <button class="mini" id="plcancel" style="display:none" onclick="playerLexCancel()">cancel</button></div>
+  <p class="hint">Choose one exact Lex-qualified Atlas meaning. Search is bounded and paged; the Console never downloads the full catalog.</p>
+  <p class="hint">Names and aliases match complete Unicode token boundaries. Patterns match the complete input, may use one to four named slots such as {destination}, and require literal separators between slots.</p></div>`;
+ if(PL.length){h+=`<div class="card"><h3>Approved meanings</h3><table><tr><th>surface</th><th>kind</th><th>Atlas concept</th><th>approval</th><th>actions</th></tr>`+
+  PL.map(e=>{const p=e.provenance||{},st=e.status||"missing_concept",cls=st==="current"?"ok":st==="stale"?"warn":"bad",rev=p.approval_revision||e.approval_revision||"?";
+   const c=e.current_concept||e.concept||{},lex=e.lex_id||c.lex_id||"unavailable",cid=c.concept_id||e.concept_id||"unavailable";
+   return `<tr><td><b>${esc(e.surface)}</b></td><td>${esc(String(e.kind).replace(/_/g," "))}</td>
+   <td><span class="pill vio">${esc(lex)}</span> ${esc(e.concept_label||c.label||cid)}<br><span class="hint">${esc(lex)}:${esc(cid)}</span> <span class="pill ${cls}">${esc(st)}</span></td>
+   <td><span class="hint">${st==="corrupt"?"stored row needs repair":"explicit local"} · revision ${esc(rev)}<br>${p.approved_at?esc(new Date(p.approved_at*1000).toLocaleString()):""}</span></td>
+   <td><button class="mini" onclick='playerLexEdit(${JSON.stringify(e.entry_id)})'>edit / reapprove</button>
+   <button class="mini danger" onclick='playerLexDelete(${JSON.stringify(e.entry_id)})'>remove</button></td></tr>`}).join("")+`</table></div>`}
+ else h+=`<div class="card"><span class="hint">No local meanings approved yet.</span></div>`;
+ h+=`<div class="card"><h3>Test a proposal</h3><textarea id="pltest" maxlength="2000" style="width:100%;min-height:70px" placeholder="Type text to test. It is checked in memory and is not saved."></textarea>
+  <div class="row"><button class="act" onclick="playerLexTest()">Test recognition</button><span class="hint">Exact spans and unresolved pattern slots remain visible.</span></div>
+  <pre id="plresult" style="white-space:pre-wrap">No test run.</pre></div>`;
+ return h}
+const playerLexConceptText=c=>`${c.label||c.concept_id} — ${c.lex_id}:${c.concept_id}`;
+function playerLexRenderChoices(message=""){const box=$("#plchoices");if(!box)return;
+ if(message){box.innerHTML=`<div class="hint" style="padding:7px 9px">${esc(message)}</div>`;return}
+ box.innerHTML=PL_CHOICES.map((c,i)=>`<button type="button" onclick="playerLexPick(${i})"><b>${esc(c.label||c.concept_id)}</b>
+  <span class="pill vio">${esc(c.lex_id)}</span><br><span class="hint">${esc(c.lex_id)}:${esc(c.concept_id)}${c.definition?" · "+esc(c.definition):""}</span></button>`).join("")+
+  (PL_NEXT_CURSOR?`<button type="button" onclick="playerLexMore()"><span class="hint">Load more matches…</span></button>`:"")}
+function playerLexSearchQueue(){const input=$("#plconceptquery");if(PL_CONCEPT&&input?.value===playerLexConceptText(PL_CONCEPT))return;
+ PL_CONCEPT=null;playerLexInvalidateSearch();PL_SEARCH_TIMER=setTimeout(()=>playerLexSearch(false),220)}
+async function playerLexSearch(append){const input=$("#plconceptquery"),lex=$("#pllex");if(!input||!lex)return;
+ const seq=++PL_SEARCH_SEQ,query=input.value.trim(),cursor=append?PL_NEXT_CURSOR:null;if(append&&!cursor)return;playerLexRenderChoices("Searching…");
+ const params=new URLSearchParams({query,lex_id:lex.value,limit:"20"});if(cursor)params.set("cursor",cursor);
+ const d=await j(`/aether/playerlex/concepts?${params}`);if(seq!==PL_SEARCH_SEQ)return;
+ if(d.error){PL_CHOICES=[];PL_NEXT_CURSOR=null;playerLexRenderChoices(d.error);return}
+ const rows=d.concepts||[];PL_CHOICES=append?PL_CHOICES.concat(rows):rows;PL_NEXT_CURSOR=d.next_cursor||null;
+ playerLexRenderChoices(PL_CHOICES.length?"":"No matching Atlas concepts")}
+function playerLexMore(){playerLexSearch(true)}
+function playerLexPick(index){const c=PL_CHOICES[index];if(!c)return;playerLexInvalidateSearch();PL_CONCEPT=c;$("#pllex").value=c.lex_id;
+ $("#plconceptquery").value=playerLexConceptText(c);PL_CHOICES=[];PL_NEXT_CURSOR=null;playerLexRenderChoices()}
+function playerLexLexChanged(){PL_CONCEPT=null;PL_CHOICES=[];PL_NEXT_CURSOR=null;$("#plconceptquery").value="";playerLexSearchQueue()}
+async function playerLexSave(){const kind=$("#plkind").value,surface=$("#plsurface").value.trim(),lex_id=$("#pllex").value;
+ const concept_id=PL_CONCEPT?.concept_id;if(!surface||!concept_id||PL_CONCEPT.lex_id!==lex_id)return toast("choose one exact Lex-qualified Atlas concept",1);
+ const url=PL_EDIT?`/aether/playerlex/${encodeURIComponent(PL_EDIT)}`:"/aether/playerlex",method=PL_EDIT?"PATCH":"POST";
+ const body={kind,surface,lex_id,concept_id};if(PL_EDIT){const prior=PL.find(x=>x.entry_id===PL_EDIT);
+  if(!prior)return toast("PlayerLex entry changed; reload before reapproving",1);
+  if(prior.status==="corrupt"){
+   body.expected_corrupt_version=prior.corrupt_version;
+   if(!body.expected_corrupt_version)return toast("PlayerLex entry cannot be safely repaired; remove it or reload",1)
+  }else{
+   body.expected_meaning_fingerprint=prior.concept?.meaning_fingerprint||prior.approved_meaning_fingerprint;
+   body.expected_approval_revision=prior.provenance?.approval_revision||prior.approval_revision;
+   if(!body.expected_meaning_fingerprint||!body.expected_approval_revision)return toast("PlayerLex entry cannot be safely reapproved; remove it or reload",1)}}
+ playerLexInvalidateSearch();const d=await j(url,{method,headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+ if(d.error)return toast(d.error,1);toast(PL_EDIT?"PlayerLex correction reapproved":"PlayerLex meaning approved");
+ playerLexReset();await render()}
+function playerLexEdit(id){const e=PL.find(x=>x.entry_id===id);if(!e)return toast("PlayerLex entry not found",1);
+ playerLexInvalidateSearch();PL_CHOICES=[];PL_NEXT_CURSOR=null;const c=e.current_concept||e.concept;PL_EDIT=id;PL_CONCEPT=c?{...c}:null;$("#plkind").value=e.kind;$("#plsurface").value=e.surface;
+ $("#pllex").value=e.lex_id||c?.lex_id||"capability";$("#plconceptquery").value=c?playerLexConceptText(c):"";playerLexRenderChoices();
+ $("#plsave").textContent="Save correction + reapprove";$("#plcancel").style.display="inline-block";$("#plsurface").focus()}
+function playerLexCancel(){playerLexReset();render()}
+async function playerLexDelete(id){const e=PL.find(x=>x.entry_id===id);if(!e)return toast("PlayerLex entry not found",1);
+ if(!confirm(`Remove the local PlayerLex entry "${e.surface}"?`))return;
+ const d=await j(`/aether/playerlex/${encodeURIComponent(id)}`,{method:"DELETE"});if(d.error)return toast(d.error,1);
+ toast("PlayerLex entry removed");playerLexReset();await render()}
+async function playerLexTest(){const text=$("#pltest").value;const d=await j("/aether/playerlex/propose",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text})});
+ const out=$("#plresult");if(d.error){out.textContent=d.error;return}
+ out.textContent=JSON.stringify({matches:d.matches||[],refused:d.refused||[]},null,2)}
+/* ---------- Player Lessons: explicit local narration and interpretation lessons ---------- */
+const LESSON_SCOPES={every_rpg_turn:"Every RPG turn",exploration:"Exploration",
+ combat_opening:"Combat opening",combat_exchange:"Combat exchange"};
+const LESSON_MODES=["exploration","combat_opening","combat_exchange"];
+const LESSON_TYPES={narration_behavior:"Narration behavior",intent_interpretation:"Intent interpretation"};
+const playerLessonId=e=>e?.lesson_id||e?.id||"";
+const playerLessonType=e=>e?.effect_type||"narration_behavior";
+const playerLessonRevision=e=>e?.revision??e?.lesson_revision;
+const playerLessonFingerprint=e=>e?.fingerprint||e?.lesson_fingerprint||e?.content_fingerprint||"";
+const playerLessonError=d=>{const v=d?.error??d?.detail;return typeof v==="string"?v:v?JSON.stringify(v):""};
+const playerLessonScopeLabel=s=>LESSON_SCOPES[s]||String(s||"Unknown scope").replace(/_/g," ");
+const playerLessonAnchor=e=>e?.anchor||null;
+function playerLessonReset(){LESSON_EDIT="";LESSON_LOAD_SEQ++}
+function playerLessonAnchorFromEntry(e){if(!e||e.status!=="current")return null;
+ const c=e.current_concept||e.concept||{},entry_id=e.entry_id,lex_id=e.lex_id||c.lex_id,
+  concept_id=c.concept_id||e.concept_id,
+  meaning_fingerprint=c.meaning_fingerprint||e.approved_meaning_fingerprint;
+ if(!entry_id||!lex_id||!concept_id||!meaning_fingerprint)return null;
+ const surface=e.surface||c.label||concept_id,concept_label=e.concept_label||c.label||concept_id;
+ return {entry_id,lex_id,concept_id,meaning_fingerprint,surface,concept_label,
+  label:`${surface} — ${lex_id}:${concept_id}`}}
+function playerLessonIntentRole(anchor){return anchor?.lex_id==="action"?"action":anchor?.lex_id==="referent"?"target":null}
+function playerLessonEligibleAnchors(effectType){return effectType==="intent_interpretation"?
+ LESSON_ANCHORS.filter(a=>playerLessonIntentRole(a)):LESSON_ANCHORS}
+function playerLessonWhen(value){if(value===null||value===undefined||value==="")return "";
+ const date=new Date(typeof value==="number"&&value<1e12?value*1000:value);
+ return Number.isNaN(date.getTime())?String(value):date.toLocaleString()}
+function playerLessonAnchorOptions(effectType="narration_behavior"){const intent=effectType==="intent_interpretation",
+ first=intent?"Choose a current ActionLex or ReferentLex meaning":"No PlayerLex anchor — use scope only";
+ return `<option value="">${first}</option>`+playerLessonEligibleAnchors(effectType).map(a=>{const role=playerLessonIntentRole(a),
+  prefix=intent?`${role==="action"?"Action":"Target"} — `:"";
+  return `<option value="${esc(a.entry_id)}">${esc(prefix+a.label)}</option>`}).join("")}
+function playerLessonAnchorChanged(){const type=$("#lessontype")?.value||"narration_behavior",value=$("#lessonanchor")?.value||"",
+ anchor=LESSON_ANCHORS.find(a=>a.entry_id===value),role=playerLessonIntentRole(anchor),out=$("#lessonintentrole");
+ if(out)out.textContent=type==="intent_interpretation"?(role?`This lesson corrects the ${role}.`:
+  "Choose an ActionLex meaning to correct the action or a ReferentLex meaning to correct the target."):""}
+function playerLessonTypeChanged(){const type=$("#lessontype")?.value||"narration_behavior",intent=type==="intent_interpretation",
+ anchor=$("#lessonanchor"),previous=anchor?.value||"";if($("#lessonnarrationfields"))$("#lessonnarrationfields").style.display=intent?"none":"block";
+ if($("#lessonintentfields"))$("#lessonintentfields").style.display=intent?"block":"none";
+ if($("#lessonscopelabel"))$("#lessonscopelabel").textContent=intent?"Application scope":"Narration scope";
+ if($("#lessonanchorlabel"))$("#lessonanchorlabel").textContent=intent?"Exact PlayerLex meaning (required)":"Optional PlayerLex meaning";
+ if($("#lessonanchorhelp"))$("#lessonanchorhelp").textContent=intent?
+  "The anchor identifies the exact recognized action or target this correction may apply to. It does not grant that meaning or authorize an action.":
+ "An anchor uses one exact current PlayerLex meaning. The lesson stores its identity, not the approved phrase.";
+ if($("#lessontesthelp"))$("#lessontesthelp").textContent=intent?
+  "This checks recognition, relevance, and whether the lesson would be retrieved. Live context decides application on a real new RPG turn. It does not run mechanics, write state, store the sample, or call the narrator.":
+  "This tests the current form as a draft without saving, enabling, or revising it. The sample is evaluated in memory only; it is never stored, added to a turn, or sent to a narrator model.";
+ if($("#lessontestbutton"))$("#lessontestbutton").textContent=intent?"Test interpretation":"Test with sample turn";
+ if($("#lessontestscopeLabel"))$("#lessontestscopeLabel").textContent=intent?"Sample application mode":"Sample narration mode";
+ if($("#lessonconsent"))$("#lessonconsent").textContent=intent?
+  "Saving is your explicit consent to store this lesson locally. Intent notes stay local: they are never parsed or sent to the narrator. You can disable, revise, or securely remove the lesson later.":
+  "Saving is your explicit consent to store this lesson locally. When relevant on a real narrator turn, its title and narration instructions may be sent to your configured model provider. You can disable, revise, or securely remove the lesson later.";
+ if($("#lessontitle"))$("#lessontitle").placeholder=intent?'Correct how "I duck behind Varo" is understood':"Keep combat prose concise";
+ if(anchor){anchor.innerHTML=playerLessonAnchorOptions(type);if(playerLessonEligibleAnchors(type).some(a=>a.entry_id===previous))anchor.value=previous}
+ playerLessonAnchorChanged()}
+function playerLessonChosenAnchor(effectType){const value=$("#lessonanchor")?.value||"",intent=effectType==="intent_interpretation";
+ if(value==="__stale__"){toast(intent?"choose a current ActionLex or ReferentLex anchor before testing or saving":
+  "choose a current PlayerLex anchor or choose no anchor before testing or saving",1);return false}
+ if(!value){if(intent){toast("choose a current ActionLex or ReferentLex anchor for this interpretation lesson",1);return false}return null}
+ const anchor=LESSON_ANCHORS.find(a=>a.entry_id===value);
+ if(!anchor){toast("that PlayerLex anchor changed; reload and choose it again",1);return false}
+ if(intent&&!playerLessonIntentRole(anchor)){toast("intent interpretation requires an ActionLex or ReferentLex anchor",1);return false}
+ return anchor}
+function playerLessonFormPayload(){const effect_type=$("#lessontype")?.value||"narration_behavior",
+ title=$("#lessontitle")?.value.trim()||"",scope=$("#lessonscope")?.value||"",anchor=playerLessonChosenAnchor(effect_type);
+ if(anchor===false)return null;if(!title){toast("give the lesson a title",1);return null}
+ if(!LESSON_SCOPES[scope]){toast("choose an application scope",1);return null}
+ if(effect_type==="intent_interpretation"){const misunderstanding=$("#lessonmisunderstanding")?.value.trim()||"",
+  correct_interpretation=$("#lessonunderstanding")?.value.trim()||"";
+  if(!misunderstanding){toast("say what AetherState misunderstands",1);return null}
+  if(!correct_interpretation){toast("say how AetherState should understand this situation",1);return null}
+  return {effect_type,title,scope,misunderstanding,correct_interpretation,anchor_entry_id:anchor.entry_id}}
+ const do_text=$("#lessondo")?.value.trim()||"",avoid_text=$("#lessonavoid")?.value.trim()||"";
+ if(!do_text&&!avoid_text){toast("say what AetherState should do, avoid, or both",1);return null}
+ return {effect_type,title,scope,anchor_entry_id:anchor?.entry_id||null,
+  do:do_text,avoid:avoid_text}}
+function playerLessonSelections(data){const rows=data?.selections||data?.items||data?.selection_items||[];
+ if(Array.isArray(rows))return rows;return rows&&typeof rows==="object"?Object.values(rows):[]}
+function playerLessonApplications(data){const rows=data?.applications||data?.items||data?.application_items||[];
+ if(Array.isArray(rows))return rows;return rows&&typeof rows==="object"?Object.values(rows):[]}
+async function playerLessonsTab(){LESSON_EDIT="";const seq=++LESSON_LOAD_SEQ,safe=url=>j(url).catch(e=>({error:String(e)}));
+ const [data,playerlex,selections,applications]=await Promise.all([safe("/aether/player-lessons"),safe("/aether/playerlex"),
+  sid?safe(`/aether/player-lessons/selections?session_id=${encodeURIComponent(sid)}`):Promise.resolve({selections:[]}),
+  sid?safe(`/aether/player-lessons/applications?session_id=${encodeURIComponent(sid)}`):Promise.resolve({applications:[]})]);
+ if(seq!==LESSON_LOAD_SEQ||tab!=="Player Lessons")return "";const error=playerLessonError(data);
+ if(error)return `<div class="card"><span class="pill bad">Player Lessons unavailable</span> ${esc(error)}</div>`;
+ LESSONS=Array.isArray(data)?data:(data.lessons||data.entries||[]);
+ LESSON_ANCHORS=(playerlex.entries||[]).map(playerLessonAnchorFromEntry).filter(Boolean);
+ LESSON_SELECTIONS=playerLessonSelections(selections);LESSON_SELECTION_ERROR=playerLessonError(selections);
+ LESSON_APPLICATIONS=playerLessonApplications(applications);LESSON_APPLICATION_ERROR=playerLessonError(applications);
+ return playerLessonsView(playerLessonError(playerlex))}
+function playerLessonLatest(e){if(e.latest_selection)return e.latest_selection;const id=playerLessonId(e);
+ return LESSON_SELECTIONS.filter(s=>(s.lesson_id||s.id)===id).sort((a,b)=>
+  (Number(b.turn_index??-1)-Number(a.turn_index??-1))||String(b.selected_at||"").localeCompare(String(a.selected_at||"")))[0]||null}
+function playerLessonSelectionView(e){if(LESSON_SELECTION_ERROR)return `<span class="hint">Latest selection unavailable: ${esc(LESSON_SELECTION_ERROR)}</span>`;
+ if(!sid)return `<span class="hint">Open a session to see this lesson's latest selection.</span>`;
+ const s=playerLessonLatest(e);if(!s)return `<span class="hint">No selection recorded for the selected session.</span>`;
+ const delivered=s.delivered===true,selectedRevision=playerLessonRevision(s),currentRevision=playerLessonRevision(e),
+  historical=selectedRevision!==null&&selectedRevision!==undefined&&currentRevision!==null&&currentRevision!==undefined&&
+   Number(selectedRevision)!==Number(currentRevision),
+  status=delivered?(historical?"older revision delivered":"selected and delivered"):
+   (historical?"older revision selected, not delivered":"selected, not delivered"),
+ reason=s.reason||s.selection_reason||"code-owned match",turn=s.turn_index!==undefined?` · turn ${esc(s.turn_index)}`:"",
+ revision=historical?` · selected revision ${esc(selectedRevision)}, current revision ${esc(currentRevision)}`:"";
+ return `<span class="pill ${delivered&&!historical?"ok":"warn"}">${status}</span> <span class="hint">${esc(String(reason).replace(/_/g," "))}${turn}${revision}</span>`}
+function playerLessonLatestApplication(e){if(e.latest_application)return e.latest_application;const id=playerLessonId(e);
+ return LESSON_APPLICATIONS.filter(a=>(a.lesson_id||a.id)===id).sort((a,b)=>
+  (Number(b.turn_index??-1)-Number(a.turn_index??-1))||String(b.applied_at||b.application_at||"").localeCompare(String(a.applied_at||a.application_at||"")))[0]||null}
+function playerLessonApplicationView(e){if(LESSON_APPLICATION_ERROR)return `<span class="hint">Latest application unavailable: ${esc(LESSON_APPLICATION_ERROR)}</span>`;
+ if(!sid)return `<span class="hint">Open a session to see this lesson's latest application.</span>`;
+ const a=playerLessonLatestApplication(e);if(!a)return `<span class="hint">No application recorded for the selected session.</span>`;
+ const applied=a.applied===true||a.status==="applied",appliedRevision=playerLessonRevision(a),currentRevision=playerLessonRevision(e),
+  historical=appliedRevision!==null&&appliedRevision!==undefined&&currentRevision!==null&&currentRevision!==undefined&&
+   Number(appliedRevision)!==Number(currentRevision),status=applied?(historical?"older revision applied":"applied before contextual binding"):
+   (historical?"older revision matched, not applied":"matched, not applied"),reason=a.reason||a.application_reason||"code-owned match",
+  stage=a.application_stage==="post_contextual_binding"?"receipt confirmed after contextual binding":
+   a.application_stage==="post_recognition_pre_contextual_binding"||!a.application_stage?
+   "after recognition, before contextual binding":String(a.application_stage).replace(/_/g," "),
+  turn=a.turn_index!==undefined?` · turn ${esc(a.turn_index)}`:"",revision=historical?
+   ` · applied revision ${esc(appliedRevision)}, current revision ${esc(currentRevision)}`:"";
+ return `<span class="pill ${applied&&!historical?"ok":"warn"}">${status}</span> <span class="hint">${esc(String(reason).replace(/_/g," "))} · ${esc(stage)}${turn}${revision}</span>`}
+function playerLessonAnchorView(e){const a=playerLessonAnchor(e);if(!a)return playerLessonType(e)==="intent_interpretation"?
+ `<span class="pill warn">required anchor missing</span>`:`<span class="hint">No anchor · scope match only</span>`;
+ const status=e.anchor_status||a.status||"unavailable",cls=status==="current"?"ok":"warn",
+  current=LESSON_ANCHORS.find(x=>x.entry_id===a.entry_id&&x.lex_id===a.lex_id&&x.concept_id===a.concept_id&&
+   x.meaning_fingerprint===a.meaning_fingerprint),surface=current?.surface||"surface unavailable",
+  identity=`entry ${a.entry_id||"unknown"} · ${a.lex_id||"unknown"}:${a.concept_id||"unknown"}`;
+ return `<span class="pill ${cls}">${esc(status)}</span> <b>${esc(surface)}</b> <span class="hint">PlayerLex ${esc(identity)}</span>`+
+  (e.stale_reason?`<br><span class="hint">${esc(e.stale_reason)}</span>`:"")}
+function playerLessonProvenance(e){const p=e.provenance&&typeof e.provenance==="object"?e.provenance:{},
+ approved=p.approved_at||e.approved_at||e.created_at,when=playerLessonWhen(approved);
+ return `<span class="pill dim">explicit local</span>${when?` <span class="hint">${esc(when)}</span>`:""}`}
+function playerLessonsView(playerLexError=""){let h=`<div class="card"><h3>Player Lessons <small>local narration and interpretation lessons</small></h3>
+ <p class="hint">Narration behavior changes presentation only. Intent interpretation corrects how AetherState reads
+ the action or target after recognition and before contextual binding. Neither lesson type grants abilities,
+ authorizes mechanics, changes outcomes or world truth, or overrides your current words. Nothing is learned from chats automatically.</p>
+ <div class="formgrid"><label class="field">Lesson type<select id="lessontype" onchange="playerLessonTypeChanged()">${Object.entries(LESSON_TYPES).map(([value,label])=>
+  `<option value="${value}">${label}</option>`).join("")}</select></label>
+ <label class="field">Title<input id="lessontitle" maxlength="120" placeholder="Keep combat prose concise"></label>
+ <label class="field"><span id="lessonscopelabel">Narration scope</span><select id="lessonscope">${Object.entries(LESSON_SCOPES).map(([value,label])=>
+  `<option value="${value}">${label}</option>`).join("")}</select></label>
+ <label class="field"><span id="lessonanchorlabel">Optional PlayerLex meaning</span><select id="lessonanchor" onchange="playerLessonAnchorChanged()">${playerLessonAnchorOptions()}</select></label></div>
+ ${playerLexError?`<p class="hint"><span class="pill warn">PlayerLex unavailable</span> Current anchors cannot be chosen right now: ${esc(playerLexError)} Narration lessons without anchors remain available; intent lessons cannot be saved or tested.</p>`:
+ `<p class="hint" id="lessonanchorhelp">An anchor uses one exact current PlayerLex meaning. The lesson stores its identity, not the approved phrase.</p>`}
+ ${playerLexError?`<p class="hint" id="lessonanchorhelp">An exact current anchor is required for intent interpretation.</p>`:""}
+ <p class="hint" id="lessonintentrole"></p>
+ <div id="lessonnarrationfields"><label class="field">What should AetherState do?<textarea class="lessoncopy" id="lessondo" maxlength="1000" placeholder="Describe the narration behavior you want."></textarea></label>
+ <label class="field">What should it avoid?<textarea class="lessoncopy" id="lessonavoid" maxlength="1000" placeholder="Describe the narration behavior you do not want."></textarea></label></div>
+ <div id="lessonintentfields" style="display:none"><label class="field">Misunderstanding note (for your record only)<textarea class="lessoncopy" id="lessonmisunderstanding" maxlength="1000" placeholder="Record the incorrect action or target interpretation you observed."></textarea></label>
+ <label class="field">Correct interpretation note (for your record only)<textarea class="lessoncopy" id="lessonunderstanding" maxlength="1000" placeholder="Record what the exact PlayerLex anchor should mean here."></textarea></label>
+ <p class="hint">AetherState never parses these notes to choose an action or target and never sends them to the narrator. Only the exact selected PlayerLex anchor can narrow a safe live ambiguity.</p></div>
+ <div class="row"><button class="act good" id="lessonsave" onclick="playerLessonSave()">Save locally and enable</button>
+ <button class="mini" id="lessoncancel" style="display:none" onclick="playerLessonCancel()">cancel revision</button>
+ <span class="hint" id="lessonconsent">Saving is your explicit consent to store this lesson locally. When relevant on a real narrator turn, its title and narration instructions may be sent to your configured model provider. You can disable, revise, or securely remove the lesson later.</span></div>
+ <hr style="border:0;border-top:1px solid var(--edge);margin:14px 0"><h3>Test with sample turn</h3>
+ <p class="hint" id="lessontesthelp">This tests the current form as a draft without saving, enabling, or revising it. The sample is
+ evaluated in memory only; it is never stored, added to a turn, or sent to a narrator model.</p>
+ <textarea class="lessoncopy" id="lessonsample" maxlength="2000" placeholder="Type a sample Player turn."></textarea>
+ <div class="row"><label class="field"><span id="lessontestscopeLabel">Sample narration mode</span><select id="lessontestscope">${LESSON_MODES.map(value=>
+  `<option value="${value}">${LESSON_SCOPES[value]}</option>`).join("")}</select></label>
+ <button class="act" id="lessontestbutton" onclick="playerLessonTest()">Test with sample turn</button></div>
+ <pre id="lessonresult">No sample test run. No sample has been stored.</pre></div>`;
+ if(LESSONS.length){h+=`<div class="card"><h3>Saved local lessons</h3>`+LESSONS.map(e=>{const id=playerLessonId(e),
+  effect=playerLessonType(e),intent=effect==="intent_interpretation",rev=playerLessonRevision(e),enabled=e.enabled!==false,
+  status=e.status||(!enabled?"disabled":"current"),anchorState=e.anchor_status||(playerLessonAnchor(e)?"unavailable":"unanchored"),
+  stale=intent?anchorState!=="current":!["current","unanchored"].includes(anchorState),quoted=JSON.stringify(id).replace(/'/g,"&#39;"),
+  anchorRole=playerLessonIntentRole(playerLessonAnchor(e)),latestLabel=intent?"Latest application":"Latest narrator delivery",
+  latest=intent?playerLessonApplicationView(e):playerLessonSelectionView(e);
+  return `<div class="lessonitem"><div class="row"><b>${esc(e.title||"Untitled lesson")}</b>
+   <span class="pill vio">${esc(LESSON_TYPES[effect]||effect)}</span><span class="pill ${enabled&&!stale?"ok":stale?"warn":"dim"}">${esc(status)}</span>
+   <span class="hint">Scope: ${esc(playerLessonScopeLabel(e.scope))} · revision ${esc(rev??"?")}</span></div>
+   <div class="row"><span class="hint">Anchor:</span>${playerLessonAnchorView(e)}${intent&&anchorRole?` <span class="pill dim">corrects ${anchorRole}</span>`:""}</div>
+   ${intent?(e.misunderstanding?`<div class="lessoncopy"><span class="hint">Misunderstanding:</span> ${esc(e.misunderstanding)}</div>`:""):
+    (e.do?`<div class="lessoncopy"><span class="hint">Do:</span> ${esc(e.do)}</div>`:"")}
+   ${intent?(e.correct_interpretation?`<div class="lessoncopy"><span class="hint">Correct understanding:</span> ${esc(e.correct_interpretation)}</div>`:""):
+    (e.avoid?`<div class="lessoncopy"><span class="hint">Avoid:</span> ${esc(e.avoid)}</div>`:"")}
+   <div class="row"><span class="hint">Provenance:</span>${playerLessonProvenance(e)}</div>
+   <div class="row"><span class="hint">${latestLabel}:</span>${latest}</div>
+   ${intent?"":`<div class="hint">Delivery means the configured provider returned response headers. It does not prove narrator adherence or completion.</div>`}
+   <div class="row"><button class="mini" onclick='playerLessonEdit(${quoted},true)'>test</button>
+   <button class="mini" onclick='playerLessonEdit(${quoted},false)'>revise</button>
+   <button class="mini" onclick='playerLessonToggle(${quoted})'>${enabled?"disable":"enable"}</button>
+   <button class="mini danger" onclick='playerLessonDelete(${quoted})'>securely remove</button></div></div>`}).join("")+`</div>`}
+ else h+=`<div class="card"><span class="hint">No Player Lessons have been saved locally.</span></div>`;
+ h+=`<div class="card"><h3>Secure removal limit</h3><p class="hint">Secure removal deletes the lesson and its
+ content-free selection or application items from the active local AetherState database and WAL. It cannot erase external
+ backups, copied files, filesystem snapshots, storage-device history, or lesson text a model provider
+ already received or retained, including a request already in flight.</p></div>`;return h}
+function playerLessonEdit(id,testing=false){const e=LESSONS.find(x=>playerLessonId(x)===id);
+ if(!e)return toast("Player Lesson not found; reload the tab",1);LESSON_EDIT=id;const effect=playerLessonType(e),type=$("#lessontype");
+ type.value=effect;playerLessonTypeChanged();type.disabled=true;$("#lessontitle").value=e.title||"";
+ $("#lessonscope").value=e.scope||"every_rpg_turn";$("#lessondo").value=e.do||"";$("#lessonavoid").value=e.avoid||"";
+ $("#lessonmisunderstanding").value=e.misunderstanding||"";$("#lessonunderstanding").value=e.correct_interpretation||"";
+ const select=$("#lessonanchor"),a=playerLessonAnchor(e);
+ select.querySelector('option[value="__stale__"]')?.remove();
+ if(!a)select.value="";else{const current=playerLessonEligibleAnchors(effect).find(x=>x.entry_id===a.entry_id&&x.lex_id===a.lex_id&&
+  x.concept_id===a.concept_id&&x.meaning_fingerprint===a.meaning_fingerprint);
+  if(current)select.value=current.entry_id;else{select.insertAdjacentHTML("beforeend",`<option value="__stale__">Stale anchor — ${esc(a.lex_id)}:${esc(a.concept_id)}</option>`);select.value="__stale__"}}
+ playerLessonAnchorChanged();
+ $("#lessonsave").textContent="Save revision";$("#lessoncancel").style.display="inline-block";
+ if(testing&&select.value==="__stale__")toast("rebind or remove this stale anchor before testing the lesson draft",1);
+ const target=testing&&select.value!=="__stale__"?$("#lessonsample"):testing?select:$("#lessontitle");
+ target?.focus();target?.scrollIntoView({block:"center"})}
+function playerLessonCancel(){playerLessonReset();render()}
+async function playerLessonSave(){const body=playerLessonFormPayload();if(!body)return;
+ const prior=LESSON_EDIT?LESSONS.find(x=>playerLessonId(x)===LESSON_EDIT):null;
+ if(LESSON_EDIT&&!prior)return toast("the lesson changed; reload before revising",1);
+ let url="/aether/player-lessons",method="POST";if(prior){const revision=playerLessonRevision(prior),fingerprint=playerLessonFingerprint(prior);
+  if(revision===null||revision===undefined||!fingerprint)return toast("the lesson has no safe revision proof; reload",1);
+  body.expected_revision=revision;body.expected_fingerprint=fingerprint;url+=`/${encodeURIComponent(LESSON_EDIT)}`;method="PATCH"}
+ const d=await j(url,{method,headers:{"content-type":"application/json"},body:JSON.stringify(body)}),error=playerLessonError(d);
+ if(error)return toast(error,1);toast(prior?"Player Lesson revision saved":"Player Lesson saved locally and enabled");
+ playerLessonReset();await render()}
+async function playerLessonToggle(id){const e=LESSONS.find(x=>playerLessonId(x)===id);if(!e)return toast("Player Lesson not found; reload the tab",1);
+ const revision=playerLessonRevision(e),fingerprint=playerLessonFingerprint(e);if(revision===null||revision===undefined||!fingerprint)return toast("the lesson has no safe revision proof; reload",1);
+ const enabled=e.enabled===false,d=await j(`/aether/player-lessons/${encodeURIComponent(id)}/enabled`,{method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({enabled,expected_revision:revision,expected_fingerprint:fingerprint})}),error=playerLessonError(d);
+ if(error)return toast(error,1);toast(enabled?"Player Lesson enabled":"Player Lesson disabled");playerLessonReset();await render()}
+async function playerLessonDelete(id){const e=LESSONS.find(x=>playerLessonId(x)===id);if(!e)return toast("Player Lesson not found; reload the tab",1);
+ if(!confirm(`Securely remove the local Player Lesson "${e.title}" and its content-free selection or application items?\n\nThis deletes them from the active AetherState database and WAL. External backups, copied files, filesystem snapshots, storage-device history, and lesson text a model provider already received or retained, including requests already in flight, cannot be erased by AetherState.`))return;
+ const d=await j(`/aether/player-lessons/${encodeURIComponent(id)}`,{method:"DELETE"}),error=playerLessonError(d);
+ if(error)return toast(error,1);toast("Player Lesson securely removed from the active local database and WAL");playerLessonReset();await render()}
+async function playerLessonTest(){const body=playerLessonFormPayload(),sample=$("#lessonsample")?.value||"",
+ narration_mode=$("#lessontestscope")?.value||"";if(!body)return;if(!sample.trim())return toast("enter a sample Player turn",1);
+ body.sample_text=sample;body.narration_mode=narration_mode;
+ const d=await j("/aether/player-lessons/test",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}),
+ out=$("#lessonresult"),error=playerLessonError(d);if(error){out.textContent=error;return}
+ const result=d.result||d;if(result.sample_stored!==false){out.textContent="Test response did not confirm that the sample stayed in memory and was not stored.";return}
+ const intent=body.effect_type==="intent_interpretation",matched=result.matched===true||result.would_apply===true,
+  label=intent?(matched?"Would be retrieved":"Would not be retrieved"):(matched?"Would match":"Would not match"),
+  reason=String(result.reason||"test completed").replace(/_/g," "),anchor=result.anchor_status?`\nAnchor: ${String(result.anchor_status).replace(/_/g," ")}`:"";
+ out.textContent=`${label}.\nReason: ${reason}${anchor}${intent?"\nThis sample test checks recognition and relevance only. A real new RPG turn applies the lesson only when a safe contextual ambiguity remains; explicit wording still wins.\nApplication evaluated: no.\nApplication stage: after recognition, before contextual binding":""}\nSample stored: no.`}
+function hudMeter(kind,r){return resourceMeter(kind,r)}
+/* an inline op button for the Player dashboard — same privileged ops() the Overview uses */
+function hact(label,opsArr,title){return `<button class="mini" title="${esc(title||"")}" onclick='ops(${JSON.stringify(opsArr).replace(/'/g,"&#39;")})'>${esc(label)}</button>`}
+function playerView(){
+ if(!HUD)return `<div class="card">No session selected — open a chat in SillyTavern (or send one
+  message) and your character appears here.</div>`;
+ const v=HUD,s=v.scene||{};let h="";
+ h+=`<div class="card"><div class="row" style="margin-top:0"><h3 style="margin:0">Player dashboard</h3>
+  <span class="pill ${v.spec==="rpg"?"vio":"dim"}" title="narrative mode">spec: ${esc(v.spec)}</span>
+  ${v.spec==="rpg"?`<label class="sw" title="Pure-code semantic reflex floor: natural phrasings map to the skill they mean (sweet-talk → persuasion, sneaked → stealth) and a strike targets a REAL on-scene character, not a stray word. No model, no network."><input type="checkbox" id="intentfloor" ${v.intent_floor?"checked":""} onchange="toggleIntent(this)"> intent floor</label>`:""}
+  <span style="flex:1"></span>${v.frozen?`<span class="pill bad">FROZEN</span>`:""}
+  <span class="hint">turn ${v.head_turn??"?"}</span></div>`;
+ const sb=[];if(s.location)sb.push(`📍 ${esc(String(s.location).replace(/_/g," "))}`);
+ const tod=[s.time_of_day,s.day?("day "+s.day):""].filter(Boolean).join(", ");if(tod)sb.push(`🕓 ${esc(tod)}`);
+ if(s.phase)sb.push("phase "+esc(s.phase));
+ if((s.present||[]).length)sb.push("👥 "+s.present.map(esc).join(", "));
+ h+=`<div class="row">${sb.map(x=>`<span class="pill dim">${x}</span>`).join("")||`<span class="hint">no scene set yet</span>`}</div></div>`;
+ if(!(v.players||[]).length)h+=`<div class="card"><span class="hint">No player character yet.${v.spec!=="rpg"?" Set narrative mode to RPG (Overview or the ST panel), then build one in the Creator.":" Build one in the Creator."}</span></div>`;
+ for(const p of v.players||[]){
+  const eid=p.eid;
+  h+=`<div class="card"><div class="row" style="margin-top:0"><h3 style="margin:0">${esc(p.name)}</h3>
+   <span class="pill vio">Lv ${p.level}${p.xp?(" · XP "+p.xp):""}</span>
+   ${p.concept?`<span class="pill dim">${esc(p.concept)}</span>`:""}
+   ${p.species?`<span class="pill dim">${esc(p.species)}</span>`:""}
+   ${p.mood?`<span class="pill dim" title="mood">${esc(p.mood)}</span>`:""}
+   ${p.stat_points?`<span class="pill warn">${p.stat_points} stat pt</span>`:""}</div>`;
+  if(p.appearance)h+=`<p class="hint" style="font-style:italic;border-left:2px solid var(--vio);padding-left:8px;margin:6px 0;line-height:1.45">${esc(p.appearance)}</p>`;
+  if(p.hp&&p.hp.max)h+=hudMeter("hp",p.hp);
+  for(const k in (p.resources||{}))h+=hudMeter(k,p.resources[k]);
+  h+=`<div class="row"><span class="hint">HP:</span>${hact("−5",[{op:"hp_adj",char:eid,delta:-5}],"lose 5")}${hact("−1",[{op:"hp_adj",char:eid,delta:-1}])}${hact("+1",[{op:"hp_adj",char:eid,delta:1}])}${hact("+5",[{op:"hp_adj",char:eid,delta:5}],"heal 5")}</div>`;
+  if((p.stats||[]).length)h+=`<div class="row">`+p.stats.map(st=>`<span class="pill dim" title="modifier">${esc(st.key)} ${esc(st.val)} <b style="color:var(--acc)">(${st.mod>=0?"+":""}${st.mod})</b>${p.stat_points?hact("+1",[{op:"stat_spend",char:eid,stat:st.key}],"spend a banked point on "+st.key):""}</span>`).join("")+`</div>`;
+  if((p.skills||[]).length)h+=`<div class="row"><span class="hint">skills:</span>`+p.skills.map(sk=>`<span class="pill vio" title="${sk.mastery?"mastery "+sk.mastery:""}">${esc(sk.label)} ${sk.mod>=0?"+":""}${sk.mod}${sk.mastery?" · m"+sk.mastery:""}</span>`).join("")+`</div>`;
+  if((p.abilities||[]).length)h+=`<div class="row"><span class="hint">abilities / spells:</span>`+p.abilities.map(a=>`<span class="pill ok" title="${esc(a.desc)}">${esc(a.name)}${a.kind?" · "+esc(a.kind):""}</span>`).join("")+`</div>`;
+  h+=`<div class="row"><span class="hint">statuses / conditions / diseases:</span>`+((p.effects||[]).length?p.effects.map(e=>{const col=e.valence==="negative"?"bad":e.valence==="positive"?"ok":"dim";return `<span class="pill ${col}" title="${esc((e.note||"")+(e.mods?" · "+e.mods:""))}">${esc(e.glyph)} ${esc(e.name)} <b style="opacity:.65">${esc(e.kind_label)}</b>${e.stacks>1?" ×"+e.stacks:""}${e.remaining!=null?" · "+e.remaining+"t":""} ${hact("×",[{op:"effect_remove",char:eid,effect:e.key}],"remove")}</span>`}).join(""):`<span class="hint">none active</span>`)+`</div>`;
+  const dr=p.drives||{},db=[];
+  (dr.obsessions||[]).forEach(o=>db.push(`<span class="pill warn">☄ ${esc(o.target)} ${o.intensity} ${hact("−",[{op:"obsession",char:eid,target_kind:o.target_kind,target:o.target,delta:-10}],"ease")}${hact("+",[{op:"obsession",char:eid,target_kind:o.target_kind,target:o.target,delta:10}],"deepen")}</span>`));
+  (dr.cravings||[]).forEach(c=>db.push(`<span class="pill ${c.withdrawal?"bad":"dim"}">♦ ${esc(c.substance)} ${c.level}${c.withdrawal?" ⚠ withdrawal":""} ${hact("sate",[{op:"craving",char:eid,substance:c.substance,action:"consume"}],"sate")}${hact("+",[{op:"craving",char:eid,substance:c.substance,action:"adjust",delta:10}],"intensify")}</span>`));
+  if(db.length)h+=`<div class="row"><span class="hint">drives:</span>`+db.join("")+`</div>`;
+  h+=`<div class="row"><span class="hint">gear (worn):</span>`+((p.gear||[]).length?p.gear.map(g=>`<span class="chip"><b>${esc(g.slot)}</b> ${esc(g.name)}${g.mods?" ("+esc(g.mods)+")":""} ${hact("unequip",[{op:"item_unequip",instance:g.iid}],"move to inventory")}</span>`).join(""):`<span class="hint">nothing equipped</span>`)+`</div>`;
+  if((p.inventory||[]).length)h+=p.inventory.map(c=>`<div class="row"><span class="hint">${esc(c.container)}:</span>`+c.items.map(i=>`<span class="chip">${esc((i.qty>1?i.qty+"× ":"")+i.name)}${i.slot?" "+hact("equip",[{op:"item_equip",instance:i.iid,slot:i.slot}],"wear/wield"):""}${i.consumable?" "+hact("use",[{op:"item_consume",instance:i.iid}],"consume one"):""}</span>`).join("")+`</div>`).join("");
+  else h+=`<div class="row"><span class="hint">inventory:</span><span class="hint">empty</span></div>`;
+  h+=`</div>`}
+ if((v.cast||[]).length){h+=`<div class="card"><h3>Cast <small>everyone AetherState is tracking</small></h3>`;
+  for(const c of v.cast){
+   h+=`<div class="row" style="margin-top:8px"><b style="font-weight:600">${esc(c.name)}</b>`+
+    (c.present?`<span class="pill ok">here</span>`:`<span class="pill dim">away${c.location?" · "+esc(String(c.location).replace(/_/g," ")):""}</span>`)+
+    (c.rel_tier?`<span class="pill vio">${esc(c.rel_tier)}</span>`:"")+
+    (c.mood?`<span class="hint">${esc(c.mood)}</span>`:"")+
+    (c.arousal>0?`<span class="hint">arousal ${c.arousal}</span>`:"")+`</div>`;
+   if((c.effects||[]).length)h+=`<div class="row"><span class="hint">status:</span>`+c.effects.map(e=>{const col=e.valence==="negative"?"bad":e.valence==="positive"?"ok":"dim";return `<span class="pill ${col}" title="${esc(e.note||"")}">${esc(e.glyph)} ${esc(e.name)} <b style="opacity:.65">${esc(e.kind_label)}</b>${e.remaining!=null?" · "+e.remaining+"t":""} ${hact("×",[{op:"effect_remove",char:c.eid,effect:e.key}],"remove")}</span>`}).join("")+`</div>`;
+   const dr=c.drives||{};const db=[...(dr.obsessions||[]).map(o=>`<span class="pill warn">☄ ${esc(o.target)} ${o.intensity}</span>`),...(dr.cravings||[]).map(cr=>`<span class="pill ${cr.withdrawal?"bad":"dim"}">♦ ${esc(cr.substance)} ${cr.level}</span>`)];
+   if(db.length)h+=`<div class="row"><span class="hint">drives:</span>`+db.join("")+`</div>`;
+   if((c.rel_dims||[]).length)h+=`<div class="row"><span class="hint">toward you:</span>`+c.rel_dims.map(d=>`<span class="pill dim">${esc(d.dim)} ${d.val>=0?"+":""}${d.val}</span>`).join("")+`</div>`;
+   if((c.worn||[]).length)h+=`<div class="hint">wearing: ${c.worn.map(esc).join(", ")}</div>`;
+   if((c.exposed||[]).length)h+=`<div class="hint">exposed: ${c.exposed.map(esc).join(", ")}</div>`;
+   if((dr.goals||[]).length)h+=`<div class="hint">goals: ${dr.goals.map(esc).join(" · ")}</div>`;
+  }
+  h+=`</div>`}
+ if((v.relationships||[]).length)h+=`<div class="card"><h3>Relationships</h3>`+v.relationships.map(r=>`<div class="row"><b style="font-weight:500">${esc(r.a)} → ${esc(r.b)}</b>`+r.dims.map(d=>`<span class="pill ${d.val>=45?"vio":d.val<=-30?"bad":"dim"}">${esc(d.dim)} ${d.val>=0?"+":""}${d.val}</span>`).join("")+`</div>`).join("")+`</div>`;
+ if((v.quests||[]).length)h+=`<div class="card"><h3>Quests</h3>`+v.quests.map(q=>`<div class="row"><b style="font-weight:600">${esc(q.name)}</b>${q.stakes?`<span class="pill warn">${esc(q.stakes)}</span>`:""}<span class="pill ${q.status==="active"?"dim":q.status==="complete"?"ok":"bad"}">${esc(q.status)}</span>${q.note?`<span class="hint">${esc(q.note)}</span>`:""}</div>`).join("")+`</div>`;
+ if((v.rolls||[]).length)h+=`<div class="card"><h3>Dice &amp; Checks</h3>`+v.rolls.slice().reverse().map(r=>`<div class="row"><span class="pill dim">t${r.turn??"?"}</span><b>${esc(r.skill||r.spec||"roll")}</b>${r.spec?`<span class="hint">${esc(r.spec)}</span>`:""}<span class="pill vio">= ${esc(r.result)}</span>${r.tier_label?`<span class="pill ${(r.tier==="fail"||r.tier==="crit_fail")?"bad":r.tier==="partial"?"warn":"ok"}">${esc(r.tier_label)}</span>`:""}</div>`).join("")+`</div>`;
+ const rel=[...(v.relations||[]),...(v.factions||[]).map(f=>Object.assign({fac:true},f))];
+ if(rel.length)h+=`<div class="card"><h3>Relations &amp; Factions</h3><div class="row">`+rel.map(r=>`<span class="pill ${r.fac?"dim":"vio"}">${r.fac?"⚑ ":""}${esc(r.name)} · ${esc(r.tier)}</span>`).join("")+`</div></div>`;
+ if(Object.keys(v.world_flags||{}).length)h+=`<div class="card"><h3>World flags</h3><div class="row">`+Object.entries(v.world_flags).map(([k,val])=>`<span class="pill dim">${esc(k)}=${esc(String(val))}</span>`).join("")+`</div></div>`;
+ if((v.consent||[]).length)h+=`<div class="card"><h3>Consent</h3>`+v.consent.map(c=>`<div class="row"><b style="font-weight:500">${esc(c.pair)}</b><span class="pill dim">${esc(c.category)}</span><span class="pill ${["granted","enthusiastic"].includes(c.level)?"ok":["hard_limit","withdrawn"].includes(c.level)?"bad":"warn"}">${esc(c.level)}</span>${c.cap!=null?`<span class="hint">≤${c.cap}</span>`:""}</div>`).join("")+`</div>`;
+ if((v.memories||[]).length)h+=`<div class="card"><h3>Recent events</h3>`+v.memories.map(m=>`<div class="hint">t${m.turn} · ${esc(m.text)}</div>`).join("")+`</div>`;
+ return h}
+/* ---------- shell ---------- */
+function nav(){$("#tabs").innerHTML=TABS.map(t=>
+ `<button class="${t===tab?"on":""}" onclick="go('${t}')">${t}</button>`).join("")}
+async function go(t){if(tab==="PlayerLex")playerLexReset();if(tab==="Player Lessons")playerLessonReset();
+ tab=t;nav();if(t==="Player Lessons"){headerRefresh();render();return}
+ if(t!=="PlayerLex")await load();headerRefresh();render()}
+async function render(){const v=$("#view"),renderTab=tab,seq=++RENDER_SEQ;let h;
+ try{
+  if(renderTab==="Player")h=playerView();
+  else if(renderTab==="PlayerLex")h=await playerLexTab();
+  else if(renderTab==="Player Lessons")h=await playerLessonsTab();
+  else if(renderTab==="Overview")h=overview();
+  else if(renderTab==="Edit")h=S?editTab():overview();
+  else if(renderTab==="Sessions")h=await sessionsTab();
+  else if(renderTab==="Connection")h=await connectionTab();
+  else if(renderTab==="Status")h=await statusTab();
+  else if(renderTab==="Models")h=await modelsTab();
+  else if(renderTab==="Raw")h=S?`<div class="card"><pre>${esc(JSON.stringify(S.state,null,2))}</pre></div>`:overview();
+  if(seq===RENDER_SEQ&&tab===renderTab)v.innerHTML=h;
+ }catch(e){if(seq===RENDER_SEQ&&tab===renderTab)v.innerHTML=`<div class="card"><span class="pill bad">error</span> ${esc(e)}</div>`}}
+async function boot(){nav();await sessions();await load();headerRefresh();
+ try{$("#ovr").checked=!!(await j("/aether/override")).enabled}catch(e){}
+ render();
+ timer=setInterval(async()=>{if((tab==="Overview"||tab==="Player")&&document.visibilityState==="visible"){
+  const before=JSON.stringify(S);await sessions();await load();
+  if(JSON.stringify(S)!==before){headerRefresh();render()}}},4000)}
+boot();
+</script>
+</body>
+</html>

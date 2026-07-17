@@ -1,0 +1,43 @@
+[
+  {"beat_id": "core_drama.withdrawal_edge", "name": "Withdrawal edge", "binds": "craving",
+   "preconditions": {"all": [
+     {"path": "char.{char}.craving.{substance}.level", "op": ">=", "value": 70},
+     {"path": "char.{char}.craving.{substance}.dependency", "op": ">=", "value": 50}]},
+   "note_template": "{char}'s craving for {substance} is clawing. Show it in temper and distraction, not exposition.",
+   "priority": 60, "cooldown_turns": 6},
+  {"beat_id": "core_drama.craving_seeking", "name": "Seeking", "binds": "craving",
+   "preconditions": {"all": [
+     {"path": "char.{char}.craving.{substance}.level", "op": ">=", "value": 55},
+     {"path": "char.{char}.craving.{substance}.level", "op": "<", "value": 70},
+     {"path": "char.{char}.craving.{substance}.dependency", "op": ">=", "value": 30}]},
+   "note_template": "Have {char} maneuver toward {substance} — an excuse, a detour, a small lie if it comes to that. Let the pull show in what they notice.",
+   "priority": 50, "cooldown_turns": 8},
+  {"beat_id": "core_drama.temptation", "name": "Temptation", "binds": "craving",
+   "preconditions": {"all": [
+     {"path": "char.{char}.craving.{substance}.level", "op": ">=", "value": 40},
+     {"path": "char.{char}.craving.{substance}.level", "op": "<", "value": 70}]},
+   "note_template": "Put {substance} within {char}'s reach at an inconvenient moment. Make refusing cost something visible.",
+   "priority": 45, "cooldown_turns": 8},
+  {"beat_id": "core_drama.obsession_grip", "name": "Obsession grip", "binds": "obsession",
+   "preconditions": {"path": "char.{char}.obsession.{obs_key}.intensity", "op": ">=", "value": 75},
+   "note_template": "{char}'s fixation on {obs_target} is running the show now. Let it warp their choices, not just their thoughts.",
+   "priority": 55, "cooldown_turns": 6},
+  {"beat_id": "core_drama.obsession_pull", "name": "Obsession pull", "binds": "obsession",
+   "preconditions": {"all": [
+     {"path": "char.{char}.obsession.{obs_key}.intensity", "op": ">=", "value": 40},
+     {"path": "char.{char}.obsession.{obs_key}.intensity", "op": "<", "value": 75}]},
+   "note_template": "Thread {char}'s preoccupation with {obs_target} through the scene — glances, tangents, small tells.",
+   "priority": 40, "cooldown_turns": 8},
+  {"beat_id": "core_drama.secret_pressure", "name": "Secret under pressure", "binds": "char",
+   "preconditions": {"all": [
+     {"path": "char.{char}.secrets", "op": "!=", "value": []},
+     {"path": "scene.tension", "op": ">=", "value": 50}]},
+   "note_template": "Press on what {char} is hiding — a pointed question, a near-miss discovery. Let them almost slip.",
+   "priority": 48, "cooldown_turns": 8, "once_per_scene": true},
+  {"beat_id": "core_drama.reversal", "name": "Reversal", "binds": "none",
+   "preconditions": {"all": [
+     {"path": "scene.tension", "op": ">=", "value": 65},
+     {"path": "scene.phase", "op": "==", "value": "rising"}]},
+   "note_template": "Turn the tables: hand momentary control to whoever has the least of it. Let it sting or thrill, then hold there.",
+   "priority": 42, "cooldown_turns": 10, "once_per_scene": true}
+]

@@ -1,0 +1,91 @@
+# Curated skills (the public contract). Effective check mod (baked into the check op at resolve):
+#   stat_mod(keyed_stat) + base_mod + player.skills[id] + passive-ability mods naming the skill.
+# `governs` verbs help the linter bind a narrated result to this check (outcome_match subject).
+[stealth]
+name = "Stealth"
+keyed_stat = "DEX"
+base_mod = 0
+max_rank = 5
+governs = ["sneaking", "sneak", "hiding", "hide", "moving silently", "slip past", "creep"]
+desc = "Avoiding detection."
+
+[swordplay]
+name = "Swordplay"
+keyed_stat = "STR"
+base_mod = 0
+max_rank = 5
+governs = ["melee", "sword", "blade", "strike", "parry", "duel"]
+desc = "Fighting with blades."
+
+[archery]
+name = "Archery"
+keyed_stat = "DEX"
+base_mod = 0
+max_rank = 5
+governs = ["shoot", "bow", "arrow", "loose", "aim", "ranged"]
+desc = "Accuracy with ranged weapons."
+
+[persuasion]
+name = "Persuasion"
+keyed_stat = "CHA"
+base_mod = 0
+max_rank = 5
+governs = ["convince", "persuade", "negotiate", "charm", "talk", "plead", "barter"]
+desc = "Winning people over with words."
+
+[perception]
+name = "Perception"
+keyed_stat = "CUN"
+base_mod = 0
+max_rank = 5
+governs = ["notice", "spot", "perceive", "search", "listen", "watch"]
+desc = "Noticing what others miss."
+
+[lockpicking]
+name = "Lockpicking"
+keyed_stat = "CUN"
+base_mod = 0
+max_rank = 5
+governs = ["pick", "lockpick", "unlock", "jimmy", "force the lock"]
+desc = "Opening stubborn locks."
+
+[lore]
+name = "Lore"
+keyed_stat = "INT"
+base_mod = 0
+max_rank = 5
+governs = ["recall", "identify", "decipher", "read", "study", "recognize"]
+desc = "Knowledge of history, arcana, and the world."
+
+[athletics]
+name = "Athletics"
+keyed_stat = "STR"
+base_mod = 0
+max_rank = 5
+governs = ["climb", "jump", "swim", "vault", "grapple", "run"]
+desc = "Feats of body and motion."
+
+# RPG-3: a BASIS-GATED skill (the eligibility gate, the public contract). Anyone may TRY to sneak or
+# persuade — but spellcraft has no in-world basis without the granting ability. A check
+# declared without it is a NON-MOVE (visible notice, no roll); the ability is acquired
+# in-world (quest/ritual/user grant via ability_grant), never asserted into existence.
+[spellcraft]
+name = "Spellcraft"
+keyed_stat = "INT"
+base_mod = 0
+max_rank = 5
+requires_ability = "arcane_gift"
+cost = { mana = 2 }
+governs = ["cast", "spell", "channel", "mana", "weave", "incant", "conjure"]
+desc = "Shaping magic. Requires the Arcane Gift — you cannot declare power; you acquire it."
+
+# Universal melee floor (2026-07-11): a genre-neutral hand-to-hand / improvised-weapon skill so a
+# player whose authored kit lacks a weapon skill can still resolve an ATTACK as a real check (not a
+# chip [hp] tag). Part of BASELINE_SKILLS (state.py) — granted to every Player Card at rank 0.
+[brawl]
+name = "Brawl"
+keyed_stat = "STR"
+base_mod = 0
+max_rank = 5
+governs = ["attack", "strike", "hit", "punch", "kick", "grapple", "swing", "fight", "melee", "lunge", "slam", "tackle", "bash", "stab"]
+desc = "Fighting up close — fists, improvised weapons, or a blade in a pinch."

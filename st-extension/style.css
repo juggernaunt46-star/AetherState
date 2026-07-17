@@ -1,0 +1,391 @@
+#aetherstate_panel .aes-chip { display:inline-block; padding:2px 10px; border-radius:10px;
+  font-size:12px; margin-right:6px; background:#20301f; color:#9ece6a; }
+#aetherstate_panel .aes-chip.bad { background:#3a2030; color:#f7768e; }
+#aetherstate_panel .aes-row { display:flex; gap:8px; align-items:center; margin:6px 0;
+  flex-wrap:wrap; }
+#aetherstate_panel button.aes-freeze { background:#f7768e; color:#14151a; border:none;
+  border-radius:5px; padding:4px 12px; font-weight:700; cursor:pointer; }
+#aetherstate_panel button.aes-resume { background:#9ece6a; color:#14151a; border:none;
+  border-radius:5px; padding:4px 12px; font-weight:700; cursor:pointer; }
+
+/* ---- fields, labels, help text ---- */
+#aetherstate_panel .aes-field { margin:8px 0; }
+#aetherstate_panel .aes-label { display:block; font-size:12px; font-weight:600;
+  margin-bottom:3px; color:var(--SmartThemeBodyColor,#e6e6e6); }
+#aetherstate_panel .aes-opt { font-weight:400; opacity:.7; }
+#aetherstate_panel .aes-help { margin-top:4px; font-size:11.5px; line-height:1.45;
+  opacity:.8; color:var(--SmartThemeBodyColor,#e6e6e6); }
+#aetherstate_panel .aes-note { opacity:.75; font-size:12px; }
+#aetherstate_panel .aes-check, #aetherstate_panel .aes-inline { font-size:12px;
+  color:var(--SmartThemeBodyColor,#e6e6e6); }
+#aetherstate_panel .aes-link { font-size:12px; }
+
+/* ---- readable inputs regardless of theme (text_pole styles them natively;
+   these are defensive fallbacks so text is never light-on-light) ---- */
+#aetherstate_panel input:not([type=checkbox]), #aetherstate_panel select {
+  color:var(--SmartThemeBodyColor,#e6e6e6); }
+#aetherstate_panel input:not([type=checkbox])::placeholder {
+  color:var(--SmartThemeBodyColor,#e6e6e6); opacity:.55; }
+#aetherstate_panel input.aes-input { width:100%; }
+#aetherstate_panel input.aes-num { width:5em; min-width:5em; flex:0 0 auto; }
+
+/* ============================================================================
+   AetherState player HUD (2026-07-07) — a movable, themeable window that surfaces
+   the ledger's player-facing truth (stats, statuses, drives, dice, gear, scene).
+   Themed via CSS vars on .aes-hud; a theme class just reassigns the vars.
+   ========================================================================= */
+.aes-hud {
+  --bg:#12131a; --panel:#191b25; --ink:#e8e8f0; --dim:#9aa0b5; --acc:#8bd5ff;
+  --acc2:#c9a6ff; --good:#8fe38f; --bad:#ff8a9c; --warn:#ffd479; --line:#2c2f3f;
+  --hbg:linear-gradient(90deg,#232636,#191b25); --radius:12px; --font:"Inter",system-ui,sans-serif;
+  /* Stay above chat, but below SillyTavern's top drawers (#top-settings-holder: 3005). */
+  position:fixed; z-index:2990; top:70px; right:18px;
+  width:min(var(--aes-hud-width,340px), calc(100vw - 16px));
+  max-width:calc(100vw - 16px); max-height:calc(100dvh - 16px);
+  background:var(--bg); color:var(--ink); border:1px solid var(--line);
+  border-radius:var(--radius); box-shadow:0 12px 40px rgba(0,0,0,.55);
+  font-family:var(--font); font-size:12.5px; display:flex; flex-direction:column;
+  overflow:hidden; backdrop-filter:blur(2px);
+}
+.aes-hud.hidden { display:none; }
+.aes-hud-bar { display:flex; align-items:center; gap:6px; padding:7px 9px; cursor:move;
+  background:var(--hbg); border-bottom:1px solid var(--line); user-select:none; }
+.aes-hud-title { font-weight:800; letter-spacing:.3px; color:var(--ink); font-size:13px; flex:0 0 auto; }
+.aes-hud-spec { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.6px;
+  padding:1px 7px; border-radius:9px; background:var(--acc2); color:#14151a; }
+.aes-hud-spec.none { background:#3a3d4d; color:var(--dim); }
+.aes-hud-grow { flex:1 1 auto; }
+.aes-hud-bar select, .aes-hud-bar button { background:transparent; color:var(--dim);
+  border:1px solid var(--line); border-radius:6px; font-size:11px; cursor:pointer; padding:2px 5px; }
+.aes-hud-bar button:hover { color:var(--ink); border-color:var(--acc); }
+.aes-hud-body { padding:8px 10px 12px; overflow-y:auto; overflow-x:hidden; }
+.aes-hud-body::-webkit-scrollbar { width:8px; } .aes-hud-body::-webkit-scrollbar-thumb {
+  background:var(--line); border-radius:6px; }
+.aes-hud-empty { color:var(--dim); font-style:italic; padding:14px 4px; text-align:center; }
+.aes-hud-off { color:var(--bad); }
+
+.aes-sec { margin:10px 0 4px; }
+.aes-sec:first-child { margin-top:2px; }
+.aes-sec-h { font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:1.1px;
+  color:var(--acc); margin-bottom:5px; padding-bottom:3px; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; gap:6px; }
+.aes-sec-h .ic { opacity:.9; }
+.aes-name { font-size:15px; font-weight:800; color:var(--ink); }
+.aes-sub { color:var(--dim); font-size:11.5px; margin:1px 0 6px; }
+.aes-appear { font-style:italic; color:var(--ink); opacity:.9; line-height:1.4; margin:4px 0 7px;
+  padding-left:8px; border-left:2px solid var(--acc2); }
+.aes-bars { display:flex; flex-direction:column; gap:4px; margin:6px 0; }
+.aes-bar { position:relative; height:16px; border-radius:8px; background:#0d0e14;
+  border:1px solid var(--line); overflow:hidden; }
+.aes-bar > i { position:absolute; left:0; top:0; bottom:0; border-radius:8px; }
+.aes-bar.hp > i { background:linear-gradient(90deg,#ff5d73,#ff9d6c); }
+.aes-bar.stamina > i { background:linear-gradient(90deg,#8fe38f,#4fd6c0); }
+.aes-bar.mana > i { background:linear-gradient(90deg,#7db6ff,#c9a6ff); }
+.aes-bar.custom > i { background:linear-gradient(90deg,var(--acc),var(--acc2)); }
+.aes-bar > span { position:absolute; inset:0; display:flex; align-items:center;
+  justify-content:center; font-size:10.5px; font-weight:700; color:#fff; text-shadow:0 1px 2px #000; }
+.aes-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; margin:6px 0; }
+.aes-stat { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  padding:4px 2px; text-align:center; }
+.aes-stat b { display:block; font-size:14px; color:var(--ink); }
+.aes-stat small { color:var(--dim); font-size:9.5px; text-transform:uppercase; letter-spacing:.5px; }
+.aes-stat em { color:var(--acc); font-style:normal; font-weight:700; font-size:10.5px; }
+.aes-rows { display:flex; flex-wrap:wrap; gap:4px; }
+.aes-pill { display:inline-flex; align-items:center; gap:5px; background:var(--panel);
+  border:1px solid var(--line); border-radius:8px; padding:2px 8px; font-size:11.5px; }
+.aes-pill b { color:var(--ink); } .aes-pill .m { color:var(--acc); font-weight:700; }
+.aes-pill.good { border-color:var(--good); } .aes-pill.bad { border-color:var(--bad); }
+.aes-pill.warn { border-color:var(--warn); }
+.aes-pill .g { font-weight:800; } .aes-pill.pos .g { color:var(--good); }
+.aes-pill.neg .g { color:var(--bad); } .aes-pill.neu .g { color:var(--dim); }
+.aes-kv { color:var(--dim); font-size:11.5px; margin:2px 0; }
+.aes-kv b { color:var(--ink); font-weight:600; }
+.aes-quest { margin:3px 0; padding-left:8px; border-left:2px solid var(--warn); }
+.aes-quest b { color:var(--ink); } .aes-quest.done { border-color:var(--good); opacity:.7; }
+.aes-roll { display:flex; justify-content:space-between; font-family:ui-monospace,monospace;
+  font-size:11px; padding:2px 0; border-bottom:1px dotted var(--line); }
+.aes-roll .t { color:var(--acc); font-weight:700; }
+.aes-roll .t.crit_success,.aes-roll .t.success { color:var(--good); }
+.aes-roll .t.fail,.aes-roll .t.crit_fail { color:var(--bad); }
+.aes-roll .t.partial { color:var(--warn); }
+
+/* launcher tab (always available while the extension is enabled) */
+.aes-hud-launch { position:fixed; z-index:2989; top:120px; right:0; width:30px; height:52px;
+  border:none; border-radius:9px 0 0 9px; background:linear-gradient(180deg,#8bd5ff,#c9a6ff);
+  color:#12131a; font-size:17px; font-weight:900; cursor:pointer; box-shadow:-2px 2px 12px rgba(0,0,0,.5);
+  writing-mode:vertical-rl; }
+.aes-hud-launch:hover { filter:brightness(1.1); }
+
+/* ---------------- themes (reassign the vars) ---------------- */
+.aes-hud.t-fantasy {
+  --bg:#1c140c; --panel:#271a10; --ink:#f3e6cf; --dim:#b39c7d; --acc:#e6b64c; --acc2:#c98a3c;
+  --good:#a7c65a; --bad:#d76a55; --warn:#e6b64c; --line:#4a3320;
+  --hbg:linear-gradient(90deg,#3a2718,#271a10); --radius:10px;
+  --font:"Georgia","Times New Roman",serif; box-shadow:0 12px 40px rgba(0,0,0,.6);
+}
+.aes-hud.t-fantasy .aes-sec-h { letter-spacing:1.4px; }
+.aes-hud.t-scifi {
+  --bg:#07141a; --panel:#0c2029; --ink:#d6f6ff; --dim:#6fa6b5; --acc:#33e6d0; --acc2:#37b6ff;
+  --good:#5affc9; --bad:#ff5d8f; --warn:#ffd24a; --line:#134450;
+  --hbg:linear-gradient(90deg,#0e2f3a,#0c2029); --radius:6px;
+  --font:ui-monospace,"Consolas",monospace;
+}
+.aes-hud.t-scifi .aes-hud-title,.aes-hud.t-scifi .aes-sec-h { text-shadow:0 0 8px var(--acc); }
+.aes-hud.t-modern {
+  --bg:#f4f6fb; --panel:#ffffff; --ink:#1a2233; --dim:#65718a; --acc:#2f6bff; --acc2:#6b52ff;
+  --good:#1fa971; --bad:#e5484d; --warn:#d98a00; --line:#dde3ee;
+  --hbg:linear-gradient(90deg,#eef2fb,#ffffff); --radius:12px;
+  --font:"Inter",system-ui,sans-serif; box-shadow:0 12px 40px rgba(30,40,80,.25);
+}
+.aes-hud.t-modern .aes-bar > span { color:#fff; }
+.aes-hud.t-modern .aes-stat b,.aes-hud.t-modern .aes-name { color:#1a2233; }
+
+/* ---- editable controls (revealed by the ✎ edit toggle) ---- */
+.aes-hud .aes-act { display:none; }
+.aes-hud.editing .aes-act { display:inline-flex; align-items:center; margin-left:5px;
+  background:var(--panel); color:var(--acc); border:1px solid var(--line); border-radius:6px;
+  font-size:10.5px; font-weight:700; padding:1px 6px; cursor:pointer; line-height:1.35; }
+.aes-hud.editing .aes-act:hover { border-color:var(--acc); color:var(--ink); }
+.aes-hud.editing .aes-act.mini { padding:0 5px; font-size:10px; margin-left:3px; }
+.aes-hud.editing .aes-act.x { color:var(--bad); border-color:transparent; padding:0 5px; }
+.aes-act-row { display:none; }
+.aes-hud.editing .aes-act-row { display:flex; gap:5px; margin:5px 0 2px; }
+.aes-hud.editing #aes_hud_edit { color:var(--acc); border-color:var(--acc); }
+.aes-inv { white-space:nowrap; display:inline-block; margin:1px 0; }
+.aes-stat { position:relative; }
+
+/* ---- compact / minimized mode (the ▁ toggle) ---- */
+.aes-hud.compact { width:min(232px, calc(100vw - 16px)); }
+.aes-hud.compact .aes-hud-body { padding:6px 9px 9px; }
+.aes-hud.compact #aes_hud_edit, .aes-hud.compact #aes_hud_theme { display:none; }
+
+/* ---- kind tags, dim notes, cast cards (comprehensive view) ---- */
+.aes-tag { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.4px;
+  padding:0 4px; border-radius:5px; background:var(--line); color:var(--dim); }
+.aes-tag.ok { background:var(--good); color:#12131a; }
+.aes-dim { color:var(--dim); font-size:10.5px; }
+.aes-cast { border:1px solid var(--line); border-radius:8px; padding:5px 7px; margin:5px 0;
+  background:var(--panel); }
+.aes-cast-h { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:3px; }
+.aes-cast-h b { color:var(--ink); font-size:12.5px; }
+.aes-cast .aes-kv { margin:2px 0; }
+
+/* ============ tabbed HUD (2026-07-07): organize the sheet, keep vitals always visible ====== */
+.aes-vitals { margin:2px 0 7px; }
+.aes-vit-scene { color:var(--dim); font-size:11px; }
+.aes-vit-name { color:var(--ink); font-size:13.5px; font-weight:700; margin:2px 0 1px; }
+.aes-vit-name .m { color:var(--acc); font-weight:700; font-size:11px; }
+.aes-tabs { display:flex; flex-wrap:wrap; gap:3px; margin:2px 0 8px;
+  border-bottom:1px solid var(--line); padding-bottom:6px; }
+.aes-tab { flex:1 1 auto; background:transparent; color:var(--dim); border:1px solid transparent;
+  border-radius:7px 7px 0 0; font-size:10.5px; font-weight:700; padding:4px 6px; cursor:pointer;
+  white-space:nowrap; }
+.aes-tab:hover { color:var(--ink); background:var(--panel); }
+.aes-tab.on { color:var(--ink); background:var(--panel); border-color:var(--line);
+  border-bottom-color:var(--acc); box-shadow:inset 0 -2px 0 var(--acc); }
+.aes-tabbody { min-height:40px; }
+
+/* dice-rules panel — the rules MUST be visible to the player */
+.aes-rules { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--acc);
+  border-radius:8px; padding:7px 9px; margin:6px 0 8px; }
+.aes-rules-h { color:var(--ink); font-weight:700; font-size:11.5px; margin-bottom:4px; }
+.aes-rules-rows > div { font-size:11px; color:var(--dim); margin:2px 0; }
+.aes-rules-rows b { color:var(--ink); font-family:ui-monospace,monospace; }
+.aes-rules-rows .t.success { color:var(--good); font-weight:700; }
+.aes-rules-rows .t.partial { color:var(--warn); font-weight:700; }
+.aes-rules-rows .t.fail { color:var(--bad); font-weight:700; }
+.aes-rules-crit { font-size:10.5px; color:var(--dim); margin-top:4px; }
+.aes-rules-syntax { margin-top:5px; }
+.aes-rules-syntax code, .aes-rules-note code { font-size:10px; color:var(--acc2);
+  background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:1px 5px;
+  word-break:break-word; display:inline-block; }
+.aes-rules-note { font-size:10.5px; color:var(--dim); margin-top:5px; line-height:1.4; }
+.aes-mech { font-size:11px; color:var(--dim); margin:2px 0; }
+.aes-mech b { color:var(--acc); text-transform:capitalize; }
+
+/* skills — the modifier you roll */
+.aes-skills { display:flex; flex-direction:column; gap:4px; }
+.aes-skill { display:flex; flex-direction:column; background:var(--panel); border:1px solid var(--line);
+  border-radius:8px; padding:4px 8px; }
+.aes-skill .aes-skl b { color:var(--ink); font-size:12px; }
+.aes-skill .m.big { color:var(--acc); font-weight:800; font-size:13px; margin-left:4px; }
+.aes-skmeta { color:var(--dim); font-size:10px; margin-top:1px; text-transform:capitalize; }
+.aes-rows2 { display:flex; flex-direction:column; }
+.aes-roll-note { color:var(--acc2); font-size:10px; font-family:var(--font); font-style:italic;
+  width:100%; padding-left:6px; }
+
+/* abilities — bend the dice; passive talents vs active techniques vs spells */
+.aes-abil { background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  padding:5px 8px; margin:4px 0; }
+.aes-abil.act { border-left:3px solid var(--acc); }
+.aes-abil.cd { opacity:.6; }
+.aes-abil-h { display:flex; align-items:center; gap:6px; }
+.aes-abil-h b { color:var(--ink); font-size:12.5px; }
+.aes-abil-mech { color:var(--acc); font-size:11px; margin:2px 0 1px; }
+.aes-abil-meta { color:var(--dim); font-size:10px; }
+.aes-abil-desc { color:var(--dim); font-size:10.5px; line-height:1.4; margin-top:3px; opacity:.9; }
+.aes-tag.act { background:var(--acc); color:#12131a; }
+
+/* gear paper-doll — worn positions, unmistakable from carried inventory */
+.aes-doll { display:flex; flex-direction:column; gap:3px; margin:2px 0 4px; }
+.aes-doll-gh { color:var(--dim); font-size:10px; font-weight:800; text-transform:uppercase;
+  letter-spacing:.6px; margin:5px 0 1px; }
+.aes-slot { display:flex; align-items:center; gap:6px; border-radius:8px; padding:4px 8px;
+  border:1px solid var(--line); background:var(--bg); }
+.aes-slot-l { color:var(--dim); font-size:9.5px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.4px; min-width:66px; flex:0 0 auto; }
+.aes-slot-i { color:var(--ink); font-size:11.5px; flex:1 1 auto; }
+.aes-slot-i .m { color:var(--acc); font-weight:700; font-size:10px; }
+.aes-slot.filled { background:var(--panel); }
+.aes-slot.filled.weapon { border-left:3px solid var(--bad); }
+.aes-slot.filled.armor { border-left:3px solid var(--acc2); }
+.aes-slot.filled.trinket { border-left:3px solid var(--warn); }
+.aes-slot.empty { opacity:.45; border-style:dashed; }
+.aes-slot.empty .aes-slot-i { font-style:italic; }
+.aes-invrow { color:var(--dim); font-size:11.5px; margin:3px 0; line-height:1.7; }
+.aes-invrow b { color:var(--ink); }
+
+/* hide the DM's raw ledger-protocol tags from the reader (display-only; the proxy still
+   parses them from the raw message, so the ledger keeps updating). Toggle: settings.hud.hideTags */
+.aes-hidden-tag { display: none !important; }
+
+/* ---- Rolls tab (2026-07-08): one-tap check inserters -> ((aether.check ...)) into the box ---- */
+.aes-roll-help { color:var(--dim); font-size:11px; line-height:1.4; margin:2px 0 8px; }
+.aes-rollbtns { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 9px; }
+.aes-rollbtn { display:inline-flex; align-items:center; gap:5px; background:var(--panel);
+  color:var(--ink); border:1px solid var(--line); border-radius:8px; font-size:11.5px;
+  font-weight:700; padding:5px 9px; cursor:pointer; line-height:1.3; flex-wrap:wrap;
+  max-width:100%; text-align:left; }
+.aes-rollbtn:hover { border-color:var(--acc); box-shadow:inset 0 0 0 1px var(--acc); }
+.aes-rollbtn .m { color:var(--acc); font-weight:800; }
+.aes-rollbtn.gated { opacity:.55; border-style:dotted; }
+.aes-rollbtn.gated:hover { border-color:var(--warn); box-shadow:none; }
+.aes-rollbtn.unaffordable { opacity:.72; border-color:var(--bad); cursor:not-allowed; }
+.aes-rollbtn.unaffordable:hover { border-color:var(--bad); box-shadow:none; }
+.aes-action-cost { display:inline-flex; align-items:center; padding:1px 5px; border-radius:6px;
+  border:1px solid var(--aes-resource-color,var(--line));
+  color:var(--aes-resource-color,var(--acc2)); background:var(--bg); font-size:9.5px;
+  font-weight:800; max-width:100%; overflow-wrap:anywhere; }
+.aes-cost-state { color:var(--bad); font-size:9.5px; font-weight:900; text-transform:uppercase;
+  letter-spacing:.35px; white-space:nowrap; }
+.aes-roll-custom { display:flex; gap:6px; margin:4px 0 6px; }
+.aes-roll-custom input { flex:1 1 auto; background:var(--bg); color:var(--ink);
+  border:1px solid var(--line); border-radius:8px; font-size:11.5px; padding:5px 8px; }
+.aes-roll-custom input:focus { outline:none; border-color:var(--acc); }
+.aes-roll-note { color:var(--dim); font-size:10.5px; font-style:italic; line-height:1.45; margin:2px 0 6px; }
+.aes-roll-note code { background:var(--bg); border:1px solid var(--line); border-radius:4px;
+  padding:0 4px; font-style:normal; color:var(--acc); }
+.aes-roll-history,.aes-player-impact { padding:3px 0; border-bottom:1px dotted var(--line); }
+.aes-roll-history .aes-roll,.aes-player-impact .aes-roll { border-bottom:0; padding:0; }
+.aes-player-impact:last-child,.aes-roll-history:last-child { border-bottom:0; }
+.aes-player-impacts { display:grid; gap:2px; }
+.aes-roll-kind { color:var(--ink); font-weight:700; }
+.aes-roll-impact { margin-top:2px; font-size:10.5px; font-weight:700; }
+.aes-roll-impact.none { color:var(--dim); }
+.aes-roll-impact.miss { color:var(--warn); }
+.aes-roll-impact.damage { color:var(--bad); }
+.aes-roll-impact.unknown { color:var(--dim); font-style:italic; }
+.aes-roll-meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:4px 10px;
+  color:var(--dim); font-size:10px; line-height:1.35; margin-top:1px; }
+.aes-roll-separate { display:flex; align-items:flex-start; gap:7px; margin:4px 0 9px;
+  padding:6px 8px; border:1px dashed var(--line); border-radius:8px; color:var(--dim);
+  font-size:10.5px; line-height:1.35; cursor:pointer; }
+.aes-roll-separate:hover { border-color:var(--acc); color:var(--ink); }
+.aes-roll-separate input { flex:0 0 auto; margin-top:2px; accent-color:var(--acc); }
+.aes-roll-separate b { color:var(--acc); }
+
+/* ---- Rolls tab (1.8): active-ability buttons + always-visible last-roll outcome ---- */
+.aes-rollbtn.act { border-style:dashed; color:var(--acc2); }
+.aes-rollbtn.act:hover { border-color:var(--acc2); box-shadow:inset 0 0 0 1px var(--acc2); }
+.aes-lastroll { margin-top:5px; font-size:11.5px; font-weight:800; padding:3px 8px; border-radius:7px;
+  border:1px solid var(--line); display:inline-block; letter-spacing:.2px; }
+.aes-lastroll.success { color:var(--good); border-color:var(--good); }
+.aes-lastroll.partial { color:var(--warn); border-color:var(--warn); }
+.aes-lastroll.fail { color:var(--bad); border-color:var(--bad); }
+.aes-lastroll .m { color:var(--dim); font-weight:600; }
+.aes-lastroll-impact { display:block; margin-top:1px; color:var(--dim); font-size:10px;
+  font-weight:700; letter-spacing:0; }
+
+/* 2026-07-09: the compact strip labels itself — a minimized HUD must never read as broken */
+.aes-expand { display:block; width:100%; margin-top:6px; padding:3px 8px; cursor:pointer;
+  background:var(--panel); color:var(--acc); border:1px dashed var(--line); border-radius:7px;
+  font-size:10.5px; font-weight:800; text-transform:uppercase; letter-spacing:.8px; }
+.aes-expand:hover { border-color:var(--acc); color:var(--ink); }
+
+/* 2026-07-09: paper-doll empty slots collapse to one muted line */
+.aes-slot-empties { font-size:11px; opacity:.5; padding:2px 4px 6px; }
+
+/* Phase 1 (the mechanics contract): the War Room lane — exact HP + one actionable future enemy move */
+.aes-war { margin:7px 0 8px; padding:8px; border:1px solid var(--bad);
+  border-radius:10px; background:linear-gradient(180deg, rgba(255,93,115,.08), transparent); }
+.aes-war.ended { border-color:var(--line); background:var(--panel); }
+.aes-war-h { font-size:11px; font-weight:800; letter-spacing:1px; color:var(--bad);
+  margin-bottom:7px; }
+.aes-war.ended .aes-war-h { color:var(--ink); }
+.aes-war-h .m { color:var(--dim); font-weight:600; letter-spacing:0; }
+.aes-war-section { margin:0 0 7px; }
+.aes-war-section:last-child { margin-bottom:0; }
+.aes-war-section-h { margin:0 0 3px; color:var(--dim); font-size:9px; font-weight:900;
+  letter-spacing:.8px; }
+.aes-enemy-intent { margin:0; padding:6px 7px; border:1px solid var(--warn);
+  border-left:3px solid var(--warn); border-radius:8px; background:rgba(255,194,71,.08);
+  font-size:10.5px; line-height:1.35; }
+.aes-enemy-intent-h { display:flex; align-items:center; flex-wrap:wrap; gap:5px;
+  color:var(--warn); font-size:11px; font-weight:800; letter-spacing:.4px; }
+.aes-enemy-intent.compact { padding:4px 5px; line-height:1.25; }
+.aes-enemy-action { margin:0; padding:6px 7px; border:1px solid var(--line);
+  border-left:3px solid var(--acc); border-radius:8px; background:rgba(117,184,255,.06);
+  font-size:10.5px; line-height:1.35; }
+.aes-enemy-action.hit { border-left-color:var(--bad); }
+.aes-enemy-action.miss { border-left-color:var(--dim); }
+.aes-enemy-action.brace { border-left-color:var(--acc); }
+.aes-enemy-action-h { display:flex; align-items:center; flex-wrap:wrap; gap:5px;
+  color:var(--acc); font-size:11px; font-weight:800; letter-spacing:.4px; }
+.aes-enemy-action.hit .aes-enemy-action-h { color:var(--bad); }
+.aes-enemy-action.miss .aes-enemy-action-h { color:var(--dim); }
+.aes-enemy-action.compact { padding:4px 5px; }
+.aes-impact { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:3px; color:var(--ink); }
+.aes-impact span { padding:2px 5px; border-radius:5px; background:var(--bg); }
+.aes-impact b { color:var(--dim); font-size:9px; text-transform:uppercase; letter-spacing:.35px; }
+.aes-enemy-options { padding:5px 7px; border:1px solid var(--line); border-radius:8px;
+  background:var(--panel); font-size:10.5px; line-height:1.35; }
+.aes-enemy-options.compact { padding:4px 5px; }
+.aes-brace { padding:2px 4px; border:1px solid var(--acc);
+  border-radius:5px; color:var(--ink); background:rgba(117,184,255,.08); }
+.aes-brace b { color:var(--acc); letter-spacing:.4px; }
+.aes-war-init { display:flex; flex-wrap:wrap; align-items:center; gap:4px; margin-bottom:5px;
+  font-size:10.5px; }
+.aes-init { border:1px solid var(--line); border-radius:6px; padding:1px 5px; background:var(--panel);
+  font-weight:700; }
+.aes-init.me { border-color:var(--acc); color:var(--acc); }
+.aes-init.enemy { border-color:var(--bad); }
+.aes-init.ally { border-color:var(--good); }
+.aes-aura { display:block; font-size:10px; font-style:italic; color:var(--acc); opacity:.9;
+  margin-top:1px; line-height:1.25; }
+.aes-war-side { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; margin-top:4px; }
+.aes-com { border:1px solid var(--line); border-radius:8px; padding:4px 6px;
+  background:var(--panel); }
+.aes-com.enemy { border-left:3px solid var(--bad); }
+.aes-com.ally { border-left:3px solid var(--good); }
+.aes-com.down { opacity:.55; }
+.aes-com-h { display:flex; align-items:center; gap:5px; font-size:12px; flex-wrap:wrap; }
+.aes-bar.com { height:13px; margin-top:3px; }
+.aes-bar.com > i { background:linear-gradient(90deg,#ff5d73,#ff9d6c); }
+.aes-die { font-size:10.5px; font-weight:800; padding:1px 6px; border-radius:6px;
+  border:1px solid var(--line); background:#0d0e14; margin-left:auto; }
+.aes-die.hit { color:var(--bad); border-color:var(--bad); }
+.aes-die.graze { color:var(--warn); border-color:var(--warn); }
+.aes-die.miss { color:var(--dim); }
+.aes-com.ally .aes-die.hit { color:var(--good); border-color:var(--good); }
+
+.aes-hud.compact .aes-war { padding:6px; }
+.aes-hud.compact .aes-war-h { margin-bottom:5px; }
+.aes-hud.compact .aes-war-side { grid-template-columns:1fr; }
+@media (max-width:520px) {
+  .aes-hud { top:8px; right:8px; }
+  .aes-war-side { grid-template-columns:1fr; }
+}
+
+/* Phase 2 living world: rumored faction clocks (Agendas, World tab) */
+.aes-front .aes-pips { letter-spacing: 2px; opacity: .85; margin-left: 6px; }
+.aes-front.done { color: var(--SmartThemeQuoteColor, #d9a441); }

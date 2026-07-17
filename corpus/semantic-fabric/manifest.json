@@ -1,0 +1,72 @@
+{
+  "artifacts": [
+    {
+      "bytes": 27162,
+      "path": "action-lex.json",
+      "sha256": "09caedd603b9fc300bfe1c0a748276663d328cdfc407da20408f3f61b939c010"
+    },
+    {
+      "bytes": 19186,
+      "path": "referent-lex.json",
+      "sha256": "27bca6c7fc5e56c0567e9b0e43b718f7c7013ce0a96d110562477e3e165aa362"
+    },
+    {
+      "bytes": 24003,
+      "path": "scene-lex.json",
+      "sha256": "1f9a40a1a06483ba4c0f06d20bb72d960bc9462cbaf5e0620c6d47732f74e3fe"
+    },
+    {
+      "bytes": 3272,
+      "path": "sources.json",
+      "sha256": "afce879426f08af72ecbafb6da6087789bde9d8ec76e14c323095c5c9b08f6b8"
+    }
+  ],
+  "authority_boundary": "recognition_only",
+  "capability_lex": {
+    "manifest_fingerprint": "sha256:8344534dc256f94a67a5c5ad5791c3d926edd384c0d81e15bb178dc92b4f9eda",
+    "mode": "external_adapter",
+    "schema": "aetherstate-capability-glossary/2"
+  },
+  "family_version": 2,
+  "fingerprint": "sha256:dccc32d118435e5509dddda62f6897dbacfd6da17890f663250f21e149db979d",
+  "genre_ids": [
+    "alternate_history",
+    "crime_noir",
+    "cyberpunk_dystopian",
+    "dark_fantasy_gothic",
+    "demon_angel",
+    "dieselpunk_world_war",
+    "dungeon_fantasy",
+    "eastern_fantasy_wuxia_xianxia",
+    "high_fantasy_medieval",
+    "isekai_parallel_world",
+    "kingdom_empire",
+    "low_fantasy_historical",
+    "military_war",
+    "mythological_ancient_world",
+    "pirate_nautical",
+    "post_apoc_climate_collapse",
+    "post_apoc_nuclear_zombies",
+    "post_apoc_pandemic",
+    "samurai_feudal_japan",
+    "school_academy",
+    "science_fantasy",
+    "space_opera_sci_fi",
+    "space_western",
+    "steampunk_victorian",
+    "superhero_modern",
+    "supernatural_occult",
+    "survival_horror",
+    "urban_fantasy_modern",
+    "vampire_werewolf",
+    "virtual_world",
+    "western_frontier"
+  ],
+  "lex_ids": [
+    "capability",
+    "referent",
+    "scene",
+    "action"
+  ],
+  "schema": "aetherstate-semantic-fabric/1"
+}

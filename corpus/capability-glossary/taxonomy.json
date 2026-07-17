@@ -1,0 +1,349 @@
+{
+  "schema": "aetherstate-semantic-atlas-taxonomy/1",
+  "name": "Semantic Atlas",
+  "authority": "classification_only",
+  "classification_planes": [
+    {
+      "id": "concept_facets",
+      "name": "Concept Facets",
+      "stability": "sealed_corpus",
+      "owns": [
+        "concept_kind",
+        "domain_shelves"
+      ],
+      "does_not_own": [
+        "current_support",
+        "runtime_truth"
+      ]
+    },
+    {
+      "id": "scale_profile",
+      "name": "Scale Profile",
+      "stability": "frozen_definition_revision",
+      "owns": [
+        "independent_behavior_axes"
+      ],
+      "does_not_own": [
+        "assignment",
+        "mechanic_admission"
+      ]
+    },
+    {
+      "id": "cube_coverage",
+      "name": "Cube Coverage",
+      "stability": "current_evidence",
+      "owns": [
+        "face_status",
+        "proof_reference",
+        "explicit_non_support"
+      ],
+      "does_not_own": [
+        "concept_meaning",
+        "runtime_truth"
+      ]
+    },
+    {
+      "id": "runtime_record",
+      "name": "Runtime Record",
+      "stability": "ledger_owned",
+      "owns": [
+        "settled_instance",
+        "cause",
+        "replay_identity"
+      ],
+      "does_not_own": [
+        "developer_advice",
+        "mutable_latest_definition"
+      ]
+    }
+  ],
+  "concept_kinds": [
+    {
+      "id": "ability",
+      "label": "Ability",
+      "description": "An owned innate, trained, or granted capability.",
+      "example": "Second Wind",
+      "counterexample": "Bleeding"
+    },
+    {
+      "id": "ability_mechanic",
+      "label": "Ability Mechanic",
+      "description": "A bounded modifier to eligibility, checks, costs, or outcomes.",
+      "example": "Reroll",
+      "counterexample": "Swordplay"
+    },
+    {
+      "id": "action",
+      "label": "Action",
+      "description": "An attempted or performed activity.",
+      "example": "Planar travel",
+      "counterexample": "Mana"
+    },
+    {
+      "id": "basis",
+      "label": "Basis",
+      "description": "Grounding that makes a capability coherent in its world.",
+      "example": "Magic",
+      "counterexample": "Fear"
+    },
+    {
+      "id": "condition",
+      "label": "Condition",
+      "description": "A recognized persistent state outside the registry preset set.",
+      "example": "Infected",
+      "counterexample": "Attack"
+    },
+    {
+      "id": "functional_family",
+      "label": "Functional Family",
+      "description": "A cross-genre family of intended function and delivery behavior.",
+      "example": "Guard barrier",
+      "counterexample": "Longsword"
+    },
+    {
+      "id": "identity",
+      "label": "Identity",
+      "description": "A distinct kind of actor, entity, or organized subject.",
+      "example": "Faction",
+      "counterexample": "Damage"
+    },
+    {
+      "id": "relationship_state",
+      "label": "Relationship State",
+      "description": "A durable social bond, obligation, or relation between exact subjects.",
+      "example": "Debt",
+      "counterexample": "Ammunition"
+    },
+    {
+      "id": "resource",
+      "label": "Resource",
+      "description": "A measurable capacity, reserve, debt, charge, or cost.",
+      "example": "Stamina",
+      "counterexample": "Poisoned"
+    },
+    {
+      "id": "semantic_primitive",
+      "label": "Semantic Primitive",
+      "description": "A small reusable meaning operation used to describe a capability.",
+      "example": "Strike",
+      "counterexample": "Kingdom"
+    },
+    {
+      "id": "skill",
+      "label": "Skill",
+      "description": "A learned proficiency or check domain.",
+      "example": "Stealth",
+      "counterexample": "Invisible"
+    },
+    {
+      "id": "status",
+      "label": "Status",
+      "description": "A canonical registry-backed effect preset.",
+      "example": "Charmed",
+      "counterexample": "Travel"
+    },
+    {
+      "id": "world_state",
+      "label": "World State",
+      "description": "A durable fact whose subject or effect is wider than one transient action.",
+      "example": "Territorial control",
+      "counterexample": "Sword strike"
+    }
+  ],
+  "scale_axes": [
+    {
+      "id": "power",
+      "label": "Power",
+      "description": "The owned capability ceiling or potency before one result is settled."
+    },
+    {
+      "id": "severity",
+      "label": "Severity",
+      "description": "The consequence multiplier or band applied by an admitted mechanic."
+    },
+    {
+      "id": "target_count",
+      "label": "Target Count",
+      "description": "The number and identity shape of intended subjects."
+    },
+    {
+      "id": "area",
+      "label": "Area",
+      "description": "The spatial shape or zone affected by one use."
+    },
+    {
+      "id": "range",
+      "label": "Range",
+      "description": "The allowed distance or reach between source and subject."
+    },
+    {
+      "id": "duration",
+      "label": "Duration",
+      "description": "How long a settled state or effect remains active."
+    },
+    {
+      "id": "world_scope",
+      "label": "World Scope",
+      "description": "The highest actor, institution, territory, or world scale reached."
+    },
+    {
+      "id": "propagation",
+      "label": "Propagation",
+      "description": "How an effect spreads after its admitted cause."
+    },
+    {
+      "id": "reversibility",
+      "label": "Reversibility",
+      "description": "Whether and how committed consequences can end or be undone."
+    }
+  ],
+  "authority_stages": [
+    {
+      "id": "recognized",
+      "label": "Recognized",
+      "description": "Language or authoring input maps to candidate canonical meaning."
+    },
+    {
+      "id": "defined",
+      "label": "Defined",
+      "description": "One immutable world-specific definition revision exists."
+    },
+    {
+      "id": "assigned",
+      "label": "Assigned",
+      "description": "One exact subject acquired that exact definition revision."
+    },
+    {
+      "id": "eligible",
+      "label": "Eligible",
+      "description": "Current trusted context permits evaluation by a compatible adapter."
+    },
+    {
+      "id": "admitted",
+      "label": "Admitted",
+      "description": "A versioned adapter and distinct receipt are accepted for this use."
+    },
+    {
+      "id": "settled",
+      "label": "Settled",
+      "description": "The owning reducer committed one complete result atomically."
+    },
+    {
+      "id": "replayed",
+      "label": "Replayed",
+      "description": "The exact baked result reconstructs without consulting mutable latest data."
+    }
+  ],
+  "cube_faces": [
+    {
+      "id": "recognition",
+      "label": "Recognition",
+      "description": "Canonical candidates and source spans preserve the intended surface."
+    },
+    {
+      "id": "binding",
+      "label": "Binding",
+      "description": "One current event connects actor, action, subjects, scope, and occurrence."
+    },
+    {
+      "id": "world_alignment",
+      "label": "World Alignment",
+      "description": "Exact ledger-backed identities and relations ground the event."
+    },
+    {
+      "id": "admission",
+      "label": "Admission",
+      "description": "Ownership, eligibility, adapter, cost, and receipt authority permit execution."
+    },
+    {
+      "id": "complete_settlement",
+      "label": "Complete Settlement",
+      "description": "One atomic replay-stable receipt owns the whole result."
+    },
+    {
+      "id": "narrator_transfer",
+      "label": "Narrator Transfer",
+      "description": "The final source-free packet preserves settled and unresolved truth."
+    },
+    {
+      "id": "hud_visibility",
+      "label": "HUD Visibility",
+      "description": "The Witness Layer shows the relevant result without changing it."
+    }
+  ],
+  "coverage_statuses": [
+    "working",
+    "partial",
+    "blocked",
+    "not_applicable",
+    "unproven"
+  ],
+  "meaning_facet_contract": {
+    "schema": "capability-concept-meaning/1",
+    "closed_values": {
+      "semantic_role": [
+        "capability_identity",
+        "operation",
+        "state",
+        "resource",
+        "grounding_basis",
+        "identity",
+        "world_rule",
+        "mechanic_modifier"
+      ],
+      "target_cardinality": [
+        "not_applicable",
+        "unspecified",
+        "single",
+        "multiple"
+      ],
+      "spatial_extent": [
+        "not_applicable",
+        "unspecified",
+        "entity",
+        "area",
+        "zone"
+      ],
+      "world_scope": [
+        "not_applicable",
+        "unspecified",
+        "personal",
+        "local",
+        "regional",
+        "global",
+        "cross_world"
+      ]
+    },
+    "fingerprint_includes": [
+      "concept_id",
+      "concept_type",
+      "categories",
+      "definition",
+      "meaning_facets"
+    ],
+    "fingerprint_excludes": [
+      "label",
+      "aliases",
+      "source_ids",
+      "support"
+    ]
+  },
+  "world_event_record": {
+    "name": "World Event Record",
+    "collection": "World Overlay Stack",
+    "authority": "ledger_owned_after_admitted_settlement",
+    "required_fields": [
+      "cause",
+      "actor",
+      "priority",
+      "affected_domains",
+      "scope",
+      "propagation",
+      "expiry",
+      "reversibility",
+      "supersession",
+      "cause_visibility",
+      "branch_replay_identity"
+    ]
+  }
+}

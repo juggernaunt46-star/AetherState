@@ -1,0 +1,16 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { python: ["3.10", "3.12"] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ matrix.python }}" }
+      - run: pip install -e .[dev]
+      - run: ruff check src tests tools nli-shim
+      - run: pytest -q
+      - run: node tests/creator_resource_contract.mjs
+      - run: node tests/st_hud_smoke.mjs

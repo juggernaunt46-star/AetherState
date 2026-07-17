@@ -1,0 +1,212 @@
+# Curated Status & Condition presets (RPG-3, the public contract). The guaranteed grounding FLOOR:
+# these fire even when the narrating model never thinks to tag them, because extraction and
+# the tag protocol both resolve names against this table first (open vocabulary is layered on
+# top — an unknown name still commits, it just carries no engine-side mechanics).
+#
+# Schema per entry:
+#   name     display name (tag/extraction tokens resolve by id OR name, case-insensitive)
+#   kind     "status" (combat-facing buff/debuff) | "condition" (anything else in-world)
+#   valence  DEFAULT valence: negative | neutral | positive — dynamic; effect_update shifts it
+#   mods     optional int check-mods keyed by SKILL id, or "all" for every check (engine-owned;
+#            baked into the ledger record at apply — editing this file never rewrites history)
+#   duration optional lifetime in TURNS (omit = until removed); expiry is DERIVED from
+#            gained_turn + duration, never mutated (replay purity)
+#   requires optional gate: "female" = only female characters (sex attribute / pronouns)
+#   desc     narration hint only — never parsed for mechanics
+
+# ---- Statuses (combat-facing) -------------------------------------------------------
+[strained]
+name = "Strained"
+kind = "status"
+valence = "negative"
+mods = { all = -1 }
+duration = 3
+desc = "A critical failure left its mark — pulled muscle, rattled nerve, shaken focus."
+
+[backlash]
+name = "Backlash"
+kind = "status"
+valence = "negative"
+mods = { all = -2 }
+duration = 4
+desc = "Power reached past mastery and bit back — burnout, recoil, wild energy."
+
+[battered]
+name = "Battered"
+kind = "condition"
+valence = "negative"
+mods = { all = -1 }
+duration = 6
+desc = "Beaten down and barely patched up; defeat lingers in every movement."
+
+[bleeding]
+name = "Bleeding"
+kind = "status"
+valence = "negative"
+mods = { all = -1 }
+duration = 6
+desc = "An open wound; blood loss saps every effort."
+
+[poisoned]
+name = "Poisoned"
+kind = "status"
+valence = "negative"
+mods = { all = -1 }
+duration = 8
+desc = "Venom works through the body."
+
+[stunned]
+name = "Stunned"
+kind = "status"
+valence = "negative"
+mods = { all = -3 }
+duration = 1
+desc = "Reeling; barely able to act."
+
+[blinded]
+name = "Blinded"
+kind = "status"
+valence = "negative"
+mods = { perception = -3, archery = -2 }
+duration = 3
+desc = "Sight lost or fouled."
+
+[burning]
+name = "Burning"
+kind = "status"
+valence = "negative"
+mods = { all = -1 }
+duration = 2
+desc = "On fire — pain and panic."
+
+[chilled]
+name = "Chilled"
+kind = "status"
+valence = "negative"
+mods = { all = -1 }
+duration = 3
+desc = "Numbing cold slows muscle and mind."
+
+[entangled]
+name = "Entangled"
+kind = "status"
+valence = "negative"
+mods = { athletics = -2, stealth = -2 }
+duration = 2
+desc = "Snared by webs, vines, or rope."
+
+[weakened]
+name = "Weakened"
+kind = "status"
+valence = "negative"
+mods = { swordplay = -2, athletics = -2 }
+duration = 4
+desc = "Strength drained away."
+
+[slowed]
+name = "Slowed"
+kind = "status"
+valence = "negative"
+mods = { all = -1 }
+duration = 3
+desc = "Limbs drag as if through water."
+
+[hasted]
+name = "Hasted"
+kind = "status"
+valence = "positive"
+mods = { all = 1 }
+duration = 3
+desc = "Supernaturally quick."
+
+[empowered]
+name = "Empowered"
+kind = "status"
+valence = "positive"
+mods = { all = 1 }
+duration = 3
+desc = "Surging with borrowed strength."
+
+[shielded]
+name = "Shielded"
+kind = "status"
+valence = "positive"
+duration = 3
+desc = "Warded against harm."
+
+[regenerating]
+name = "Regenerating"
+kind = "status"
+valence = "positive"
+duration = 5
+desc = "Wounds knit closed on their own."
+
+# ---- Conditions (anything else that makes in-world sense) ----------------------------
+[cursed]
+name = "Cursed"
+kind = "condition"
+valence = "negative"
+mods = { all = -1 }
+desc = "Marked by malign power; misfortune follows."
+
+[blessed]
+name = "Blessed"
+kind = "condition"
+valence = "positive"
+mods = { all = 1 }
+desc = "Favored by something greater."
+
+[drunk]
+name = "Drunk"
+kind = "condition"
+valence = "neutral"
+mods = { perception = -2, stealth = -1 }
+desc = "In their cups — loose-tongued and unsteady."
+
+[diseased]
+name = "Diseased"
+kind = "condition"
+valence = "negative"
+mods = { all = -1 }
+desc = "Sickness has taken hold."
+
+[exhausted]
+name = "Exhausted"
+kind = "condition"
+valence = "negative"
+mods = { all = -1 }
+desc = "Run past the body's limits."
+
+[starving]
+name = "Starving"
+kind = "condition"
+valence = "negative"
+mods = { all = -1 }
+desc = "Days without food."
+
+[charmed]
+name = "Charmed"
+kind = "condition"
+valence = "neutral"
+desc = "Judgment bent by magic or wiles."
+
+[terrified]
+name = "Terrified"
+kind = "condition"
+valence = "negative"
+mods = { all = -1 }
+desc = "Fear rules them."
+
+[inspired]
+name = "Inspired"
+kind = "condition"
+valence = "positive"
+mods = { all = 1 }
+desc = "Heart lifted; hands steady."
+
+[pregnant]
+name = "Pregnant"
+kind = "condition"
+valence = "neutral"
+requires = "female"
+desc = "Carrying a child. Valence is theirs to define — a blessing, a burden, or simply a fact."

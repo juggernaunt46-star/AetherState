@@ -1,0 +1,65 @@
+{
+  "schema": "aetherstate-capability-glossary/2",
+  "categories_file": "categories.json",
+  "concepts_file": "concepts.json",
+  "sources_file": "sources.json",
+  "taxonomy_file": "taxonomy.json",
+  "genre_files": [
+    "genres/fantasy-mythic.json",
+    "genres/historical-action.json",
+    "genres/scifi-horror.json"
+  ],
+  "counts": {
+    "categories": 12,
+    "classification_planes": 4,
+    "concepts": 265,
+    "concept_kinds": 13,
+    "cube_faces": 7,
+    "genres": 31,
+    "scale_axes": 9,
+    "sources": 122
+  },
+  "authority_boundary": {
+    "recognized": "A glossary match is candidate meaning only.",
+    "authorized": "A world or actor must own an immutable frozen definition.",
+    "executable": "Only an admitted receipt may commit a consequence."
+  },
+  "artifacts": {
+    "README.md": {
+      "bytes": 4538,
+      "fingerprint": "sha256:8f46bc29875d05371b19e534ea9838e1b876e597a50c87524b2cc8cc8b73c0cf"
+    },
+    "categories.json": {
+      "bytes": 7062,
+      "fingerprint": "sha256:015920d3862a3296343f4e8e8a52ac09aaca50926695bf4256cea63dc7cc7eeb"
+    },
+    "concepts.json": {
+      "bytes": 244146,
+      "fingerprint": "sha256:7075818865d3b712314a74d83484889d9a33c95bb56011575eb611f8a3dad1af"
+    },
+    "research/2026-07-13-genre-gap-audit.md": {
+      "bytes": 5905,
+      "fingerprint": "sha256:80cdc6aad774af86cc3a509188336972abda3724cf0c8d2191c7478e801a5a9d"
+    },
+    "taxonomy.json": {
+      "bytes": 9249,
+      "fingerprint": "sha256:8309397ef61c47152f11dbe02f03dab23b8ccc01b6a3e645c3b5b6fce952f0ae"
+    },
+    "genres/fantasy-mythic.json": {
+      "bytes": 72150,
+      "fingerprint": "sha256:4795e9540e2a5d77c39feaa4c3fe7138ff763a4cf9568a18e8abe239b0dd6fd6"
+    },
+    "genres/historical-action.json": {
+      "bytes": 70533,
+      "fingerprint": "sha256:39ca6b1bb19bfbb5121ed5a90a00666f9815a407bc80a6d8683dd8e401087b36"
+    },
+    "genres/scifi-horror.json": {
+      "bytes": 96000,
+      "fingerprint": "sha256:cd06e6665e1bb255b9436ac29d77c39de1d8819a825464af1b0b03df237bb268"
+    },
+    "sources.json": {
+      "bytes": 47020,
+      "fingerprint": "sha256:f68d037d1e4a98287f26611f22a17d1c6a17fea94700341898dbda8e945fdcee"
+    }
+  }
+}

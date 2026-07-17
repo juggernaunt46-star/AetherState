@@ -1,0 +1,35 @@
+{
+  "cases": [
+    {
+      "armament": "EMP projector",
+      "classification": "lore_only",
+      "id": "emp_projector",
+      "reason": "Disruption has no receipt; do not turn it into an improvised HP strike."
+    },
+    {
+      "armament": "net",
+      "classification": "lore_only",
+      "id": "net",
+      "reason": "Restraint has no receipt; do not turn it into an improvised HP strike."
+    },
+    {
+      "armament": "ballista",
+      "classification": "narration_boundary",
+      "id": "ballista",
+      "reason": "Siege targeting/delivery is not represented by the current single-Player envelope."
+    },
+    {
+      "armament": "radiation field generator",
+      "classification": "lore_only",
+      "id": "radiation_field_generator",
+      "reason": "Persistent exposure and zones have no receipt."
+    },
+    {
+      "armament": "flashbang and tear gas grenade",
+      "classification": "lore_only",
+      "id": "flashbang_tear_gas",
+      "reason": "Impairment, area and persistent exposure have no receipt."
+    }
+  ],
+  "schema": "aetherstate-unsupported-capability-cases/1"
+}

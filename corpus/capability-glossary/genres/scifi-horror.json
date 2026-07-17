@@ -1,0 +1,3256 @@
+{
+  "schema": "aetherstate-genre-glossary-cluster/1",
+  "cluster": "scifi-horror",
+  "genres": [
+    {
+      "id": "cyberpunk_dystopian",
+      "label": "Cyberpunk-Dystopian",
+      "aliases": [
+        "cyberpunk",
+        "tech noir",
+        "corporate dystopia",
+        "neon dystopia"
+      ],
+      "facets": [
+        "cyberware",
+        "network intrusion",
+        "surveillance",
+        "megacorporations",
+        "street operations",
+        "drone warfare"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "smartgun burst",
+              "railgun shot",
+              "monoblade strike"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "family.persistent_exposure",
+            "terms": [
+              "corrosive nanite cloud",
+              "weaponized nanite swarm"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.disrupt",
+            "terms": [
+              "neural intrusion",
+              "counterhack",
+              "countertrace",
+              "firewall response",
+              "EMP shutdown"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "family.sustain",
+            "terms": [
+              "cyberware overclock",
+              "reflex boost",
+              "targeting assist",
+              "hardened electronics"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.compromised",
+            "terms": [
+              "system compromised",
+              "malware infected",
+              "backdoor installed",
+              "access breached",
+              "surveillance tagged"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "status.strained",
+            "terms": [
+              "neural strain",
+              "neural overload",
+              "interface shock"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.vehicle_travel",
+            "terms": [
+              "urban vehicle chase",
+              "combat cab pursuit",
+              "autonomous transport run",
+              "rooftop getaway"
+            ],
+            "baseline": "gap_filled",
+            "priority": "medium"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "action.hacking",
+            "terms": [
+              "hack system",
+              "jack into the network",
+              "covert probe",
+              "brute force intrusion",
+              "spoof sensor feed",
+              "seize control node"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy combat drone",
+              "release microdrone swarm",
+              "activate remote turret",
+              "launch surveillance drone"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.heat",
+            "terms": [
+              "cyberdeck thermal load",
+              "implant heat",
+              "overclock heat"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.law_heat",
+            "terms": [
+              "system trace heat",
+              "corporate trace pressure",
+              "security attention"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.charges",
+            "terms": [
+              "implant charges",
+              "limited quickhack uses",
+              "device charges"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.processing_memory",
+            "terms": [
+              "cyberdeck memory",
+              "processing capacity",
+              "quickhack memory"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.bandwidth",
+            "terms": [
+              "network bandwidth",
+              "neural-link bandwidth",
+              "data throughput"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.cyberware",
+            "terms": [
+              "cyberdeck",
+              "neural interface",
+              "smartgun link",
+              "optical cloak",
+              "hardened cyberware",
+              "bionic implant"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.hacking",
+            "terms": [
+              "netrunning",
+              "data extraction",
+              "privilege escalation",
+              "forensic data recovery",
+              "trace the intruder"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "corporate reputation",
+              "street cred",
+              "fixer leverage",
+              "megacorp favor"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "skill.engineering",
+            "terms": [
+              "install cyberware",
+              "repair cyberdeck",
+              "fabricate implant",
+              "salvage drone parts",
+              "upgrade neural rig"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "megacorporate control",
+              "gang territory leverage",
+              "corporate war influence",
+              "citywide surveillance authority"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "hack meaning a rough cut",
+        "daemon meaning an ordinary background process",
+        "ICE meaning frozen water",
+        "virus meaning a biological pathogen",
+        "trace meaning a physical footprint"
+      ],
+      "source_urls": [
+        "https://rtalsoriangames.com/downloadable-content/",
+        "https://rtalsoriangames.com/wp-content/uploads/2021/10/RTG-CPR-NetrunningDeck-Instructionsv1.1.pdf",
+        "https://eclipsephase.com/wp-content/uploads/2024/02/PS10001_EclipsePhaseSecondEdition_QuickStartRulesAcrimony_Nov2023.pdf",
+        "https://support.cdprojektred.com/en/cyberpunk/pc/gameplay/issue/1679/how-can-i-hack-and-what-is-hacking-for"
+      ],
+      "source_ids": [
+        "web.9148c0a7d4c598cae0b806d94c8714e3021c19053774301faac63d88583eaa10",
+        "web.5c85da0f7e3e00d4dcc23cc4e4143c6e3deb95042c7288a8d1395e53ba659362",
+        "web.789a5d6f4bc19b14d88a2c7d15d42db0901ead7505559cd94857ccebb05bae84",
+        "web.602dd3d6c4437072b1ef01f77cfe2174399de1faff48ecbb9999ecbc7afd4260"
+      ]
+    },
+    {
+      "id": "space_opera_sci_fi",
+      "label": "Space Opera-Sci-Fi",
+      "aliases": [
+        "space opera",
+        "galactic science fiction",
+        "interstellar adventure",
+        "starship sci-fi"
+      ],
+      "facets": [
+        "starships",
+        "interstellar travel",
+        "crew stations",
+        "fleet combat",
+        "boarding",
+        "alien worlds",
+        "vacuum hazards"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "action.boarding",
+            "terms": [
+              "boarding action",
+              "breach the vessel",
+              "send a boarding party",
+              "storm the airlock"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "family.sweep_burst",
+            "terms": [
+              "broadside salvo",
+              "fighter strafing run",
+              "point defense barrage"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "reinforce shield quadrant",
+              "raise deflectors",
+              "emergency hull seal",
+              "point defense screen"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.shielded",
+            "terms": [
+              "shields online",
+              "protected by deflectors",
+              "reinforced shield facing",
+              "life support protected"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.decompression",
+            "terms": [
+              "hull decompression",
+              "compartment venting",
+              "explosive decompression",
+              "airlock breach"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.oxygen_deprivation",
+            "terms": [
+              "suffocating",
+              "oxygen depleted",
+              "hypoxia"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.vacuum_exposure",
+            "terms": [
+              "vacuum exposure",
+              "exposed to hard vacuum",
+              "suit breached in vacuum"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.life_support_failure",
+            "terms": [
+              "life support failure",
+              "life support offline",
+              "environmental system failure"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.space_travel",
+            "terms": [
+              "FTL jump",
+              "enter hyperspace",
+              "interstellar transit",
+              "orbital insertion",
+              "atmospheric entry",
+              "EVA crossing"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "skill.navigation",
+            "terms": [
+              "jump route",
+              "plot a jump route",
+              "astrogation",
+              "plot orbital course",
+              "navigate the blockade"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "vacuum zone",
+              "minefield",
+              "debris field",
+              "gravity hazard",
+              "sealed compartment"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "launch fighter wing",
+              "deploy repair drone",
+              "release boarding pod",
+              "lay space mines"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.oxygen",
+            "terms": [
+              "suit oxygen",
+              "shipboard air",
+              "life support reserve",
+              "breathable atmosphere"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.fuel",
+            "terms": [
+              "jump fuel",
+              "reaction mass",
+              "thruster fuel"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.ship_power",
+            "terms": [
+              "starship power reserve",
+              "reactor allocation",
+              "ship power grid"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.vehicle_integrity",
+            "terms": [
+              "hull integrity",
+              "ship structural condition",
+              "vessel integrity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.shield_capacity",
+            "terms": [
+              "shield capacity",
+              "deflector reserve",
+              "remaining shield charge"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.technology",
+            "terms": [
+              "starship systems",
+              "shield generator",
+              "life support",
+              "sensor array",
+              "FTL drive",
+              "magnetic boots",
+              "spacesuit"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.diplomacy",
+            "terms": [
+              "interstellar diplomacy",
+              "first contact negotiation",
+              "galactic envoy",
+              "faction treaty"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "skill.perception",
+            "terms": [
+              "sensor scan",
+              "detect ship signature",
+              "scan planetary surface",
+              "acquire target lock"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "skill.engineering",
+            "terms": [
+              "damage control",
+              "repair ship system",
+              "reroute power",
+              "patch hull breach",
+              "restore life support"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.mass_battle",
+            "terms": [
+              "fleet battle",
+              "squadron engagement",
+              "orbital war",
+              "galactic armada clash"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.space_travel",
+            "terms": [
+              "interstellar route",
+              "galactic transit network",
+              "systemwide blockade"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "space meaning an empty room",
+        "jump meaning ordinary movement",
+        "boarding meaning entering public transport",
+        "vacuum meaning a cleaning appliance",
+        "shield meaning only personal armor"
+      ],
+      "source_urls": [
+        "https://www.aonsrd.com/Rules.aspx?ID=803",
+        "https://www.aonsrd.com/Rules.aspx?ID=527",
+        "https://www.aonsrd.com/Rules.aspx?ID=186",
+        "https://www.aonsrd.com/Rules.aspx?ID=558"
+      ],
+      "source_ids": [
+        "web.2a1bde513e69b3b2ae2f18c9fb43b08f91a11cb64e9b0ac801196ee65862779f",
+        "web.af9fd3ef7eff1deb6e8b7a1c4b5fb9611a6eedc01ee8c5b4e127af07a7a9b554",
+        "web.3a2271618302a6b2b307951619b69e6f1e234a28f32a67a5e4e9527f71b80338",
+        "web.4e8ef5bc86151b5ae006d7472a977bd37d16a1d542192431fd292462d0bd588b"
+      ]
+    },
+    {
+      "id": "space_western",
+      "label": "Space Western",
+      "aliases": [
+        "space frontier",
+        "galactic western",
+        "outlaws in space",
+        "frontier sci-fi"
+      ],
+      "facets": [
+        "bounties",
+        "smuggling",
+        "frontier settlements",
+        "local law",
+        "crew debts",
+        "ship upkeep",
+        "outlaws"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.committed_strike",
+            "terms": [
+              "quickdraw shot",
+              "high noon blaster duel",
+              "gunslinger's last shot",
+              "close-range showdown"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.reposition",
+            "terms": [
+              "dive behind cargo",
+              "break the standoff",
+              "scramble aboard",
+              "evade the law patrol"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.inspired",
+            "terms": [
+              "crew cohesion",
+              "trusted partner",
+              "frontier resolve",
+              "code-bound courage"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "medium"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.wanted",
+            "terms": [
+              "wanted by the law",
+              "bounty posted",
+              "fugitive status",
+              "sectorwide wanted notice"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.vehicle_travel",
+            "terms": [
+              "frontier ship run",
+              "long-haul passage",
+              "smuggler route",
+              "dust moon crossing",
+              "surface-to-orbit getaway"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.conceal_ambush",
+            "terms": [
+              "hidden cargo compartment",
+              "frontier ambush",
+              "concealed contraband",
+              "false transponder approach"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy scout drone",
+              "call hired backup",
+              "release tracking beacon",
+              "send the posse"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "medium"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.currency",
+            "terms": [
+              "job payout",
+              "bounty credits",
+              "contraband value",
+              "frontier scrip"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.reputation",
+            "terms": [
+              "outlaw reputation",
+              "crew cred",
+              "faction standing"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.law_heat",
+            "terms": [
+              "law heat",
+              "marshal attention",
+              "corporate pursuit pressure"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.debt_obligation",
+            "terms": [
+              "crew debt",
+              "ship mortgage obligation",
+              "favor owed to a fixer"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.firearm",
+            "terms": [
+              "blaster sidearm",
+              "frontier rifle",
+              "gunslinger pistol",
+              "sawed-off plasma gun"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.tracking",
+            "terms": [
+              "track the bounty",
+              "hunt the quarry",
+              "follow a transponder",
+              "read the fugitive trail"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "fixer contact",
+              "settlement reputation",
+              "local law leverage",
+              "crew betrayal"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.repair",
+            "terms": [
+              "patch the ship",
+              "repair frontier rover",
+              "jury-rig the drive",
+              "salvage spare parts",
+              "pay ship upkeep"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.territory_control",
+            "terms": [
+              "claim frontier outpost",
+              "control the trade route",
+              "hold settlement territory",
+              "enforce a sector blockade"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "heat meaning temperature",
+        "job meaning ordinary employment",
+        "mark meaning a combat debuff",
+        "claim meaning a verbal assertion",
+        "score meaning game points"
+      ],
+      "source_urls": [
+        "https://evilhat.com/product/scum-and-villainy/",
+        "https://evilhat.com/wp-content/uploads/2024/08/EHP0040-Scum-and-Villainy-Sell-Sheet.pdf",
+        "https://tomkinpress.com/blogs/news/this-is-the-way-evolving-your-character-through-assets"
+      ],
+      "source_ids": [
+        "web.8cb3bb6dc29d2f87930c18ebaf99265414e8b933cadd4c142168749b63f4c299",
+        "web.3a2cc0e68a0659d0f43c00ea0b7e58f193928be08744eba3314873c394b686cb",
+        "web.71597fbf4feab8cea92e9d45257a996c74a059da8c2e86d83730eecfdce39d25"
+      ]
+    },
+    {
+      "id": "post_apoc_nuclear_zombies",
+      "label": "Post-Apoc-Nuclear/Zombies",
+      "aliases": [
+        "nuclear apocalypse",
+        "zombie apocalypse",
+        "wasteland survival",
+        "fallout wasteland"
+      ],
+      "facets": [
+        "radiation",
+        "undead hordes",
+        "mutation",
+        "scarcity",
+        "scavenging",
+        "safe havens",
+        "improvised defenses"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.persistent_exposure",
+            "terms": [
+              "radiation cloud",
+              "radioactive fallout",
+              "infected bite",
+              "toxic wasteland exposure"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "action.fortification",
+            "terms": [
+              "barricade the shelter",
+              "reinforce the safehouse",
+              "brace against the horde",
+              "seal the breach"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "action.decontamination",
+            "terms": [
+              "decontaminate survivor",
+              "scrub off fallout",
+              "purge radioactive dust",
+              "clean hazardous residue"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.radiation_sickness",
+            "terms": [
+              "radiation sickness",
+              "acute radiation syndrome",
+              "fallout poisoning",
+              "irradiated"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.infection",
+            "terms": [
+              "zombie infection",
+              "bite infection",
+              "turning into a zombie",
+              "walker virus",
+              "infected survivor"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.contaminated",
+            "terms": [
+              "covered in fallout dust",
+              "radioactively contaminated",
+              "toxic residue carried"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.vehicle_travel",
+            "terms": [
+              "wasteland convoy",
+              "escape the horde by truck",
+              "cross the irradiated zone",
+              "fuel the road run"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "radiation zone",
+              "contaminated ruins",
+              "horde choke point",
+              "quarantined block",
+              "noise-attracting area"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "family.restraint",
+            "terms": [
+              "zombie dogpile",
+              "walker grapple",
+              "horde grab",
+              "pinned under the dead"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "primitive.transform",
+            "terms": [
+              "mutate from radiation",
+              "turn into a walker",
+              "become a ghoul",
+              "infection transformation"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.radiation_dose",
+            "terms": [
+              "radiation dose",
+              "rad count",
+              "fallout exposure",
+              "dosimeter reading"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "clean water",
+              "food stock",
+              "medicine cache",
+              "spare parts",
+              "safehouse supplies"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.hazard",
+            "terms": [
+              "radioactive material",
+              "biohazard",
+              "contaminated corpse",
+              "toxic waste",
+              "nuclear fallout"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.scavenging",
+            "terms": [
+              "search the ruins",
+              "scavenge medicine",
+              "salvage a vehicle",
+              "find a safe route",
+              "inspect a corpse safely"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.scavenging",
+            "terms": [
+              "scavenge supplies",
+              "salvage scrap",
+              "loot abandoned shelter",
+              "recover ammunition"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "skill.survival",
+            "terms": [
+              "ration food",
+              "purify wasteland water",
+              "manage safehouse supplies",
+              "survive fallout"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.territory_control",
+            "terms": [
+              "secure a safe haven",
+              "defend the settlement",
+              "clear a dead zone",
+              "hold the survivor enclave"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "radiation attack versus accumulated dose",
+        "zombie identity versus infection status",
+        "turned meaning ordinary rotation",
+        "horde meaning a large human crowd",
+        "rot meaning spoiled food"
+      ],
+      "source_urls": [
+        "https://freeleaguepublishing.com/shop/mutant-year-zero/free-year-zero-starter-booklet-pdf/",
+        "https://freeleaguepublishing.com/shop/the-walking-dead-universe-roleplaying-game/starter-set/",
+        "https://freeleaguepublishing.com/wp-content/uploads/2023/11/YZE-Standard-Reference-Document.pdf",
+        "https://docs.cataclysmdda.org/JSON/JSON_FLAGS.html"
+      ],
+      "source_ids": [
+        "web.5a5735eab8587c7b294d0e9d395221af99a31b204c7ce4962ff1d6c7f2af81b2",
+        "web.1cf3250917558bcbe7073fe87a7164e21e6d85fe0e7ffc2a8cc99dc28cb0fee9",
+        "web.1e13957ed3e8e46e170f6e07cba0cf03628a662074ced9be73da851dff25ef3e",
+        "web.c5d0dc0ebaac262ca1abb8c107da77f2ebb5102e44520637eb626b0561559095"
+      ]
+    },
+    {
+      "id": "post_apoc_pandemic",
+      "label": "Post-Apoc-Pandemic",
+      "aliases": [
+        "pandemic apocalypse",
+        "outbreak survival",
+        "plague collapse",
+        "contagion apocalypse"
+      ],
+      "facets": [
+        "disease transmission",
+        "testing",
+        "quarantine",
+        "medical capacity",
+        "public trust",
+        "sanitation",
+        "supply chains"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "primitive.afflict",
+            "terms": [
+              "deliberate pathogen exposure",
+              "infect the target",
+              "spread a contagious agent",
+              "weaponized aerosol"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.reactive_defense",
+            "terms": [
+              "don protective equipment",
+              "post-exposure response",
+              "emergency isolation",
+              "block transmission",
+              "seal respirator"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "condition.infection_protection",
+            "terms": [
+              "vaccinated",
+              "immune protection",
+              "prophylaxis active"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "primitive.recover",
+            "terms": [
+              "medically stabilized",
+              "recovering from illness",
+              "symptoms improving"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.decontamination",
+            "terms": [
+              "sanitized",
+              "decontaminated equipment",
+              "cleaned contaminated surface"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.exposed",
+            "terms": [
+              "disease exposure",
+              "pathogen exposure",
+              "exposed contact"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.incubating",
+            "terms": [
+              "incubating infection",
+              "pre-symptomatic infection",
+              "latent infection"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.infectious",
+            "terms": [
+              "infectious carrier",
+              "contagious case",
+              "actively transmitting"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.infection",
+            "terms": [
+              "asymptomatic infection",
+              "confirmed infection",
+              "symptomatic infection"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "status.diseased",
+            "terms": [
+              "severe symptoms",
+              "active illness",
+              "post-viral sickness",
+              "clinical disease"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "family.reposition",
+            "terms": [
+              "evacuate the hot zone",
+              "move through a safe corridor",
+              "cross the cordon",
+              "relocate the exposed group"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "quarantine cordon",
+              "infectious airspace",
+              "restricted outbreak zone"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.isolation",
+            "terms": [
+              "isolation ward",
+              "infectious isolation room",
+              "isolate confirmed case"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.contaminated",
+            "terms": [
+              "contaminated room",
+              "contaminated equipment",
+              "hazard residue"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy field clinic",
+              "open testing station",
+              "place decontamination tent",
+              "establish isolation ward"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.infection_load",
+            "terms": [
+              "pathogen load",
+              "viral load",
+              "infection burden"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "protective equipment stock",
+              "test inventory",
+              "vaccine doses",
+              "hospital capacity",
+              "medicine stockpile"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.biotech",
+            "terms": [
+              "diagnostic test",
+              "vaccine platform",
+              "antiviral treatment",
+              "ventilator",
+              "pathogen sensor",
+              "protective respirator"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.research",
+            "terms": [
+              "contact tracing",
+              "outbreak surveillance",
+              "case investigation",
+              "transmission analysis",
+              "risk communication"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.quarantine",
+            "terms": [
+              "quarantine the exposed",
+              "quarantine exposed contacts",
+              "manage an exposure cordon"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.isolation",
+            "terms": [
+              "isolate the infected",
+              "place confirmed case in isolation",
+              "maintain an isolation ward"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "skill.medicine",
+            "terms": [
+              "screen for infection",
+              "administer vaccine",
+              "treat severe symptoms",
+              "apply post-exposure prophylaxis"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.quarantine",
+            "terms": [
+              "citywide quarantine",
+              "public health cordon",
+              "regional containment",
+              "travel restriction"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.research",
+            "terms": [
+              "pandemic surveillance",
+              "population immunity study",
+              "health-system capacity review",
+              "outbreak forecast"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "quarantine versus isolation",
+        "positive and negative without test context",
+        "biological infection versus cyber malware",
+        "carrier meaning a vehicle or container",
+        "case meaning a box"
+      ],
+      "source_urls": [
+        "https://www.cdc.gov/infection-control/hcp/core-practices/index.html",
+        "https://www.who.int/publications/m/item/who-policy-brief-covid-19-surveillance",
+        "https://www.who.int/activities/preparing-and-preventing-epidemics-and-pandemics",
+        "https://www.cdc.gov/water-emergency/safety/index.html"
+      ],
+      "source_ids": [
+        "web.3911d528d5805709bae1332e0d705b047a40973a614f6ae296bfed53a5f006c3",
+        "web.ec8b032521b4931d9cd5042bf9f1d88c25ba3a63197fa6ff6a3cdae97487d25e",
+        "web.a3db8c947c3daba1ab38eecbda567138f4c42b753c27ecf639cd4d10e1277823",
+        "web.af7cea57a81b3b8571fb169aaff6bd9303af09edccb3389144fc167a09e46dc8"
+      ]
+    },
+    {
+      "id": "post_apoc_climate_collapse",
+      "label": "Post-Apoc-Climate Collapse",
+      "aliases": [
+        "climate apocalypse",
+        "ecological collapse",
+        "climate wasteland",
+        "environmental collapse"
+      ],
+      "facets": [
+        "extreme heat",
+        "drought",
+        "wildfire",
+        "flooding",
+        "sea-level rise",
+        "displacement",
+        "infrastructure failure"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.persistent_exposure",
+            "terms": [
+              "extreme heat exposure",
+              "wildfire smoke exposure",
+              "toxic air event",
+              "floodwater contamination"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "action.fortification",
+            "terms": [
+              "deploy flood barrier",
+              "reinforce storm shelter",
+              "create firebreak",
+              "weatherproof the settlement"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "primitive.recover",
+            "terms": [
+              "rehydrate",
+              "cool the survivor",
+              "restore clean air",
+              "recover in cooling shelter"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.heatstroke",
+            "terms": [
+              "heatstroke",
+              "severe heat stress",
+              "heat collapse",
+              "overheated"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.dehydration",
+            "terms": [
+              "dehydrated",
+              "water deprived",
+              "severe thirst",
+              "drought exposure"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.vehicle_travel",
+            "terms": [
+              "climate evacuation",
+              "flood evacuation route",
+              "migration convoy",
+              "cross the drought zone",
+              "storm escape"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "wildfire zone",
+              "storm surge",
+              "flooded district",
+              "smoke-choked region",
+              "extreme heat zone",
+              "salinized land"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy cooling station",
+              "place flood barriers",
+              "establish water point",
+              "activate early-warning beacon"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.thirst",
+            "terms": [
+              "water deficit",
+              "potable water need",
+              "drought thirst",
+              "dehydration pressure"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "clean water reserve",
+              "food stock",
+              "grid power",
+              "cooling capacity",
+              "seed stock",
+              "shelter capacity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.environment",
+            "terms": [
+              "climate hazard",
+              "extreme weather",
+              "wildfire",
+              "floodwater",
+              "heat dome",
+              "smoke event"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.research",
+            "terms": [
+              "map flood risk",
+              "monitor air quality",
+              "forecast wildfire",
+              "issue early warning",
+              "survey water table"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.climate_adaptation",
+            "terms": [
+              "capture rainwater",
+              "purify floodwater",
+              "desalinate seawater",
+              "build cooling shelter",
+              "restore habitat",
+              "adapt crops"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.climate_adaptation",
+            "terms": [
+              "managed retreat",
+              "regional climate resilience",
+              "restore watershed",
+              "relocate settlement",
+              "compound-hazard planning"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "burning status versus accumulated heat exposure",
+        "water attack versus potable water",
+        "wind attack versus regional storm",
+        "combat displacement versus population displacement",
+        "heat resource versus environmental temperature"
+      ],
+      "source_urls": [
+        "https://www.who.int/tools/compendium-on-health-and-environment/climate-change",
+        "https://www.who.int/news-room/fact-sheets/detail/climate-change-heat-and-health",
+        "https://www.ipcc.ch/report/ar6/wg2/chapter/technical-summary/?lang=en",
+        "https://www.who.int/publications/i/item/B09157"
+      ],
+      "source_ids": [
+        "web.ab379d006e9730cefc7534d364278cdacf903432bfa2be21d2bcabb7a64ac8b5",
+        "web.194f3653ddf1d778ab89dfca3a480d3f567be2321843f9b837880824d4565706",
+        "web.7ec849b033630ea7a954655e90c6cbbd725dfe7151cd08addc8457dfa23e51ff",
+        "web.fd355d146715a96b0dc427f13755804346d5371277268123ac5613cbe7734efe"
+      ]
+    },
+    {
+      "id": "survival_horror",
+      "label": "Survival Horror",
+      "aliases": [
+        "survival-horror",
+        "scarcity horror",
+        "pursuit horror",
+        "investigative horror"
+      ],
+      "facets": [
+        "scarcity",
+        "panic",
+        "trauma",
+        "pursuit",
+        "darkness",
+        "investigation",
+        "safe rooms",
+        "escalating threat"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.committed_strike",
+            "terms": [
+              "desperate last shot",
+              "committed survival blow",
+              "point-blank panic shot",
+              "final defensive strike"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.conceal_ambush",
+            "terms": [
+              "hide from the creature",
+              "hold your breath in hiding",
+              "dark-room concealment",
+              "silent evasion"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.fortification",
+            "terms": [
+              "barricade the door",
+              "brace the safe room",
+              "block the pursuit route"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "ability.keen_senses",
+            "terms": [
+              "notice the hidden clue",
+              "hear the creature approaching",
+              "spot the escape route",
+              "read the threat tell"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.mental_stress",
+            "terms": [
+              "mounting stress",
+              "mental strain",
+              "stress load"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.panic",
+            "terms": [
+              "panic episode",
+              "acute panic",
+              "panicking"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.trauma",
+            "terms": [
+              "traumatic shock",
+              "lasting trauma",
+              "horror fallout"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "status.terrified",
+            "terms": [
+              "terrified",
+              "frozen by fear",
+              "overwhelmed by dread"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "family.reposition",
+            "terms": [
+              "escape pursuit",
+              "flee to the safe room",
+              "crawl through the vent",
+              "break line of sight",
+              "retreat through darkness"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "dark corridor",
+              "blocked escape route",
+              "noise-filled room",
+              "creature patrol zone",
+              "unsafe hallway"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "primitive.deploy",
+            "terms": [
+              "place noise maker",
+              "set improvised trap",
+              "deploy motion sensor",
+              "set a barricade"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.sanity",
+            "terms": [
+              "sanity reserve",
+              "mental stability",
+              "remaining nerve",
+              "horror tolerance"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.ammo",
+            "terms": [
+              "last bullets",
+              "scarce ammunition",
+              "remaining shells",
+              "weapon magazine"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.device",
+            "terms": [
+              "flashlight",
+              "motion detector",
+              "battery radio",
+              "medical scanner",
+              "door control panel"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.investigation",
+            "terms": [
+              "follow the clue chain",
+              "discover the creature's weakness",
+              "reconstruct the incident",
+              "search the crime scene",
+              "identify the safe route"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "skill.survival",
+            "terms": [
+              "ration batteries",
+              "manage scarce medicine",
+              "stabilize a survivor",
+              "carry only essentials",
+              "maintain the safe room"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "primitive.objective",
+            "terms": [
+              "escape objective",
+              "survive until rescue",
+              "contain the horror"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "world.doom_clock",
+            "terms": [
+              "doom clock",
+              "threat escalation",
+              "horror escalation clock"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "stress versus fear versus sanity",
+        "hallucination versus authoritative world state",
+        "condition meaning a prerequisite",
+        "safe room meaning merely a physically secure room",
+        "doom meaning ordinary pessimism"
+      ],
+      "source_urls": [
+        "https://www.tuesdayknightgames.com/products/mothership-players-survival-guide",
+        "https://liminalhorrorrpg.com/srd-one-page/",
+        "https://www.chaosium.com/content/FreePDFs/CoC/CHA23131%20Call%20of%20Cthulhu%207th%20Edition%20Quick-Start%20Rules.pdf",
+        "https://cthulhuwiki.chaosium.com/rules/sanity.html"
+      ],
+      "source_ids": [
+        "web.e2d93dc1d68d82df7767dfe71453df4ab48a61cc00852367083c38163f9830f2",
+        "web.efe8f9605f926db181c28314f6c0e5e81bdd7e5d94211f124b4729a2c15b5e8b",
+        "web.bbb58d0e5974b8b297939f9309d1404301021fa7445a67161b65fa8e961612c9",
+        "web.2073cca368ca467845590a9165bf4f3ab52303191b890aa8c955f95cfc60e476"
+      ]
+    },
+    {
+      "id": "supernatural_occult",
+      "label": "Supernatural-Occult",
+      "aliases": [
+        "occult horror",
+        "supernatural mystery",
+        "paranormal occult",
+        "esoteric horror"
+      ],
+      "facets": [
+        "rituals",
+        "hauntings",
+        "possession",
+        "wards",
+        "summoning",
+        "banishment",
+        "artifacts",
+        "cults"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "primitive.afflict",
+            "terms": [
+              "lay a curse",
+              "cast a hex",
+              "inflict occult mark",
+              "direct a haunting"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "action.exorcism",
+            "terms": [
+              "perform exorcism",
+              "banish the spirit",
+              "purge possession",
+              "dismiss the entity",
+              "break the haunting"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "raise a ward",
+              "seal the threshold",
+              "protective ritual circle",
+              "salt barrier"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.blessed",
+            "terms": [
+              "consecrated",
+              "spiritually protected",
+              "warded against possession",
+              "blessed talisman"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.possession",
+            "terms": [
+              "possessed by a spirit",
+              "demonic possession",
+              "entity controlling the host",
+              "spirit-ridden"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.haunted",
+            "terms": [
+              "haunted",
+              "bound to a ghost",
+              "followed by a presence",
+              "paranormal attachment"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.planar_travel",
+            "terms": [
+              "cross into the spirit world",
+              "pass through occult portal",
+              "enter the other side"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.astral_projection",
+            "terms": [
+              "astral projection",
+              "project the spirit",
+              "out-of-body travel"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "warded threshold",
+              "sealed ritual circle",
+              "consecrated boundary",
+              "spirit barrier"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "haunted room",
+              "cursed ground",
+              "desecrated site",
+              "active ritual zone"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.ritual_casting",
+            "terms": [
+              "summoning ritual",
+              "binding rite",
+              "seance",
+              "portal sealing rite",
+              "true-name invocation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.summoning",
+            "terms": [
+              "summon a spirit",
+              "conjure an entity",
+              "call the dead",
+              "invoke an outsider"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.time",
+            "terms": [
+              "ritual duration",
+              "hours of preparation",
+              "appointed ritual time",
+              "sustained invocation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.sanity",
+            "terms": [
+              "occult strain",
+              "ritual sanity cost",
+              "forbidden-knowledge toll",
+              "mental price"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.occult",
+            "terms": [
+              "grimoire",
+              "relic",
+              "talisman",
+              "holy symbol",
+              "sympathetic token",
+              "true-name seal",
+              "ritual component"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.divination",
+            "terms": [
+              "read an omen",
+              "scry the entity",
+              "sense a presence",
+              "commune with a spirit",
+              "reveal supernatural weakness"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "skill.lore",
+            "terms": [
+              "occult research",
+              "identify the entity",
+              "learn its true name",
+              "decode the cult text"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.enchantment",
+            "terms": [
+              "prepare a warding charm",
+              "consecrate a relic",
+              "bind power into a talisman",
+              "craft ritual seal"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.planar_travel",
+            "terms": [
+              "seal a world portal",
+              "open a gate between realms",
+              "spirit-world incursion",
+              "reality boundary collapse"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "curse meaning profanity",
+        "hex meaning a color code",
+        "medium meaning size",
+        "channel meaning communications",
+        "possessed meaning owned",
+        "ritual meaning repetitive mundane behavior"
+      ],
+      "source_urls": [
+        "https://evilhat.com/wp-content/uploads/2023/02/Monster-of-the-Week-Reference-Sheets-Consolidated-1.pdf",
+        "https://liminalhorrorrpg.com/srd-rituals/",
+        "https://liminalhorrorrpg.com/srd-one-page/"
+      ],
+      "source_ids": [
+        "web.fee79ae8f1573ffd9e37bf524cdcd9853109c10c2e2b34822888e42e7c8134c3",
+        "web.efe8f9605f926db181c28314f6c0e5e81bdd7e5d94211f124b4729a2c15b5e8b",
+        "web.3d7911992676f8f8b036ec8b3f62cd44e4c9792aab7b3ee62469f498c8cf0a06"
+      ]
+    },
+    {
+      "id": "vampire_werewolf",
+      "label": "Vampire/Werewolf",
+      "aliases": [
+        "vampires and werewolves",
+        "blood and moon horror",
+        "lycanthrope vampire",
+        "night predators"
+      ],
+      "facets": [
+        "blood hunger",
+        "feeding",
+        "transformation",
+        "frenzy",
+        "regeneration",
+        "pack and clan",
+        "configurable weaknesses"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "blood drain",
+              "vampire bite",
+              "fang strike",
+              "werewolf claw attack",
+              "predatory mauling"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.conceal_ambush",
+            "terms": [
+              "mist escape",
+              "vanish into shadow",
+              "predator's ambush",
+              "hide among the pack"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.regenerating",
+            "terms": [
+              "vampiric regeneration",
+              "werewolf regeneration",
+              "rapidly knitting wounds",
+              "feed-fueled healing"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.frenzy",
+            "terms": [
+              "blood frenzy",
+              "hunger frenzy",
+              "active werewolf frenzy",
+              "the beast takes control",
+              "predatory frenzy"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.vampirism",
+            "terms": [
+              "vampiric curse",
+              "turned vampire",
+              "embraced",
+              "blood-bound undeath"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.lycanthropy",
+            "terms": [
+              "lycanthropic curse",
+              "werewolf infection",
+              "moon curse",
+              "forced wolf change"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.flight",
+            "terms": [
+              "bat-form flight",
+              "vampire flight",
+              "winged night passage",
+              "swarm-form travel"
+            ],
+            "baseline": "gap_filled",
+            "priority": "medium"
+          },
+          {
+            "concept_id": "action.tracking",
+            "terms": [
+              "track by scent",
+              "follow the blood trail",
+              "hunt across territory"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.restraint",
+            "terms": [
+              "predator's grapple",
+              "pack pin",
+              "hold prey still"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "status.charmed",
+            "terms": [
+              "vampiric domination",
+              "mesmerizing gaze",
+              "blood-bound compulsion"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.shapeshift",
+            "terms": [
+              "change into wolf form",
+              "assume hybrid form",
+              "turn into mist",
+              "bat transformation",
+              "forced full-moon change"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "call the pack",
+              "summon bat swarm",
+              "release wolf companions"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.blood",
+            "terms": [
+              "blood reserve",
+              "stored vitae",
+              "feeding pool",
+              "vampiric blood"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.blood_hunger",
+            "terms": [
+              "blood hunger",
+              "vampire thirst",
+              "feeding need",
+              "hunger for blood"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.rage",
+            "terms": [
+              "rage meter",
+              "frenzy pressure",
+              "the beast's fury reserve"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.supernatural",
+            "terms": [
+              "vampire blood power",
+              "werewolf moon curse",
+              "mist form",
+              "supernatural regeneration",
+              "predator senses"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.tracking",
+            "terms": [
+              "scent-track prey",
+              "investigate feeding signs",
+              "follow a vampire's trail",
+              "hunt the pack"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "clan standing",
+              "pack renown",
+              "sire's favor",
+              "masquerade leverage",
+              "territorial status"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "skill.survival",
+            "terms": [
+              "find a safe resting place",
+              "manage feeding",
+              "avoid sunlight",
+              "protect the pack den",
+              "hunt without exposure"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.territory_control",
+            "terms": [
+              "claim pack territory",
+              "control vampire domain",
+              "enforce the masquerade",
+              "hold clan feeding grounds"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "world.weakness_rule",
+            "terms": [
+              "configured vampire weakness",
+              "setting-defined werewolf vulnerability",
+              "silver weakness",
+              "declared silver or sunlight rule"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "food hunger versus blood hunger",
+        "silver tongue versus silver weakness",
+        "wolf pelt versus lycanthropy",
+        "pack meaning luggage or software",
+        "turning meaning ordinary rotation",
+        "bite without declared transmission"
+      ],
+      "source_urls": [
+        "https://www.dndbeyond.com/monsters/17043-vampire",
+        "https://www.dndbeyond.com/monsters/17057-werewolf",
+        "https://store.worldofdarkness.com/ttrpg/",
+        "https://renegadegamestudios.com/blog/preorder-werewolf-the-apocalypse-today/"
+      ],
+      "source_ids": [
+        "web.ef85cfc016356954a5c5445d7ee68b30e3a13f8c03165cbbeb72491e9d258bbc",
+        "web.74a174d02884e4c57d5cb12c984d62b794327e700bf1233fa210a77986f35e7e",
+        "web.0e52d4975c2d1c07c38ba47050819abc1b99752b6d80e41aed928bfd53c34bb8",
+        "web.445170ba376c19e4972dec0be4231835db5ea111de1014916a605b7c2dd8f79b"
+      ]
+    },
+    {
+      "id": "demon_angel",
+      "label": "Demon/Angel",
+      "aliases": [
+        "demons and angels",
+        "celestial infernal",
+        "holy unholy conflict",
+        "divine fiendish fantasy"
+      ],
+      "facets": [
+        "celestials",
+        "fiends",
+        "blessing",
+        "corruption",
+        "possession",
+        "pacts",
+        "banishment",
+        "planar hierarchy"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "radiant smite",
+              "infernal strike",
+              "holy judgment",
+              "hellfire attack",
+              "celestial blade"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "action.exorcism",
+            "terms": [
+              "banish the fiend",
+              "dismiss the celestial",
+              "break demonic possession",
+              "repel an outsider"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "divine protection",
+              "infernal ward",
+              "sanctified barrier",
+              "protective aura"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.blessed",
+            "terms": [
+              "divine blessing",
+              "angelic favor",
+              "sanctified",
+              "protected by celestial aura"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.corruption",
+            "terms": [
+              "infernal corruption",
+              "soul taint",
+              "demonic influence",
+              "pact corruption"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.possession",
+            "terms": [
+              "demonic possession",
+              "angelic vessel",
+              "fiend controls the host",
+              "outsider possession"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.flight",
+            "terms": [
+              "angelic flight",
+              "demonic wings",
+              "celestial ascent",
+              "fiendish aerial passage"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.planar_travel",
+            "terms": [
+              "return to the heavens",
+              "descend into hell",
+              "cross the celestial gate",
+              "travel between planes"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "consecrated ground",
+              "desecrated ground",
+              "divine aura",
+              "infernal domain",
+              "sealed planar threshold"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.summoning",
+            "terms": [
+              "summon an angel",
+              "conjure a demon",
+              "call a celestial host",
+              "invoke a fiendish legion"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.resurrection",
+            "terms": [
+              "divine resurrection",
+              "planar return",
+              "celestial revival",
+              "rise through sacred power"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.divine_favor",
+            "terms": [
+              "divine favor",
+              "celestial grace",
+              "holy devotional power"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.patron_favor",
+            "terms": [
+              "infernal patronage",
+              "fiend patron favor",
+              "outsider patron standing"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.authority",
+            "terms": [
+              "true-name authority",
+              "hierarchical rank",
+              "planar mandate"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.debt_obligation",
+            "terms": [
+              "pact obligation",
+              "infernal debt",
+              "celestial oath owed"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.divine",
+            "terms": [
+              "holy power",
+              "celestial relic",
+              "sanctified weapon"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "basis.infernal",
+            "terms": [
+              "unholy power",
+              "infernal seal",
+              "hellish weapon"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "basis.occult",
+            "terms": [
+              "true-name token",
+              "pact sigil",
+              "banishment rite"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "basis.supernatural",
+            "terms": [
+              "angelic nature",
+              "demonic nature",
+              "outsider essence",
+              "planar being"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.lore",
+            "terms": [
+              "learn the fiend's true name",
+              "identify celestial hierarchy",
+              "interpret prophecy",
+              "research a pact",
+              "recognize sanctified polarity"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "skill.diplomacy",
+            "terms": [
+              "negotiate a pact",
+              "petition an angel",
+              "resist temptation",
+              "bargain with a fiend"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.enchantment",
+            "terms": [
+              "sanctify a weapon",
+              "forge an infernal seal",
+              "prepare a banishment relic",
+              "consecrate a shrine"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.planar_travel",
+            "terms": [
+              "open the gates of heaven",
+              "breach the infernal plane",
+              "planar incursion",
+              "seal the celestial boundary"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "celestial hierarchy",
+              "infernal legion authority",
+              "church influence",
+              "cult patronage"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "world.effect_polarity_rule",
+            "terms": [
+              "holy-unholy polarity",
+              "celestial-infernal interaction",
+              "setting effect polarity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "world.weakness_rule",
+            "terms": [
+              "configured fiend weakness",
+              "setting-defined celestial vulnerability",
+              "declared outsider weakness"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "angel investor",
+        "guardian angel metaphor",
+        "daemon computer process",
+        "devil's advocate",
+        "demon hunter identity",
+        "holy item without a declared power",
+        "identity without automatic moral alignment"
+      ],
+      "source_urls": [
+        "https://www.dndbeyond.com/sources/dnd/br-2024/creature-stat-blocks",
+        "https://www.dndbeyond.com/spells/2619096-dispel-evil-and-good",
+        "https://2e.aonprd.com/MonsterFamilies.aspx?ID=359",
+        "https://2e.aonprd.com/Rules.aspx?ID=2071"
+      ],
+      "source_ids": [
+        "web.bd7dcc30eaee0a0fec3d714b2107228be6a2aa97406d0cd79a2507f769ece381",
+        "web.6e7383454d79871d602dac210cd753bbe65f6826cafb409fd342dbfec195f0c6",
+        "web.32317e717cabb45d4e47c5249ee0c070b8e36f46fb725496d0120f72709d751f",
+        "web.6f814a19c441ee312da04c273992c6c0fcd9e57043c80d8bc73ad5801c8a52a9"
+      ]
+    },
+    {
+      "id": "virtual_world",
+      "label": "Virtual World",
+      "aliases": [
+        "game world",
+        "MMO world",
+        "digital reality",
+        "simulated world"
+      ],
+      "facets": [
+        "avatars",
+        "system UI",
+        "parties",
+        "guilds",
+        "instances",
+        "aggro",
+        "cooldowns",
+        "respawning",
+        "loot",
+        "crafting"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "single-target damage",
+              "DPS attack",
+              "basic attack",
+              "avatar strike"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "family.persistent_exposure",
+            "terms": [
+              "damage over time",
+              "DoT effect",
+              "persistent damage field",
+              "ticking damage"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.disrupt",
+            "terms": [
+              "interrupt the cast",
+              "cancel channel",
+              "silence the caster",
+              "block ability activation",
+              "purge hostile effect"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "family.sustain",
+            "terms": [
+              "heal over time",
+              "sustained party buff",
+              "refresh the boon",
+              "stack the enhancement",
+              "maintain aura"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "status.shielded",
+            "terms": [
+              "absorption shield",
+              "temporary barrier",
+              "party shield",
+              "damage absorb buff"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.silenced",
+            "terms": [
+              "silenced",
+              "ability locked",
+              "spell school locked",
+              "cannot cast"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.compromised",
+            "terms": [
+              "account compromised",
+              "credentials breached",
+              "account access stolen"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "condition.avatar_desync",
+            "terms": [
+              "avatar desynced",
+              "position desync",
+              "avatar state divergence"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "condition.server_fault",
+            "terms": [
+              "server desync",
+              "host outage",
+              "server fault"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "condition.network_lag",
+            "terms": [
+              "lagged out",
+              "network lag",
+              "high latency"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "condition.session_disconnected",
+            "terms": [
+              "disconnected",
+              "session dropped",
+              "lost connection"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.teleportation",
+            "terms": [
+              "fast travel",
+              "use waypoint",
+              "teleport to checkpoint",
+              "instance transfer",
+              "return to spawn"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.restraint",
+            "terms": [
+              "crowd control",
+              "hard CC",
+              "root the mob",
+              "stun lock",
+              "immobilize avatar"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "boss hazard zone",
+              "safe-zone boundary",
+              "area telegraph",
+              "instance boundary"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "world.aggro_rule",
+            "terms": [
+              "aggro radius",
+              "threat radius",
+              "hostility acquisition range"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "summon combat pet",
+              "deploy turret",
+              "spawn minion",
+              "place raid marker",
+              "create temporary object"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "primitive.transform",
+            "terms": [
+              "switch avatar form",
+              "enter combat mode",
+              "change class stance",
+              "activate transformation"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "identity.avatar",
+            "terms": [
+              "player avatar",
+              "avatar identity",
+              "character body"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.respawn",
+            "terms": [
+              "respawn at checkpoint",
+              "reappear after defeat",
+              "return at spawn point"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.mana",
+            "terms": [
+              "mana pool",
+              "spell resource",
+              "ability energy",
+              "caster resource"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.cooldown",
+            "terms": [
+              "ability cooldown",
+              "global cooldown",
+              "recast timer",
+              "lockout timer"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.experience",
+            "terms": [
+              "experience points",
+              "XP bar",
+              "level progress",
+              "advancement experience"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.threat",
+            "terms": [
+              "threat meter",
+              "aggro value",
+              "hate score"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.virtual",
+            "terms": [
+              "avatar system",
+              "game engine rule",
+              "virtual ability",
+              "system-granted skill",
+              "digital item",
+              "server-authoritative power"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "identity.system",
+            "terms": [
+              "server identity",
+              "host system",
+              "world host"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.command",
+            "terms": [
+              "lead the raid",
+              "manage the party",
+              "call boss mechanics",
+              "coordinate guild members",
+              "assign group roles"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "primitive.information",
+            "terms": [
+              "system message",
+              "quest update",
+              "combat log",
+              "inspect avatar",
+              "read boss telegraph"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "identity.account",
+            "terms": [
+              "user account",
+              "login identity",
+              "account owner"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "craft from recipe",
+              "consume reagents",
+              "upgrade equipment",
+              "repair durability",
+              "fulfill crafting order"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "primitive.objective",
+            "terms": [
+              "quest objective",
+              "raid objective",
+              "achievement progress",
+              "instance completion",
+              "world event goal"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.governance",
+            "terms": [
+              "guild governance",
+              "elect guild officers",
+              "set in-world guild rules"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.system_administration",
+            "terms": [
+              "server administration",
+              "moderator action",
+              "ban an exploit account",
+              "set instance rules"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "world.permadeath_rule",
+            "terms": [
+              "permadeath",
+              "no-respawn rule",
+              "single-life server"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "world.aggro_rule",
+            "terms": [
+              "global aggro rule",
+              "hostility acquisition rule",
+              "threat-targeting system"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "tank meaning a vehicle or container",
+        "raid meaning police action",
+        "mob meaning an ordinary crowd",
+        "buff meaning muscular",
+        "class and job meaning mundane roles",
+        "level meaning a floor or tool",
+        "meta command versus avatar action"
+      ],
+      "source_urls": [
+        "https://na.finalfantasyxiv.com/uiguide/",
+        "https://na.finalfantasyxiv.com/uiguide/know/know-hud/hud-name.html",
+        "https://worldofwarcraft.blizzard.com/en-us/news/24266319",
+        "https://dev.epicgames.com/documentation/en-us/unreal-engine/gameplay-attributes-and-gameplay-effects-for-the-gameplay-ability-system-in-unreal-engine?application_version=5.2"
+      ],
+      "source_ids": [
+        "web.569efeaf35b111bacab46b25df602bd93e370bf86284cdc0e7aef8ba87960042",
+        "web.2fcd0f09b5728e9219a55659a6a67ea32ccc83d1a0a04766564be42709f03896",
+        "web.dd180f17be6298c61dffc28a8fd736f1d12827a2b238eafd623baaa647558e72",
+        "web.f2db0c07ceb243be9a1fedf48a8b10a332caa80b5561c62c2fad004c91ff6ce7"
+      ]
+    }
+  ]
+}

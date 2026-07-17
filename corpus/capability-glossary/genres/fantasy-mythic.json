@@ -1,0 +1,2366 @@
+{
+  "schema": "aetherstate-genre-glossary-cluster/1",
+  "cluster": "fantasy-mythic",
+  "genres": [
+    {
+      "id": "high_fantasy_medieval",
+      "label": "High Fantasy-Medieval",
+      "aliases": [
+        "high fantasy",
+        "medieval fantasy",
+        "epic fantasy",
+        "sword and sorcery kingdoms"
+      ],
+      "facets": [
+        "arcane magic",
+        "divine magic",
+        "enchanted arms",
+        "fantastical creatures",
+        "planes",
+        "guilds and courts"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "fireball blast",
+              "arcane bolt",
+              "dragon breath",
+              "holy smite"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "family.committed_strike",
+            "terms": [
+              "enchanted greatsword blow",
+              "paladin's decisive strike",
+              "giant-slaying swing"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "ward",
+              "radiant ward",
+              "arcane shield",
+              "protective rune",
+              "shield spell"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.blessed",
+            "terms": [
+              "divine blessing",
+              "heroic benediction",
+              "blessed weapon",
+              "sacred favor"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.cursed",
+            "terms": [
+              "witch's curse",
+              "geas-bound",
+              "doom mark",
+              "malison"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.flight",
+            "terms": [
+              "griffon flight",
+              "dragonback travel",
+              "magic carpet flight",
+              "winged mount journey"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.planar_travel",
+            "terms": [
+              "open a planar gate",
+              "cross into the fey realm",
+              "travel the astral road"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "wall of fire",
+              "entangling briars",
+              "consecrated ground",
+              "rune-locked passage"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.summoning",
+            "terms": [
+              "summon elemental",
+              "call celestial ally",
+              "conjure familiar",
+              "bind a summoned creature"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.mana",
+            "terms": [
+              "mana reserve",
+              "spell energy",
+              "arcane power",
+              "remaining magical strength"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.magic",
+            "terms": [
+              "arcane focus",
+              "spellbook",
+              "enchanted weapon",
+              "magic staff",
+              "relic armor"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.spellcraft",
+            "terms": [
+              "identify a spell",
+              "read ancient runes",
+              "analyze an enchantment",
+              "recognize a magical school"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.enchantment",
+            "terms": [
+              "enchant a blade",
+              "forge a rune-bound item",
+              "imbue a shield"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "scribe a spell scroll",
+              "brew a magic draught",
+              "craft a potion"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.planar_travel",
+            "terms": [
+              "seal a planar breach",
+              "join two realms by gate",
+              "banish an invading plane",
+              "restore the world portal"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "ward meaning a dependent child or city district",
+        "level meaning social rank rather than advancement or dungeon depth",
+        "class meaning social estate rather than character role",
+        "spell meaning a period of time",
+        "summoned creature does not imply permanent ownership"
+      ],
+      "source_urls": [
+        "https://2e.aonprd.com/Rules.aspx?ID=2221",
+        "https://2e.aonprd.com/Rules.aspx?ID=2440&Redirected=1",
+        "https://www.dndbeyond.com/sources/dnd/br-2024/magic-items"
+      ],
+      "source_ids": [
+        "web.d766442b1fc8e4ee7d8776af9fd21db084d6aa2534d0f8f58d4abb96cb5192dd",
+        "web.674efddb8535269dd7152e389521e7489005dae09dfda4ea66905fe674dbcc78",
+        "web.164cebd583d27749049170081f5c58a7821976d070a9644765d04db640091547"
+      ]
+    },
+    {
+      "id": "dark_fantasy_gothic",
+      "label": "Dark Fantasy-Gothic",
+      "aliases": [
+        "dark fantasy",
+        "gothic fantasy",
+        "grim occult fantasy",
+        "cursed gothic"
+      ],
+      "facets": [
+        "corruption",
+        "curses",
+        "hauntings",
+        "forbidden rites",
+        "decaying estates",
+        "dread and sacrifice"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.persistent_exposure",
+            "terms": [
+              "necrotic aura",
+              "spreading grave rot",
+              "blood curse exposure",
+              "shadow blight"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "action.exorcism",
+            "terms": [
+              "perform an exorcism",
+              "drive out the possessing spirit",
+              "break a haunting",
+              "ward against the dead"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "salt ward",
+              "consecrated threshold",
+              "protective sigil",
+              "iron circle"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.blessed",
+            "terms": [
+              "consecrated protection",
+              "saint's blessing",
+              "hallowed resolve",
+              "anointed weapon"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.corruption",
+            "terms": [
+              "occult corruption",
+              "tainted soul",
+              "spreading blight",
+              "moral and bodily corruption"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "status.cursed",
+            "terms": [
+              "ancestral curse",
+              "witch-marked",
+              "doomed bloodline",
+              "gothic malediction"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "family.reposition",
+            "terms": [
+              "flee the haunted corridor",
+              "retreat through the crypt",
+              "escape into the fog",
+              "cross the ruined manor unseen"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "haunted chamber",
+              "blighted ground",
+              "cursed threshold",
+              "graveyard miasma",
+              "shadow-choked hall"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.ritual_casting",
+            "terms": [
+              "forbidden rite",
+              "blood-circle invocation",
+              "midnight seance",
+              "grave summoning ritual"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.sanity",
+            "terms": [
+              "mental stability",
+              "dread threshold",
+              "horror strain",
+              "fraying reason"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.blood",
+            "terms": [
+              "blood price",
+              "ritual blood reserve",
+              "life-blood cost"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.occult",
+            "terms": [
+              "grimoire",
+              "spirit board",
+              "reliquary",
+              "witch bottle",
+              "forbidden sigil"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.investigation",
+            "terms": [
+              "trace the family curse",
+              "examine a haunting",
+              "research the forbidden cult",
+              "reconstruct the manor tragedy"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "prepare grave salt",
+              "cast silver shot",
+              "make a witch bottle",
+              "restore a broken reliquary"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "secret society influence",
+              "church authority",
+              "coven control",
+              "noble bloodline power"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "corruption as occult transformation versus political bribery or damaged data",
+        "possession as spirit control versus legal ownership",
+        "sacrifice as a paid ritual cost versus an automatically authorized death",
+        "bloodline as ancestry rather than a blood resource",
+        "sanity pressure is not ordinary fear or morale"
+      ],
+      "source_urls": [
+        "https://morkborg.com/",
+        "https://liminalhorrorrpg.com/srd-rituals/",
+        "https://liminalhorrorrpg.com/srd-fallout/",
+        "https://2e.aonprd.com/Rules.aspx?ID=2389",
+        "https://2e.aonprd.com/Rules.aspx?ID=1114"
+      ],
+      "source_ids": [
+        "web.8c074de616af31e87b90312c50c21f0c0ca5266f96dd8465248cd24cd20c4690",
+        "web.83a071199c4fb8b2a02b586e77ab256a120cd2028c3bc8dc0cded39c7037a245",
+        "web.6e44d88dbfacfa7a08656967ce6d85d7138d7cc357753033cd0edcd79a852c9f",
+        "web.3d7911992676f8f8b036ec8b3f62cd44e4c9792aab7b3ee62469f498c8cf0a06",
+        "web.6d8f13c7f53d6516d6870d77e254c24125eebad3319915e7715aab8504352c44"
+      ]
+    },
+    {
+      "id": "low_fantasy_historical",
+      "label": "Low Fantasy-Historical",
+      "aliases": [
+        "low fantasy",
+        "historical fantasy",
+        "grounded medieval fantasy",
+        "gritty historical adventure"
+      ],
+      "facets": [
+        "grounded combat",
+        "scarce or uncertain magic",
+        "social rank",
+        "travel hardship",
+        "sieges",
+        "material logistics"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.committed_strike",
+            "terms": [
+              "two-handed finishing blow",
+              "committed spear thrust",
+              "decisive sword cut",
+              "couched lance charge"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.reactive_defense",
+            "terms": [
+              "shield parry",
+              "weapon bind",
+              "duck the arrow",
+              "counter the charge"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "ability.second_wind",
+            "terms": [
+              "rally through fatigue",
+              "catch a second wind",
+              "soldier's recovery",
+              "fight through exhaustion"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.bleeding",
+            "terms": [
+              "bleeding wound",
+              "arterial cut",
+              "unstaunched injury",
+              "blood loss"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "skill.horsemanship",
+            "terms": [
+              "ride a warhorse",
+              "cavalry maneuver",
+              "manage a remount",
+              "overland mounted travel"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.conceal_ambush",
+            "terms": [
+              "hedgerow ambush",
+              "concealed spear line",
+              "forest skirmish position",
+              "hide among camp followers"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy the levy",
+              "place a siege engine",
+              "send camp retainers",
+              "muster the household guard"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "campaign rations",
+              "fodder",
+              "arrows and bolts",
+              "medical stores",
+              "siege provisions"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.stamina",
+            "terms": [
+              "march endurance",
+              "combat fatigue",
+              "riding stamina",
+              "remaining exertion"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.martial",
+            "terms": [
+              "mail armor",
+              "long spear",
+              "crossbow",
+              "heater shield"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "basis.ally",
+            "terms": [
+              "trained warhorse",
+              "sworn retainer support",
+              "hunting hound"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.lore",
+            "terms": [
+              "read the heraldry",
+              "recall feudal custom",
+              "identify a local dynasty",
+              "interpret a chronicle"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.fortification",
+            "terms": [
+              "dig fieldworks",
+              "repair a palisade",
+              "brace a gate",
+              "build a siege camp"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.mass_battle",
+            "terms": [
+              "resolve a levy battle",
+              "command a cavalry engagement",
+              "fight a succession war",
+              "hold the battle line"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.siege",
+            "terms": [
+              "besiege the castle",
+              "starve out the garrison",
+              "break the city wall"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "healing as medical recovery versus instant magical restoration",
+        "alchemy as historical craft versus supernatural transmutation",
+        "noble rank does not grant a combat ability",
+        "retainer as a social dependent rather than an automatically summoned unit",
+        "armor protection does not imply a magical ward"
+      ],
+      "source_urls": [
+        "https://srd.mythras.net/",
+        "https://srd.mythras.net/imperative-char-gen.html"
+      ],
+      "source_ids": [
+        "web.b499ed2fa94e164931cca0c8c7474af123e1d813a2f9fffbf189753a393e634d",
+        "web.a7d8819ed9be4a661a31880147f29811bae00058e46c081431756f469c4ad7f0"
+      ]
+    },
+    {
+      "id": "urban_fantasy_modern",
+      "label": "Urban Fantasy-Modern",
+      "aliases": [
+        "urban fantasy",
+        "modern fantasy",
+        "contemporary supernatural",
+        "hidden-world fantasy"
+      ],
+      "facets": [
+        "hidden supernatural society",
+        "modern investigation",
+        "ritual magic",
+        "monsters in cities",
+        "vehicles and surveillance",
+        "faction debts"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "combat hex",
+              "silver-bullet shot",
+              "witchfire bolt",
+              "supernatural shockwave"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "action.exorcism",
+            "terms": [
+              "exorcise the host",
+              "break demonic control",
+              "cleanse a possessed room",
+              "drive out the entity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "threshold ward",
+              "protective circle",
+              "anti-spirit seal",
+              "silvered barrier"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.blessed",
+            "terms": [
+              "blessed ammunition",
+              "protective charm active",
+              "holy-water consecration",
+              "patron's favor"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.possession",
+            "terms": [
+              "spirit possession",
+              "demonic host",
+              "entity riding the victim",
+              "body under supernatural control"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.haunted",
+            "terms": [
+              "haunted location",
+              "ghost-attached",
+              "persistent apparition",
+              "poltergeist activity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.vehicle_travel",
+            "terms": [
+              "city pursuit",
+              "drive across town",
+              "motorcycle chase",
+              "subway escape",
+              "ride-share surveillance tail"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.conceal_ambush",
+            "terms": [
+              "veil supernatural presence",
+              "blend into the crowd",
+              "hide a ritual site",
+              "mask the monster's trail"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.ritual_casting",
+            "terms": [
+              "perform a summoning circle",
+              "conduct a midnight rite",
+              "bind a city spirit",
+              "open an occult threshold"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.sanity",
+            "terms": [
+              "supernatural stress",
+              "horror fallout",
+              "mental stability",
+              "exposure to the impossible"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.reputation",
+            "terms": [
+              "coven standing",
+              "hunter reputation",
+              "underworld occult cred"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.debt_obligation",
+            "terms": [
+              "favor owed to a supernatural court",
+              "fae bargain debt",
+              "occult obligation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.occult",
+            "terms": [
+              "ritual kit",
+              "silver weapon",
+              "protective talisman",
+              "encrypted grimoire",
+              "ghost-hunting instrument"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.investigation",
+            "terms": [
+              "research the urban legend",
+              "trace occult killings",
+              "interview a supernatural witness",
+              "follow a monster's digital trail"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "prepare warding salt",
+              "load silver ammunition",
+              "assemble a ritual kit",
+              "brew a protective charm"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "vampire court leverage",
+              "coven territory",
+              "hunter network authority",
+              "city-spirit pact",
+              "supernatural underworld influence"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "monster as supernatural entity versus a cruel human",
+        "veil as concealment magic versus ordinary fabric",
+        "possession as supernatural control versus legal ownership",
+        "viral haunting post is information rather than biological infection",
+        "modern setting does not imply that cameras can perceive every supernatural entity"
+      ],
+      "source_urls": [
+        "https://evilhat.com/wp-content/uploads/2023/02/Monster-of-the-Week-Reference-Sheets-Consolidated-1.pdf",
+        "https://evilhat.com/wp-content/uploads/2023/01/Monster-of-the-Week-Hunter-Playbooks-Consolidated-2025.pdf",
+        "https://liminalhorrorrpg.com/srd-rituals/",
+        "https://liminalhorrorrpg.com/srd-fallout/"
+      ],
+      "source_ids": [
+        "web.a0801f10b24c3250e04e03ee3c082225dc91056fe5fecccf1321c11b397a296a",
+        "web.fee79ae8f1573ffd9e37bf524cdcd9853109c10c2e2b34822888e42e7c8134c3",
+        "web.6e44d88dbfacfa7a08656967ce6d85d7138d7cc357753033cd0edcd79a852c9f",
+        "web.3d7911992676f8f8b036ec8b3f62cd44e4c9792aab7b3ee62469f498c8cf0a06"
+      ]
+    },
+    {
+      "id": "mythological_ancient_world",
+      "label": "Mythological-Ancient World",
+      "aliases": [
+        "mythic antiquity",
+        "ancient-world mythology",
+        "heroic age",
+        "bronze-age myth"
+      ],
+      "facets": [
+        "gods and cults",
+        "omens",
+        "heroic deeds",
+        "sacred obligations",
+        "city-states",
+        "ritual and voyage"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.committed_strike",
+            "terms": [
+              "heroic spear cast",
+              "champion's killing blow",
+              "divinely guided strike",
+              "bronze sword finish"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "sacred aegis",
+              "god-granted shield",
+              "temple ward",
+              "ancestor's protection"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.blessed",
+            "terms": [
+              "favor of the gods",
+              "hero's blessing",
+              "ritual purification",
+              "divine inspiration"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.cursed",
+            "terms": [
+              "divine curse",
+              "oath-breaker's doom",
+              "ancestral malediction"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.ritual_impurity",
+            "terms": [
+              "ritual pollution",
+              "sacred impurity",
+              "ceremonial uncleanness"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.vehicle_travel",
+            "terms": [
+              "war-chariot charge",
+              "royal chariot journey",
+              "sacred procession",
+              "caravan to the oracle"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "sacred taboo ground",
+              "temple precinct",
+              "cursed battlefield",
+              "oracle's forbidden chamber"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.summoning",
+            "terms": [
+              "invoke an ancestor spirit",
+              "call a divine messenger",
+              "summon a mythic beast",
+              "petition a god's manifestation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.divine_favor",
+            "terms": [
+              "divine favor",
+              "cult standing",
+              "favor granted by a deity"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.debt_obligation",
+            "terms": [
+              "favor owed by a deity",
+              "sacred obligation",
+              "unfulfilled oath"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.divine",
+            "terms": [
+              "consecrated idol",
+              "oracle bones",
+              "sacred spear",
+              "temple relic",
+              "ritual libation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.divination",
+            "terms": [
+              "read an omen",
+              "consult the oracle",
+              "interpret a sacrificial sign",
+              "seek a prophetic dream"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "forge bronze arms",
+              "prepare a votive offering",
+              "repair a chariot",
+              "provision a sacred voyage"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "temple authority",
+              "city-state alliance",
+              "cult rivalry",
+              "heroic renown among poleis"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.legitimacy",
+            "terms": [
+              "dynastic legitimacy",
+              "recognized royal claim",
+              "sacred right to rule"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "cult as ordinary organized worship rather than automatically a secret evil group",
+        "hero as a renowned protagonist rather than proof of moral goodness",
+        "sacrifice may be an offering and does not automatically mean killing a person",
+        "oracle as a person or institution versus a guaranteed true prediction",
+        "ritual pollution is not ordinary dirt or biological disease"
+      ],
+      "source_urls": [
+        "https://www.chaosium.com/content/FreePDFs/RuneQuest/CHA4027%20-%20RuneQuest%20Quickstart.pdf",
+        "https://rqwiki.chaosium.com/adventurers/cult.html",
+        "https://www.agon-rpg.com/",
+        "https://evilhat.com/wp-content/uploads/2024/08/EHP0054-AGON-Sell-Sheet.pdf"
+      ],
+      "source_ids": [
+        "web.7bf30b270762557051804b2765f4fd07feefc3f1e49fee10250385d9040df4d1",
+        "web.d97f30bc9aa9ce8d9f4ceacd808f5c8bb132591dff7ee332b08b576a3b8c5ea7",
+        "web.47f05e47c1b7bca880748d86fee640e558c3f5158bdb724b179796a3d74c1dd2",
+        "web.c49d9a4a972b7823bca0119722239524fb5972987a4432a594038a22b407b3c6"
+      ]
+    },
+    {
+      "id": "eastern_fantasy_wuxia_xianxia",
+      "label": "Eastern Fantasy-Wuxia/Xianxia",
+      "aliases": [
+        "wuxia",
+        "xianxia",
+        "jianghu fantasy",
+        "cultivation fantasy",
+        "immortal-hero fantasy"
+      ],
+      "facets": [
+        "wuxia martial skill",
+        "xianxia cultivation",
+        "qi and meridians",
+        "sects and jianghu",
+        "lightness movement",
+        "spirit treasures"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.committed_strike",
+            "terms": [
+              "decisive sword intent",
+              "flying-sword thrust",
+              "meridian-breaking palm",
+              "wuxia finishing stroke"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "skill.swordplay",
+            "terms": [
+              "deflect a hidden weapon",
+              "sword parry",
+              "redirect the blade",
+              "counter with a flowing stance"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "action.cultivation_breakthrough",
+            "terms": [
+              "break through a cultivation realm",
+              "advance the core",
+              "open a meridian",
+              "ascend to the next stage"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.backlash",
+            "terms": [
+              "qi deviation",
+              "cultivation backlash",
+              "inner-energy recoil",
+              "failed breakthrough backlash"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.qi_deviation",
+            "terms": [
+              "meridian deviation",
+              "deviant qi condition",
+              "disordered inner energy"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "primitive.traverse",
+            "terms": [
+              "qinggong rooftop run",
+              "lightness-skill leap",
+              "wall-running",
+              "step across the water"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.flight",
+            "terms": [
+              "ride a flying sword",
+              "sword flight",
+              "cloud flight",
+              "immortal aerial travel"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.displacement",
+            "terms": [
+              "palm-wind knockback",
+              "qi wave throw",
+              "redirect with soft force",
+              "launch the foe from the platform"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.summoning",
+            "terms": [
+              "call a contracted spirit beast",
+              "summon a sword spirit",
+              "release a bound ghost general",
+              "invoke a guardian beast"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.qi",
+            "terms": [
+              "qi reserve",
+              "inner energy",
+              "true essence",
+              "spiritual power",
+              "cultivation energy"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.cultivation",
+            "terms": [
+              "cultivation method",
+              "spirit root",
+              "meridian art",
+              "dantian practice",
+              "immortal scripture"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "basis.martial",
+            "terms": [
+              "wuxia sword art",
+              "martial manual",
+              "hidden weapon technique",
+              "unarmed school form"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.lore",
+            "terms": [
+              "identify a sect lineage",
+              "read jianghu etiquette",
+              "recognize a cultivation realm",
+              "trace a martial manual's school"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "refine a spirit pill",
+              "inscribe a talisman",
+              "forge a flying sword",
+              "prepare formation flags"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.faction_influence",
+            "terms": [
+              "sect authority",
+              "jianghu reputation",
+              "clan alliance",
+              "imperial court leverage",
+              "righteous-path standing"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.cultivation_breakthrough",
+            "terms": [
+              "world-recognized realm ascension",
+              "heavenly tribulation threshold",
+              "immortal-stage breakthrough"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ]
+      },
+      "false_friends": [
+        "wuxia martial skill and xianxia cultivation are different capability bases",
+        "qi is not automatically interchangeable with mana",
+        "lightness skill is extraordinary movement but not proof of unaided flight",
+        "immortal can denote a cultivation status without proving literal invulnerability",
+        "dual cultivation can mean paired qi practice or sexual intercourse; infer sexual intercourse only from explicit local evidence"
+      ],
+      "source_urls": [
+        "https://www.mdpi.com/2077-1444/11/1/25",
+        "https://resolve.cambridge.org/core/services/aop-cambridge-core/content/view/A174BF2AAB0A8FC88E08151368565138/9780748632510c5_p115-142_CBO.pdf/wuxia_films_of_king_hu.pdf",
+        "https://immortalmountain.wordpress.com/glossary/wuxia-xianxia-xuanhuan-terms/",
+        "https://wuxiatales.com/guides/xianxia-101/"
+      ],
+      "source_ids": [
+        "web.78fc0f6faa74a9f082aece3dd96c564b19b8b15ce2ee008a90312fc396f7dd59",
+        "web.581ada3ed4b1ff1d08cde75902ff4c8b194d9a92e95c9a426954d4b98a64e606",
+        "web.ebde8f630de8a907baff5f3ef28ce28cbcb29778767c3524489e2eee8c88dc6d",
+        "web.c2bfca0b0e61b9ae975a97139de0a5c2bb311381408e0cd0958b9acb86c5ca7b"
+      ]
+    },
+    {
+      "id": "science_fantasy",
+      "label": "Science Fantasy",
+      "aliases": [
+        "science-fantasy",
+        "technomagic",
+        "space fantasy",
+        "arcane science fiction"
+      ],
+      "facets": [
+        "technology and magic",
+        "psionics",
+        "starships",
+        "relic science",
+        "energy weapons",
+        "multiple power bases"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "plasma spell",
+              "psychic lance",
+              "laser-guided hex",
+              "arcane cannon shot"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "force-magic shield",
+              "psionic screen",
+              "rune-powered deflector",
+              "relic barrier"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.empowered",
+            "terms": [
+              "technomagic overcharge",
+              "psionic amplification",
+              "relic resonance",
+              "arcane reactor boost"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.compromised",
+            "terms": [
+              "technomagic system breach",
+              "corrupted relic interface",
+              "psionic network intrusion"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "condition.possession",
+            "terms": [
+              "possessed computer",
+              "spirit-occupied machine",
+              "entity controlling the system"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "status.backlash",
+            "terms": [
+              "technomagic feedback",
+              "psionic recoil",
+              "relic overload"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.space_travel",
+            "terms": [
+              "spelljammer transit",
+              "rune-drive jump",
+              "starship voyage",
+              "arcane hyperspace route"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.teleportation",
+            "terms": [
+              "quantum teleport",
+              "blink through a rune gate",
+              "short-range translocation"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.disrupt",
+            "terms": [
+              "EMP spell",
+              "psionic jam",
+              "counter-technomagic pulse",
+              "disable the rune circuit"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "deploy a rune drone",
+              "release a summoned construct",
+              "activate a hard-light familiar",
+              "launch a psychic probe"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.mana",
+            "terms": [
+              "arcane reactor charge",
+              "spell energy",
+              "technomagic mana",
+              "relic power reserve"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.fuel",
+            "terms": [
+              "starship fuel",
+              "jump charge",
+              "reactor reserve",
+              "propellant"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.technology",
+            "terms": [
+              "starship system",
+              "energy weapon",
+              "scanner",
+              "powered armor",
+              "ancient machine"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "basis.magic",
+            "terms": [
+              "arcane circuit",
+              "spell engine",
+              "rune drive",
+              "enchanted blaster"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "basis.psionic",
+            "terms": [
+              "psionic discipline",
+              "telepathic interface",
+              "psychic amplifier",
+              "mind-tech link"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.research",
+            "terms": [
+              "analyze relic science",
+              "decode an alien grimoire",
+              "study technomagic residue",
+              "compare psychic telemetry"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "skill.engineering",
+            "terms": [
+              "repair a rune drive",
+              "calibrate a spell reactor",
+              "fabricate a psionic interface",
+              "restore ancient technology"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.space_travel",
+            "terms": [
+              "open an interstellar spell route",
+              "move a fleet through arcane hyperspace",
+              "seal a rune-drive corridor"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "magic and technology remain separate grounding bases unless the world explicitly fuses them",
+        "psionics is not automatically magic",
+        "FTL travel is not the same action as teleportation",
+        "a possessed machine and malware-compromised machine have different causes",
+        "ancient technology does not imply supernatural authority"
+      ],
+      "source_urls": [
+        "https://store.paizo.com/starfinder-playtest-rulebook/",
+        "https://paizo.com/starfinderplaytest/faq",
+        "https://www.aonsrd.com/Rules.aspx?ID=118",
+        "https://www.aonsrd.com/Rules.aspx?ID=349",
+        "https://www.aonsrd.com/Rules.aspx?ID=112",
+        "https://www.aonsrd.com/Rules.aspx?ID=597"
+      ],
+      "source_ids": [
+        "web.4be7ecf5a5182fb0786b4ba32036031241096ad67315ce5504edd147a92a983d",
+        "web.f5151c4070eac71738e383a1c403f7a3cb13d981cdd465e48adeb74906994f86",
+        "web.7dbb045c5e27360005ff2535d3f8a89fe3520b69ef1b2bbc718f8266f6328ca9",
+        "web.209460c8bc7f7f80c2ce6ee7bec5e3a55154c2815f905367bf0b5bbfcc0897c2",
+        "web.ee95ff727692465af4c974fdeba028954fb176735cb620bc50e2c2e7dd946a85",
+        "web.306dd47bd4de4c14095e798a46780023149abd9420eba362bb526a1229c121d0"
+      ]
+    },
+    {
+      "id": "isekai_parallel_world",
+      "label": "Isekai-Parallel World",
+      "aliases": [
+        "isekai",
+        "parallel-world fantasy",
+        "otherworld transfer",
+        "reincarnation fantasy"
+      ],
+      "facets": [
+        "world transfer",
+        "reincarnation",
+        "summoned outsider",
+        "culture shock",
+        "conditional game systems",
+        "otherworld knowledge"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "explicitly granted elemental blast",
+              "otherworld combat spell",
+              "named hero attack",
+              "patron-granted strike"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "explicitly granted hero barrier",
+              "otherworld ward",
+              "patron's protection",
+              "summoned champion's shield"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "ability.surge",
+            "terms": [
+              "explicitly granted hero surge",
+              "named blessing boost",
+              "system-authorized temporary boost",
+              "patron-granted empowerment"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.marked",
+            "terms": [
+              "summoned-hero mark",
+              "otherworlder designation",
+              "patron's chosen mark",
+              "world-system tag"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.planar_travel",
+            "terms": [
+              "summoned into another world",
+              "transported to a parallel world",
+              "cross-world transfer",
+              "return to the original world"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.displacement",
+            "terms": [
+              "banish through a world gate",
+              "portal displacement",
+              "send the target across the boundary",
+              "forced otherworld transfer"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "action.reincarnation",
+            "terms": [
+              "reincarnated body",
+              "reborn as another species",
+              "otherworld rebirth",
+              "transmigration into a new body"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.experience",
+            "terms": [
+              "explicit experience points",
+              "world-system levels",
+              "earned system progress",
+              "status-screen experience"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.magic",
+            "terms": [
+              "otherworld magic system",
+              "locally taught spellcraft",
+              "patron-granted magic",
+              "new-world enchanted item"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "basis.world_system",
+            "terms": [
+              "explicit status screen",
+              "game-like skill menu",
+              "world-system interface",
+              "system notification"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.research",
+            "terms": [
+              "learn the new world's customs",
+              "study local magic law",
+              "decode the status interface",
+              "compare Earth knowledge with local practice"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.crafting",
+            "terms": [
+              "adapt an Earth recipe",
+              "recreate modern technique with local materials",
+              "learn local crafting",
+              "combine otherworld and local tools"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.planar_travel",
+            "terms": [
+              "authorize a return route",
+              "open a stable world gate",
+              "bind two parallel worlds",
+              "close the summoning pathway"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "isekai does not imply levels, statistics, status screens, respawn, or cheat powers",
+        "reincarnation is a body and identity transition rather than ordinary teleportation",
+        "summoned hero status does not grant an unlisted capability",
+        "cheat ability means an exceptional granted power and not hacking or deception",
+        "demon lord can be a title and does not prove species, moral alignment, or demonic powers"
+      ],
+      "source_urls": [
+        "https://hasp.ub.uni-heidelberg.de/catalog/view/971/1682/96390",
+        "https://www.researchgate.net/publication/356628820_A_Survey_of_the_Story_Elements_of_Isekai_Manga",
+        "https://www.waseda.jp/inst/wias/news-en/2025/06/26/19332/",
+        "https://researchcommons.waikato.ac.nz/bitstream/10289/15500/1/thesis.pdf"
+      ],
+      "source_ids": [
+        "web.b1e3902eb60bb662fe329664a9b2ab813872302e6f93c5d28e67457cb129da06",
+        "web.ba52d93c0fd2a81533da0763737a231d55d536890399790da1c30c6ae372bf1f",
+        "web.4bb0983b1bd27fbdbbacf8db946cd48f65770ab895da7c1eff4e65789df5a97a",
+        "web.a14c84b53f83fbdb1a5b938f764612d9e9de8630c9a1f5c83d2ff8006960caa3"
+      ]
+    },
+    {
+      "id": "kingdom_empire",
+      "label": "Kingdom-Empire",
+      "aliases": [
+        "kingdom building",
+        "empire management",
+        "realm politics",
+        "dynastic rule"
+      ],
+      "facets": [
+        "governance",
+        "territory",
+        "armies",
+        "fortifications",
+        "succession",
+        "factions and economy"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "action.siege",
+            "terms": [
+              "besiege a city",
+              "breach the fortress",
+              "bombard the walls",
+              "starve out the stronghold"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "action.fortification",
+            "terms": [
+              "reinforce the border fort",
+              "repair the city wall",
+              "raise a castle defense",
+              "prepare against siege"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "status.inspired",
+            "terms": [
+              "army rallied by royal proclamation",
+              "troops inspired",
+              "garrison heartened"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "condition.marked",
+            "terms": [
+              "declared traitor",
+              "attainted noble",
+              "enemy of the crown",
+              "imperial proscription"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "action.vehicle_travel",
+            "terms": [
+              "royal carriage progress",
+              "imperial road journey",
+              "mounted royal procession"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "primitive.traverse",
+            "terms": [
+              "army march",
+              "supply train movement",
+              "messenger relay"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "fortified border",
+              "guarded mountain pass",
+              "naval blockade",
+              "castle kill zone",
+              "closed city gate"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "family.deploy",
+            "terms": [
+              "muster the levy",
+              "deploy the garrison",
+              "raise a retinue",
+              "station a border army"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.authority",
+            "terms": [
+              "royal authority",
+              "imperial mandate",
+              "administrative capacity",
+              "legal power of the crown"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.morale",
+            "terms": [
+              "army morale",
+              "garrison resolve",
+              "formation cohesion"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.public_confidence",
+            "terms": [
+              "public confidence",
+              "popular confidence",
+              "realm confidence"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          },
+          {
+            "concept_id": "resource.legitimacy",
+            "terms": [
+              "dynastic legitimacy",
+              "rightful succession claim",
+              "recognized crown"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.currency",
+            "terms": [
+              "royal treasury",
+              "tax revenue",
+              "war chest",
+              "imperial coin reserve"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.martial",
+            "terms": [
+              "siege engine",
+              "army equipment",
+              "fortress armory",
+              "royal guard weapons"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "action.governance",
+            "terms": [
+              "issue a royal decree",
+              "administer the realm",
+              "collect taxes",
+              "appoint a governor"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.legitimacy",
+            "terms": [
+              "assess a succession claim",
+              "defend dynastic legitimacy",
+              "recognize the rightful crown"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.fortification",
+            "terms": [
+              "construct a keep",
+              "maintain city walls",
+              "stock a frontier fort",
+              "build military roads"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "action.governance",
+            "terms": [
+              "govern the kingdom",
+              "reform imperial law",
+              "manage a province",
+              "resolve a regency"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "action.territory_control",
+            "terms": [
+              "annex a province",
+              "hold disputed territory",
+              "establish a vassal realm",
+              "secure the imperial frontier"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "crown can mean a person, office, institution, currency, or physical object",
+        "realm is a political domain and not automatically another plane",
+        "levy can mean taxation or conscripted troops",
+        "authority is legal or institutional capacity rather than guaranteed obedience",
+        "succession claim does not itself transfer ledger ownership"
+      ],
+      "source_urls": [
+        "https://2e.aonprd.com/Rules.aspx?ID=1739",
+        "https://2e.aonprd.com/Rules.aspx?ID=1775",
+        "https://2e.aonprd.com/Rules.aspx?ID=1774",
+        "https://shop.arcdream.com/products/reign-enchiridion-paperback-1"
+      ],
+      "source_ids": [
+        "web.c601edf232b7fdf1e551bc047a6dcbeaded9c4e3ac8ec569ebd98d63bd107bcc",
+        "web.3288362dace45d2ef3a9ff3a8d6f62581fe88bd2c62ef5882087f8f1f9e4a367",
+        "web.bb7072e6b496d3f014b1e23eba1feaae92112d048c2b45368d815cb5cf213100",
+        "web.d6467863a70f2c556aa76e45dba87eaa8e336b59e9c0fea4a72940b650ae9ce4"
+      ]
+    },
+    {
+      "id": "dungeon_fantasy",
+      "label": "Dungeon-Fantasy",
+      "aliases": [
+        "dungeon fantasy",
+        "dungeon crawl",
+        "fantasy delving",
+        "underworld expedition"
+      ],
+      "facets": [
+        "room-by-room exploration",
+        "traps",
+        "secret passages",
+        "resource pressure",
+        "monsters",
+        "treasure and objectives"
+      ],
+      "categories": {
+        "offense": [
+          {
+            "concept_id": "family.direct_pressure",
+            "terms": [
+              "corridor melee",
+              "doorway spell blast",
+              "monster's close attack",
+              "room-clearing shot"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "defense_reaction": [
+          {
+            "concept_id": "family.guard_barrier",
+            "terms": [
+              "hold the doorway",
+              "shield the marching order",
+              "ward the camp",
+              "block the trap corridor"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "buff_support": [
+          {
+            "concept_id": "primitive.recover",
+            "terms": [
+              "bind wounds during a rest",
+              "recover in a safe room",
+              "restore the delving party",
+              "catch breath between rooms"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "status_condition": [
+          {
+            "concept_id": "status.cursed",
+            "terms": [
+              "cursed by the altar",
+              "treasure curse",
+              "dungeon malediction",
+              "marked by the tomb"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          },
+          {
+            "concept_id": "status.poisoned",
+            "terms": [
+              "trap poison",
+              "venomous bite",
+              "poisoned dart",
+              "toxic dungeon fungus"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "high"
+          }
+        ],
+        "movement_travel": [
+          {
+            "concept_id": "primitive.traverse",
+            "terms": [
+              "dungeon crawl",
+              "descend to the next floor",
+              "climb the shaft",
+              "cross the flooded passage",
+              "squeeze through a narrow tunnel"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ],
+        "control_position_terrain": [
+          {
+            "concept_id": "family.zone_denial",
+            "terms": [
+              "trapped corridor",
+              "collapsing room",
+              "acid pool",
+              "spike pit",
+              "monster-controlled chokepoint"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "condition.concealed",
+            "terms": [
+              "secret door",
+              "hidden compartment",
+              "concealed trap",
+              "illusory wall"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "summon_deploy_transform": [
+          {
+            "concept_id": "primitive.deploy",
+            "terms": [
+              "deploy a familiar scout",
+              "place a summoned guardian",
+              "send a hireling ahead",
+              "release a dungeon companion"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "resource_cost": [
+          {
+            "concept_id": "resource.time",
+            "terms": [
+              "exploration turn",
+              "torch-burning time",
+              "time before wandering danger",
+              "remaining delve time"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "resource.supplies",
+            "terms": [
+              "torches",
+              "rations",
+              "rope and spikes",
+              "healing supplies",
+              "delving gear"
+            ],
+            "baseline": "gap_filled",
+            "priority": "critical"
+          }
+        ],
+        "equipment_technology_magic": [
+          {
+            "concept_id": "basis.hazard",
+            "terms": [
+              "mechanical trap",
+              "pressure plate",
+              "falling-block mechanism",
+              "poison needle",
+              "unstable dungeon structure"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          },
+          {
+            "concept_id": "basis.magic",
+            "terms": [
+              "magic trap",
+              "enchanted door",
+              "cursed idol",
+              "arcane lock"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "high"
+          }
+        ],
+        "social_investigation": [
+          {
+            "concept_id": "skill.perception",
+            "terms": [
+              "search for secret doors",
+              "listen at the door",
+              "spot the pressure plate",
+              "notice monster tracks",
+              "inspect the treasure chest"
+            ],
+            "baseline": "registry_corpus",
+            "priority": "critical"
+          }
+        ],
+        "crafting_survival_logistics": [
+          {
+            "concept_id": "action.scavenging",
+            "terms": [
+              "salvage trap parts",
+              "search the room for supplies",
+              "recover usable treasure",
+              "strip abandoned gear",
+              "improvise dungeon tools"
+            ],
+            "baseline": "gap_filled",
+            "priority": "high"
+          }
+        ],
+        "world_scale_authority": [
+          {
+            "concept_id": "primitive.objective",
+            "terms": [
+              "clear the dungeon level",
+              "secure the artifact",
+              "seal the lower vault",
+              "claim the dungeon stronghold",
+              "defeat the lair master"
+            ],
+            "baseline": "existing_corpus",
+            "priority": "critical"
+          }
+        ]
+      },
+      "false_friends": [
+        "level can mean dungeon depth, character advancement, or numeric magnitude",
+        "room does not imply safety",
+        "rest does not imply full recovery or elapsed time unless receipts settle it",
+        "trap as a hazard is not automatically a restraint status",
+        "clearing a room does not establish permanent ownership of the dungeon"
+      ],
+      "source_urls": [
+        "https://cairnrpg.com/second-edition/players-guide/procedures/",
+        "https://cairnrpg.com/second-edition/wardens-guide/dungeon-seeds/",
+        "https://2e.aonprd.com/Rules.aspx?ID=2440&Redirected=1"
+      ],
+      "source_ids": [
+        "web.674efddb8535269dd7152e389521e7489005dae09dfda4ea66905fe674dbcc78",
+        "web.0d58c2ffd938dd2b0fe4d1dbe91e3334662afca57674db6f02f546564707b4f6",
+        "web.de21ff38a9bc01e259a1626623307d78264a2392c592958616fefa24b85970ed"
+      ]
+    }
+  ]
+}

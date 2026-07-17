@@ -1,0 +1,777 @@
+{
+  "ambiguities": [
+    {
+      "concept_ids": [
+        "referent.object_part.component",
+        "referent.object.equipment_head"
+      ],
+      "resolution": "context_required",
+      "term": "blade"
+    },
+    {
+      "concept_ids": [
+        "referent.body_part.head",
+        "referent.object_part.component"
+      ],
+      "resolution": "context_required",
+      "term": "head"
+    },
+    {
+      "concept_ids": [
+        "referent.pronoun.personal",
+        "referent.pronoun.possessive"
+      ],
+      "resolution": "context_required",
+      "term": "her"
+    }
+  ],
+  "authority": "recognition_only",
+  "constructions": [
+    {
+      "completion": "licensed_head_required",
+      "construction_id": "referent.part_whole.nominal_compound",
+      "features": {
+        "maximum_modifier_tokens": 2,
+        "productive": true
+      },
+      "fingerprint": "sha256:6e0ee8da304258b7d91073ddbfa2273f68238c3e3eee9324c5fb9b773c697491",
+      "kind": "part_whole",
+      "markers": [],
+      "optional_roles": [
+        "whole",
+        "part"
+      ],
+      "required_roles": [
+        "modifier",
+        "head"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.universal_dependencies"
+      ]
+    },
+    {
+      "completion": "whole_resolution_required",
+      "construction_id": "referent.part_whole.of_phrase",
+      "features": {
+        "direction": "part_to_whole",
+        "proves_ledger_ownership": false
+      },
+      "fingerprint": "sha256:f5a64e1833a6d843c9bcebf13c552ddaee9e9610248014d100bd3de0db290919",
+      "kind": "part_whole",
+      "markers": [
+        "of"
+      ],
+      "optional_roles": [
+        "owner"
+      ],
+      "required_roles": [
+        "part",
+        "whole"
+      ],
+      "source_ids": [
+        "web.wordnet",
+        "web.universal_dependencies"
+      ]
+    },
+    {
+      "completion": "linguistic_owner_relation_only",
+      "construction_id": "referent.possession.genitive",
+      "features": {
+        "proves_ledger_ownership": false,
+        "supports_compound_object": true
+      },
+      "fingerprint": "sha256:7390dcb3490b813bb6ab6fc9d7a5c586a17616a25e0c5a246b170d0f8403919c",
+      "kind": "possession",
+      "markers": [
+        "'s",
+        "’s"
+      ],
+      "optional_roles": [
+        "possessed_object_part"
+      ],
+      "required_roles": [
+        "possessor",
+        "possessed_object"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.universal_dependencies_possession"
+      ]
+    },
+    {
+      "completion": "antecedent_resolution_required",
+      "construction_id": "referent.possession.pronominal",
+      "features": {
+        "coreference": true,
+        "proves_ledger_ownership": false
+      },
+      "fingerprint": "sha256:75d7b4ec1c4825441012f21cd47550aa26bec5cdd8ebecf93d2428fd16edc41d",
+      "kind": "possession",
+      "markers": [
+        "my",
+        "your",
+        "his",
+        "her",
+        "its",
+        "our",
+        "their",
+        "whose"
+      ],
+      "optional_roles": [
+        "possessed_object_part",
+        "antecedent"
+      ],
+      "required_roles": [
+        "possessor",
+        "possessed_object"
+      ],
+      "source_ids": [
+        "web.universal_dependencies_possession"
+      ]
+    },
+    {
+      "completion": "coreference_candidate_required",
+      "construction_id": "referent.reference.apposition",
+      "features": {
+        "dynamic_surface": true,
+        "proves_identity": false
+      },
+      "fingerprint": "sha256:e0c663a759be01f8a25eb56a4a762338b9a28f36f73ca6db8c1c1e730c17a618",
+      "kind": "entity_reference",
+      "markers": [],
+      "optional_roles": [
+        "title"
+      ],
+      "required_roles": [
+        "referent",
+        "description"
+      ],
+      "source_ids": [
+        "web.universal_dependencies"
+      ]
+    },
+    {
+      "completion": "exact_alias_resolution_required",
+      "construction_id": "referent.reference.authored_alias",
+      "features": {
+        "ambiguity_abstains": true,
+        "dynamic_surface": true,
+        "ledger_owned": true
+      },
+      "fingerprint": "sha256:d38d72d33dda8cf8a9c7f7457e1b7298a4d8d49c38ba48620507aa413a9b9db9",
+      "kind": "entity_reference",
+      "markers": [],
+      "optional_roles": [
+        "title"
+      ],
+      "required_roles": [
+        "referent",
+        "alias"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies"
+      ]
+    },
+    {
+      "completion": "ledger_candidate_required",
+      "construction_id": "referent.reference.proper_name",
+      "features": {
+        "ambiguity_abstains": true,
+        "dynamic_surface": true,
+        "multiword": true
+      },
+      "fingerprint": "sha256:46148b490c5d3cb72a8af45c6a309b0e19c6be390767ac5fbfa329c834496887",
+      "kind": "entity_reference",
+      "markers": [],
+      "optional_roles": [
+        "title",
+        "alias",
+        "apposition"
+      ],
+      "required_roles": [
+        "referent"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.universal_dependencies_names"
+      ]
+    }
+  ],
+  "description": "What names, aliases, titles, pronouns, compounds, possessed objects, body loci, and part-whole expressions can refer to.",
+  "entries": [
+    {
+      "completion": "owner_resolution_required",
+      "concept_id": "referent.body_part.face",
+      "false_friends": [
+        "face the danger",
+        "mouth of the river"
+      ],
+      "features": {
+        "canonical": "face",
+        "part_of": "body",
+        "target_locus": true
+      },
+      "fingerprint": "sha256:6c2f4911e26447a488763ed02674d42f5ef958ace89e58c0d5a302ee92492b1a",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "body_part",
+      "label": "Face and sensory locus",
+      "meaning_fingerprint": "sha256:4045a454408f73ddcfa1a4a6205d9d22d70469acf2ec9b3ee57c97c6d1340151",
+      "optional_roles": [
+        "owner",
+        "locus"
+      ],
+      "required_roles": [
+        "whole"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.wordnet"
+      ],
+      "terms": [
+        "face",
+        "eye",
+        "eyes",
+        "mouth",
+        "ear",
+        "ears"
+      ]
+    },
+    {
+      "completion": "owner_resolution_required",
+      "concept_id": "referent.body_part.head",
+      "false_friends": [
+        "head of state",
+        "head of the order"
+      ],
+      "features": {
+        "canonical": "head",
+        "part_of": "body",
+        "target_locus": true
+      },
+      "fingerprint": "sha256:6613e5648f8c7a463e2b300a5a9719958099bcabc63c8d4754fbe5090316ee88",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "body_part",
+      "label": "Head and cranial locus",
+      "meaning_fingerprint": "sha256:63f03c98e1ed686daceb49ea10604c68916d931255f989dfcca3c672505f2881",
+      "optional_roles": [
+        "owner",
+        "locus"
+      ],
+      "required_roles": [
+        "whole"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.wordnet"
+      ],
+      "terms": [
+        "head",
+        "skull",
+        "brow",
+        "temple",
+        "jaw",
+        "chin"
+      ]
+    },
+    {
+      "completion": "owner_resolution_required",
+      "concept_id": "referent.body_part.lower_limb",
+      "false_friends": [
+        "leg of the journey",
+        "foot of the mountain"
+      ],
+      "features": {
+        "canonical": "lower_limb",
+        "part_of": "body",
+        "target_locus": true
+      },
+      "fingerprint": "sha256:e40c8559a52582e540b1f7ea6f402b36d1f2d7fc8ec509ef15af953ad3656222",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "body_part",
+      "label": "Lower-limb locus",
+      "meaning_fingerprint": "sha256:8ba7ab941886cb3610767e51647fcb528203748bd20d50fc420c29f96ef71439",
+      "optional_roles": [
+        "owner",
+        "locus"
+      ],
+      "required_roles": [
+        "whole"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "local.state_vocabularies",
+        "web.wordnet"
+      ],
+      "terms": [
+        "leg",
+        "legs",
+        "knee",
+        "knees",
+        "ankle",
+        "ankles",
+        "foot",
+        "feet",
+        "thigh",
+        "thighs"
+      ]
+    },
+    {
+      "completion": "owner_resolution_required",
+      "concept_id": "referent.body_part.neck",
+      "false_friends": [
+        "bottle neck"
+      ],
+      "features": {
+        "canonical": "neck",
+        "part_of": "body",
+        "target_locus": true
+      },
+      "fingerprint": "sha256:80a2e4e73a8c9b160c3937c6a177c83a23639340a7f26cfce4c453033dc91656",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "body_part",
+      "label": "Neck and throat locus",
+      "meaning_fingerprint": "sha256:1f11ee88875fba55a610a80fe80ad1739dfbb882c47ec38bae6ba24e6db53e23",
+      "optional_roles": [
+        "owner",
+        "locus"
+      ],
+      "required_roles": [
+        "whole"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.wordnet"
+      ],
+      "terms": [
+        "neck",
+        "throat"
+      ]
+    },
+    {
+      "completion": "world_anatomy_resolution_required",
+      "concept_id": "referent.body_part.nonhuman_appendage",
+      "false_friends": [
+        "wing of the building",
+        "tail of the distribution"
+      ],
+      "features": {
+        "canonical": "world_authored_anatomy",
+        "part_of": "body",
+        "target_locus": true
+      },
+      "fingerprint": "sha256:1914b9aa9f1b6d71aaedb52423961515b71c6bf4b5867d2f02c665c2f4629761",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "body_part",
+      "label": "Nonhuman appendage or anatomy",
+      "meaning_fingerprint": "sha256:2323623d7013a7137d9da996ecad59ed18c49b0037c7848a29a0546963d0cf92",
+      "optional_roles": [
+        "owner",
+        "locus"
+      ],
+      "required_roles": [
+        "whole"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.wordnet"
+      ],
+      "terms": [
+        "wing",
+        "wings",
+        "tail",
+        "maw",
+        "limb",
+        "limbs",
+        "carapace",
+        "mandible",
+        "tentacle",
+        "tentacles"
+      ]
+    },
+    {
+      "completion": "owner_resolution_required",
+      "concept_id": "referent.body_part.torso",
+      "false_friends": [
+        "heart of the city",
+        "back the proposal",
+        "side with them"
+      ],
+      "features": {
+        "canonical": "torso",
+        "part_of": "body",
+        "target_locus": true
+      },
+      "fingerprint": "sha256:10ef14403caa6f8bd84fcdd503cb534b3a0f176d3ca580e607ce8887279ac042",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "body_part",
+      "label": "Torso and trunk locus",
+      "meaning_fingerprint": "sha256:cccfd36c664b9156842817e640cf1f65460cb9acaf3a9a891eacac9e10bfce08",
+      "optional_roles": [
+        "owner",
+        "locus"
+      ],
+      "required_roles": [
+        "whole"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "local.state_vocabularies",
+        "web.wordnet"
+      ],
+      "terms": [
+        "chest",
+        "torso",
+        "body",
+        "sternum",
+        "ribs",
+        "back",
+        "spine",
+        "side",
+        "flank",
+        "heart",
+        "gut",
+        "belly",
+        "waist",
+        "hip",
+        "hips"
+      ]
+    },
+    {
+      "completion": "owner_resolution_required",
+      "concept_id": "referent.body_part.upper_limb",
+      "false_friends": [
+        "arm the device",
+        "hands of the clock"
+      ],
+      "features": {
+        "canonical": "upper_limb",
+        "part_of": "body",
+        "target_locus": true
+      },
+      "fingerprint": "sha256:96424e1d14019a4437f9f605f9f67b5f6f126d235cc0362ba8960e8bc23313e6",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "body_part",
+      "label": "Upper-limb locus",
+      "meaning_fingerprint": "sha256:e3b0b91bc24b404ccadc911e176e4c05d6c739c93435503b38006910e673d391",
+      "optional_roles": [
+        "owner",
+        "locus"
+      ],
+      "required_roles": [
+        "whole"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "local.state_vocabularies",
+        "web.wordnet"
+      ],
+      "terms": [
+        "shoulder",
+        "shoulders",
+        "arm",
+        "arms",
+        "wrist",
+        "wrists",
+        "hand",
+        "hands"
+      ]
+    },
+    {
+      "completion": "compound_head_resolution_required",
+      "concept_id": "referent.object.equipment_head",
+      "false_friends": [
+        "staff the office",
+        "bow to the queen",
+        "gun the engine"
+      ],
+      "features": {
+        "possessed_object": true,
+        "productive_head": true
+      },
+      "fingerprint": "sha256:a3ff1fafc2944ee6173946d256bbbb86c6cc16529f8fefeeb9d0f47816443ae9",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "object_head",
+      "label": "Productive equipment or armament head",
+      "meaning_fingerprint": "sha256:fc850edeb0fb85d926bcc79b51ba44d08e47316c58984be40d9928ae001cbf6e",
+      "optional_roles": [
+        "modifier",
+        "owner",
+        "part"
+      ],
+      "required_roles": [
+        "object"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.universal_dependencies"
+      ],
+      "terms": [
+        "blade",
+        "sword",
+        "hammer",
+        "knife",
+        "axe",
+        "spear",
+        "rifle",
+        "carbine",
+        "pistol",
+        "cannon",
+        "gun",
+        "staff",
+        "bow",
+        "mace",
+        "whip",
+        "flail",
+        "lance",
+        "shield",
+        "buckler",
+        "armor",
+        "armour"
+      ]
+    },
+    {
+      "completion": "whole_resolution_required",
+      "concept_id": "referent.object_part.component",
+      "false_friends": [
+        "stock answer",
+        "string of events",
+        "trigger a memory"
+      ],
+      "features": {
+        "canonical": "object_component",
+        "part_of": "object",
+        "possessed_object_part": true
+      },
+      "fingerprint": "sha256:c895bb4b5244d7297845c39e261617a5358584b769735c897f07f0e2ec0a11db",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "object_part",
+      "label": "Object component or contact part",
+      "meaning_fingerprint": "sha256:f9df71302794de2436eb34397a1a3473902aeb5e1be907fef80186b78acdc1b2",
+      "optional_roles": [
+        "owner",
+        "part"
+      ],
+      "required_roles": [
+        "whole"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.wordnet"
+      ],
+      "terms": [
+        "barrel",
+        "blade",
+        "edge",
+        "guard",
+        "haft",
+        "handle",
+        "head",
+        "hilt",
+        "pommel",
+        "rim",
+        "shaft",
+        "stock",
+        "string",
+        "trigger",
+        "grip"
+      ]
+    },
+    {
+      "completion": "context_resolution_required",
+      "concept_id": "referent.pronoun.demonstrative",
+      "false_friends": [],
+      "features": {
+        "coreference": true,
+        "deictic": true
+      },
+      "fingerprint": "sha256:abba1df11751030d638a5d3d380de4edc945a07f8454d7308798d88662053896",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "pronoun",
+      "label": "Demonstrative reference",
+      "meaning_fingerprint": "sha256:66e7cec66eec12fb500a2ebc2ece5cbed9c5d47bd3777f8f63d65be93ebdaa86",
+      "optional_roles": [
+        "deictic_scope"
+      ],
+      "required_roles": [
+        "referent"
+      ],
+      "source_ids": [
+        "web.universal_dependencies"
+      ],
+      "terms": [
+        "this",
+        "that",
+        "these",
+        "those"
+      ]
+    },
+    {
+      "completion": "antecedent_resolution_required",
+      "concept_id": "referent.pronoun.personal",
+      "false_friends": [],
+      "features": {
+        "coreference": true,
+        "deictic": true
+      },
+      "fingerprint": "sha256:d7caa0a2326fb8e5f63c73969e9873394f978d5d8b3b91c1901feffaf5359093",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "pronoun",
+      "label": "Personal pronoun",
+      "meaning_fingerprint": "sha256:307484884cdc326b09df18f1aeb4f8ee87e0b24993bec2514b533cd110335549",
+      "optional_roles": [
+        "speaker",
+        "addressee"
+      ],
+      "required_roles": [
+        "antecedent"
+      ],
+      "source_ids": [
+        "web.universal_dependencies"
+      ],
+      "terms": [
+        "I",
+        "me",
+        "you",
+        "he",
+        "him",
+        "she",
+        "her",
+        "it",
+        "we",
+        "us",
+        "they",
+        "them"
+      ]
+    },
+    {
+      "completion": "possessor_resolution_required",
+      "concept_id": "referent.pronoun.possessive",
+      "false_friends": [],
+      "features": {
+        "coreference": true,
+        "possessive": true
+      },
+      "fingerprint": "sha256:1578468936b69962fe6f769753822959d326fb3cdc0f208b673cb66afc960f5f",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "pronoun",
+      "label": "Possessive pronoun or determiner",
+      "meaning_fingerprint": "sha256:9292a1c2a6b0aa37a30d585bc3bc8b63a2edfd694404fc5fdd81c5ad8ba44213",
+      "optional_roles": [
+        "antecedent"
+      ],
+      "required_roles": [
+        "possessor",
+        "possessed"
+      ],
+      "source_ids": [
+        "web.universal_dependencies_possession"
+      ],
+      "terms": [
+        "my",
+        "mine",
+        "your",
+        "yours",
+        "his",
+        "her",
+        "hers",
+        "its",
+        "our",
+        "ours",
+        "their",
+        "theirs",
+        "whose"
+      ]
+    },
+    {
+      "completion": "ledger_candidate_required",
+      "concept_id": "referent.title.role",
+      "false_friends": [
+        "master copy",
+        "agent noun",
+        "king size"
+      ],
+      "features": {
+        "authority_not_implied": true,
+        "can_form_short_reference": true
+      },
+      "fingerprint": "sha256:4d87b4fee98947ebf810ae8c162e02fa1ef3b4e6e56edee944b9bc6fdba59696",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "title",
+      "label": "Title, rank, or institutional role",
+      "meaning_fingerprint": "sha256:b7dfb264f7422426820de3970da93838aadd9c5600b352c1e8678c4e626d271a",
+      "optional_roles": [
+        "institution",
+        "jurisdiction"
+      ],
+      "required_roles": [
+        "bearer"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.universal_dependencies_names"
+      ],
+      "terms": [
+        "captain",
+        "commander",
+        "marshal",
+        "warden",
+        "doctor",
+        "professor",
+        "master",
+        "mistress",
+        "sir",
+        "lady",
+        "lord",
+        "queen",
+        "king",
+        "chief",
+        "officer",
+        "agent"
+      ]
+    }
+  ],
+  "fingerprint": "sha256:24683e900ab65a0704a3a364eb1159dcaff91d8312946c95db9d6ed9b6bb1c4f",
+  "lex_id": "referent",
+  "schema": "semantic-translation-memory/2",
+  "version": 2
+}

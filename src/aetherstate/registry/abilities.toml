@@ -1,0 +1,95 @@
+# Curated abilities (the public contract). REDESIGNED 2026-07-07 (Bean's directive): an ability is
+# NOT a flat stat buff — buffing a number is a SKILL's job (rank + mastery). An ability
+# SHAPES THE DICE or LIFTS A LIMIT. That is the whole distinction: a skill says how good you
+# are; an ability changes HOW THE DICE FALL. Each ability carries a curated `mechanic`
+# (frozen before it can ever be rolled — nothing freestyle at resolution); the prose
+# `effect`/`desc` are narration + player-facing hints only.
+#
+#   PASSIVE (always on, free):
+#     edge   — advantage: roll +`magnitude` extra dice on `applies_to` checks, keep the best
+#              of your normal count. Consistency + fumble protection (not a flat +N).
+#     ward   — guard: raise the failure floor on `applies_to` — a crit-fail becomes a plain
+#              fail; magnitude >= 2 also turns a fail into a partial. Fixes your WORST case.
+#     mod    — the humble/legacy tier: a flat `passive_mod` to one skill. Still supported so a
+#              simple "+1 to X" trinket-ability keeps working; framed as the modest option.
+#     basis  — a capability MARKER (the eligibility gate's key, e.g. Arcane Gift). No dice
+#              effect; it is the in-world BASIS that makes a gated skill rollable at all.
+#   ACTIVE (invoked in a check with `use <ability>`; costs a resource; has a cooldown):
+#     extra_die — on a FAILED roll, roll +`magnitude` extra dice and keep the best — literally
+#                 "another die to roll when one fails." Paid + cooled ONLY when it fires (a
+#                 wasted attempt costs nothing). These are the powerful ones.
+#     reroll    — on a FAILED roll, reroll the whole pool once and take the better result.
+#     surge     — spend to add +`magnitude` AND lift the scope tier ceiling one step for one
+#                 check — the road to incredibly powerful outcomes when mastery already backs
+#                 you (it cannot beat the reality wall alone; deep skill still matters).
+#
+# `applies_to` = "all" | "<skill_id>" | ["skill_a","skill_b"]  (which checks it shapes; all).
+# `group`      = talent | technique | spell  (HUD grouping only — carries NO mechanics).
+# `magnitude`  = extra dice (edge/extra_die), floor steps (ward), or flat bonus (surge/mod).
+
+[keen_senses]
+name = "Keen Senses"
+kind = "passive"
+mechanic = "edge"
+applies_to = "perception"
+magnitude = 1
+group = "talent"
+effect = "You notice what others miss — a second look you always get."
+desc = "Advantage on Perception: roll an extra die and keep the best. Steady, not flashy."
+
+[steady_hand]
+name = "Steady Hand"
+kind = "passive"
+mechanic = "ward"
+applies_to = "archery"
+magnitude = 1
+group = "talent"
+effect = "Your aim does not waver; the shot never betrays you."
+desc = "Guard on Archery: you cannot critically fumble a shot (a crit-miss becomes a miss)."
+
+[silver_tongue]
+name = "Silver Tongue"
+kind = "passive"
+mechanic = "mod"
+passive_mod = { skill = "persuasion", amount = 1 }
+applies_to = "persuasion"
+magnitude = 1
+group = "talent"
+effect = "Words come easily to you."
+desc = "The humble tier: a flat +1 to Persuasion checks, always on."
+
+[power_strike]
+name = "Power Strike"
+kind = "active"
+mechanic = "surge"
+applies_to = "swordplay"
+magnitude = 3
+group = "technique"
+cost = { stamina = 2 }
+cooldown_turns = 1
+requires = { skill_rank = { swordplay = 1 } }
+effect = "A committed heavy blow that trades all guard for devastating force."
+desc = "Spend 2 stamina: +3 to one melee check AND lift its ceiling — a big, risky swing."
+
+[second_wind]
+name = "Second Wind"
+kind = "active"
+mechanic = "extra_die"
+applies_to = "all"
+magnitude = 1
+group = "technique"
+cost = { stamina = 2 }
+cooldown_turns = 2
+effect = "When a blow goes wide, you dig deep and find one more try in you."
+desc = "On a FAILED check, spend 2 stamina to roll an extra die and keep the best — a second chance."
+
+# RPG-3: a capability MARKER (no dice effect) — the in-world BASIS the eligibility gate tests
+# for. Granted only via the privileged ability_grant op (quest reward, ritual, user). You do
+# not declare power; you acquire it — then Spellcraft becomes a real, rollable check.
+[arcane_gift]
+name = "Arcane Gift"
+kind = "passive"
+mechanic = "basis"
+group = "spell"
+effect = "The talent for magic is awake in you."
+desc = "Grants the in-world basis for Spellcraft checks (without it, casting is a non-move)."

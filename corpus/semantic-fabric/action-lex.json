@@ -1,0 +1,1137 @@
+{
+  "ambiguities": [],
+  "authority": "recognition_only",
+  "constructions": [
+    {
+      "completion": "each_subaction_resolved_separately",
+      "construction_id": "action.frame.coordinated",
+      "features": {
+        "supported_relations": [
+          "independent",
+          "requires",
+          "supports",
+          "simultaneous",
+          "fallback_if_failed"
+        ]
+      },
+      "fingerprint": "sha256:99027671763d08d4050b12fe6bcd182e2985ca66b519ec267b9210429cce7517",
+      "kind": "action_sequence",
+      "markers": [
+        "and",
+        "then",
+        "while",
+        "before",
+        "after"
+      ],
+      "optional_roles": [
+        "dependency",
+        "shared_actor",
+        "shared_target"
+      ],
+      "required_roles": [
+        "subaction"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.universal_dependencies"
+      ]
+    },
+    {
+      "completion": "theme_and_counterparty_required",
+      "construction_id": "action.frame.ditransitive",
+      "features": {
+        "verbnet_style": true
+      },
+      "fingerprint": "sha256:3a2e49817cac9306b1fba8c32912ac3ca1c9ab357bb04b1061ee9eec03ca4eeb",
+      "kind": "argument_frame",
+      "markers": [
+        "to",
+        "for"
+      ],
+      "optional_roles": [
+        "beneficiary",
+        "asset",
+        "source"
+      ],
+      "required_roles": [
+        "actor",
+        "theme",
+        "recipient"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.propbank"
+      ]
+    },
+    {
+      "completion": "polarity_modality_and_time_required",
+      "construction_id": "action.frame.first_person_actual",
+      "features": {
+        "default_modality": "actual",
+        "question_or_hypothesis_overrides": true
+      },
+      "fingerprint": "sha256:795c977b3d510b7d2111012327178f1ddb1b76d4bce825decb45b468d2997030",
+      "kind": "action_scope",
+      "markers": [
+        "I",
+        "we"
+      ],
+      "optional_roles": [
+        "capability",
+        "target",
+        "object",
+        "locus"
+      ],
+      "required_roles": [
+        "actor",
+        "predicate"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical"
+      ]
+    },
+    {
+      "completion": "predicate_and_instrument_relation_required",
+      "construction_id": "action.frame.instrumental",
+      "features": {
+        "instrument_does_not_imply_ownership": true
+      },
+      "fingerprint": "sha256:63c9a16c29c700710562451a9fa6e60a40ca8976d6ef1b415cc202b2b6346ec9",
+      "kind": "argument_frame",
+      "markers": [
+        "with",
+        "using",
+        "by means of"
+      ],
+      "optional_roles": [
+        "patient",
+        "target",
+        "locus"
+      ],
+      "required_roles": [
+        "actor",
+        "instrument"
+      ],
+      "source_ids": [
+        "web.verbnet"
+      ]
+    },
+    {
+      "completion": "predicate_and_actor_required",
+      "construction_id": "action.frame.intransitive",
+      "features": {
+        "verbnet_style": true
+      },
+      "fingerprint": "sha256:408c27dfc375de16ccdcc10b3da0c85418a5ccbcb7b076e4279bab1c17d80821",
+      "kind": "argument_frame",
+      "markers": [],
+      "optional_roles": [
+        "manner",
+        "location",
+        "time"
+      ],
+      "required_roles": [
+        "actor"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.propbank"
+      ]
+    },
+    {
+      "completion": "motion_predicate_and_theme_required",
+      "construction_id": "action.frame.motion_path",
+      "features": {
+        "verbnet_style": true
+      },
+      "fingerprint": "sha256:20507703ab9b7dd7af4d707ab2dbcea598ebff3e9e79eefe7a10ef81d88b63db",
+      "kind": "argument_frame",
+      "markers": [
+        "from",
+        "through",
+        "across",
+        "along",
+        "to",
+        "toward",
+        "into",
+        "out of"
+      ],
+      "optional_roles": [
+        "source",
+        "path",
+        "destination",
+        "vehicle"
+      ],
+      "required_roles": [
+        "theme"
+      ],
+      "source_ids": [
+        "web.verbnet"
+      ]
+    },
+    {
+      "completion": "predicate_and_patient_required",
+      "construction_id": "action.frame.passive",
+      "features": {
+        "surface_subject_is_patient": true
+      },
+      "fingerprint": "sha256:2a507e3b1fb4a7e39f82425d5e7b7e504c0cbf73d1f5024f595ad72586ee8c8d",
+      "kind": "argument_frame",
+      "markers": [
+        "by"
+      ],
+      "optional_roles": [
+        "actor",
+        "instrument",
+        "cause"
+      ],
+      "required_roles": [
+        "patient"
+      ],
+      "source_ids": [
+        "web.universal_dependencies",
+        "web.propbank"
+      ]
+    },
+    {
+      "completion": "supported_result_state_required",
+      "construction_id": "action.frame.resultative",
+      "features": {
+        "result_not_implied_without_receipt": true
+      },
+      "fingerprint": "sha256:acd6d4f42947aaba3890cfec74480cea06c514afd3f26164a58a7e845e60d8d3",
+      "kind": "argument_frame",
+      "markers": [
+        "into",
+        "to",
+        "until"
+      ],
+      "optional_roles": [
+        "instrument",
+        "extent",
+        "duration"
+      ],
+      "required_roles": [
+        "actor",
+        "patient",
+        "result_state"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.propbank"
+      ]
+    },
+    {
+      "completion": "predicate_actor_and_patient_required",
+      "construction_id": "action.frame.transitive",
+      "features": {
+        "verbnet_style": true
+      },
+      "fingerprint": "sha256:9328d698f58d00b00e0fb34952e7600509e193131c10139b2711deacc868bee7",
+      "kind": "argument_frame",
+      "markers": [],
+      "optional_roles": [
+        "instrument",
+        "manner",
+        "location",
+        "time"
+      ],
+      "required_roles": [
+        "actor",
+        "patient"
+      ],
+      "source_ids": [
+        "web.verbnet",
+        "web.propbank"
+      ]
+    }
+  ],
+  "description": "What action classes require, which semantic roles they admit, and what a complete contextual interpretation looks like.",
+  "entries": [
+    {
+      "completion": "actor_and_message_required",
+      "concept_id": "action.communicate",
+      "false_friends": [
+        "order a meal",
+        "signal loss",
+        "transmit power"
+      ],
+      "features": {
+        "action_class": "communication",
+        "content_authority_separate": true
+      },
+      "fingerprint": "sha256:0ef8c7cf1093a025843f34fbc82cf1dea00e7683f60dc4ff03219a1efbdd0266",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "social_action",
+      "label": "Communication or message transfer",
+      "meaning_fingerprint": "sha256:d32ba6baa88d162512acce968c7ebbef154cbadc26827e1cd00e5da81926e5e7",
+      "optional_roles": [
+        "recipient",
+        "topic",
+        "medium",
+        "manner"
+      ],
+      "required_roles": [
+        "actor",
+        "message"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet",
+        "web.propbank"
+      ],
+      "terms": [
+        "say",
+        "says",
+        "said",
+        "tell",
+        "tells",
+        "told",
+        "ask",
+        "asks",
+        "asked",
+        "answer",
+        "answers",
+        "answered",
+        "warn",
+        "warns",
+        "warned",
+        "promise",
+        "promises",
+        "promised",
+        "order",
+        "orders",
+        "ordered",
+        "signal",
+        "signals",
+        "signaled",
+        "transmit",
+        "transmits",
+        "transmitted"
+      ]
+    },
+    {
+      "completion": "theme_and_visibility_scope_required",
+      "concept_id": "action.conceal",
+      "false_friends": [
+        "hide the panel",
+        "mask the flavor"
+      ],
+      "features": {
+        "action_class": "concealment",
+        "visibility_change_requires_receipt": true
+      },
+      "fingerprint": "sha256:15c0f3550f42e2524361a48257fa9c0321b89d7d4c6a6c313c16f07deafdb700",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "information_action",
+      "label": "Concealment, disguise, or occlusion",
+      "meaning_fingerprint": "sha256:06c330de2f43ae1221afe3fd766e591ee380a7242301d2fa3b05df47a626f2cd",
+      "optional_roles": [
+        "observer",
+        "instrument",
+        "capability",
+        "duration"
+      ],
+      "required_roles": [
+        "actor",
+        "theme"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "hide",
+        "hides",
+        "hid",
+        "conceal",
+        "conceals",
+        "concealed",
+        "disguise",
+        "disguises",
+        "disguised",
+        "cloak",
+        "cloaks",
+        "cloaked",
+        "mask",
+        "masks",
+        "masked",
+        "encrypt",
+        "encrypts",
+        "encrypted"
+      ]
+    },
+    {
+      "completion": "product_and_supporting_authority_required",
+      "concept_id": "action.create",
+      "false_friends": [
+        "make believe",
+        "build confidence",
+        "summon courage"
+      ],
+      "features": {
+        "action_class": "creation",
+        "existence_not_implied_without_receipt": true
+      },
+      "fingerprint": "sha256:d3059a95e9395f12481024cb23d21aa7fbbcf2e5cabbbec970847e8986a7c7a7",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "change_action",
+      "label": "Creation, construction, or crafting",
+      "meaning_fingerprint": "sha256:30d21ac6f7aec2f0d34bb2260e2b2787127bc252055558606ec323d2893e4452",
+      "optional_roles": [
+        "material",
+        "instrument",
+        "beneficiary",
+        "location",
+        "capability"
+      ],
+      "required_roles": [
+        "actor",
+        "product"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "create",
+        "creates",
+        "created",
+        "make",
+        "makes",
+        "made",
+        "build",
+        "builds",
+        "built",
+        "craft",
+        "crafts",
+        "crafted",
+        "forge",
+        "forges",
+        "forged",
+        "assemble",
+        "assembles",
+        "assembled",
+        "conjure",
+        "conjures",
+        "conjured",
+        "summon",
+        "summons",
+        "summoned"
+      ]
+    },
+    {
+      "completion": "patient_and_supported_change_required",
+      "concept_id": "action.destroy",
+      "false_friends": [
+        "break the news",
+        "erase a doubt",
+        "ruin the mood"
+      ],
+      "features": {
+        "action_class": "destruction",
+        "result_not_implied_without_receipt": true
+      },
+      "fingerprint": "sha256:59c8f62d3bd04015ec06ba656c57f889e81b6f88a5c5d9aefa23331dd2b07624",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "change_action",
+      "label": "Destruction, disabling, or degradation",
+      "meaning_fingerprint": "sha256:39c297d1e7a6e1d8b318640925e12ee7f2144b28ae7fadad2c48f8c815aa79ab",
+      "optional_roles": [
+        "instrument",
+        "capability",
+        "manner",
+        "extent"
+      ],
+      "required_roles": [
+        "actor",
+        "patient"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "destroy",
+        "destroys",
+        "destroyed",
+        "break",
+        "breaks",
+        "broke",
+        "shatter",
+        "shatters",
+        "shattered",
+        "disable",
+        "disables",
+        "disabled",
+        "ruin",
+        "ruins",
+        "ruined",
+        "erase",
+        "erases",
+        "erased",
+        "corrode",
+        "corrodes",
+        "corroded"
+      ]
+    },
+    {
+      "completion": "stimulus_and_supported_knowledge_required",
+      "concept_id": "action.detect",
+      "false_friends": [
+        "find time",
+        "track changes",
+        "identify with"
+      ],
+      "features": {
+        "action_class": "detection",
+        "hidden_truth_not_implied_without_receipt": true
+      },
+      "fingerprint": "sha256:7ed37eb958db4f3178d5e7bd49a49adc721318a04eef1e6d4d39faf1e696452b",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "information_action",
+      "label": "Detection, reveal, or discovery",
+      "meaning_fingerprint": "sha256:18ad94f76721c6593b1a1cd6d4c5845a3ad42b07a014c8b035f41f4f2db82b60",
+      "optional_roles": [
+        "instrument",
+        "capability",
+        "evidence",
+        "location"
+      ],
+      "required_roles": [
+        "experiencer",
+        "stimulus"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "detect",
+        "detects",
+        "detected",
+        "find",
+        "finds",
+        "found",
+        "discover",
+        "discovers",
+        "discovered",
+        "reveal",
+        "reveals",
+        "revealed",
+        "track",
+        "tracks",
+        "tracked",
+        "identify",
+        "identifies",
+        "identified",
+        "decrypt",
+        "decrypts",
+        "decrypted"
+      ]
+    },
+    {
+      "completion": "actor_target_and_actual_scope_required",
+      "concept_id": "action.inspect",
+      "false_friends": [
+        "study hall",
+        "scan the ticket for entry"
+      ],
+      "features": {
+        "action_class": "inspection",
+        "damage_not_implied": true
+      },
+      "fingerprint": "sha256:3606cee42e2cf861031e0a84d8c8ca685864e9cc50b602970033b79a0f5d9f2a",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "perception_action",
+      "label": "Inspection, study, or analysis",
+      "meaning_fingerprint": "sha256:deb6b60f5db23cd69217b8043bb1873b9730e4b78f3ca2be3b87e967be76fbd2",
+      "optional_roles": [
+        "capability",
+        "instrument",
+        "locus",
+        "topic"
+      ],
+      "required_roles": [
+        "actor",
+        "target"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "inspect",
+        "inspects",
+        "inspected",
+        "study",
+        "studies",
+        "studied",
+        "examine",
+        "examines",
+        "examined",
+        "analyze",
+        "analyzes",
+        "analyzed",
+        "analyse",
+        "analyses",
+        "analysed",
+        "scan",
+        "scans",
+        "scanned",
+        "read the resonance"
+      ]
+    },
+    {
+      "completion": "actor_target_and_actual_scope_required",
+      "concept_id": "action.kill_attempt",
+      "false_friends": [
+        "kill the process",
+        "execute the command",
+        "finish off the report"
+      ],
+      "features": {
+        "action_class": "kill_attempt",
+        "mechanics_require_receipt": true,
+        "outcome_not_asserted": true
+      },
+      "fingerprint": "sha256:4b561b98fe91501128bcc374dba5bcaf09f3ff894ec44216f3c61fa5e1041930",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "physical_action",
+      "label": "Lethal attempt",
+      "meaning_fingerprint": "sha256:de311d62d86ac65c54e5867c03f87f79ab317f5be0445efc95bff9073b20fed4",
+      "optional_roles": [
+        "capability",
+        "instrument",
+        "locus",
+        "manner"
+      ],
+      "required_roles": [
+        "actor",
+        "target"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "kill",
+        "kills",
+        "killed",
+        "slay",
+        "slays",
+        "slew",
+        "execute",
+        "executes",
+        "executed",
+        "finish off",
+        "put to death"
+      ]
+    },
+    {
+      "completion": "theme_and_actual_scope_required",
+      "concept_id": "action.move",
+      "false_friends": [
+        "move the meeting",
+        "run the program",
+        "sail through the exam"
+      ],
+      "features": {
+        "action_class": "movement",
+        "location_change_candidate": true
+      },
+      "fingerprint": "sha256:37263b9464d6db293ab72ceaefd0fd031c05039f266407acbebeb6df1b145774",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "motion_action",
+      "label": "Self-directed movement",
+      "meaning_fingerprint": "sha256:bb3edd29cf85b216ee717c727a7831efb59b0c9cae9845cc792a360d24c60975",
+      "optional_roles": [
+        "source",
+        "path",
+        "destination",
+        "manner",
+        "vehicle"
+      ],
+      "required_roles": [
+        "theme"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "move",
+        "moves",
+        "moved",
+        "run",
+        "runs",
+        "ran",
+        "walk",
+        "walks",
+        "walked",
+        "rush",
+        "rushes",
+        "rushed",
+        "advance",
+        "advances",
+        "advanced",
+        "retreat",
+        "retreats",
+        "retreated",
+        "climb",
+        "climbs",
+        "climbed",
+        "fly",
+        "flies",
+        "flew",
+        "sail",
+        "sails",
+        "sailed"
+      ]
+    },
+    {
+      "completion": "target_and_response_or_check_required",
+      "concept_id": "action.negotiate",
+      "false_friends": [
+        "negotiate the bend",
+        "convince oneself"
+      ],
+      "features": {
+        "action_class": "social_influence",
+        "target_reaction_not_authored": true
+      },
+      "fingerprint": "sha256:c56493c4d85e3941ed7ac22a6bf21ac7ef8f53264bd00d1547ea7f3feb69605e",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "social_action",
+      "label": "Negotiation, persuasion, or social influence",
+      "meaning_fingerprint": "sha256:994b2dd5f21a2bec246a062c51c65f5d4783423e116857817e6dc445e75bcf62",
+      "optional_roles": [
+        "topic",
+        "proposal",
+        "beneficiary",
+        "stakes",
+        "evidence"
+      ],
+      "required_roles": [
+        "actor",
+        "target"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "negotiate",
+        "negotiates",
+        "negotiated",
+        "persuade",
+        "persuades",
+        "persuaded",
+        "convince",
+        "convinces",
+        "convinced",
+        "bargain",
+        "bargains",
+        "bargained",
+        "threaten",
+        "threatens",
+        "threatened",
+        "deceive",
+        "deceives",
+        "deceived"
+      ]
+    },
+    {
+      "completion": "patient_and_supported_change_required",
+      "concept_id": "action.repair",
+      "false_friends": [
+        "fix a price",
+        "treat as",
+        "heal the rift"
+      ],
+      "features": {
+        "action_class": "repair_or_heal",
+        "result_not_implied_without_receipt": true
+      },
+      "fingerprint": "sha256:7161fb69a040ed12b4c431859e2a6dba4a178e71a253d992bd9e50af065cfc3f",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "change_action",
+      "label": "Repair, healing, or restoration",
+      "meaning_fingerprint": "sha256:b0e767752161265386fefc097f6b2fe2922281130c58c95d6010f4cb9176d98b",
+      "optional_roles": [
+        "instrument",
+        "material",
+        "capability",
+        "beneficiary"
+      ],
+      "required_roles": [
+        "actor",
+        "patient"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "repair",
+        "repairs",
+        "repaired",
+        "fix",
+        "fixes",
+        "fixed",
+        "mend",
+        "mends",
+        "mended",
+        "restore",
+        "restores",
+        "restored",
+        "heal",
+        "heals",
+        "healed",
+        "treat",
+        "treats",
+        "treated",
+        "stabilize",
+        "stabilizes",
+        "stabilized"
+      ]
+    },
+    {
+      "completion": "patient_and_supported_control_required",
+      "concept_id": "action.restrain",
+      "false_friends": [
+        "bind the book",
+        "pin the message",
+        "trap music"
+      ],
+      "features": {
+        "action_class": "restraint",
+        "status_not_implied_without_receipt": true
+      },
+      "fingerprint": "sha256:b014449f6afba5be1695f3fc502d45a4141ae8db6f48bca73469b40ff14ebb6e",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "control_action",
+      "label": "Restraint, attachment, or positional control",
+      "meaning_fingerprint": "sha256:9ae22d1e313cae82fe6b38adb0c07f1fe96228784c11fe31e7f148a003709dfb",
+      "optional_roles": [
+        "instrument",
+        "anchor",
+        "locus",
+        "duration",
+        "capability"
+      ],
+      "required_roles": [
+        "actor",
+        "patient"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "restrain",
+        "restrains",
+        "restrained",
+        "grapple",
+        "grapples",
+        "grappled",
+        "bind",
+        "binds",
+        "bound",
+        "pin",
+        "pins",
+        "pinned",
+        "trap",
+        "traps",
+        "trapped",
+        "wrap",
+        "wraps",
+        "wrapped",
+        "entangle",
+        "entangles",
+        "entangled"
+      ]
+    },
+    {
+      "completion": "theme_and_counterparty_resolution_required",
+      "concept_id": "action.transfer",
+      "false_friends": [
+        "give up",
+        "hand of cards",
+        "trade secret"
+      ],
+      "features": {
+        "action_class": "transfer",
+        "ledger_ownership_not_implied": true
+      },
+      "fingerprint": "sha256:d97ede67d02ed20fd591590643e043cd7d39747094641bdf4153ed4e6756ba3f",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "transfer_action",
+      "label": "Transfer of possession or custody",
+      "meaning_fingerprint": "sha256:f3a7145f1d8503ef36f1dafd6e1be8b49128ed17d0d366fccd4c652b0b52e9d7",
+      "optional_roles": [
+        "source",
+        "recipient",
+        "beneficiary",
+        "asset"
+      ],
+      "required_roles": [
+        "actor",
+        "theme"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "give",
+        "gives",
+        "gave",
+        "hand",
+        "hands",
+        "handed",
+        "transfer",
+        "transfers",
+        "transferred",
+        "trade",
+        "trades",
+        "traded",
+        "sell",
+        "sells",
+        "sold",
+        "buy",
+        "buys",
+        "bought",
+        "steal",
+        "steals",
+        "stole"
+      ]
+    },
+    {
+      "completion": "patient_and_supported_end_state_required",
+      "concept_id": "action.transform",
+      "false_friends": [
+        "change the subject",
+        "freeze the account"
+      ],
+      "features": {
+        "action_class": "transformation",
+        "result_not_implied_without_receipt": true
+      },
+      "fingerprint": "sha256:45696ff9c59b340eacfd857ef4be63ad1e1bc329b67042af6aaf30b37ac6e120",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "change_action",
+      "label": "Material, state, or form transformation",
+      "meaning_fingerprint": "sha256:5d071a751cafeea5cb739dbe608e2e0d069cda021a9894a4b91015b87472d9a5",
+      "optional_roles": [
+        "material",
+        "product",
+        "attribute",
+        "capability",
+        "duration"
+      ],
+      "required_roles": [
+        "actor",
+        "patient"
+      ],
+      "source_ids": [
+        "local.state_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "transform",
+        "transforms",
+        "transformed",
+        "change",
+        "changes",
+        "changed",
+        "convert",
+        "converts",
+        "converted",
+        "freeze",
+        "freezes",
+        "froze",
+        "melt",
+        "melts",
+        "melted",
+        "transmute",
+        "transmutes",
+        "transmuted",
+        "shapeshift",
+        "shapeshifts",
+        "shapeshifted"
+      ]
+    },
+    {
+      "completion": "owned_capability_and_application_required",
+      "concept_id": "action.use_capability",
+      "false_friends": [
+        "used to",
+        "cast of characters",
+        "channel of communication"
+      ],
+      "features": {
+        "action_class": "capability_use",
+        "worldlex_authority_required": true
+      },
+      "fingerprint": "sha256:f6dd7bd0d93e0936a3d911212b026d99e27d3257b00af95dfa763248b448a7cd",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "capability_action",
+      "label": "Explicit capability use",
+      "meaning_fingerprint": "sha256:213cc2c7f23ebcd91fd23c82da654175b67475bc8ef4f09bc4caf089edb37a4f",
+      "optional_roles": [
+        "target",
+        "object",
+        "locus",
+        "instrument",
+        "purpose"
+      ],
+      "required_roles": [
+        "actor",
+        "capability"
+      ],
+      "source_ids": [
+        "local.action_frame_vertical",
+        "web.verbnet"
+      ],
+      "terms": [
+        "use",
+        "uses",
+        "used",
+        "cast",
+        "casts",
+        "invoke",
+        "invokes",
+        "invoked",
+        "activate",
+        "activates",
+        "activated",
+        "deploy",
+        "deploys",
+        "deployed",
+        "channel",
+        "channels",
+        "channeled",
+        "perform",
+        "performs",
+        "performed"
+      ]
+    },
+    {
+      "completion": "actor_target_and_actual_scope_required",
+      "concept_id": "action.weapon_attack",
+      "false_friends": [
+        "strike a bargain",
+        "hit the road",
+        "cut a deal",
+        "attack the problem",
+        "shoot a glance"
+      ],
+      "features": {
+        "action_class": "weapon_attack",
+        "mechanics_require_receipt": true
+      },
+      "fingerprint": "sha256:99fcb6af4e65f624429cf4ec1a295b22fa69a9745920b96d03aa39f7bd0e43f9",
+      "genre_terms": [],
+      "genres": [
+        "*"
+      ],
+      "kind": "physical_action",
+      "label": "Direct weapon or body attack",
+      "meaning_fingerprint": "sha256:628f368bca0b41154db97ca6a9c1685607665c9f42e790976e13052ea73cf962",
+      "optional_roles": [
+        "capability",
+        "instrument",
+        "possessed_object",
+        "possessed_object_part",
+        "locus",
+        "manner"
+      ],
+      "required_roles": [
+        "actor",
+        "target"
+      ],
+      "source_ids": [
+        "local.tier0_vocabularies",
+        "web.verbnet"
+      ],
+      "terms": [
+        "attack",
+        "attacks",
+        "attacked",
+        "strike",
+        "strikes",
+        "struck",
+        "slash",
+        "slashes",
+        "slashed",
+        "stab",
+        "stabs",
+        "stabbed",
+        "shoot",
+        "shoots",
+        "shot",
+        "hit",
+        "hits",
+        "cut",
+        "cuts",
+        "pierce",
+        "pierces",
+        "pierced",
+        "drive",
+        "drives",
+        "drove",
+        "driven",
+        "drive into",
+        "bury into",
+        "sink into"
+      ]
+    }
+  ],
+  "fingerprint": "sha256:2d87095a347ff12e3bffc406e4ded5d171f58bbe37e18a260f488d875a9fc174",
+  "lex_id": "action",
+  "schema": "semantic-translation-memory/2",
+  "version": 2
+}

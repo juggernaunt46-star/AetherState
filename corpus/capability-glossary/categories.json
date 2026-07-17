@@ -1,0 +1,236 @@
+{
+  "schema": "aetherstate-glossary-categories/2",
+  "categories": [
+    {
+      "id": "offense",
+      "label": "Offense",
+      "description": "Immediate, committed, delayed, area, or persistent harmful action.",
+      "includes": [
+        "Actions or effects whose intended result is direct harm or destructive pressure."
+      ],
+      "excludes": [
+        "Defensive prevention and neutral environmental description."
+      ],
+      "examples": [
+        "A sword strike",
+        "A delayed explosive charge"
+      ],
+      "counterexamples": [
+        "A shield block",
+        "A dangerous ruin that nobody activates"
+      ]
+    },
+    {
+      "id": "defense_reaction",
+      "label": "Defense and Reaction",
+      "description": "Prevention, avoidance, interception, countering, and recovery from attacks.",
+      "includes": [
+        "Responses that reduce, redirect, avoid, or answer a committed threat."
+      ],
+      "excludes": [
+        "Passive toughness with no response and ordinary movement unrelated to a threat."
+      ],
+      "examples": [
+        "Brace against a blow",
+        "Counterspell a cast"
+      ],
+      "counterexamples": [
+        "Walk across town",
+        "Possess heavy armor"
+      ]
+    },
+    {
+      "id": "buff_support",
+      "label": "Buff and Support",
+      "description": "Positive states, assistance, restoration, empowerment, and team enablement.",
+      "includes": [
+        "Benefits or assistance applied to oneself, another actor, or a group."
+      ],
+      "excludes": [
+        "The resource being spent and harmful conditions."
+      ],
+      "examples": [
+        "Restore an ally",
+        "Grant temporary accuracy"
+      ],
+      "counterexamples": [
+        "Spend mana",
+        "Inflict blindness"
+      ]
+    },
+    {
+      "id": "status_condition",
+      "label": "Status and Condition",
+      "description": "Persistent physical, mental, supernatural, social, or environmental state.",
+      "includes": [
+        "State that remains true beyond one instantaneous resolution."
+      ],
+      "excludes": [
+        "The action that caused a state and a spendable capacity."
+      ],
+      "examples": [
+        "Bleeding",
+        "Infected",
+        "Panicked"
+      ],
+      "counterexamples": [
+        "Swing a sword",
+        "A pool of stamina"
+      ]
+    },
+    {
+      "id": "movement_travel",
+      "label": "Movement and Travel",
+      "description": "Position changes from a step or stance through vehicles, worlds, time, and space.",
+      "includes": [
+        "Actor, vehicle, population, planar, or temporal relocation."
+      ],
+      "excludes": [
+        "Forced restraint and terrain that merely affects movement."
+      ],
+      "examples": [
+        "Sprint to cover",
+        "Travel between worlds"
+      ],
+      "counterexamples": [
+        "Become grappled",
+        "A muddy road"
+      ]
+    },
+    {
+      "id": "control_position_terrain",
+      "label": "Control, Position, and Terrain",
+      "description": "Restraint, displacement, denial, concealment, hazards, and encounter shaping.",
+      "includes": [
+        "Change who can occupy, cross, see, or safely use a place."
+      ],
+      "excludes": [
+        "Long-distance travel and world governance."
+      ],
+      "examples": [
+        "Raise a barrier",
+        "Create a hazardous zone"
+      ],
+      "counterexamples": [
+        "Sail to another continent",
+        "Change a tax law"
+      ]
+    },
+    {
+      "id": "summon_deploy_transform",
+      "label": "Summon, Deploy, and Transform",
+      "description": "Created helpers or objects, alternate forms, modes, and manifestations.",
+      "includes": [
+        "Bring forth, place, duplicate, manifest, or change the form of something."
+      ],
+      "excludes": [
+        "Ordinary movement of an unchanged existing actor."
+      ],
+      "examples": [
+        "Summon an undead servant",
+        "Transform into mist"
+      ],
+      "counterexamples": [
+        "Walk through a doorway",
+        "Move an existing crate"
+      ]
+    },
+    {
+      "id": "resource_cost",
+      "label": "Resource and Cost",
+      "description": "Spendable, exhaustible, accumulating, timed, social, or environmental capacity.",
+      "includes": [
+        "A measurable capacity, debt, reserve, charge, or price that can change."
+      ],
+      "excludes": [
+        "A persistent condition that is not a capacity and the action bought by a cost."
+      ],
+      "examples": [
+        "Mana",
+        "Ammunition",
+        "Political capital"
+      ],
+      "counterexamples": [
+        "Poisoned",
+        "Cast a spell"
+      ]
+    },
+    {
+      "id": "equipment_technology_magic",
+      "label": "Equipment, Technology, and Magic",
+      "description": "Grounding bases, tools, weapons, devices, traditions, and power sources.",
+      "includes": [
+        "What grounds, enables, channels, or embodies a capability."
+      ],
+      "excludes": [
+        "The consequence produced by the tool or tradition."
+      ],
+      "examples": [
+        "Longsword",
+        "Cyberware",
+        "Divine magic"
+      ],
+      "counterexamples": [
+        "Bleeding damage",
+        "A completed teleport"
+      ]
+    },
+    {
+      "id": "social_investigation",
+      "label": "Social and Investigation",
+      "description": "Influence, deception, command, knowledge, perception, inquiry, and information.",
+      "includes": [
+        "Acquire, hide, test, communicate, or change social and informational state."
+      ],
+      "excludes": [
+        "Pure physical harm and material fabrication."
+      ],
+      "examples": [
+        "Interrogate a witness",
+        "Influence a faction"
+      ],
+      "counterexamples": [
+        "Forge a sword",
+        "Strike a target"
+      ]
+    },
+    {
+      "id": "crafting_survival_logistics",
+      "label": "Crafting, Survival, and Logistics",
+      "description": "Making, repair, medicine, food, shelter, supplies, transport, and endurance.",
+      "includes": [
+        "Produce, maintain, supply, repair, treat, or sustain actors and infrastructure."
+      ],
+      "excludes": [
+        "Abstract political authority and instantaneous combat harm."
+      ],
+      "examples": [
+        "Repair armor",
+        "Establish a supply route"
+      ],
+      "counterexamples": [
+        "Declare a kingdom",
+        "Stab an enemy"
+      ]
+    },
+    {
+      "id": "world_scale_authority",
+      "label": "World Scale and Authority",
+      "description": "Factions, institutions, territory, governance, war, economy, climate, and reality-scale change.",
+      "includes": [
+        "Meaning whose subject or consequence is institutional, territorial, societal, or world-scale."
+      ],
+      "excludes": [
+        "Personal-scale use that does not propagate into wider world state."
+      ],
+      "examples": [
+        "Change faction control",
+        "Begin an undead apocalypse"
+      ],
+      "counterexamples": [
+        "Win one private argument",
+        "Injure one enemy"
+      ]
+    }
+  ]
+}

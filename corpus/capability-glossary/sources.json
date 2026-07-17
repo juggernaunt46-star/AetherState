@@ -1,0 +1,1211 @@
+{
+  "schema": "aetherstate-glossary-sources/1",
+  "sources": [
+    {
+      "id": "existing.enemy_capability_families",
+      "kind": "local_corpus",
+      "path": "../enemy-capabilities/capability-families.json",
+      "label": "Preserved 18-family and 15-primitive capability corpus"
+    },
+    {
+      "id": "existing.enemy_runtime_lexicon",
+      "kind": "local_corpus",
+      "path": "../enemy-capabilities/runtime-lexicon.json",
+      "label": "Preserved enemy runtime recognition and negative-evidence lexicon"
+    },
+    {
+      "id": "existing.registry_snapshot",
+      "kind": "local_corpus",
+      "path": "../enemy-capabilities/registry-snapshot.json",
+      "label": "Preserved RPG skills, abilities, effects, items, and Phrasebook snapshot"
+    },
+    {
+      "id": "existing.registry_runtime",
+      "kind": "local_code",
+      "path": "../../src/aetherstate/registry/__init__.py",
+      "label": "Current frozen ability-mechanic registry and replay-safe normalizers"
+    },
+    {
+      "id": "aetherstate.cross_genre_normalization",
+      "kind": "project_research",
+      "path": "research/2026-07-13-genre-gap-audit.md",
+      "label": "AetherState 31-genre normalized gap audit"
+    },
+    {
+      "id": "web.00d83c9846612e504058f9fbdb0bd488de73777a6173606846527c9abcd081f5",
+      "kind": "web_research",
+      "url": "https://www.d20herosrd.com/9-gamemastering/conditions",
+      "label": "www.d20herosrd.com/9-gamemastering/conditions",
+      "genre_ids": [
+        "superhero_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.050d1f67b86e36bb66a8fa262637509475523959aebfaaa3255bc547a2681b13",
+      "kind": "web_research",
+      "url": "https://renegadegamestudios.com/kids-on-brooms/",
+      "label": "renegadegamestudios.com/kids-on-brooms/",
+      "genre_ids": [
+        "school_academy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.0d58c2ffd938dd2b0fe4d1dbe91e3334662afca57674db6f02f546564707b4f6",
+      "kind": "web_research",
+      "url": "https://cairnrpg.com/second-edition/players-guide/procedures/",
+      "label": "cairnrpg.com/second-edition/players-guide/procedures/",
+      "genre_ids": [
+        "dungeon_fantasy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.0e52d4975c2d1c07c38ba47050819abc1b99752b6d80e41aed928bfd53c34bb8",
+      "kind": "web_research",
+      "url": "https://www.dndbeyond.com/monsters/17043-vampire",
+      "label": "www.dndbeyond.com/monsters/17043-vampire",
+      "genre_ids": [
+        "vampire_werewolf"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.0f136c22483f973db111f2c835cfae89ef9d052e188cfe5dc3c0d3459738769c",
+      "kind": "web_research",
+      "url": "https://www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_h/ObstacleReduction/BreachingFundamentals/index.html",
+      "label": "www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_h/ObstacleReduction/BreachingFundamentals/index.html",
+      "genre_ids": [
+        "military_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.164cebd583d27749049170081f5c58a7821976d070a9644765d04db640091547",
+      "kind": "web_research",
+      "url": "https://www.dndbeyond.com/sources/dnd/br-2024/magic-items",
+      "label": "www.dndbeyond.com/sources/dnd/br-2024/magic-items",
+      "genre_ids": [
+        "high_fantasy_medieval"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.194f3653ddf1d778ab89dfca3a480d3f567be2321843f9b837880824d4565706",
+      "kind": "web_research",
+      "url": "https://www.who.int/news-room/fact-sheets/detail/climate-change-heat-and-health",
+      "label": "www.who.int/news-room/fact-sheets/detail/climate-change-heat-and-health",
+      "genre_ids": [
+        "post_apoc_climate_collapse"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.1cf3250917558bcbe7073fe87a7164e21e6d85fe0e7ffc2a8cc99dc28cb0fee9",
+      "kind": "web_research",
+      "url": "https://freeleaguepublishing.com/shop/mutant-year-zero/free-year-zero-starter-booklet-pdf/",
+      "label": "freeleaguepublishing.com/shop/mutant-year-zero/free-year-zero-starter-booklet-pdf/",
+      "genre_ids": [
+        "post_apoc_nuclear_zombies"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.1e13957ed3e8e46e170f6e07cba0cf03628a662074ced9be73da851dff25ef3e",
+      "kind": "web_research",
+      "url": "https://freeleaguepublishing.com/shop/the-walking-dead-universe-roleplaying-game/starter-set/",
+      "label": "freeleaguepublishing.com/shop/the-walking-dead-universe-roleplaying-game/starter-set/",
+      "genre_ids": [
+        "post_apoc_nuclear_zombies"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.1ee9f6e60906db9a3e50430ed21484cfd9200427510ef5e7ddb72de1622defe2",
+      "kind": "web_research",
+      "url": "https://images-cdn.fantasyflightgames.com/filer_public/dc/2f/dc2f92bb-bfd2-4f12-99eb-1d084491de65/l5r00_beta_rulebook.pdf",
+      "label": "images-cdn.fantasyflightgames.com/filer_public/dc/2f/dc2f92bb-bfd2-4f12-99eb-1d084491de65/l5r00_beta_rulebook.pdf",
+      "genre_ids": [
+        "samurai_feudal_japan"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.2073cca368ca467845590a9165bf4f3ab52303191b890aa8c955f95cfc60e476",
+      "kind": "web_research",
+      "url": "https://www.tuesdayknightgames.com/products/mothership-players-survival-guide",
+      "label": "www.tuesdayknightgames.com/products/mothership-players-survival-guide",
+      "genre_ids": [
+        "survival_horror"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.209460c8bc7f7f80c2ce6ee7bec5e3a55154c2815f905367bf0b5bbfcc0897c2",
+      "kind": "web_research",
+      "url": "https://www.aonsrd.com/Rules.aspx?ID=118",
+      "label": "www.aonsrd.com/Rules.aspx",
+      "genre_ids": [
+        "science_fantasy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.262dfb17efb950e5da0baabd8c4bee53be9a11171017ad33f33c42629c90c600",
+      "kind": "web_research",
+      "url": "https://www.d20herosrd.com/6-powers/descriptors",
+      "label": "www.d20herosrd.com/6-powers/descriptors",
+      "genre_ids": [
+        "superhero_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.2a1bde513e69b3b2ae2f18c9fb43b08f91a11cb64e9b0ac801196ee65862779f",
+      "kind": "web_research",
+      "url": "https://www.aonsrd.com/Rules.aspx?ID=186",
+      "label": "www.aonsrd.com/Rules.aspx",
+      "genre_ids": [
+        "space_opera_sci_fi"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.2fcd0f09b5728e9219a55659a6a67ea32ccc83d1a0a04766564be42709f03896",
+      "kind": "web_research",
+      "url": "https://na.finalfantasyxiv.com/uiguide/",
+      "label": "na.finalfantasyxiv.com/uiguide/",
+      "genre_ids": [
+        "virtual_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.306dd47bd4de4c14095e798a46780023149abd9420eba362bb526a1229c121d0",
+      "kind": "web_research",
+      "url": "https://www.aonsrd.com/Rules.aspx?ID=597",
+      "label": "www.aonsrd.com/Rules.aspx",
+      "genre_ids": [
+        "science_fantasy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.311be06aa8935fbb5fa292380f57376b3447c0fe7262f8dd19bef7c5a8f89d67",
+      "kind": "web_research",
+      "url": "https://www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_b/DirectFireControl/FireControlMeasures/index.html",
+      "label": "www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_b/DirectFireControl/FireControlMeasures/index.html",
+      "genre_ids": [
+        "military_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.32317e717cabb45d4e47c5249ee0c070b8e36f46fb725496d0120f72709d751f",
+      "kind": "web_research",
+      "url": "https://www.dndbeyond.com/sources/dnd/br-2024/creature-stat-blocks",
+      "label": "www.dndbeyond.com/sources/dnd/br-2024/creature-stat-blocks",
+      "genre_ids": [
+        "demon_angel"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.3288362dace45d2ef3a9ff3a8d6f62581fe88bd2c62ef5882087f8f1f9e4a367",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=1774",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "kingdom_empire"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.338817d228e9d98e9524cd1aa1b1c2b4e672a03c4fb501db20d5421a06e775a7",
+      "kind": "web_research",
+      "url": "https://sf-encyclopedia.com/entry/space_1889",
+      "label": "sf-encyclopedia.com/entry/space_1889",
+      "genre_ids": [
+        "steampunk_victorian"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.341357ea118dfe2c9744b631cc03100bdf08a277379e029d9a4ee76583b973d7",
+      "kind": "web_research",
+      "url": "https://www.bfi.org.uk/features/how-get-into-film-noir-master-robert-siodmak",
+      "label": "www.bfi.org.uk/features/how-get-into-film-noir-master-robert-siodmak",
+      "genre_ids": [
+        "crime_noir"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.3574ef1b97454038166f871351b72d7cb06ea9a24bc4f99951d180cdb6a50591",
+      "kind": "web_research",
+      "url": "https://www.fantasyflightgames.com/en/legend-of-the-five-rings-roleplaying-game/",
+      "label": "www.fantasyflightgames.com/en/legend-of-the-five-rings-roleplaying-game/",
+      "genre_ids": [
+        "samurai_feudal_japan"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.3911d528d5805709bae1332e0d705b047a40973a614f6ae296bfed53a5f006c3",
+      "kind": "web_research",
+      "url": "https://www.cdc.gov/infection-control/hcp/core-practices/index.html",
+      "label": "www.cdc.gov/infection-control/hcp/core-practices/index.html",
+      "genre_ids": [
+        "post_apoc_pandemic"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.3a2271618302a6b2b307951619b69e6f1e234a28f32a67a5e4e9527f71b80338",
+      "kind": "web_research",
+      "url": "https://www.aonsrd.com/Rules.aspx?ID=558",
+      "label": "www.aonsrd.com/Rules.aspx",
+      "genre_ids": [
+        "space_opera_sci_fi"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.3a2cc0e68a0659d0f43c00ea0b7e58f193928be08744eba3314873c394b686cb",
+      "kind": "web_research",
+      "url": "https://evilhat.com/wp-content/uploads/2024/08/EHP0040-Scum-and-Villainy-Sell-Sheet.pdf",
+      "label": "evilhat.com/wp-content/uploads/2024/08/EHP0040-Scum-and-Villainy-Sell-Sheet.pdf",
+      "genre_ids": [
+        "space_western"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.3d7911992676f8f8b036ec8b3f62cd44e4c9792aab7b3ee62469f498c8cf0a06",
+      "kind": "web_research",
+      "url": "https://liminalhorrorrpg.com/srd-rituals/",
+      "label": "liminalhorrorrpg.com/srd-rituals/",
+      "genre_ids": [
+        "dark_fantasy_gothic",
+        "supernatural_occult",
+        "urban_fantasy_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.421bb97102c3961dc92e2c0ecdc5defaaf2d54bd07c863808a1cc6b440ed9b66",
+      "kind": "web_research",
+      "url": "https://www.rockstargames.com/reddeadonline/features/roles?active=trader",
+      "label": "www.rockstargames.com/reddeadonline/features/roles",
+      "genre_ids": [
+        "western_frontier"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.423714c09bc4566a32f1cb1b77ff2d9d38f3e7c0021a7ebc67926d9a51a4a6e4",
+      "kind": "web_research",
+      "url": "https://sf-encyclopedia.com/entry/dieselpunk",
+      "label": "sf-encyclopedia.com/entry/dieselpunk",
+      "genre_ids": [
+        "dieselpunk_world_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.445170ba376c19e4972dec0be4231835db5ea111de1014916a605b7c2dd8f79b",
+      "kind": "web_research",
+      "url": "https://www.dndbeyond.com/monsters/17057-werewolf",
+      "label": "www.dndbeyond.com/monsters/17057-werewolf",
+      "genre_ids": [
+        "vampire_werewolf"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.47f05e47c1b7bca880748d86fee640e558c3f5158bdb724b179796a3d74c1dd2",
+      "kind": "web_research",
+      "url": "https://www.agon-rpg.com/",
+      "label": "www.agon-rpg.com/",
+      "genre_ids": [
+        "mythological_ancient_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.481b45550733ee6b636e1da65bde0ef7f14746d9735d6799ee539cc1602e068a",
+      "kind": "web_research",
+      "url": "https://marketplace.dndbeyond.com/TTRPG/strixhaven-a-curriculum-of-chaos",
+      "label": "marketplace.dndbeyond.com/TTRPG/strixhaven-a-curriculum-of-chaos",
+      "genre_ids": [
+        "school_academy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.4bb0983b1bd27fbdbbacf8db946cd48f65770ab895da7c1eff4e65789df5a97a",
+      "kind": "web_research",
+      "url": "https://www.researchgate.net/publication/356628820_A_Survey_of_the_Story_Elements_of_Isekai_Manga",
+      "label": "www.researchgate.net/publication/356628820_A_Survey_of_the_Story_Elements_of_Isekai_Manga",
+      "genre_ids": [
+        "isekai_parallel_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.4be7ecf5a5182fb0786b4ba32036031241096ad67315ce5504edd147a92a983d",
+      "kind": "web_research",
+      "url": "https://paizo.com/starfinderplaytest/faq",
+      "label": "paizo.com/starfinderplaytest/faq",
+      "genre_ids": [
+        "science_fantasy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.4e8ef5bc86151b5ae006d7472a977bd37d16a1d542192431fd292462d0bd588b",
+      "kind": "web_research",
+      "url": "https://www.aonsrd.com/Rules.aspx?ID=803",
+      "label": "www.aonsrd.com/Rules.aspx",
+      "genre_ids": [
+        "space_opera_sci_fi"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.55a17e689bdd8b1610f06c277e25146a8cb4f9690a94469f7eac22fea9464b97",
+      "kind": "web_research",
+      "url": "https://www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/chapter_04/section_09/page_0030/index.html",
+      "label": "www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/chapter_04/section_09/page_0030/index.html",
+      "genre_ids": [
+        "military_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.569efeaf35b111bacab46b25df602bd93e370bf86284cdc0e7aef8ba87960042",
+      "kind": "web_research",
+      "url": "https://dev.epicgames.com/documentation/en-us/unreal-engine/gameplay-attributes-and-gameplay-effects-for-the-gameplay-ability-system-in-unreal-engine?application_version=5.2",
+      "label": "dev.epicgames.com/documentation/en-us/unreal-engine/gameplay-attributes-and-gameplay-effects-for-the-gameplay-ability-system-in-unreal-engine",
+      "genre_ids": [
+        "virtual_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.57a264507e2deb9efe70571f2b4ec07c941bb0061749a1793015095aa647293b",
+      "kind": "web_research",
+      "url": "https://www.d20herosrd.com/7-gadgets-gear/",
+      "label": "www.d20herosrd.com/7-gadgets-gear/",
+      "genre_ids": [
+        "superhero_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.581ada3ed4b1ff1d08cde75902ff4c8b194d9a92e95c9a426954d4b98a64e606",
+      "kind": "web_research",
+      "url": "https://resolve.cambridge.org/core/services/aop-cambridge-core/content/view/A174BF2AAB0A8FC88E08151368565138/9780748632510c5_p115-142_CBO.pdf/wuxia_films_of_king_hu.pdf",
+      "label": "resolve.cambridge.org/core/services/aop-cambridge-core/content/view/A174BF2AAB0A8FC88E08151368565138/9780748632510c5_p115-142_CBO.pdf/wuxia_films_of_king_hu.pdf",
+      "genre_ids": [
+        "eastern_fantasy_wuxia_xianxia"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.58671bd8fd342240fb915253539ecc69241894a22a3d25971c8c478b35714f16",
+      "kind": "web_research",
+      "url": "https://downloads.paizo.com/Strength%20of%20Thousands%20Players%20Guide.pdf",
+      "label": "downloads.paizo.com/Strength%20of%20Thousands%20Players%20Guide.pdf",
+      "genre_ids": [
+        "school_academy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.5a5735eab8587c7b294d0e9d395221af99a31b204c7ce4962ff1d6c7f2af81b2",
+      "kind": "web_research",
+      "url": "https://docs.cataclysmdda.org/JSON/JSON_FLAGS.html",
+      "label": "docs.cataclysmdda.org/JSON/JSON_FLAGS.html",
+      "genre_ids": [
+        "post_apoc_nuclear_zombies"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.5c85da0f7e3e00d4dcc23cc4e4143c6e3deb95042c7288a8d1395e53ba659362",
+      "kind": "web_research",
+      "url": "https://rtalsoriangames.com/downloadable-content/",
+      "label": "rtalsoriangames.com/downloadable-content/",
+      "genre_ids": [
+        "cyberpunk_dystopian"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.5da2a388a796dede6a80c36032e694e2f788ff2e36e584541db45f8de99922f3",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Archetypes.aspx?ID=258",
+      "label": "2e.aonprd.com/Archetypes.aspx",
+      "genre_ids": [
+        "pirate_nautical"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.602dd3d6c4437072b1ef01f77cfe2174399de1faff48ecbb9999ecbc7afd4260",
+      "kind": "web_research",
+      "url": "https://support.cdprojektred.com/en/cyberpunk/pc/gameplay/issue/1679/how-can-i-hack-and-what-is-hacking-for",
+      "label": "support.cdprojektred.com/en/cyberpunk/pc/gameplay/issue/1679/how-can-i-hack-and-what-is-hacking-for",
+      "genre_ids": [
+        "cyberpunk_dystopian"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.674efddb8535269dd7152e389521e7489005dae09dfda4ea66905fe674dbcc78",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=2440&Redirected=1",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "dungeon_fantasy",
+        "high_fantasy_medieval"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.6a7409db37d84c624f61495298ed05c391ed9c5e00c9a1a0b3dfae7d9710b9f2",
+      "kind": "web_research",
+      "url": "https://www.iwm.org.uk/history/how-the-second-world-war-was-fought-from-the-air",
+      "label": "www.iwm.org.uk/history/how-the-second-world-war-was-fought-from-the-air",
+      "genre_ids": [
+        "dieselpunk_world_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.6d8f13c7f53d6516d6870d77e254c24125eebad3319915e7715aab8504352c44",
+      "kind": "web_research",
+      "url": "https://morkborg.com/",
+      "label": "morkborg.com/",
+      "genre_ids": [
+        "dark_fantasy_gothic"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.6e44d88dbfacfa7a08656967ce6d85d7138d7cc357753033cd0edcd79a852c9f",
+      "kind": "web_research",
+      "url": "https://liminalhorrorrpg.com/srd-fallout/",
+      "label": "liminalhorrorrpg.com/srd-fallout/",
+      "genre_ids": [
+        "dark_fantasy_gothic",
+        "urban_fantasy_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.6e7383454d79871d602dac210cd753bbe65f6826cafb409fd342dbfec195f0c6",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=2071",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "demon_angel"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.6f814a19c441ee312da04c273992c6c0fcd9e57043c80d8bc73ad5801c8a52a9",
+      "kind": "web_research",
+      "url": "https://www.dndbeyond.com/spells/2619096-dispel-evil-and-good",
+      "label": "www.dndbeyond.com/spells/2619096-dispel-evil-and-good",
+      "genre_ids": [
+        "demon_angel"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.71597fbf4feab8cea92e9d45257a996c74a059da8c2e86d83730eecfdce39d25",
+      "kind": "web_research",
+      "url": "https://tomkinpress.com/blogs/news/this-is-the-way-evolving-your-character-through-assets",
+      "label": "tomkinpress.com/blogs/news/this-is-the-way-evolving-your-character-through-assets",
+      "genre_ids": [
+        "space_western"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.74a174d02884e4c57d5cb12c984d62b794327e700bf1233fa210a77986f35e7e",
+      "kind": "web_research",
+      "url": "https://store.worldofdarkness.com/ttrpg/",
+      "label": "store.worldofdarkness.com/ttrpg/",
+      "genre_ids": [
+        "vampire_werewolf"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.76fe6030532afdcc1f14aa8b328378f89f1f15b867dba3c6f647eeb0c8b8abc7",
+      "kind": "web_research",
+      "url": "https://www.benning.army.mil/infantry/DoctrineSupplement/ATP3-21.8/",
+      "label": "www.benning.army.mil/infantry/DoctrineSupplement/ATP3-21.8/",
+      "genre_ids": [
+        "military_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.789a5d6f4bc19b14d88a2c7d15d42db0901ead7505559cd94857ccebb05bae84",
+      "kind": "web_research",
+      "url": "https://rtalsoriangames.com/wp-content/uploads/2021/10/RTG-CPR-NetrunningDeck-Instructionsv1.1.pdf",
+      "label": "rtalsoriangames.com/wp-content/uploads/2021/10/RTG-CPR-NetrunningDeck-Instructionsv1.1.pdf",
+      "genre_ids": [
+        "cyberpunk_dystopian"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.78fc0f6faa74a9f082aece3dd96c564b19b8b15ce2ee008a90312fc396f7dd59",
+      "kind": "web_research",
+      "url": "https://immortalmountain.wordpress.com/glossary/wuxia-xianxia-xuanhuan-terms/",
+      "label": "immortalmountain.wordpress.com/glossary/wuxia-xianxia-xuanhuan-terms/",
+      "genre_ids": [
+        "eastern_fantasy_wuxia_xianxia"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.7bf30b270762557051804b2765f4fd07feefc3f1e49fee10250385d9040df4d1",
+      "kind": "web_research",
+      "url": "https://evilhat.com/wp-content/uploads/2024/08/EHP0054-AGON-Sell-Sheet.pdf",
+      "label": "evilhat.com/wp-content/uploads/2024/08/EHP0054-AGON-Sell-Sheet.pdf",
+      "genre_ids": [
+        "mythological_ancient_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.7dbb045c5e27360005ff2535d3f8a89fe3520b69ef1b2bbc718f8266f6328ca9",
+      "kind": "web_research",
+      "url": "https://www.aonsrd.com/Rules.aspx?ID=112",
+      "label": "www.aonsrd.com/Rules.aspx",
+      "genre_ids": [
+        "science_fantasy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.7ec849b033630ea7a954655e90c6cbbd725dfe7151cd08addc8457dfa23e51ff",
+      "kind": "web_research",
+      "url": "https://www.who.int/publications/i/item/B09157",
+      "label": "www.who.int/publications/i/item/B09157",
+      "genre_ids": [
+        "post_apoc_climate_collapse"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.7fac3111634d14b0cf6d34aa0fe5ac2cfbb449d719ecc79f549ebedfabd2ef21",
+      "kind": "web_research",
+      "url": "https://www.d20herosrd.com/6-powers/effects/effect-descriptions/",
+      "label": "www.d20herosrd.com/6-powers/effects/effect-descriptions/",
+      "genre_ids": [
+        "superhero_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.81852a3b1f913e750929382713a9bad7c4eb2616b508264ee08efcdc35a17209",
+      "kind": "web_research",
+      "url": "https://pelgranepress.com/gumshoe/files/GUMSHOE%20SRD%20CC%20version.pdf",
+      "label": "pelgranepress.com/gumshoe/files/GUMSHOE%20SRD%20CC%20version.pdf",
+      "genre_ids": [
+        "crime_noir"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.82f46d62411ef5af799197f94ed9f999e1f619881b7d8d78990db4ea1a0b9a04",
+      "kind": "web_research",
+      "url": "https://freeleaguepublishing.com/shop/twilight-2000/core-set/",
+      "label": "freeleaguepublishing.com/shop/twilight-2000/core-set/",
+      "genre_ids": [
+        "dieselpunk_world_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.83a071199c4fb8b2a02b586e77ab256a120cd2028c3bc8dc0cded39c7037a245",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=2389",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "dark_fantasy_gothic"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.87c707ce208c123a674846ffbdb2ad0dabb89c7c6fcf407c021a78be43a995c7",
+      "kind": "web_research",
+      "url": "https://sf-encyclopedia.com/entry/steampunk",
+      "label": "sf-encyclopedia.com/entry/steampunk",
+      "genre_ids": [
+        "steampunk_victorian"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.88fa68174e99589de288f3a98e0095eef1454987f9bd40ad010f67a9b0f44c53",
+      "kind": "web_research",
+      "url": "https://www.dndbeyond.com/sources/dnd/sacoc",
+      "label": "www.dndbeyond.com/sources/dnd/sacoc",
+      "genre_ids": [
+        "school_academy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.8c074de616af31e87b90312c50c21f0c0ca5266f96dd8465248cd24cd20c4690",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=1114",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "dark_fantasy_gothic"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.8cb3bb6dc29d2f87930c18ebaf99265414e8b933cadd4c142168749b63f4c299",
+      "kind": "web_research",
+      "url": "https://evilhat.com/product/scum-and-villainy/",
+      "label": "evilhat.com/product/scum-and-villainy/",
+      "genre_ids": [
+        "space_western"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.9148c0a7d4c598cae0b806d94c8714e3021c19053774301faac63d88583eaa10",
+      "kind": "web_research",
+      "url": "https://eclipsephase.com/wp-content/uploads/2024/02/PS10001_EclipsePhaseSecondEdition_QuickStartRulesAcrimony_Nov2023.pdf",
+      "label": "eclipsephase.com/wp-content/uploads/2024/02/PS10001_EclipsePhaseSecondEdition_QuickStartRulesAcrimony_Nov2023.pdf",
+      "genre_ids": [
+        "cyberpunk_dystopian"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.955164c6c5b5b63dda356763c15c2345bf79c3f06ffe2ac16913f3e6ff840012",
+      "kind": "web_research",
+      "url": "https://www.dndbeyond.com/sources/dnd/br-2024/equipment",
+      "label": "www.dndbeyond.com/sources/dnd/br-2024/equipment",
+      "genre_ids": [
+        "pirate_nautical"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.967f0bffb033ed9e402aea2a431059ec614d46963d055933f47ef5cca78272d5",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=1288",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "pirate_nautical"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.a0801f10b24c3250e04e03ee3c082225dc91056fe5fecccf1321c11b397a296a",
+      "kind": "web_research",
+      "url": "https://evilhat.com/wp-content/uploads/2023/01/Monster-of-the-Week-Hunter-Playbooks-Consolidated-2025.pdf",
+      "label": "evilhat.com/wp-content/uploads/2023/01/Monster-of-the-Week-Hunter-Playbooks-Consolidated-2025.pdf",
+      "genre_ids": [
+        "urban_fantasy_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.a14c84b53f83fbdb1a5b938f764612d9e9de8630c9a1f5c83d2ff8006960caa3",
+      "kind": "web_research",
+      "url": "https://www.waseda.jp/inst/wias/news-en/2025/06/26/19332/",
+      "label": "www.waseda.jp/inst/wias/news-en/2025/06/26/19332/",
+      "genre_ids": [
+        "isekai_parallel_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.a3db8c947c3daba1ab38eecbda567138f4c42b753c27ecf639cd4d10e1277823",
+      "kind": "web_research",
+      "url": "https://www.who.int/activities/preparing-and-preventing-epidemics-and-pandemics",
+      "label": "www.who.int/activities/preparing-and-preventing-epidemics-and-pandemics",
+      "genre_ids": [
+        "post_apoc_pandemic"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.a7d8819ed9be4a661a31880147f29811bae00058e46c081431756f469c4ad7f0",
+      "kind": "web_research",
+      "url": "https://srd.mythras.net/imperative-char-gen.html",
+      "label": "srd.mythras.net/imperative-char-gen.html",
+      "genre_ids": [
+        "low_fantasy_historical"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.a9c1f3421a8bf1a8129a239596aa637f178a5233b83962626718149a0cba7a5f",
+      "kind": "web_research",
+      "url": "https://www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_c/IndirectFirePlanning/TacticalUsesofPlannedIndirectFires/index.html",
+      "label": "www.benning.army.mil/Infantry/DoctrineSupplement/ATP3-21.8/appendix_c/IndirectFirePlanning/TacticalUsesofPlannedIndirectFires/index.html",
+      "genre_ids": [
+        "military_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.ab379d006e9730cefc7534d364278cdacf903432bfa2be21d2bcabb7a64ac8b5",
+      "kind": "web_research",
+      "url": "https://www.ipcc.ch/report/ar6/wg2/chapter/technical-summary/?lang=en",
+      "label": "www.ipcc.ch/report/ar6/wg2/chapter/technical-summary/",
+      "genre_ids": [
+        "post_apoc_climate_collapse"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.af7cea57a81b3b8571fb169aaff6bd9303af09edccb3389144fc167a09e46dc8",
+      "kind": "web_research",
+      "url": "https://www.who.int/publications/m/item/who-policy-brief-covid-19-surveillance",
+      "label": "www.who.int/publications/m/item/who-policy-brief-covid-19-surveillance",
+      "genre_ids": [
+        "post_apoc_pandemic"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.af9df35574cd6ea4f2450e6cfe40b959c81de0731d81bd920b8ec919450c21cf",
+      "kind": "web_research",
+      "url": "https://pelgranepress.com/2023/03/08/a-taxonomy-of-investigations/",
+      "label": "pelgranepress.com/2023/03/08/a-taxonomy-of-investigations/",
+      "genre_ids": [
+        "crime_noir"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.af9fd3ef7eff1deb6e8b7a1c4b5fb9611a6eedc01ee8c5b4e127af07a7a9b554",
+      "kind": "web_research",
+      "url": "https://www.aonsrd.com/Rules.aspx?ID=527",
+      "label": "www.aonsrd.com/Rules.aspx",
+      "genre_ids": [
+        "space_opera_sci_fi"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.b1e3902eb60bb662fe329664a9b2ab813872302e6f93c5d28e67457cb129da06",
+      "kind": "web_research",
+      "url": "https://hasp.ub.uni-heidelberg.de/catalog/view/971/1682/96390",
+      "label": "hasp.ub.uni-heidelberg.de/catalog/view/971/1682/96390",
+      "genre_ids": [
+        "isekai_parallel_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.b2a929cda38cb501dc0c9cf2a7dd950311b628cfdc298730cbb1358cee75040a",
+      "kind": "web_research",
+      "url": "https://www.britishmuseum.org/blog/who-were-samurai",
+      "label": "www.britishmuseum.org/blog/who-were-samurai",
+      "genre_ids": [
+        "samurai_feudal_japan"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.b499ed2fa94e164931cca0c8c7474af123e1d813a2f9fffbf189753a393e634d",
+      "kind": "web_research",
+      "url": "https://srd.mythras.net/",
+      "label": "srd.mythras.net/",
+      "genre_ids": [
+        "low_fantasy_historical"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.b7840e478b3d654aa9a9f090577f7a9ea93f58084049e7ba387e8b59147eac4c",
+      "kind": "web_research",
+      "url": "https://sf-encyclopedia.com/entry/alternate_history",
+      "label": "sf-encyclopedia.com/entry/alternate_history",
+      "genre_ids": [
+        "alternate_history"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.b7d425eceebe715fb5887398c96596bc15d74c1b508e56b2c70ce80c4a5828f7",
+      "kind": "web_research",
+      "url": "https://www.cambridge.org/core/books/cambridge-companion-to-science-fiction/alternate-history/0F1BC13ED87B380C9D0F6CA6D29174C1",
+      "label": "www.cambridge.org/core/books/cambridge-companion-to-science-fiction/alternate-history/0F1BC13ED87B380C9D0F6CA6D29174C1",
+      "genre_ids": [
+        "alternate_history"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.b896509a98fd2867522c591ff6f50d2a7607715f4db91e8de73d9598329c2592",
+      "kind": "web_research",
+      "url": "https://johnharper.itch.io/lady-blackbird",
+      "label": "johnharper.itch.io/lady-blackbird",
+      "genre_ids": [
+        "steampunk_victorian"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.ba52d93c0fd2a81533da0763737a231d55d536890399790da1c30c6ae372bf1f",
+      "kind": "web_research",
+      "url": "https://researchcommons.waikato.ac.nz/bitstream/10289/15500/1/thesis.pdf",
+      "label": "researchcommons.waikato.ac.nz/bitstream/10289/15500/1/thesis.pdf",
+      "genre_ids": [
+        "isekai_parallel_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.babd810d1a4f3fc85f8fddab18432f6f0332f6164965159f7373b95835309a62",
+      "kind": "web_research",
+      "url": "https://bladesinthedark.com/index.php/actions-attributes",
+      "label": "bladesinthedark.com/index.php/actions-attributes",
+      "genre_ids": [
+        "steampunk_victorian"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.bb7072e6b496d3f014b1e23eba1feaae92112d048c2b45368d815cb5cf213100",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=1775",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "kingdom_empire"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.bbb58d0e5974b8b297939f9309d1404301021fa7445a67161b65fa8e961612c9",
+      "kind": "web_research",
+      "url": "https://www.chaosium.com/content/FreePDFs/CoC/CHA23131%20Call%20of%20Cthulhu%207th%20Edition%20Quick-Start%20Rules.pdf",
+      "label": "www.chaosium.com/content/FreePDFs/CoC/CHA23131%20Call%20of%20Cthulhu%207th%20Edition%20Quick-Start%20Rules.pdf",
+      "genre_ids": [
+        "survival_horror"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.bd7dcc30eaee0a0fec3d714b2107228be6a2aa97406d0cd79a2507f769ece381",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/MonsterFamilies.aspx?ID=359",
+      "label": "2e.aonprd.com/MonsterFamilies.aspx",
+      "genre_ids": [
+        "demon_angel"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.c1ce12d8258709ec8fcd60f6fdf4ecc8a64d7662ca354ceb09d6d6a7089b6c77",
+      "kind": "web_research",
+      "url": "https://fate-srd.com/venture-city/making-your-character-and-powers",
+      "label": "fate-srd.com/venture-city/making-your-character-and-powers",
+      "genre_ids": [
+        "superhero_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.c2bfca0b0e61b9ae975a97139de0a5c2bb311381408e0cd0958b9acb86c5ca7b",
+      "kind": "web_research",
+      "url": "https://www.mdpi.com/2077-1444/11/1/25",
+      "label": "www.mdpi.com/2077-1444/11/1/25",
+      "genre_ids": [
+        "eastern_fantasy_wuxia_xianxia"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.c49d9a4a972b7823bca0119722239524fb5972987a4432a594038a22b407b3c6",
+      "kind": "web_research",
+      "url": "https://www.chaosium.com/content/FreePDFs/RuneQuest/CHA4027%20-%20RuneQuest%20Quickstart.pdf",
+      "label": "www.chaosium.com/content/FreePDFs/RuneQuest/CHA4027%20-%20RuneQuest%20Quickstart.pdf",
+      "genre_ids": [
+        "mythological_ancient_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.c5d0dc0ebaac262ca1abb8c107da77f2ebb5102e44520637eb626b0561559095",
+      "kind": "web_research",
+      "url": "https://freeleaguepublishing.com/wp-content/uploads/2023/11/YZE-Standard-Reference-Document.pdf",
+      "label": "freeleaguepublishing.com/wp-content/uploads/2023/11/YZE-Standard-Reference-Document.pdf",
+      "genre_ids": [
+        "post_apoc_nuclear_zombies"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.c601edf232b7fdf1e551bc047a6dcbeaded9c4e3ac8ec569ebd98d63bd107bcc",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=1739",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "kingdom_empire"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.cc029803172b411c8d0d3651563e2c8b68969ec00abd073b0adfa59ebdbcb1e7",
+      "kind": "web_research",
+      "url": "https://www.iwm.org.uk/history/the-vital-role-of-tanks-in-the-second-world-war",
+      "label": "www.iwm.org.uk/history/the-vital-role-of-tanks-in-the-second-world-war",
+      "genre_ids": [
+        "dieselpunk_world_war"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.cc842826382945722edf2cd7cdbcb2bedad7c7bad0b9b6ee596c9c6abee84614",
+      "kind": "web_research",
+      "url": "https://www.metmuseum.org/exhibitions/listings/2009/art-of-the-samurai",
+      "label": "www.metmuseum.org/exhibitions/listings/2009/art-of-the-samurai",
+      "genre_ids": [
+        "samurai_feudal_japan"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.d6467863a70f2c556aa76e45dba87eaa8e336b59e9c0fea4a72940b650ae9ce4",
+      "kind": "web_research",
+      "url": "https://shop.arcdream.com/products/reign-enchiridion-paperback-1",
+      "label": "shop.arcdream.com/products/reign-enchiridion-paperback-1",
+      "genre_ids": [
+        "kingdom_empire"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.d766442b1fc8e4ee7d8776af9fd21db084d6aa2534d0f8f58d4abb96cb5192dd",
+      "kind": "web_research",
+      "url": "https://2e.aonprd.com/Rules.aspx?ID=2221",
+      "label": "2e.aonprd.com/Rules.aspx",
+      "genre_ids": [
+        "high_fantasy_medieval"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.d97f30bc9aa9ce8d9f4ceacd808f5c8bb132591dff7ee332b08b576a3b8c5ea7",
+      "kind": "web_research",
+      "url": "https://rqwiki.chaosium.com/adventurers/cult.html",
+      "label": "rqwiki.chaosium.com/adventurers/cult.html",
+      "genre_ids": [
+        "mythological_ancient_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.dd180f17be6298c61dffc28a8fd736f1d12827a2b238eafd623baaa647558e72",
+      "kind": "web_research",
+      "url": "https://na.finalfantasyxiv.com/uiguide/know/know-hud/hud-name.html",
+      "label": "na.finalfantasyxiv.com/uiguide/know/know-hud/hud-name.html",
+      "genre_ids": [
+        "virtual_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.de21ff38a9bc01e259a1626623307d78264a2392c592958616fefa24b85970ed",
+      "kind": "web_research",
+      "url": "https://cairnrpg.com/second-edition/wardens-guide/dungeon-seeds/",
+      "label": "cairnrpg.com/second-edition/wardens-guide/dungeon-seeds/",
+      "genre_ids": [
+        "dungeon_fantasy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.e2d93dc1d68d82df7767dfe71453df4ab48a61cc00852367083c38163f9830f2",
+      "kind": "web_research",
+      "url": "https://cthulhuwiki.chaosium.com/rules/sanity.html",
+      "label": "cthulhuwiki.chaosium.com/rules/sanity.html",
+      "genre_ids": [
+        "survival_horror"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.e671021c06959e94c2da0f8b9294d037ef57521a663940899c2cfcb723a63bca",
+      "kind": "web_research",
+      "url": "https://www.paradoxinteractive.com/games/millennia/about",
+      "label": "www.paradoxinteractive.com/games/millennia/about",
+      "genre_ids": [
+        "alternate_history"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.e856551572c4e69d5039fb195c090e02bddb50f1b341e05484e31d3c2e254ec3",
+      "kind": "web_research",
+      "url": "https://www.nps.gov/grko/learn/historyculture/traildrives.htm",
+      "label": "www.nps.gov/grko/learn/historyculture/traildrives.htm",
+      "genre_ids": [
+        "western_frontier"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.e92758f3929b57dbcb6d35fbf10194028d8ac4787e7f74ac896458eb585c7ea4",
+      "kind": "web_research",
+      "url": "https://www.seaofthieves.com/ships-of-fortune",
+      "label": "www.seaofthieves.com/ships-of-fortune",
+      "genre_ids": [
+        "pirate_nautical"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.eb90d1fc105018cb8b96f791ec7f9c225346002b9ff8ddb566b4b2c3aea2de5f",
+      "kind": "web_research",
+      "url": "https://plato.stanford.edu/archives/fall2024/entries/causation-counterfactual/",
+      "label": "plato.stanford.edu/archives/fall2024/entries/causation-counterfactual/",
+      "genre_ids": [
+        "alternate_history"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.ebde8f630de8a907baff5f3ef28ce28cbcb29778767c3524489e2eee8c88dc6d",
+      "kind": "web_research",
+      "url": "https://wuxiatales.com/guides/xianxia-101/",
+      "label": "wuxiatales.com/guides/xianxia-101/",
+      "genre_ids": [
+        "eastern_fantasy_wuxia_xianxia"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.ec8b032521b4931d9cd5042bf9f1d88c25ba3a63197fa6ff6a3cdae97487d25e",
+      "kind": "web_research",
+      "url": "https://www.cdc.gov/water-emergency/safety/index.html",
+      "label": "www.cdc.gov/water-emergency/safety/index.html",
+      "genre_ids": [
+        "post_apoc_pandemic"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.ee95ff727692465af4c974fdeba028954fb176735cb620bc50e2c2e7dd946a85",
+      "kind": "web_research",
+      "url": "https://www.aonsrd.com/Rules.aspx?ID=349",
+      "label": "www.aonsrd.com/Rules.aspx",
+      "genre_ids": [
+        "science_fantasy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.ef85cfc016356954a5c5445d7ee68b30e3a13f8c03165cbbeb72491e9d258bbc",
+      "kind": "web_research",
+      "url": "https://renegadegamestudios.com/blog/preorder-werewolf-the-apocalypse-today/",
+      "label": "renegadegamestudios.com/blog/preorder-werewolf-the-apocalypse-today/",
+      "genre_ids": [
+        "vampire_werewolf"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.efe8f9605f926db181c28314f6c0e5e81bdd7e5d94211f124b4729a2c15b5e8b",
+      "kind": "web_research",
+      "url": "https://liminalhorrorrpg.com/srd-one-page/",
+      "label": "liminalhorrorrpg.com/srd-one-page/",
+      "genre_ids": [
+        "supernatural_occult",
+        "survival_horror"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.f2db0c07ceb243be9a1fedf48a8b10a332caa80b5561c62c2fad004c91ff6ce7",
+      "kind": "web_research",
+      "url": "https://worldofwarcraft.blizzard.com/en-us/news/24266319",
+      "label": "worldofwarcraft.blizzard.com/en-us/news/24266319",
+      "genre_ids": [
+        "virtual_world"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.f41449e5e9d62ec666d03a66dcd533f8080b17ca9f0b15e28eb4cabed7e10897",
+      "kind": "web_research",
+      "url": "https://home.nps.gov/poex/learn/historyculture/index.htm",
+      "label": "home.nps.gov/poex/learn/historyculture/index.htm",
+      "genre_ids": [
+        "western_frontier"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.f5151c4070eac71738e383a1c403f7a3cb13d981cdd465e48adeb74906994f86",
+      "kind": "web_research",
+      "url": "https://store.paizo.com/starfinder-playtest-rulebook/",
+      "label": "store.paizo.com/starfinder-playtest-rulebook/",
+      "genre_ids": [
+        "science_fantasy"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.f5195cf0e47e4e718ad853c8035a43cef37dbc60d572ef7a1122632c1b36b3cc",
+      "kind": "web_research",
+      "url": "https://bladesinthedark.com/heat",
+      "label": "bladesinthedark.com/heat",
+      "genre_ids": [
+        "crime_noir"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.f9e4b7d5171dcec1fba2d88255462f73ebadea93e3c65748b628eaea754b7386",
+      "kind": "web_research",
+      "url": "https://www.nps.gov/tapr/learn/historyculture/cowboys.htm",
+      "label": "www.nps.gov/tapr/learn/historyculture/cowboys.htm",
+      "genre_ids": [
+        "western_frontier"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.fd355d146715a96b0dc427f13755804346d5371277268123ac5613cbe7734efe",
+      "kind": "web_research",
+      "url": "https://www.who.int/tools/compendium-on-health-and-environment/climate-change",
+      "label": "www.who.int/tools/compendium-on-health-and-environment/climate-change",
+      "genre_ids": [
+        "post_apoc_climate_collapse"
+      ],
+      "reuse": "research_and_normalization_only"
+    },
+    {
+      "id": "web.fee79ae8f1573ffd9e37bf524cdcd9853109c10c2e2b34822888e42e7c8134c3",
+      "kind": "web_research",
+      "url": "https://evilhat.com/wp-content/uploads/2023/02/Monster-of-the-Week-Reference-Sheets-Consolidated-1.pdf",
+      "label": "evilhat.com/wp-content/uploads/2023/02/Monster-of-the-Week-Reference-Sheets-Consolidated-1.pdf",
+      "genre_ids": [
+        "supernatural_occult",
+        "urban_fantasy_modern"
+      ],
+      "reuse": "research_and_normalization_only"
+    }
+  ]
+}
