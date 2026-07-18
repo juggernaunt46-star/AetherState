@@ -67,3 +67,27 @@ def test_guided_ui_explains_benefit_risk_and_best_practice_without_hover_only_he
     assert 'class="card guide-card guided-only"' in creator
     assert 'class="card guide-card"' in console
     assert ".help-dot:hover::after,.help-dot:focus-visible::after" in creator
+
+
+def test_my_words_guidance_is_contextual_collapsible_and_never_auto_overwrites():
+    html = CONSOLE.read_text(encoding="utf-8")
+
+    assert 'id="plguide"' in html
+    assert "What do these choices mean?" in html
+    assert 'const PLAYERLEX_GUIDE_KEY="aether_console_playerlex_guide_v1"' in html
+    assert "PLAYERLEX_KIND_HELP" in html and "PLAYERLEX_MEANING_HELP" in html
+    assert "Use this template" in html
+    assert 'if(field.value.trim())return toast("Your phrase already has text' in html
+    assert "playerLexKindChanged()" in html
+    assert "playerLexLexChanged();playerLexGuide()" in html
+
+
+def test_guided_my_games_shows_creation_and_activity_chronology_while_expert_keeps_ids():
+    html = CONSOLE.read_text(encoding="utf-8")
+
+    assert 'if(UI_VIEW==="guided"){' in html
+    assert "Newest" in html and "Oldest" in html and "Most recently played" in html
+    assert "Created:" in html and "Last played:" in html
+    assert "sessionAbsolute" in html and "sessionRelative" in html
+    assert "Open world &amp; story" in html
+    assert '<th>id</th><th>frontend</th><th>turn</th>' in html

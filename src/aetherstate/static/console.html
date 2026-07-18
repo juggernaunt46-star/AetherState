@@ -85,11 +85,21 @@ textarea.lessoncopy{min-height:86px}
 .guide-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .guide-point{background:#141722;border:1px solid #32384d;border-radius:7px;padding:8px 9px;font-size:12px;color:var(--dim)}
 .guide-point b{display:block;color:var(--fg);margin-bottom:2px}.guide-point.warn b{color:var(--warn)}
+.choice-guide{margin:10px 0 0;border:1px solid #343d58;border-radius:8px;background:#151923;padding:0 10px}
+.choice-guide summary{padding:8px 0;color:var(--acc);font-weight:650;cursor:pointer}
+.choice-guide[open] summary{border-bottom:1px solid var(--edge);margin-bottom:9px}
+.choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;padding-bottom:10px}
+.choice-example{background:var(--bg);border:1px solid var(--edge);border-radius:7px;padding:8px 9px;color:var(--dim);font-size:12px}
+.choice-example b{display:block;color:var(--fg);margin-bottom:3px}.choice-example code{color:var(--ok);overflow-wrap:anywhere}
+.session-list{display:grid;gap:10px}.session-card{border-left:3px solid #3d496d}
+.session-title{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.session-title h3{margin:0;font-size:15px;color:var(--fg)}
+.session-meta{display:flex;gap:7px 14px;flex-wrap:wrap;margin:9px 0;color:var(--dim);font-size:12px}
+.session-meta b{color:var(--fg);font-weight:600}.session-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
 .guided-only{display:none}
 html[data-console-view="guided"] .guided-only{display:inline}
 html[data-console-view="guided"] div.guided-only{display:block}
 html[data-console-view="guided"] .expert-only{display:none!important}
-@media(max-width:760px){.guide-grid{grid-template-columns:1fr}header{align-items:flex-start}nav{order:4;width:100%;overflow-x:auto}.view-switch{margin-left:auto}}
+@media(max-width:760px){.guide-grid,.choice-grid{grid-template-columns:1fr}header{align-items:flex-start}nav{order:4;width:100%;overflow-x:auto}.view-switch{margin-left:auto}}
 </style>
 </head>
 <body>
@@ -134,6 +144,7 @@ const TABS=["Player","PlayerLex","Player Lessons","Overview","Edit","Sessions","
 const GUIDED_TABS=["Player","PlayerLex","Player Lessons","Overview","Edit","Sessions","Help"];
 const GUIDED_LABELS=Object.freeze({Player:"My Character",PlayerLex:"My Words","Player Lessons":"Story Preferences",Overview:"World & Story",Edit:"Customize This Game",Sessions:"My Games",Help:"Help & Troubleshooting"});
 const CONSOLE_VIEW_KEY="aether_console_view_v1";
+const PLAYERLEX_GUIDE_KEY="aether_console_playerlex_guide_v1";
 /* ---------- app state ---------- */
 let tab="Player",sid="",S=null,editOp="scene_set",timer=null,PL=[],PL_EDIT="",
  PL_CONCEPT=null,PL_CHOICES=[],PL_NEXT_CURSOR=null,PL_SEARCH_TIMER=null,PL_SEARCH_SEQ=0,
@@ -451,7 +462,31 @@ async function deleteSession(sessid,name){
  if(!confirm(`Delete session "${name}"?\n\nThis permanently removes it and all of its tracked state.`))return;
  try{await j(`/aether/session/${sessid}`,{method:"DELETE"});
   if(sid===sessid){sid=null;S=null}toast("session deleted")}catch(e){toast("delete failed: "+e,1)}render()}
+function sessionAbsolute(ts){const n=Number(ts);if(!Number.isFinite(n)||n<=0)return "Unknown";return new Date(n*1000).toLocaleString()}
+function sessionRelative(ts){const n=Number(ts);if(!Number.isFinite(n)||n<=0)return "unknown";const sec=Math.max(0,Date.now()/1000-n);
+ if(sec<60)return "just now";if(sec<3600)return `${Math.floor(sec/60)} minutes ago`;if(sec<86400)return `${Math.floor(sec/3600)} hours ago`;
+ if(sec<604800)return `${Math.floor(sec/86400)} days ago`;return new Date(n*1000).toLocaleDateString()}
 async function sessionsTab(){const s=await sessions();
+ if(UI_VIEW==="guided"){
+  if(!s.length)return `<div class="card"><h3>No games recorded yet</h3><p class="hint">Open a chat in SillyTavern and send one message. It will appear here automatically.</p></div>`;
+  const created=s.filter(x=>Number.isFinite(+x.created_at)&&+x.created_at>0),seen=s.filter(x=>Number.isFinite(+x.last_seen)&&+x.last_seen>0);
+  const newest=created.length?created.reduce((a,b)=>+a.created_at>=+b.created_at?a:b).session_id:"";
+  const oldest=created.length?created.reduce((a,b)=>+a.created_at<=+b.created_at?a:b).session_id:"";
+  const recent=seen.length?seen.reduce((a,b)=>+a.last_seen>=+b.last_seen?a:b).session_id:"";
+  return `<div class="session-list">`+s.map(x=>{const badges=[];
+   if(s.length===1)badges.push(`<span class="pill vio">Only game</span>`);else{
+    if(x.session_id===newest)badges.push(`<span class="pill ok">Newest</span>`);
+    if(x.session_id===oldest)badges.push(`<span class="pill dim">Oldest</span>`);
+    if(x.session_id===recent)badges.push(`<span class="pill vio">Most recently played</span>`)}
+   const worldPlayer=[x.world_name,x.player_name].filter(Boolean).join(" · "),name=sessionDisplay(x);
+   return `<div class="card session-card"><div class="session-title"><h3>${esc(name)}</h3>${badges.join("")}${x.frozen?'<span class="pill bad">Paused</span>':'<span class="pill ok">Active</span>'}</div>
+    ${x.label&&worldPlayer?`<div class="hint" style="margin-top:4px">${esc(worldPlayer)}</div>`:""}
+    <div class="session-meta"><span><b>Created:</b> <span title="${esc(sessionAbsolute(x.created_at))}">${esc(sessionRelative(x.created_at))}</span></span>
+    <span><b>Last played:</b> <span title="${esc(sessionAbsolute(x.last_seen))}">${esc(sessionRelative(x.last_seen))}</span></span>
+    <span><b>Progress:</b> turn ${x.head_turn??"?"}</span></div>
+    <div class="session-actions"><button class="act" onclick="sid='${x.session_id}';go('Overview')">Open world &amp; story</button>
+    <button class="mini" onclick='renameSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||"")})'>Rename</button>
+    <button class="mini danger" onclick='deleteSession(${JSON.stringify(x.session_id)},${JSON.stringify(x.label||x.external_id||x.session_id)})'>Delete permanently</button></div></div>`}).join("")+`</div>`}
  return `<div class="card"><table><tr><th>name</th><th>id</th><th>frontend</th><th>turn</th><th></th><th>actions</th></tr>`+
   s.map(x=>`<tr><td><b style="font-weight:500">${esc(x.label||"(unnamed)")}</b></td>
    <td class="hint" title="${esc(x.session_id)}">${esc((x.external_id||x.session_id).slice(0,14))}</td>
@@ -589,6 +624,28 @@ async function modelsTab(){const d=await j("/aether/status");
 /* ---------- PlayerLex: explicit local recognition preferences ---------- */
 function playerLexInvalidateSearch(){clearTimeout(PL_SEARCH_TIMER);PL_SEARCH_TIMER=null;PL_SEARCH_SEQ++}
 function playerLexReset(){playerLexInvalidateSearch();PL_EDIT="";PL_CONCEPT=null;PL_CHOICES=[];PL_NEXT_CURSOR=null}
+const PLAYERLEX_KIND_HELP=Object.freeze({
+ name:{title:"Name",use:"Use for the main name of something you want AetherState to recognize.",template:"Ghost Step",watch:"It matches the complete name, not a word hidden inside a longer phrase."},
+ alias:{title:"Alias",use:"Use for a nickname, abbreviation, or alternate name for the same meaning.",template:"G-Step",watch:"Choose the existing meaning it points to; an alias does not create a new ability or object."},
+ authoring_pattern:{title:"Authoring pattern",use:"Use for a repeatable phrase with one or more changing pieces.",template:"ghost-step to {destination}",watch:"Use 1–4 named blanks in braces. The full phrase must match, and the blanks remain unresolved until the live scene provides context."}
+});
+const PLAYERLEX_MEANING_HELP=Object.freeze({
+ capability:{title:"Skill or ability",use:"Choose when the phrase names something a character can know or do.",example:"Search for Stealth, Persuasion, Teleportation, or another existing capability.",watch:"Recognition does not grant or activate the skill or ability."},
+ referent:{title:"Person, place, or thing",use:"Choose when the phrase points to a particular kind of entity or object.",example:"Search for person, destination, weapon, doorway, or another existing referent.",watch:"Recognition does not decide which exact person or object is present."},
+ scene:{title:"Scene or situation",use:"Choose when the phrase describes the kind of situation currently happening.",example:"Search for ambush, negotiation, pursuit, rest, or another existing scene meaning.",watch:"Recognition does not make the situation true; the current story still has to support it."},
+ action:{title:"Action",use:"Choose when the phrase describes what the player is trying to do.",example:"Search for retreat, investigate, persuade, strike, or another existing action.",watch:"Recognition does not authorize success or choose a target by itself."}
+});
+function playerLexGuideOpen(){try{return localStorage.getItem(PLAYERLEX_GUIDE_KEY)!=="closed"}catch(e){return true}}
+function playerLexGuideToggled(details){try{localStorage.setItem(PLAYERLEX_GUIDE_KEY,details.open?"open":"closed")}catch(e){}}
+function playerLexGuide(){const body=$("#plguidebody"),kind=$("#plkind"),lex=$("#pllex");if(!body||!kind||!lex)return;
+ const k=PLAYERLEX_KIND_HELP[kind.value]||PLAYERLEX_KIND_HELP.name,m=PLAYERLEX_MEANING_HELP[lex.value]||PLAYERLEX_MEANING_HELP.capability;
+ body.innerHTML=`<div class="choice-grid"><div class="choice-example"><b>Phrase type: ${esc(k.title)}</b>${esc(k.use)}<br><br><b>Editable template</b><code>${esc(k.template)}</code><br><span>${esc(k.watch)}</span><div style="margin-top:8px"><button class="mini" type="button" onclick="playerLexUseTemplate()">Use this template</button></div></div>
+  <div class="choice-example"><b>Meaning type: ${esc(m.title)}</b>${esc(m.use)}<br><br><b>What to search for</b>${esc(m.example)}<br><br><span>${esc(m.watch)}</span></div></div>`;
+ const query=$("#plconceptquery");if(query&&!query.value)query.placeholder=m.example.replace(/^Search for /,"Search ");}
+function playerLexUseTemplate(){const field=$("#plsurface"),kind=$("#plkind"),k=PLAYERLEX_KIND_HELP[kind?.value]||PLAYERLEX_KIND_HELP.name;if(!field)return;
+ if(field.value.trim())return toast("Your phrase already has text — clear it before using a template.",1);
+ field.value=k.template;field.focus();playerLexGuide()}
+function playerLexKindChanged(){playerLexGuide()}
 async function playerLexTab(){
  playerLexReset();
  const d=await j("/aether/playerlex");
@@ -600,14 +657,15 @@ async function playerLexTab(){
   <p class="hint guided-only">Add a name, nickname, or phrase you want AetherState to understand. This only teaches recognition—it cannot give you powers, decide outcomes, or make something true.</p>
   <p class="hint expert-only">PlayerLex recognizes meaning only. It cannot grant abilities, admit mechanics,
   settle outcomes, or change world truth. Nothing is learned from chats automatically.</p>
-  <div class="row"><select id="plkind"><option value="name">Name</option><option value="alias">Alias</option><option value="authoring_pattern">Authoring pattern</option></select>
+  <div class="row"><select id="plkind" onchange="playerLexKindChanged()"><option value="name">Name</option><option value="alias">Alias</option><option value="authoring_pattern">Authoring pattern</option></select>
   <input id="plsurface" style="min-width:260px;flex:1" maxlength="240" placeholder="Ghost Step or ghost-step to {destination}">
-  <select id="pllex" title="Choose what kind of meaning your phrase names" onchange="playerLexLexChanged()">${lexOptions}</select>
+  <select id="pllex" title="Choose what kind of meaning your phrase names" onchange="playerLexLexChanged();playerLexGuide()">${lexOptions}</select>
   <div class="plpicker"><input id="plconceptquery" value="${esc(selected)}" maxlength="120" autocomplete="off"
    placeholder="Search IDs, labels, aliases, terms, or genre terms" oninput="playerLexSearchQueue()" onfocus="playerLexSearchQueue()">
    <div class="plchoices" id="plchoices"></div></div>
   <button class="act good" id="plsave" onclick="playerLexSave()">Approve locally</button>
   <button class="mini" id="plcancel" style="display:none" onclick="playerLexCancel()">cancel</button></div>
+  <details class="choice-guide guided-only" id="plguide" ${playerLexGuideOpen()?"open":""} ontoggle="playerLexGuideToggled(this)"><summary>What do these choices mean?</summary><div id="plguidebody"></div></details>
   <p class="hint guided-only">Choose the one exact meaning you intend. Test it below before saving if the phrase could mean several things.</p>
   <p class="hint expert-only">Choose one exact Lex-qualified Atlas meaning. Search is bounded and paged; the Console never downloads the full catalog.</p>
   <p class="hint guided-only">A name or alias matches the whole phrase. A reusable pattern can contain named blanks such as {destination}; test it before approving.</p>
@@ -662,7 +720,7 @@ async function playerLexSave(){const kind=$("#plkind").value,surface=$("#plsurfa
 function playerLexEdit(id){const e=PL.find(x=>x.entry_id===id);if(!e)return toast("PlayerLex entry not found",1);
  playerLexInvalidateSearch();PL_CHOICES=[];PL_NEXT_CURSOR=null;const c=e.current_concept||e.concept;PL_EDIT=id;PL_CONCEPT=c?{...c}:null;$("#plkind").value=e.kind;$("#plsurface").value=e.surface;
  $("#pllex").value=e.lex_id||c?.lex_id||"capability";$("#plconceptquery").value=c?playerLexConceptText(c):"";playerLexRenderChoices();
- $("#plsave").textContent="Save correction + reapprove";$("#plcancel").style.display="inline-block";$("#plsurface").focus()}
+ $("#plsave").textContent="Save correction + reapprove";$("#plcancel").style.display="inline-block";playerLexGuide();$("#plsurface").focus()}
 function playerLexCancel(){playerLexReset();render()}
 async function playerLexDelete(id){const e=PL.find(x=>x.entry_id===id);if(!e)return toast("PlayerLex entry not found",1);
  if(!confirm(`Remove the local PlayerLex entry "${e.surface}"?`))return;
@@ -1017,7 +1075,7 @@ async function render(){const v=$("#view"),renderTab=tab,seq=++RENDER_SEQ;let h;
   else if(renderTab==="Raw")h=HUD?.player_safe_raw?`<div class="card"><h3>Player-safe typed projection</h3><p class="hint">Owner/debug state and journal prose are intentionally excluded.</p><pre>${esc(JSON.stringify(HUD.player_safe_raw,null,2))}</pre></div>`:`<div class="card">No Player-safe projection is available.</div>`;
   else if(renderTab==="Help")h=helpTab();
   if(UI_VIEW==="guided"&&renderTab!=="Help")h=guidedIntro(renderTab)+h;
-  if(seq===RENDER_SEQ&&tab===renderTab)v.innerHTML=h;
+  if(seq===RENDER_SEQ&&tab===renderTab){v.innerHTML=h;if(renderTab==="PlayerLex")playerLexGuide()}
  }catch(e){if(seq===RENDER_SEQ&&tab===renderTab)v.innerHTML=`<div class="card"><span class="pill bad">error</span> ${esc(e)}</div>`}}
 async function boot(){nav();await sessions();await load(false);headerRefresh();
  try{$("#ovr").checked=!!(await j("/aether/override")).enabled}catch(e){}

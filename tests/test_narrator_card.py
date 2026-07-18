@@ -358,3 +358,5 @@ async def test_sessions_list_carries_legible_world_and_player_names(client):
     rows = (await client.get("/aether/sessions")).json()["sessions"]
     hit = [s for s in rows if s.get("world_name") == "Gallowmere"]
     assert hit and hit[0]["player_name"] == "Rook"
+    assert isinstance(hit[0]["created_at"], (int, float))
+    assert isinstance(hit[0]["last_seen"], (int, float))

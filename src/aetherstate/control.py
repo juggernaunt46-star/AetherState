@@ -1368,7 +1368,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
     @router.get("/sessions")
     async def sessions():
         rows = store.db.execute(
-            "SELECT s.session_id, s.external_id, s.label, s.frontend, s.frozen, s.last_seen,"
+            "SELECT s.session_id, s.external_id, s.label, s.frontend, s.frozen, s.created_at, s.last_seen,"
             " s.active_branch, b.head_turn FROM sessions s"
             " LEFT JOIN branches b ON b.branch_id=s.active_branch"
             " ORDER BY s.last_seen DESC"
