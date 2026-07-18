@@ -102,6 +102,25 @@ summary:hover{color:var(--fg)}
 .toast.ok{border-color:var(--ok);color:var(--ok)}.toast.bad{border-color:var(--bad);color:var(--bad)}
 .hint{font-size:11.5px;color:var(--dim);margin-top:-6px;margin-bottom:10px}
 .pts{font-size:12px;color:var(--dim)}.pts b{color:var(--fg)}.pts.over b{color:var(--bad)}
+.view-switch{display:inline-flex;gap:2px;padding:2px;background:var(--bg);border:1px solid var(--edge);border-radius:8px}
+.view-switch button{border:0;background:transparent;color:var(--dim);border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-weight:650}
+.view-switch button.on{background:var(--acc2);color:#101117}
+.guide-card{background:linear-gradient(135deg,#20283b,#201f30);border-color:#3b4664}
+.guide-card h2{text-transform:none;font-size:15px;letter-spacing:0;color:var(--fg)}
+.guide-card p{margin:0 0 10px;color:#c8cede}
+.guide-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+.guide-point{background:#141722;border:1px solid #32384d;border-radius:8px;padding:9px 10px;font-size:12px;color:var(--dim)}
+.guide-point b{display:block;color:var(--fg);margin-bottom:2px}
+.guide-caution{border-color:#5a482a}.guide-caution b{color:var(--warn)}
+.guided-only{display:none}
+html[data-view="guided"] .guided-only{display:block}
+html[data-view="guided"] span.guided-only{display:inline}
+html[data-view="guided"] .help-dot.guided-only{display:inline-grid}
+html[data-view="guided"] .expert-only{display:none!important}
+.help-dot{position:relative;display:inline-grid;place-items:center;width:17px;height:17px;margin-left:5px;padding:0;border:1px solid #58627e;border-radius:50%;background:#252b3b;color:#b9c8ee;font:700 11px/1 system-ui;cursor:help;vertical-align:middle}
+.help-dot:hover,.help-dot:focus-visible{border-color:var(--acc);color:#fff;outline:none}
+.help-dot:hover::after,.help-dot:focus-visible::after{content:attr(data-tip);position:absolute;z-index:30;left:0;top:24px;width:min(330px,75vw);padding:9px 11px;border:1px solid #536184;border-radius:8px;background:#10131c;color:var(--fg);font:12px/1.45 system-ui;text-align:left;white-space:normal;box-shadow:0 8px 24px #000a}
+@media(max-width:760px){.guide-grid{grid-template-columns:1fr}.view-switch{order:3}header .expert-only{display:none!important}}
 </style>
 </head>
 <body>
@@ -112,11 +131,15 @@ summary:hover{color:var(--fg)}
     <button id="tab_char" onclick="showTab('char')">🧑 Character</button>
     <button id="tab_review" onclick="showTab('review')">📋 Session</button>
   </nav>
+  <div class="view-switch" aria-label="Creator view">
+    <button id="viewGuided" type="button" onclick="setCreatorView('guided')">Guided</button>
+    <button id="viewExpert" type="button" onclick="setCreatorView('expert')">Expert</button>
+  </div>
   <div class="spacer"></div>
   <span id="draftChip" class="chip" title="Your work is auto-saved in this browser — a refresh or reopen won't lose it" style="display:none">draft saved ✓</span>
   <button id="newDraft" class="chip" title="Start a completely fresh world and character without changing live sessions or saved presets">＋ New draft</button>
-  <select id="modelSel" class="chip" title="Main story model used for every AI auto-fill"><option value="">main model: auto</option></select>
-  <span id="specChip" class="chip">spec: …</span>
+  <select id="modelSel" class="chip expert-only" title="Main story model used for every AI auto-fill"><option value="">main model: auto</option></select>
+  <span id="specChip" class="chip expert-only">spec: …</span>
   <select id="sessSel" class="chip" title="Optional apply-to-session target. You do NOT need this to make a Narrator card — the card carries its own world+character seed."><option value="">session: …</option></select>
   <button id="sessRefresh" class="chip" title="Refresh the session list (keeps everything you've typed)" style="cursor:pointer;font-weight:700">↻</button>
 </header>
@@ -128,6 +151,15 @@ summary:hover{color:var(--fg)}
 
   <!-- ===================== WORLD TAB ===================== -->
   <section id="world" class="tab on">
+    <div class="card guide-card guided-only">
+      <h2>Build the world your game will remember</h2>
+      <p>Start with what matters to you and leave anything else blank. Auto-fill can complete the gaps without replacing your choices.</p>
+      <div class="guide-grid">
+        <div class="guide-point"><b>What this changes</b>Your setting, tone, people, places, opening, threats, rewards, and travel.</div>
+        <div class="guide-point"><b>Good starting point</b>Name the world, choose a genre, and describe the experience you want in a few sentences.</div>
+        <div class="guide-point guide-caution"><b>Watch out</b>Anything you write as world lore is treated as true. Be specific only where you want firm boundaries.</div>
+      </div>
+    </div>
     <div class="card">
       <h2>The World <small>authored first — everything downstream fits it</small></h2>
       <div class="row c2">
@@ -141,7 +173,7 @@ summary:hover{color:var(--fg)}
         <div class="field"><label>Time of day</label><select id="w_time"></select></div>
         <div class="field"><label>Tone</label><input id="w_tone" placeholder="heroic, grim, noir…"></div>
       </div>
-      <div class="field"><label>Creative direction / instructions <span class="limit-counter" data-count-for="w_notes"></span></label>
+      <div class="field"><label><span class="guided-only">Guidance for the AI</span><span class="expert-only">Creative direction / instructions</span> <span class="limit-counter" data-count-for="w_notes"></span></label>
         <textarea id="w_notes" maxlength="32768" data-limit="32768" placeholder="Optional instructions sent to the main AI: themes, inspirations, genre blends, required details, exclusions, and writing direction."></textarea></div>
     </div>
 
@@ -179,8 +211,9 @@ summary:hover{color:var(--fg)}
     </div>
 
     <div class="card">
-      <h2>Living-world structures <small>AI-generated rows stay visible and editable before save</small></h2>
-      <div class="hint">These rows become frozen world setup. Fronts are code-advanced clocks, loot tiers seed grounded drops, and routes set travel time.</div>
+      <h2><span class="guided-only">How the world keeps moving</span><span class="expert-only">Living-world structures</span> <small>AI-generated rows stay visible and editable before save</small></h2>
+      <div class="hint guided-only">Use these when you want threats to advance, rewards to fit enemy importance, or journeys to take a known amount of time. The defaults are safe for a first game.</div>
+      <div class="hint expert-only">These rows become frozen world setup. Fronts are code-advanced clocks, loot tiers seed grounded drops, and routes set travel time.</div>
       <div class="world-structures">
         <details open>
           <summary>Faction fronts <span class="limit-counter" data-row-count-for="w_fronts"></span></summary>
@@ -210,6 +243,14 @@ summary:hover{color:var(--fg)}
       <button class="act" onclick="showTab('char')">Next: Character →</button>
       <button class="act ghost" id="w_save" onclick="saveWorld()" title="Optional: apply this world straight to the selected live session (usually not needed — the Narrator card carries the world itself)">Save to live session</button>
     </div>
+    <div class="card guide-card guided-only" style="margin-top:14px">
+      <h2>Choose how to continue</h2>
+      <div class="guide-grid">
+        <div class="guide-point"><b>Auto-fill blanks</b>Uses your selected story AI to complete only what you left open. Best when you have a direction but want help building.</div>
+        <div class="guide-point"><b>Fill from templates</b>Uses built-in genre defaults without calling AI. Faster and more predictable, but less personal.</div>
+        <div class="guide-point guide-caution"><b>Apply to an existing game</b>Changes the selected live session. Usually wait until you intentionally want to replace that game's world.</div>
+      </div>
+    </div>
     <div class="actions" style="margin-top:10px">
       <select id="w_presets" class="chip" style="max-width:260px"><option value="">world presets…</option></select>
       <button class="mini" onclick="loadPreset('world')">Load preset</button>
@@ -220,6 +261,15 @@ summary:hover{color:var(--fg)}
 
   <!-- ===================== CHARACTER TAB ===================== -->
   <section id="char" class="tab">
+    <div class="card guide-card guided-only">
+      <h2>Create who you will play</h2>
+      <p>Define the parts you care about. AetherState can build the remaining details so the character fits your world.</p>
+      <div class="guide-grid">
+        <div class="guide-point"><b>Skills are attempts</b>They are ranked and used when you try something uncertain.</div>
+        <div class="guide-point"><b>Abilities are advantages</b>They are things you possess, unlock, or spend—not another ranked skill.</div>
+        <div class="guide-point guide-caution"><b>Watch out</b>Very strong custom numbers can flatten challenge. Start near the supplied defaults unless that is intentional.</div>
+      </div>
+    </div>
     <div class="card">
       <h2>Identity</h2>
       <div class="row c3">
@@ -233,7 +283,7 @@ summary:hover{color:var(--fg)}
       </div>
       <div class="field" style="margin-bottom:12px"><label>Appearance / description <span class="aes-opt">— what others see when they meet you</span><span class="limit-counter" data-count-for="c_appearance"></span></label>
         <textarea id="c_appearance" maxlength="4000" data-limit="4000" placeholder="Face, build, dress, notable marks… leave blank and the AI writes it to fit the world."></textarea></div>
-      <div class="field" style="margin-bottom:12px"><label>Creative direction / instructions <span class="limit-counter" data-count-for="c_notes"></span></label>
+      <div class="field" style="margin-bottom:12px"><label><span class="guided-only">Guidance for the AI</span><span class="expert-only">Creative direction / instructions</span> <span class="limit-counter" data-count-for="c_notes"></span></label>
         <textarea id="c_notes" maxlength="32768" data-limit="32768" placeholder="Optional instructions sent to the main AI: backstory beats, voice, required mechanics, gear, and exclusions."></textarea></div>
       <div class="hint">Type as much or as little as you like — leave the rest blank and the AI fills it to fit the world.</div>
     </div>
@@ -254,7 +304,7 @@ summary:hover{color:var(--fg)}
     </div>
 
     <div class="card">
-      <h2>Advanced <small>freestyle mechanics — frozen as fixed numbers</small></h2>
+      <h2><span class="guided-only">More character control</span><span class="expert-only">Advanced</span> <small>custom skills, abilities, health, and power pools</small></h2>
       <details>
         <summary>Custom skills & abilities (optional)</summary>
         <div style="margin-top:10px">
@@ -301,6 +351,14 @@ summary:hover{color:var(--fg)}
       <button class="act ghost" onclick="fillOffline('player')" title="No AI — fill blanks from registry defaults">Fill blanks with defaults</button>
       <button class="act" onclick="genNarratorCard()" title="Build the SillyTavern Narrator card from your world + character. It carries them as a seed — a new chat auto-loads everything, no re-applying.">🎭 Generate Narrator card</button>
     </div>
+    <div class="card guide-card guided-only" style="margin-top:14px">
+      <h2>Save the right way</h2>
+      <div class="guide-grid">
+        <div class="guide-point"><b>Create my SillyTavern card</b>Makes a new playable card carrying this world and character. This is the normal choice for starting fresh.</div>
+        <div class="guide-point"><b>Save as preset</b>Keeps a reusable copy for another draft. It does not alter a running game.</div>
+        <div class="guide-point guide-caution"><b>Save to live session</b>Applies this character to the selected running game. Use it only when you mean to change that game.</div>
+      </div>
+    </div>
     <div id="c_cardmsg" class="hint" style="margin-top:8px"></div>
     <div class="actions" style="margin-top:10px">
       <button class="act ghost" id="c_save" onclick="savePlayer()" title="Optional: apply this character straight to the selected live session (usually you don't need this — the card seeds itself)">Save to live session</button>
@@ -313,8 +371,12 @@ summary:hover{color:var(--fg)}
 
   <!-- ===================== SESSION REVIEW TAB ===================== -->
   <section id="review" class="tab">
+    <div class="card guide-card guided-only">
+      <h2>View or reuse an existing game</h2>
+      <p>Select a game in the header to inspect what it currently remembers. Loading information into the form creates an editable draft; it does not change the game until you save it back.</p>
+    </div>
     <div class="card">
-      <h2>What this session has committed <small>the ledger's truth — refreshed each time you open this tab</small></h2>
+      <h2><span class="guided-only">What this game currently remembers</span><span class="expert-only">What this session has committed</span> <small class="expert-only">the ledger's truth — refreshed each time you open this tab</small></h2>
       <div id="rv_body" class="hint">Loading…</div>
       <div class="actions" style="margin-top:12px">
         <button class="act ghost" onclick="loadCommitted('world')">Load world into form</button>
@@ -336,6 +398,45 @@ let SID = QS.get("session") || "";
 let REG = null, SPEC = "none", WORLD_CACHE = null, WORLD_ID = "", PRESETS = [];
 
 const $ = id => document.getElementById(id);
+const CREATOR_VIEW_KEY="aether_creator_view_v1";
+let CREATOR_VIEW="guided";
+try{CREATOR_VIEW=localStorage.getItem(CREATOR_VIEW_KEY)==="expert"?"expert":"guided"}catch(e){}
+function setCreatorView(mode,announce=true){
+  CREATOR_VIEW=mode==="expert"?"expert":"guided";
+  document.documentElement.dataset.view=CREATOR_VIEW;
+  const guided=$("viewGuided"),expert=$("viewExpert");
+  if(guided){guided.classList.toggle("on",CREATOR_VIEW==="guided");guided.setAttribute("aria-pressed",String(CREATOR_VIEW==="guided"));}
+  if(expert){expert.classList.toggle("on",CREATOR_VIEW==="expert");expert.setAttribute("aria-pressed",String(CREATOR_VIEW==="expert"));}
+  try{localStorage.setItem(CREATOR_VIEW_KEY,CREATOR_VIEW)}catch(e){}
+  if(announce)toast(CREATOR_VIEW==="guided"?"Guided View — plain explanations are on":"Expert View — every technical detail is visible","ok");
+}
+const CREATOR_HELP=Object.freeze({
+  w_name:"What it does: names the campaign and its generated card. Good practice: use a short, memorable title.",
+  w_genre:"What it does: supplies genre-appropriate defaults. Benefit: faster setup. Watch out: it influences blanks, not choices you already wrote.",
+  w_setting:"What it does: establishes the world's core truth. Benefit: keeps play consistent. Watch out: firm details limit later improvisation; leave room where you want surprises.",
+  w_date:"What it does: gives the world a calendar anchor. Useful for history and deadlines. Leave blank if dates do not matter.",
+  w_time:"What it does: chooses when the opening begins. It affects the first scene's atmosphere and visibility.",
+  w_tone:"What it does: guides the emotional feel of narration. Mixing many conflicting tones can make the result less consistent.",
+  w_notes:"What it does: tells the AI what to include, avoid, or emphasize while filling blanks. Good practice: write direct preferences and hard exclusions.",
+  w_scene:"What it does: chooses the exact starting situation. A concrete place plus immediate activity gives the strongest opening.",
+  w_quest:"What it does: gives the player an initial reason to act. It is a hook, not a command; the player can still choose another path.",
+  c_name:"What it does: names the person you play. This appears throughout narration and the player display.",
+  c_species:"What it does: establishes physical and cultural traits. Watch out: only write universal traits if you want them treated as firm.",
+  c_concept:"What it does: summarizes the character's role and fantasy. A vivid one-line concept helps every generated detail fit together.",
+  c_appearance:"What it does: controls what other characters can notice on meeting you. Secrets belong in a custom backstory detail instead.",
+  c_notes:"What it does: guides the AI's character fill. Use it for required backstory beats, voice, mechanics, gear, and exclusions.",
+  c_level:"What it does: sets the starting power tier. Higher levels can reduce early challenge; level 1 is the safest first-game default.",
+  c_hp:"What it does: sets maximum health. More health increases survival; too much can make danger feel unimportant. The supplied default is balanced.",
+  sessSel:"What it does: chooses an existing game for review or direct application. It is not required when creating a new Narrator card."
+});
+function installCreatorHelp(){for(const [id,tip] of Object.entries(CREATOR_HELP)){
+  const control=$(id),label=control&&control.closest(".field")?.querySelector("label");
+  if(!control)continue;control.title=tip;
+  const host=label||(id==="sessSel"?control.parentElement:null);if(!host||host.querySelector?.(`[data-help-for="${id}"]`))continue;
+  const help=document.createElement("button");help.type="button";help.className="help-dot guided-only";
+  help.textContent="?";help.dataset.helpFor=id;help.dataset.tip=tip;help.setAttribute("aria-label","Help for "+id.replace(/^[wc]_/,"").replace(/_/g," "));
+  if(id==="sessSel"&&control.parentElement===host)host.insertBefore(help,control.nextSibling);else host.appendChild(help);
+}}
 const CREATOR_LIMITS=Object.freeze({ordinaryRows:20,gearRows:32,frontRows:8,routeRows:24,
   lootRows:12,direction:32768,longProse:8000,rowProse:4000,namedRow:2000});
 const LIST_LIMITS=Object.freeze({w_factions:20,w_locations:20,w_npcs:20,w_aspects:20,
@@ -423,6 +524,7 @@ function showTab(name){
 // shows the whole row. Only inputs marked autotitle get this (never clobbers a help title).
 function _autoTitle(scope){ scope.querySelectorAll("input:not([title])").forEach(i=>{
   i.dataset.autotitle="1"; i.title=i.value; }); }
+function dualLabel(guided,expert){return `<span class="guided-only">${guided}</span><span class="expert-only">${expert}</span>`}
 document.addEventListener("input", e=>{ const t=e.target;
   if(t && t.tagName==="INPUT" && t.dataset.autotitle==="1") t.title=t.value;
   refreshLimitCounter(t); }, true);
@@ -466,10 +568,10 @@ function addFront(front){ if(!mayAddRow("w_fronts",front==null)) return; const f
   const spawn=f.spawn_eligibility;
   d.innerHTML=`<div class="row c4"><div><label>Front</label><input data-field="name" maxlength="120" value="${attrEsc(f.name||'')}" placeholder="The storm cult awakens"></div>
     <div><label>Faction</label><input data-field="faction" maxlength="64" value="${attrEsc(f.faction||'')}" placeholder="optional owner"></div>
-    <div><label>Segments (3–12)</label><input data-field="segments" type="number" min="3" max="12" value="${Math.max(3,Math.min(12,Math.trunc(+(f.segments??6)||6)))}"></div>
-    <div><label>Pace (1–3)</label><input data-field="pace" type="number" min="1" max="3" value="${Math.max(1,Math.min(3,Math.trunc(+(f.pace??1)||1)))}"></div></div>
-    <div class="row c2"><div><label>Duration after completion</label><input data-field="event_duration_turns" type="number" min="1" max="100" value="${f.event_duration_turns==null?'':Math.max(1,Math.min(100,Math.trunc(+f.event_duration_turns||1)))}" placeholder="blank = persistent"></div>
-    <div><label>Future faction eligibility</label><select data-field="spawn_eligibility"><option value="" ${typeof spawn!=="boolean"?'selected':''}>unchanged</option><option value="true" ${spawn===true?'selected':''}>allow on completion</option><option value="false" ${spawn===false?'selected':''}>block on completion</option></select></div></div>
+    <div><label>${dualLabel("Steps until it happens (3–12)","Segments (3–12)")}</label><input data-field="segments" title="More steps give players more time to notice and respond. Six is a balanced starting point." type="number" min="3" max="12" value="${Math.max(3,Math.min(12,Math.trunc(+(f.segments??6)||6)))}"></div>
+    <div><label>${dualLabel("How quickly it advances (1–3)","Pace (1–3)")}</label><input data-field="pace" title="Higher pace creates faster pressure and less preparation time. Start at 1." type="number" min="1" max="3" value="${Math.max(1,Math.min(3,Math.trunc(+(f.pace??1)||1)))}"></div></div>
+    <div class="row c2"><div><label>${dualLabel("How long the consequence lasts","Duration after completion")}</label><input data-field="event_duration_turns" title="Leave blank when the completed change should remain true indefinitely." type="number" min="1" max="100" value="${f.event_duration_turns==null?'':Math.max(1,Math.min(100,Math.trunc(+f.event_duration_turns||1)))}" placeholder="blank = persistent"></div>
+    <div><label>${dualLabel("Can this faction appear afterward?","Future faction eligibility")}</label><select data-field="spawn_eligibility" title="Choose whether completing this threat allows or blocks its faction from appearing later."><option value="" ${typeof spawn!=="boolean"?'selected':''}>leave unchanged</option><option value="true" ${spawn===true?'selected':''}>allow after completion</option><option value="false" ${spawn===false?'selected':''}>block after completion</option></select></div></div>
     <label>Consequence</label>${limitedControl(`<textarea data-field="consequence" rows="2" maxlength="4000" data-limit="4000" placeholder="What becomes true when this clock completes">${esc(f.consequence||'')}</textarea>`,4000)}
     <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove front</button></div>`;
   $("w_fronts").appendChild(d); refreshLimitCounters(d); refreshListCount("w_fronts");
@@ -491,9 +593,9 @@ function addLootRow(tier,entry){ tier=String(tier||"").toLowerCase(); const host
   const chance=Number.isFinite(+e.chance)?Math.max(0,Math.min(1,+e.chance)):1;
   const d=document.createElement("div"); d.className="item struct-row loot-row";
   d.innerHTML=`<div class="row c4"><div><label>Item</label><input data-field="name" maxlength="80" value="${attrEsc(e.name||'')}" placeholder="grounded ${tier} drop"></div>
-    <div><label>Chance (0–1)</label><input data-field="chance" type="number" min="0" max="1" step="0.05" value="${chance}"></div>
-    <div><label>Minimum qty</label><input data-field="qty_min" type="number" min="1" max="99" value="${Math.max(1,Math.min(99,Math.trunc(+(e.qty_min??e.qty??1)||1)))}"></div>
-    <div><label>Maximum qty</label><input data-field="qty_max" type="number" min="1" max="99" value="${Math.max(1,Math.min(99,Math.trunc(+(e.qty_max??e.qty??1)||1)))}"></div></div>
+    <div><label>${dualLabel("Drop chance (0 = never, 1 = always)","Chance (0–1)")}</label><input data-field="chance" title="Use 0.5 for a fifty-percent chance. Rare rewards should use a lower number." type="number" min="0" max="1" step="0.05" value="${chance}"></div>
+    <div><label>${dualLabel("Fewest dropped","Minimum qty")}</label><input data-field="qty_min" type="number" min="1" max="99" value="${Math.max(1,Math.min(99,Math.trunc(+(e.qty_min??e.qty??1)||1)))}"></div>
+    <div><label>${dualLabel("Most dropped","Maximum qty")}</label><input data-field="qty_max" type="number" min="1" max="99" value="${Math.max(1,Math.min(99,Math.trunc(+(e.qty_max??e.qty??1)||1)))}"></div></div>
     <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove loot</button></div>`;
   $(hostId).appendChild(d); refreshListCount(hostId);
 }
@@ -509,7 +611,7 @@ function addRoute(route){ if(!mayAddRow("w_routes",route==null)) return; const r
   const d=document.createElement("div"); d.className="item struct-row route-row";
   d.innerHTML=`<div class="row c3"><div><label>From</label><input data-field="a" maxlength="80" value="${attrEsc(r.a||r.from||'')}" placeholder="location"></div>
     <div><label>To</label><input data-field="b" maxlength="80" value="${attrEsc(r.b||r.to||'')}" placeholder="location"></div>
-    <div><label>Travel segments (1–4)</label><input data-field="segments" type="number" min="1" max="4" value="${Math.max(1,Math.min(4,Math.trunc(+(r.segments??1)||1)))}"></div></div>
+    <div><label>${dualLabel("Journey length (1–4 scenes)","Travel segments (1–4)")}</label><input data-field="segments" title="One is a quick trip. Four creates room for several travel scenes and complications." type="number" min="1" max="4" value="${Math.max(1,Math.min(4,Math.trunc(+(r.segments??1)||1)))}"></div></div>
     <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove route</button></div>`;
   $("w_routes").appendChild(d); refreshListCount("w_routes");
 }
@@ -663,12 +765,12 @@ function addCustomSkill(s){ if(!mayAddRow("c_cskills",s==null)) return; s=s||{};
   const d=document.createElement("div"); d.className="item definition-row";
   const governs=Array.isArray(s.governs)?s.governs.join(", "):String(s.governs||"");
   d.innerHTML=`<div class="row c3"><div><label>Skill name</label><input data-field="name" maxlength="60" placeholder="skill name" value="${attrEsc(s.name||'')}"></div>
-    <div><label>Keyed stat</label><select data-field="keyed_stat">${opts}</select></div>
-    <div><label>Base modifier</label><input data-field="base_mod" type="number" min="-5" max="10" value="${s.base_mod||0}"></div></div>
-    <div class="row c3"><div><label>Starting rank (0–5)</label><input data-field="rank" type="number" title="skill rank (0-5)" min="0" max="5" value="${Math.max(0,Math.min(5,Math.trunc(+s._rank||0)))}"></div>
+    <div><label>${dualLabel("Main stat used","Keyed stat")}</label><select data-field="keyed_stat" title="The stat that naturally supports this skill's checks.">${opts}</select></div>
+    <div><label>${dualLabel("Always-added bonus","Base modifier")}</label><input data-field="base_mod" title="A fixed bonus or penalty added before rank and stat. Zero is the safest default." type="number" min="-5" max="10" value="${s.base_mod||0}"></div></div>
+    <div class="row c3"><div><label title="Zero is untrained; five is exceptional mastery.">${dualLabel("Starting training (0–5)","Starting rank (0–5)")}</label><input data-field="rank" type="number" title="skill rank (0-5)" min="0" max="5" value="${Math.max(0,Math.min(5,Math.trunc(+s._rank||0)))}"></div>
     <div><label>Resource cost</label><input data-field="cost" data-resource-cost placeholder="cost(s)" list="aes_resources" title="${attrEsc(resourceCostHelp("Optional skill spend"))}" value="${attrEsc(costStr(s.cost))}" oninput="validateResourceContract()"></div>
     <div><label>Category</label><input data-field="group" maxlength="24" placeholder="e.g. Disciplines" title="optional HUD group" value="${attrEsc(s.group||'')}" list="aes_cats"></div></div>
-    <div><label>Governs <span class="aes-opt">— up to 12 attempt verbs, comma separated</span></label><input data-field="governs" maxlength="500" placeholder="compare, qualify, reconstruct" value="${attrEsc(governs)}"></div>
+    <div><label>${dualLabel("Actions this skill should recognize","Governs")} <span class="aes-opt">— up to 12 attempt verbs, comma separated</span></label><input data-field="governs" title="These action words help natural phrasing find this skill. Use specific verbs and avoid very broad words." maxlength="500" placeholder="compare, qualify, reconstruct" value="${attrEsc(governs)}"></div>
     <div style="margin-top:8px"><label>Description</label>${limitedControl(`<textarea data-field="desc" rows="2" maxlength="4000" data-limit="4000" placeholder="What this skill covers and what makes it distinct">${esc(s.desc||'')}</textarea>`,4000)}</div>
     <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove skill</button></div>`;
   // Keep fields without a dedicated editor (id/requires_ability/max_rank) in the frozen source
@@ -710,12 +812,12 @@ function addCustomAbil(a){ if(!mayAddRow("c_cabil",a==null)) return; a=a||{}; co
   const mech=(a.mechanic||"").toLowerCase();
   const kindOpt=k=>`<option value="${k}" ${ (a.kind||'passive')===k?'selected':''}>${k}</option>`;
   d.innerHTML=`<div class="row c3"><div><label>Ability name</label><input data-field="name" maxlength="60" placeholder="ability name" value="${attrEsc(a.name||'')}"></div>
-    <div><label>Kind</label><select data-field="kind" title="passive: always on · active: invoked on a roll, pays cost · basis: unlocks a gated skill">${["passive","active","basis"].map(kindOpt).join("")}</select></div>
-    <div><label>Mechanic</label><select data-field="mechanic" title="How it bends the dice — auto infers from effect text">${MECHS.map(([v,l])=>`<option value="${v}" ${mech===v?'selected':''}>${l.split(" — ")[0]||"auto"}</option>`).join("")}</select></div></div>
-    <div class="row c3"><div><label>Applies to skill</label><input data-field="applies_to" maxlength="80" title="Skill name or id used for one-tap rolls and use detection" value="${attrEsc(applies||'')}"></div>
-    <div><label>Magnitude</label><input data-field="magnitude" type="number" min="-20" max="20" title="extra dice or bonus size" value="${amt}"></div>
+    <div><label>${dualLabel("How it is used","Kind")}</label><select data-field="kind" title="Passive is always on. Active is deliberately used and may cost a resource. Basis unlocks a related skill.">${["passive","active","basis"].map(kindOpt).join("")}</select></div>
+    <div><label>${dualLabel("How it changes a check","Mechanic")}</label><select data-field="mechanic" title="Choose the exact dice effect, or leave auto so AetherState infers it from your description.">${MECHS.map(([v,l])=>`<option value="${v}" ${mech===v?'selected':''}>${l.split(" — ")[0]||"auto"}</option>`).join("")}</select></div></div>
+    <div class="row c3"><div><label>${dualLabel("Skill it helps","Applies to skill")}</label><input data-field="applies_to" maxlength="80" title="Name the skill this ability supports. Leave blank only when it is not tied to one skill." value="${attrEsc(applies||'')}"></div>
+    <div><label>${dualLabel("Strength of the effect","Magnitude")}</label><input data-field="magnitude" type="number" min="-20" max="20" title="The number of extra dice or size of the bonus. Start small; large values can remove challenge." value="${amt}"></div>
     <div><label>Resource cost</label><input data-field="cost" data-resource-cost placeholder="cost(s)" list="aes_resources" title="${attrEsc(resourceCostHelp("Optional active spend"))}" value="${attrEsc(costStr(a.cost))}" oninput="validateResourceContract()"></div></div>
-    <div class="row c2"><div><label>Cooldown turns</label><input data-field="cooldown_turns" type="number" min="0" max="999" placeholder="0" value="${a.cooldown_turns!=null?a.cooldown_turns:''}"></div>
+    <div class="row c2"><div><label>${dualLabel("Turns before it can be used again","Cooldown turns")}</label><input data-field="cooldown_turns" title="Zero or blank allows normal repeated use. A cooldown makes powerful abilities less frequent." type="number" min="0" max="999" placeholder="0" value="${a.cooldown_turns!=null?a.cooldown_turns:''}"></div>
     <div><label>Effect</label>${limitedControl(`<textarea data-field="effect" rows="2" maxlength="4000" data-limit="4000" placeholder="What happens when this ability matters">${esc(a.effect||'')}</textarea>`,4000)}</div></div>
     <div class="row c2"><div><label>Category</label><input data-field="group" maxlength="24" placeholder="e.g. Spells" title="optional HUD group" value="${attrEsc(a.group||'')}" list="aes_cats"></div>
     <div><label>Description</label>${limitedControl(`<textarea data-field="desc" rows="2" maxlength="4000" data-limit="4000" placeholder="What this ability is in the fiction">${esc(a.desc||'')}</textarea>`,4000)}</div></div>
@@ -1154,6 +1256,8 @@ async function boot(){
   $("newDraft").onclick=clearCreatorDraft;
   $("draftChip").onclick=clearCreatorDraft;
 }
+setCreatorView(CREATOR_VIEW,false);
+installCreatorHelp();
 boot();
 </script>
 </body>

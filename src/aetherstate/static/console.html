@@ -76,16 +76,34 @@ h4{margin:0 0 6px;font-size:14px}
 .lessoncopy{white-space:pre-wrap;background:var(--bg);border:1px solid var(--edge);border-radius:6px;
  padding:7px 9px;margin:5px 0;color:var(--fg);width:100%}
 textarea.lessoncopy{min-height:86px}
+.view-switch{display:inline-flex;gap:2px;padding:2px;background:var(--bg);border:1px solid var(--edge);border-radius:8px}
+.view-switch button{border:0;background:transparent;color:var(--dim);border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-weight:650}
+.view-switch button.on{background:var(--vio);color:#101117}
+.guide-card{background:linear-gradient(135deg,#20283b,#201f30);border-color:#3b4664}
+.guide-card h3{font-size:15px;color:var(--fg)}
+.guide-card p{margin:4px 0 9px;color:#c8cede}
+.guide-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.guide-point{background:#141722;border:1px solid #32384d;border-radius:7px;padding:8px 9px;font-size:12px;color:var(--dim)}
+.guide-point b{display:block;color:var(--fg);margin-bottom:2px}.guide-point.warn b{color:var(--warn)}
+.guided-only{display:none}
+html[data-console-view="guided"] .guided-only{display:inline}
+html[data-console-view="guided"] div.guided-only{display:block}
+html[data-console-view="guided"] .expert-only{display:none!important}
+@media(max-width:760px){.guide-grid{grid-template-columns:1fr}header{align-items:flex-start}nav{order:4;width:100%;overflow-x:auto}.view-switch{margin-left:auto}}
 </style>
 </head>
 <body>
 <header>
   <h1>AetherState</h1>
   <nav id="tabs"></nav>
+  <div class="view-switch" aria-label="Console view">
+    <button id="viewGuided" type="button" onclick="setConsoleView('guided')">Guided</button>
+    <button id="viewExpert" type="button" onclick="setConsoleView('expert')">Expert</button>
+  </div>
   <span style="flex:1"></span>
   <button class="act danger" id="btnFreeze" style="display:none">FREEZE</button>
   <button class="act good" id="btnResume" style="display:none">RESUME</button>
-  <label class="sw" title="Allows edits that push things forward (consent up, drives up). Safety-direction edits are always allowed."><input type="checkbox" id="ovr"> override</label>
+  <label class="sw" id="overrideLabel" title="Allows edits that push things forward (consent up, drives up). Safety-direction edits are always allowed."><input type="checkbox" id="ovr"> <span class="guided-only">allow major manual changes</span><span class="expert-only">override</span></label>
   <select id="sess"></select>
 </header>
 <main id="view"></main>
@@ -113,13 +131,17 @@ const TOUCH=["touching","caressing","gripping","kissing","licking","sucking","pe
 const FLAVORS=["romantic","possessive","protective","hostile","curious","ambition","reverent","other"];
 const TKINDS=["entity","act_category","substance","object","concept"];
 const TABS=["Player","PlayerLex","Player Lessons","Overview","Edit","Sessions","Connection","Status","Models","Raw"];
+const GUIDED_TABS=["Player","PlayerLex","Player Lessons","Overview","Edit","Sessions","Help"];
+const GUIDED_LABELS=Object.freeze({Player:"My Character",PlayerLex:"My Words","Player Lessons":"Story Preferences",Overview:"World & Story",Edit:"Customize This Game",Sessions:"My Games",Help:"Help & Troubleshooting"});
+const CONSOLE_VIEW_KEY="aether_console_view_v1";
 /* ---------- app state ---------- */
 let tab="Player",sid="",S=null,editOp="scene_set",timer=null,PL=[],PL_EDIT="",
  PL_CONCEPT=null,PL_CHOICES=[],PL_NEXT_CURSOR=null,PL_SEARCH_TIMER=null,PL_SEARCH_SEQ=0,
  LESSONS=[],LESSON_EDIT="",LESSON_ANCHORS=[],LESSON_SELECTIONS=[],LESSON_SELECTION_ERROR="",
  LESSON_APPLICATIONS=[],LESSON_APPLICATION_ERROR="",
  LESSON_LOAD_SEQ=0,
- RENDER_SEQ=0;
+  RENDER_SEQ=0,UI_VIEW="guided";
+try{UI_VIEW=localStorage.getItem(CONSOLE_VIEW_KEY)==="expert"?"expert":"guided"}catch(e){}
 const $=q=>document.querySelector(q);
 const esc=t=>String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const uniqueDisplayProse=values=>{const out=[],seen=new Set();for(const raw of values||[]){
@@ -134,6 +156,19 @@ const j=async(u,o,retried=false)=>{const r=await fetch(u,o);
 function toast(msg,bad){const t=$("#toast");t.textContent=msg;
  t.style.borderColor=bad?"var(--bad)":"var(--acc)";t.style.display="block";
  clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",3500)}
+function setConsoleView(mode,announce=true,rerender=true){UI_VIEW=mode==="expert"?"expert":"guided";
+ document.documentElement.dataset.consoleView=UI_VIEW;
+ const guided=$("#viewGuided"),expert=$("#viewExpert");
+ if(guided){guided.classList.toggle("on",UI_VIEW==="guided");guided.setAttribute("aria-pressed",String(UI_VIEW==="guided"))}
+ if(expert){expert.classList.toggle("on",UI_VIEW==="expert");expert.setAttribute("aria-pressed",String(UI_VIEW==="expert"))}
+ const override=$("#overrideLabel");if(override)override.title=UI_VIEW==="guided"?
+  "Lets manual edits increase relationships, consent, or drives. Benefit: direct control. Watch out: it can bypass normal progression. Safety-reducing edits are always allowed.":
+  "Allows edits that push things forward (consent up, drives up). Safety-direction edits are always allowed.";
+ try{localStorage.setItem(CONSOLE_VIEW_KEY,UI_VIEW)}catch(e){}
+ if(!rerender)return;
+ if(UI_VIEW==="guided"&&!GUIDED_TABS.includes(tab)){go("Player");return}
+ if(UI_VIEW==="expert"&&!TABS.includes(tab)){go("Player");return}
+ nav();render();if(announce)toast(UI_VIEW==="guided"?"Guided View — player explanations are on":"Expert View — technical controls are visible")}
 async function ops(list){if(!sid)return toast("no session yet — open a chat first",1);
  try{const d=await j(`/aether/session/${sid}/state`,{method:"PATCH",
   headers:{"content-type":"application/json"},body:JSON.stringify({ops:list})});
@@ -376,10 +411,10 @@ function editTab(){const groups={};for(const [k,d] of Object.entries(F))(groups[
    items.map(([k,d])=>`<button class="${k===editOp?"on":""}" onclick="editOp='${k}';render()">${d.t}</button>`).join("");
  h+=`</div><div id="opform">${form(editOp)}</div>
   <div class="row"><button class="act" onclick="applyForm()">apply</button>
-  <span class="hint">${F[editOp].note||""}</span></div></div>
-  <div class="card"><h3>Raw ops (power users)</h3><textarea id="raw" style="width:100%;min-height:90px"
+  <span class="hint">${F[editOp].note||""}</span></div></div>`;
+ if(UI_VIEW==="expert")h+=`<div class="card"><h3>Raw ops (power users)</h3><textarea id="raw" style="width:100%;min-height:90px"
    placeholder='[{"op":"...", ...}]'></textarea>
-  <div class="row"><button class="act" onclick="applyRaw()">apply raw</button></div></div>`;
+   <div class="row"><button class="act" onclick="applyRaw()">apply raw</button></div></div>`;
  return h}
 function form(key){const d=F[key];let h=`<div class="formgrid">`;
  for(const [k,label,type,opts] of d.f){
@@ -559,19 +594,24 @@ async function playerLexTab(){
  const d=await j("/aether/playerlex");
  if(d.error)return `<div class="card"><span class="pill bad">PlayerLex unavailable</span> ${esc(d.error)}</div>`;
  PL=d.entries||[];const selected=PL_CONCEPT?playerLexConceptText(PL_CONCEPT):"";
- let h=`<div class="card"><h3>PlayerLex <small>your local language</small></h3>
-  <p class="hint">PlayerLex recognizes meaning only. It cannot grant abilities, admit mechanics,
+ const lexOptions=UI_VIEW==="guided"?`<option value="capability">Skill or ability</option><option value="referent">Person, place, or thing</option><option value="scene">Scene or situation</option><option value="action">Action</option>`:
+  `<option value="capability">CapabilityLex</option><option value="referent">ReferentLex</option><option value="scene">SceneLex</option><option value="action">ActionLex</option>`;
+ let h=`<div class="card"><h3>${UI_VIEW==="guided"?"My Words":"PlayerLex <small>your local language</small>"}</h3>
+  <p class="hint guided-only">Add a name, nickname, or phrase you want AetherState to understand. This only teaches recognition—it cannot give you powers, decide outcomes, or make something true.</p>
+  <p class="hint expert-only">PlayerLex recognizes meaning only. It cannot grant abilities, admit mechanics,
   settle outcomes, or change world truth. Nothing is learned from chats automatically.</p>
   <div class="row"><select id="plkind"><option value="name">Name</option><option value="alias">Alias</option><option value="authoring_pattern">Authoring pattern</option></select>
   <input id="plsurface" style="min-width:260px;flex:1" maxlength="240" placeholder="Ghost Step or ghost-step to {destination}">
-  <select id="pllex" onchange="playerLexLexChanged()"><option value="capability">CapabilityLex</option><option value="referent">ReferentLex</option><option value="scene">SceneLex</option><option value="action">ActionLex</option></select>
+  <select id="pllex" title="Choose what kind of meaning your phrase names" onchange="playerLexLexChanged()">${lexOptions}</select>
   <div class="plpicker"><input id="plconceptquery" value="${esc(selected)}" maxlength="120" autocomplete="off"
    placeholder="Search IDs, labels, aliases, terms, or genre terms" oninput="playerLexSearchQueue()" onfocus="playerLexSearchQueue()">
    <div class="plchoices" id="plchoices"></div></div>
   <button class="act good" id="plsave" onclick="playerLexSave()">Approve locally</button>
   <button class="mini" id="plcancel" style="display:none" onclick="playerLexCancel()">cancel</button></div>
-  <p class="hint">Choose one exact Lex-qualified Atlas meaning. Search is bounded and paged; the Console never downloads the full catalog.</p>
-  <p class="hint">Names and aliases match complete Unicode token boundaries. Patterns match the complete input, may use one to four named slots such as {destination}, and require literal separators between slots.</p></div>`;
+  <p class="hint guided-only">Choose the one exact meaning you intend. Test it below before saving if the phrase could mean several things.</p>
+  <p class="hint expert-only">Choose one exact Lex-qualified Atlas meaning. Search is bounded and paged; the Console never downloads the full catalog.</p>
+  <p class="hint guided-only">A name or alias matches the whole phrase. A reusable pattern can contain named blanks such as {destination}; test it before approving.</p>
+  <p class="hint expert-only">Names and aliases match complete Unicode token boundaries. Patterns match the complete input, may use one to four named slots such as {destination}, and require literal separators between slots.</p></div>`;
  if(PL.length){h+=`<div class="card"><h3>Approved meanings</h3><table><tr><th>surface</th><th>kind</th><th>Atlas concept</th><th>approval</th><th>actions</th></tr>`+
   PL.map(e=>{const p=e.provenance||{},st=e.status||"missing_concept",cls=st==="current"?"ok":st==="stale"?"warn":"bad",rev=p.approval_revision||e.approval_revision||"?";
    const c=e.current_concept||e.concept||{},lex=e.lex_id||c.lex_id||"unavailable",cid=c.concept_id||e.concept_id||"unavailable";
@@ -763,8 +803,9 @@ function playerLessonAnchorView(e){const a=playerLessonAnchor(e);if(!a)return pl
 function playerLessonProvenance(e){const p=e.provenance&&typeof e.provenance==="object"?e.provenance:{},
  approved=p.approved_at||e.approved_at||e.created_at,when=playerLessonWhen(approved);
  return `<span class="pill dim">explicit local</span>${when?` <span class="hint">${esc(when)}</span>`:""}`}
-function playerLessonsView(playerLexError=""){let h=`<div class="card"><h3>Player Lessons <small>local narration and interpretation lessons</small></h3>
- <p class="hint">Narration behavior changes presentation only. Intent interpretation corrects how AetherState reads
+function playerLessonsView(playerLexError=""){let h=`<div class="card"><h3>${UI_VIEW==="guided"?"Story Preferences":"Player Lessons <small>local narration and interpretation lessons</small>"}</h3>
+ <p class="hint guided-only">Save one preference about how the story should be told, or correct how one approved phrase should be understood. Nothing is learned automatically, and you can test, disable, revise, or remove every lesson.</p>
+ <p class="hint expert-only">Narration behavior changes presentation only. Intent interpretation corrects how AetherState reads
  the action or target after recognition and before contextual binding. Neither lesson type grants abilities,
  authorizes mechanics, changes outcomes or world truth, or overrides your current words. Nothing is learned from chats automatically.</p>
  <div class="formgrid"><label class="field">Lesson type<select id="lessontype" onchange="playerLessonTypeChanged()">${Object.entries(LESSON_TYPES).map(([value,label])=>
@@ -870,9 +911,9 @@ function playerView(){
  if(!HUD)return `<div class="card">No session selected — open a chat in SillyTavern (or send one
   message) and your character appears here.</div>`;
  const base=HUD.player_safe_raw||HUD,v={...base,head_turn:HUD.head_turn??base.turn},s=v.scene||{};let h="";
- h+=`<div class="card"><div class="row" style="margin-top:0"><h3 style="margin:0">Player dashboard</h3>
-  <span class="pill ${v.spec==="rpg"?"vio":"dim"}" title="narrative mode">spec: ${esc(v.spec)}</span>
-  ${v.spec==="rpg"?`<label class="sw" title="Pure-code semantic reflex floor: natural phrasings map to the skill they mean (sweet-talk → persuasion, sneaked → stealth) and a strike targets a REAL on-scene character, not a stray word. No model, no network."><input type="checkbox" id="intentfloor" ${v.intent_floor?"checked":""} onchange="toggleIntent(this)"> intent floor</label>`:""}
+ h+=`<div class="card"><div class="row" style="margin-top:0"><h3 style="margin:0">${UI_VIEW==="guided"?"My Character":"Player dashboard"}</h3>
+  <span class="pill ${v.spec==="rpg"?"vio":"dim"}" title="${UI_VIEW==="guided"?"How AetherState is handling this game":"narrative mode"}">${UI_VIEW==="guided"?(v.spec==="rpg"?"RPG rules active":"Story tracking"):`spec: ${esc(v.spec)}`}</span>
+  ${v.spec==="rpg"?`<label class="sw" title="${UI_VIEW==="guided"?"Helps common natural wording find the intended skill or on-scene target without calling another AI. Turn it off only when you need strictly literal interpretation.":"Pure-code semantic reflex floor: natural phrasings map to the skill they mean (sweet-talk → persuasion, sneaked → stealth) and a strike targets a REAL on-scene character, not a stray word. No model, no network."}"><input type="checkbox" id="intentfloor" ${v.intent_floor?"checked":""} onchange="toggleIntent(this)"> ${UI_VIEW==="guided"?"understand natural wording":"intent floor"}</label>`:""}
   <span style="flex:1"></span>${v.frozen?`<span class="pill bad">FROZEN</span>`:""}
   <span class="hint">turn ${v.head_turn??"?"}</span></div>`;
  const sb=[];if(s.location)sb.push(`📍 ${esc(String(s.location).replace(/_/g," "))}`);
@@ -897,7 +938,7 @@ function playerView(){
   for(const k in (p.resources||{}))h+=hudMeter(k,p.resources[k]);
   h+=`<div class="row"><span class="hint">HP:</span>${hact("−5",[{op:"hp_adj",char:eid,delta:-5}],"lose 5")}${hact("−1",[{op:"hp_adj",char:eid,delta:-1}])}${hact("+1",[{op:"hp_adj",char:eid,delta:1}])}${hact("+5",[{op:"hp_adj",char:eid,delta:5}],"heal 5")}</div>`;
   if((p.stats||[]).length)h+=`<div class="row">`+p.stats.map(st=>`<span class="pill dim" title="modifier">${esc(st.key)} ${esc(st.val)} <b style="color:var(--acc)">(${st.mod>=0?"+":""}${st.mod})</b>${p.stat_points?hact("+1",[{op:"stat_spend",char:eid,stat:st.key}],"spend a banked point on "+st.key):""}</span>`).join("")+`</div>`;
-  if((p.skills||[]).length)h+=`<div class="row"><span class="hint">skills:</span>`+p.skills.map(sk=>{const prose=uniqueDisplayProse([sk.desc]).join(" · "),governs=Array.isArray(sk.governs)?uniqueDisplayProse(sk.governs).join(", "):"";return `<span class="pill ${sk.eligible===false?"bad":"vio"}" title="${sk.mastery?"mastery "+sk.mastery:""}"><b>${esc(sk.label)} ${sk.mod>=0?"+":""}${sk.mod}</b>${sk.mastery?" · m"+sk.mastery:""}${prose?" · "+esc(prose):""}${governs?" · Used for: "+esc(governs):""}${sk.eligible===false?" · unavailable due to world change":""}</span>`}).join("")+`</div>`;
+  if((p.skills||[]).length)h+=`<div class="row"><span class="hint">skills:</span>`+p.skills.map(sk=>{const prose=uniqueDisplayProse([sk.desc]).join(" · "),governs=Array.isArray(sk.governs)?uniqueDisplayProse(sk.governs).join(", "):"";return `<span class="pill ${sk.eligible===false?"bad":"vio"}" title="${sk.mastery?"mastery "+sk.mastery:""}"><b>${esc(sk.label)} ${sk.mod>=0?"+":""}${sk.mod}</b>${sk.mastery?(UI_VIEW==="guided"?" · Mastery ":" · m")+sk.mastery:""}${prose?" · "+esc(prose):""}${governs?" · Used for: "+esc(governs):""}${sk.eligible===false?" · unavailable due to world change":""}</span>`}).join("")+`</div>`;
   if((p.abilities||[]).length)h+=`<div class="row"><span class="hint">abilities / spells:</span>`+p.abilities.map(a=>{const prose=uniqueDisplayProse([a.effect,a.desc]).join(" · ");return `<span class="pill ${a.eligible===false?"bad":"ok"}" title="${esc(prose)}">${esc(a.name)}${a.kind?" · "+esc(a.kind):""}${prose?" · "+esc(prose):""}${a.eligible===false?" · unavailable due to world change":""}</span>`}).join("")+`</div>`;
   h+=`<div class="row"><span class="hint">statuses / conditions / diseases:</span>`+((p.effects||[]).length?p.effects.map(e=>{const col=e.valence==="negative"?"bad":e.valence==="positive"?"ok":"dim";return `<span class="pill ${col}" title="${esc((e.note||"")+(e.mods?" · "+e.mods:""))}">${esc(e.glyph)} ${esc(e.name)} <b style="opacity:.65">${esc(e.kind_label)}</b>${e.stacks>1?" ×"+e.stacks:""}${e.remaining!=null?" · "+e.remaining+"t":""} ${hact("×",[{op:"effect_remove",char:eid,effect:e.key}],"remove")}</span>`}).join(""):`<span class="hint">none active</span>`)+`</div>`;
   const dr=p.drives||{},db=[];
@@ -931,20 +972,34 @@ function playerView(){
  if((v.rolls||[]).length)h+=`<div class="card"><h3>Dice &amp; Checks</h3>`+v.rolls.slice().reverse().map(r=>`<div class="row"><span class="pill dim">t${r.turn??"?"}</span><b>${esc(r.skill||r.spec||"roll")}</b>${r.spec?`<span class="hint">${esc(r.spec)}</span>`:""}<span class="pill vio">= ${esc(r.result)}</span>${r.tier_label?`<span class="pill ${(r.tier==="fail"||r.tier==="crit_fail")?"bad":r.tier==="partial"?"warn":"ok"}">${esc(r.tier_label)}</span>`:""}</div>`).join("")+`</div>`;
  const rel=[...(v.relations||[]),...(v.factions||[]).map(f=>Object.assign({fac:true},f))];
  if(rel.length)h+=`<div class="card"><h3>Relations &amp; Factions</h3><div class="row">`+rel.map(r=>`<span class="pill ${r.fac?"dim":"vio"}">${r.fac?"⚑ ":""}${esc(r.name)} · ${esc(r.tier)}${r.reputation_modifier!=null?` · Reputation ${r.reputation_modifier>=0?"+":""}${esc(r.reputation_modifier)}`:""}${r.world_circumstance?` · World circumstance: ${esc(r.world_circumstance)}`:""}</span>`).join("")+`</div></div>`;
- if(Object.keys(v.world_flags||{}).length)h+=`<div class="card"><h3>World flags</h3><div class="row">`+Object.entries(v.world_flags).map(([k,val])=>`<span class="pill dim">${esc(k)}=${esc(String(val))}</span>`).join("")+`</div></div>`;
+ if(Object.keys(v.world_flags||{}).length)h+=`<div class="card"><h3>${UI_VIEW==="guided"?"Current world conditions":"World flags"}</h3><div class="row">`+Object.entries(v.world_flags).map(([k,val])=>`<span class="pill dim">${UI_VIEW==="guided"?esc(String(k).replace(/_/g," "))+": ":esc(k)+"="}${esc(String(val))}</span>`).join("")+`</div></div>`;
  const kn=v.knowledge||{},hasKnowledge=["claims","epistemics","facts","events"].some(k=>(kn[k]||[]).length);
- if(hasKnowledge){h+=`<div class="card"><h3>Claims &amp; Events <small>said, believed, true, and changed stay separate</small></h3>`;
-  if((kn.claims||[]).length)h+=`<h4>What was said</h4>`+kn.claims.map(c=>`<div class="hint"><b>${esc(c.speaker||c.source||"source")}</b>${c.addressee?` to ${esc(c.addressee)}`:""} ${esc(c.class||"said")}: ${esc(c.proposition||c.proposition_id||"")}<br><small>${esc(c.polarity||"unspecified polarity")} · ${esc(c.modality||"unspecified modality")}</small></div>`).join("");
+ if(hasKnowledge){h+=`<div class="card"><h3>${UI_VIEW==="guided"?"What is said, believed, and confirmed":"Claims &amp; Events <small>said, believed, true, and changed stay separate</small>"}</h3>`;
+  if((kn.claims||[]).length)h+=`<h4>What was said</h4>`+kn.claims.map(c=>`<div class="hint"><b>${esc(c.speaker||c.source||"source")}</b>${c.addressee?` to ${esc(c.addressee)}`:""} ${esc(c.class||"said")}: ${esc(c.proposition||c.proposition_id||"")}${UI_VIEW==="expert"?`<br><small>${esc(c.polarity||"unspecified polarity")} · ${esc(c.modality||"unspecified modality")}</small>`:""}</div>`).join("");
   if((kn.epistemics||[]).length)h+=`<h4>Who knows, believes, or doubts what</h4>`+kn.epistemics.map(e=>`<div class="hint"><b>${esc(e.holder||"actor")}</b> <span class="pill dim">${esc(e.stance||"believes")}</span>: ${esc(e.statement||e.proposition_id||"")}<br><small>evidence: ${esc(e.source||"not recorded")}</small></div>`).join("");
-  if((kn.facts||[]).length)h+=`<h4>Accepted facts</h4>`+kn.facts.map(f=>`<div class="hint"><span class="pill ${f.status==="accepted"?"ok":"dim"}">${esc(f.status||"accepted")}</span> ${esc(f.statement||f.proposition_id||"")}<br><small>authority: ${esc(f.authority||"")} · cause: ${esc(f.cause||"not shown")}</small></div>`).join("");
+  if((kn.facts||[]).length)h+=`<h4>${UI_VIEW==="guided"?"Confirmed as true":"Accepted facts"}</h4>`+kn.facts.map(f=>`<div class="hint"><span class="pill ${f.status==="accepted"?"ok":"dim"}">${esc(f.status||"accepted")}</span> ${esc(f.statement||f.proposition_id||"")}${UI_VIEW==="expert"?`<br><small>authority: ${esc(f.authority||"")} · cause: ${esc(f.cause||"not shown")}</small>`:""}</div>`).join("");
   if((kn.events||[]).length)h+=`<h4>Admitted world events and history</h4>`+kn.events.map(e=>`<div class="hint"><span class="pill ${e.status==="active"?"vio":"dim"}">${esc(e.status||"")}</span> ${esc(e.what_happened||e.id||"")}<br><small>why: ${esc(e.cause_visible===true&&e.cause?e.cause:"cause not known")} · affected: ${esc((e.affected_domains||[]).join(", ")||"history only")}${e.relation_target?` · relates to ${esc(e.relation_target)}`:""}</small></div>`).join("");
   h+=`</div>`}
  if((v.consent||[]).length)h+=`<div class="card"><h3>Consent</h3>`+v.consent.map(c=>`<div class="row"><b style="font-weight:500">${esc(c.pair)}</b><span class="pill dim">${esc(c.category)}</span><span class="pill ${["granted","enthusiastic"].includes(c.level)?"ok":["hard_limit","withdrawn"].includes(c.level)?"bad":"warn"}">${esc(c.level)}</span>${c.cap!=null?`<span class="hint">≤${c.cap}</span>`:""}</div>`).join("")+`</div>`;
  if((v.memories||[]).length)h+=`<div class="card"><h3>Recent events</h3>`+v.memories.map(m=>`<div class="hint">t${m.turn} · ${esc(m.text)}</div>`).join("")+`</div>`;
  return h}
 /* ---------- shell ---------- */
-function nav(){$("#tabs").innerHTML=TABS.map(t=>
- `<button class="${t===tab?"on":""}" onclick="go('${t}')">${t}</button>`).join("")}
+function guidedIntro(t){if(UI_VIEW!=="guided")return "";const copy={
+ Player:["Your character at a glance","See current health, resources, abilities, gear, conditions, relationships, and other information your character can know.","Use this during play","It mirrors the player-facing game display.","Watch out","Missing information may simply be unknown to your character.","Good practice","Check the selected game before making changes."],
+ PlayerLex:["Teach AetherState your words","Approve a word or phrase as your personal way of referring to one meaning. This improves recognition; it never grants powers or changes the world.","Why use it","Your preferred names can be understood consistently.","Watch out","Choose one exact meaning; ambiguous shortcuts can be misleading.","Good practice","Test recognition before approving."],
+ "Player Lessons":["Set your story preferences","Teach narration style or clarify how one already-approved phrase should be interpreted. Lessons stay local and can be disabled or removed.","Why use it","Make narration fit your preferences over time.","Watch out","A lesson cannot force outcomes or override what you currently write.","Good practice","Keep each lesson focused on one preference."],
+ Overview:["Understand the current world","Inspect the scene, characters, relationships, quests, known facts, and recent changes recorded for this game.","Why use it","See what the game is actually tracking.","Watch out","Expert View may show private or diagnostic details that are intentionally absent here.","Good practice","Use this when the story and tracked state seem out of sync."],
+ Edit:["Customize this running game","Apply direct changes to the selected game using stable forms. Changes take effect immediately after you press Apply.","Why use it","Correct state or intentionally shape an existing campaign.","Watch out","Major manual changes can bypass normal progression.","Good practice","Make one small change, verify it, then continue."],
+ Sessions:["Manage your games","Open, rename, or permanently delete the games AetherState is tracking.","Why use it","Friendly names make the right campaign easy to find.","Watch out","Delete permanently removes all tracked state for that game.","Good practice","Rename before deleting so you can verify the target."],
+ };const c=copy[t];if(!c)return "";return `<div class="card guide-card"><h3>${c[0]}</h3><p>${c[1]}</p><div class="guide-grid"><div class="guide-point"><b>${c[2]}</b>${c[3]}</div><div class="guide-point warn"><b>${c[4]}</b>${c[5]}</div><div class="guide-point"><b>${c[6]}</b>${c[7]}</div></div></div>`}
+function helpTab(){return `<div class="card guide-card"><h3>Help &amp; Troubleshooting</h3><p>Start with the simple checks below. Expert View contains connection, model, status, and raw-data tools when deeper inspection is needed.</p></div>
+ <div class="grid"><div class="card"><h3>A game is missing</h3><p>Open that chat in SillyTavern and send at least one message, then return here and select it from the game list.</p></div>
+ <div class="card"><h3>Information looks old</h3><p>Confirm the selected game, then use <b>Ctrl + Shift + R</b> to reload the page and bypass cached interface files. Your stored game is not erased.</p></div>
+ <div class="card"><h3>Something needs technical setup</h3><p>Switch to Expert View for provider connections, routing, model status, raw player-safe data, and exact diagnostics.</p><button class="act" onclick="setConsoleView('expert')">Open Expert View</button></div></div>
+ <div class="card"><h3>Safety controls</h3><p><b>Freeze</b> pauses the scene. <b>Resume</b> continues it. “Allow major manual changes” permits edits that increase consent, relationships, or drives; reductions toward safety are always allowed.</p></div>`}
+function nav(){const tabs=UI_VIEW==="guided"?GUIDED_TABS:TABS;$("#tabs").innerHTML=tabs.map(t=>{
+ const label=UI_VIEW==="guided"?(GUIDED_LABELS[t]||t):t;const title=UI_VIEW==="guided"?`Open ${label}`:`Open technical ${t} tools`;
+ return `<button class="${t===tab?"on":""}" title="${esc(title)}" onclick="go('${t}')">${esc(label)}</button>`}).join("")}
 async function go(t){if(tab==="PlayerLex")playerLexReset();if(tab==="Player Lessons")playerLessonReset();
  tab=t;nav();if(t==="Player Lessons"||t==="PlayerLex"){S=null;J=null;headerRefresh();render();return}
  await load(PRIVILEGED_STATE_TABS.has(t));headerRefresh();render()}
@@ -960,6 +1015,8 @@ async function render(){const v=$("#view"),renderTab=tab,seq=++RENDER_SEQ;let h;
   else if(renderTab==="Status")h=await statusTab();
   else if(renderTab==="Models")h=await modelsTab();
   else if(renderTab==="Raw")h=HUD?.player_safe_raw?`<div class="card"><h3>Player-safe typed projection</h3><p class="hint">Owner/debug state and journal prose are intentionally excluded.</p><pre>${esc(JSON.stringify(HUD.player_safe_raw,null,2))}</pre></div>`:`<div class="card">No Player-safe projection is available.</div>`;
+  else if(renderTab==="Help")h=helpTab();
+  if(UI_VIEW==="guided"&&renderTab!=="Help")h=guidedIntro(renderTab)+h;
   if(seq===RENDER_SEQ&&tab===renderTab)v.innerHTML=h;
  }catch(e){if(seq===RENDER_SEQ&&tab===renderTab)v.innerHTML=`<div class="card"><span class="pill bad">error</span> ${esc(e)}</div>`}}
 async function boot(){nav();await sessions();await load(false);headerRefresh();
@@ -968,6 +1025,7 @@ async function boot(){nav();await sessions();await load(false);headerRefresh();
  timer=setInterval(async()=>{if((tab==="Overview"||tab==="Player")&&document.visibilityState==="visible"){
   const privileged=tab==="Overview",before=JSON.stringify(privileged?S:HUD);await sessions();await load(privileged);
   if(JSON.stringify(privileged?S:HUD)!==before){headerRefresh();render()}}},4000)}
+setConsoleView(UI_VIEW,false,false);
 boot();
 </script>
 </body>
