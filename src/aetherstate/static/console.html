@@ -95,11 +95,18 @@ textarea.lessoncopy{min-height:86px}
 .session-title{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.session-title h3{margin:0;font-size:15px;color:var(--fg)}
 .session-meta{display:flex;gap:7px 14px;flex-wrap:wrap;margin:9px 0;color:var(--dim);font-size:12px}
 .session-meta b{color:var(--fg);font-weight:600}.session-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+.edit-picker{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(240px,1.2fr);gap:9px;margin:9px 0 12px}
+.edit-picker label{display:flex;flex-direction:column;gap:4px;color:var(--dim);font-size:12px}.edit-picker select{width:100%}
+.edit-summary{border-left:3px solid var(--acc);padding:9px 11px;background:var(--bg);border-radius:0 7px 7px 0;margin:9px 0}
+.edit-summary b{display:block;color:var(--fg);margin-bottom:2px}.edit-summary span{color:var(--dim);font-size:12.5px}
+.field small{color:var(--dim);line-height:1.35}.field.invalid input,.field.invalid select,.field.invalid .mchar,.field.invalid .zones{border-color:var(--bad)}
+.edit-errors{display:none;color:var(--bad);background:#2b1b24;border:1px solid #5a2939;border-radius:7px;padding:7px 9px;margin:9px 0;font-size:12.5px}
+.edit-errors.show{display:block}.edit-footer{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:11px}
 .guided-only{display:none}
 html[data-console-view="guided"] .guided-only{display:inline}
 html[data-console-view="guided"] div.guided-only{display:block}
 html[data-console-view="guided"] .expert-only{display:none!important}
-@media(max-width:760px){.guide-grid,.choice-grid{grid-template-columns:1fr}header{align-items:flex-start}nav{order:4;width:100%;overflow-x:auto}.view-switch{margin-left:auto}}
+@media(max-width:760px){.guide-grid,.choice-grid,.edit-picker{grid-template-columns:1fr}header{align-items:flex-start}nav{order:4;width:100%;overflow-x:auto}.view-switch{margin-left:auto}}
 </style>
 </head>
 <body>
@@ -184,8 +191,9 @@ async function ops(list){if(!sid)return toast("no session yet — open a chat fi
  try{const d=await j(`/aether/session/${sid}/state`,{method:"PATCH",
   headers:{"content-type":"application/json"},body:JSON.stringify({ops:list})});
   const rej=(d.rejected||[]).map(r=>r.reason).join("; ");
-  toast(`applied ${d.applied||0}`+(rej?` · rejected: ${rej}`:""),!d.applied&&rej);
-  await load();render()}catch(e){toast("error: "+e,1)}}
+  if(UI_VIEW==="guided")toast(d.applied?"Change applied successfully.":`Nothing changed${rej?`: ${rej}`:"."}`,!d.applied);
+  else toast(`applied ${d.applied||0}`+(rej?` · rejected: ${rej}`:""),!d.applied&&rej);
+  await load();render();return d}catch(e){toast((UI_VIEW==="guided"?"Could not apply this change: ":"error: ")+e,1);return null}}
 /* ---------- data ---------- */
 const sessionDisplay=x=>x.label||[x.world_name,x.player_name].filter(Boolean).join(" · ")||(x.external_id||x.session_id).slice(0,20);
 async function sessions(){const d=await j("/aether/sessions");const s=d.sessions||[];
@@ -205,6 +213,9 @@ async function load(privileged=PRIVILEGED_STATE_TABS.has(tab)){if(!sid){S=null;J
  try{HUD=await j(`/aether/session/${sid}/hud`)}catch(e){HUD=null}}
 const chars=()=>Object.entries(S?.state?.entities||{});
 const cnames=()=>chars().map(([id,e])=>[id,e.name||id]);
+const guidedEntityChoices=(opKey,field)=>{const kinds=opKey==="world_flag"&&field==="faction"?["faction"]:
+ opKey==="affinity_adj"&&field==="target"?["faction","npc","character","enemy"]:["player","npc","character","enemy"];
+ return chars().filter(([,e])=>kinds.includes(String(e?.kind||""))).map(([id,e])=>[id,e.name||id])};
 const nameOf=id=>(S?.state?.entities?.[id]?.name)||id;
 /* ---------- header ---------- */
 function headerRefresh(){const source=S||HUD,f=source?.frozen;
@@ -415,32 +426,93 @@ const F={
  set_nemesis:{g:"RPG",t:"Nemesis",f:[["target","who — empty clears","char"]],nulls:["target"],
   note:"unique bond, no affinity floor"},
 };
+const GUIDED_EDIT_GROUPS=Object.freeze({
+ Scene:"Story scene",Characters:"People in this game",Gear:"Clothing & items",Drives:"Desires & cravings",
+ "Bonds & knowledge":"Relationships & knowledge",Consent:"Consent & boundaries",
+ "Touch & position":"Physical position & contact",RPG:"Campaign rules & special bonds"});
+const GUIDED_EDIT_HELP=Object.freeze({
+ scene_set:{title:"Set the current scene",does:"Change the location, story phase, or complete list of people currently in the scene.",benefit:"Corrects a misplaced scene or cleanly starts the next beat.",risk:"Selecting people replaces the current present-person list; omitted fields stay unchanged.",tip:"Change only the fields you mean to replace.",requiredOne:["location","phase","participants"],apply:"Update the scene"},
+ scene_dial:{title:"Adjust tension or intimacy",does:"Raise, lower, or set one scene atmosphere dial.",benefit:"Helps the tracked tone match what is happening in the story.",risk:"Large jumps can make later narration feel abrupt.",tip:"Use Change by for small adjustments; use Set exact amount only for corrections.",required:["dial"],requiredOne:["delta","set"],ranges:{delta:[-100,100],set:[0,100]},apply:"Adjust the scene tone"},
+ scene_mode:{title:"Choose how the scene is happening",does:"Mark the scene as present-time play, a flashback, or a dream.",benefit:"Keeps memories and current events from being confused.",risk:"The wrong mode can make past or imagined events look current.",tip:"Return to Live when the flashback or dream ends.",required:["mode"],apply:"Set the scene mode"},
+ time_advance:{title:"Advance the time of day",does:"Move the story clock forward to a named part of the day.",benefit:"Keeps time-sensitive scenes and world activity aligned.",risk:"This advances time; it is not a cosmetic label.",tip:"Use it when the story clearly moves ahead, not for a brief pause.",required:["to_time_of_day"],apply:"Advance time"},
+ entity_add:{title:"Add a new person",does:"Create a basic tracked character with the name you enter.",benefit:"Lets recurring people participate in scenes, relationships, and memories.",risk:"This creates a real tracked character, not a temporary mention.",tip:"Use the character's stable in-world name; fill deeper details in Creator when needed.",required:["name"],apply:"Add this person"},
+ presence:{title:"Mark someone present or absent",does:"Set whether one tracked person is currently in the scene.",benefit:"Corrects who can be seen, addressed, or involved right now.",risk:"Unchecked means the person leaves the current scene.",tip:"Use this for one person; use Set current scene to replace the full group.",required:["entity"],apply:"Update their presence"},
+ move_entity:{title:"Move one person",does:"Change the location currently recorded for one character.",benefit:"Keeps a character's whereabouts accurate even when they are off-screen.",risk:"This changes their tracked location immediately.",tip:"Use a consistent place name already used by the world.",required:["entity","to_location"],apply:"Move this person"},
+ mood:{title:"Adjust mood and energy",does:"Change a character's emotional valence, energy, or both on a -100 to 100 scale.",benefit:"Corrects emotional continuity after major story events.",risk:"Extreme values strongly color how the character is represented.",tip:"Change one value at a time unless both clearly shifted.",required:["char"],requiredOne:["valence","energy"],ranges:{valence:[-100,100],energy:[-100,100]},apply:"Update mood"},
+ arousal:{title:"Adjust arousal",does:"Raise, lower, or set a character's current arousal level.",benefit:"Corrects intimate-scene continuity when tracked state falls behind.",risk:"Increasing it is a major manual change and may require the header switch.",tip:"Prefer small Change by values; reducing it toward safety is always allowed.",required:["char"],requiredOne:["delta","set"],ranges:{delta:[-100,100],set:[0,100]},apply:"Update arousal"},
+ goal:{title:"Manage a character goal",does:"Add a goal, or mark an existing goal complete or abandoned.",benefit:"Keeps character intentions and unfinished business visible.",risk:"Complete or abandon should match the existing goal wording closely.",tip:"Write one concrete goal, not a full biography.",required:["char","action","text"],apply:"Update this goal"},
+ clothing_don:{title:"Wear or carry an item",does:"Put a named item into a worn or carried category for one character.",benefit:"Makes equipment and clothing visible to state-aware narration.",risk:"Choosing the wrong category can make the item appear in the wrong place.",tip:"Select covered body areas only for worn clothing or armor.",required:["char","item","category"],apply:"Add this item"},
+ clothing_state:{title:"Change or remove an item",does:"Open, displace, remove, or destroy one named worn or carried item.",benefit:"Keeps gear state synchronized with what just happened.",risk:"Destroy is permanent tracked destruction; names must match the existing item.",tip:"Use the exact item name shown in My Character.",required:["char","item","action"],apply:"Change this item"},
+ obsession:{title:"Set an obsession",does:"Set what a character is fixated on, its intensity, and emotional flavor.",benefit:"Tracks a strong recurring drive that can shape decisions.",risk:"High intensity is a major personality change and may require manual override.",tip:"Reserve this for sustained fixation, not a passing interest.",required:["char","target_kind","target","set","flavor"],ranges:{set:[0,100]},apply:"Set this obsession"},
+ craving_adj:{title:"Adjust a craving",does:"Raise or lower one character's craving for a named substance or need.",benefit:"Keeps an ongoing urge consistent across scenes.",risk:"Large positive changes can strongly steer behavior.",tip:"Use the same craving name every time and make gradual changes.",required:["char","substance","delta"],ranges:{delta:[-100,100]},apply:"Adjust the craving"},
+ craving_consume:{title:"Satisfy a craving",does:"Record that a character consumed or received what they were craving.",benefit:"Lets the tracked craving respond to an in-story event.",risk:"Use it only after consumption actually occurred.",tip:"Match the craving name used when it was created.",required:["char","substance"],apply:"Record consumption"},
+ relationship_adj:{title:"Adjust one person's feelings",does:"Change how one character feels toward another on one relationship dimension.",benefit:"Corrects trust, affection, respect, desire, tension, fear, or familiarity.",risk:"The direction matters: A toward B is separate from B toward A. Positive changes may require override.",tip:"Use small changes and verify both people before applying.",required:["from_char","to_char","dimension","delta"],ranges:{delta:[-30,30]},apply:"Adjust the relationship"},
+ belief_acquire:{title:"Record a belief or knowledge",does:"Record what one person knows, believes, doubts, disputes, or has heard as rumor.",benefit:"Keeps different characters' knowledge separate and prevents accidental omniscience.",risk:"This does not make the statement objectively true.",tip:"Describe one clear proposition and how the holder learned it.",required:["holder","statement","stance","evidence_source"],apply:"Record this knowledge"},
+ fact_admit:{title:"Confirm an objective fact",does:"Add a Creator-authorized fact to the world's accepted truth.",benefit:"Corrects or establishes world truth that should remain stable.",risk:"This is privileged truth, not a rumor, belief, or narrator guess.",tip:"Use Belief / knowledge unless you are deliberately authoring objective world truth.",required:["statement","cause","visibility"],apply:"Confirm this fact"},
+ memory_event:{title:"Add an important memory",does:"Record one event, who was involved, and how important it is.",benefit:"Helps significant shared history remain available later.",risk:"This states that the event happened; do not use it for plans or rumors.",tip:"Keep it factual and focused on one event.",required:["text","importance"],ranges:{importance:[1,10]},apply:"Save this memory"},
+ consent_set:{title:"Set a consent boundary",does:"Set one person's consent level with one partner for one category.",benefit:"Corrects an explicit boundary or permission so it remains visible.",risk:"Raising consent requires manual override; lowering or withdrawing toward safety is always allowed.",tip:"Record only clear consent. Unknown is safer than guessing.",required:["subject","partner","category","level"],apply:"Set this boundary"},
+ consent_signal:{title:"Record an in-story consent signal",does:"Record a grant, hesitation, refusal, enthusiasm, or withdrawal between two people.",benefit:"Preserves what was communicated in the scene.",risk:"A signal is contextual and does not erase broader limits.",tip:"Choose the signal actually expressed; withdrawal and refusal take priority.",required:["from_char","to_char","category","signal"],apply:"Record the signal"},
+ position:{title:"Set physical positions",does:"Set a shared base pose for the selected people.",benefit:"Keeps spatial narration from contradicting the current scene.",risk:"This replaces the recorded base position for those participants.",tip:"Select everyone sharing the pose and choose the simplest accurate description.",required:["participants","base"],apply:"Set their position"},
+ contact_start:{title:"Start physical contact",does:"Record one person beginning a specific kind of contact with another.",benefit:"Makes ongoing touch and proximity explicit to the state system.",risk:"This records contact, not consent; consent must be tracked separately.",tip:"Use the lowest accurate intensity and the exact direction of contact.",required:["from_char","to_char","type","intensity"],ranges:{intensity:[0,3]},apply:"Start this contact"},
+ contact_stop:{title:"Stop physical contact",does:"End one recorded type of contact between two people.",benefit:"Prevents ended contact from lingering in later narration.",risk:"The people and contact type must match the active contact.",tip:"Stopping contact is always safe; remove each active type separately.",required:["from_char","to_char","type"],apply:"Stop this contact"},
+ affinity_adj:{title:"Adjust Player standing",does:"Change the Player's standing with one NPC or faction.",benefit:"Corrects reputation after help, harm, promises, or betrayal.",risk:"Positive changes may bypass normal progression and require override.",tip:"Use a small change and write the in-story reason.",required:["target","delta","reason"],ranges:{delta:[-15,15]},apply:"Adjust Player standing"},
+ world_flag:{title:"Set a lasting world condition",does:"Set or clear a named circumstance for the whole world or one faction.",benefit:"Keeps conditions such as a curfew, blockade, or open gate available across scenes.",risk:"This is persistent world state; an empty value clears the named condition.",tip:"Use a short snake_case name such as city_curfew and a plain value such as active.",required:["key"],apply:"Update the world condition"},
+ set_soulmate:{title:"Set the Player's soulmate",does:"Choose one unique soulmate bond, or clear it by choosing no one.",benefit:"Makes the strongest reciprocal story bond explicit.",risk:"Promoting a new soulmate demotes the previous one to beloved and may require override.",tip:"Use only after the relationship has clearly earned this status.",apply:"Update the soulmate bond"},
+ set_nemesis:{title:"Set the Player's nemesis",does:"Choose one unique nemesis, or clear it by choosing no one.",benefit:"Keeps the campaign's defining personal opposition visible.",risk:"This is a strong persistent bond even without a reputation threshold.",tip:"Use for a defining rival or enemy, not every hostile character.",apply:"Update the nemesis bond"}
+});
+const GUIDED_FIELD_COPY=Object.freeze({
+ location:["Where is the scene?","Use the world's normal place name.","The Lantern Inn"],phase:["Story phase","Where this scene sits in its dramatic arc."],participants:["Who is present?","Select everyone currently in this scene."],dial:["What tone changes?","Choose tension or intimacy."],delta:["Change by","Use a positive number to raise it or a negative number to lower it."],set:["Set exact amount","Use this instead of Change by when correcting an exact value."],mode:["Scene type","Choose whether events are current, remembered, or dreamed."],to_time_of_day:["Advance to","Choose the next part of the day."],name:["Character name","Use the stable name players will recognize.","Mara Venn"],entity:["Which person?","Choose the tracked character."],present:["They are present now","Checked means present; unchecked means absent."],to_location:["Move them to","Use a known place name.","North Gate"],char:["Which person?","Choose whose state changes."],valence:["Mood (-100 to 100)","Negative feels worse; positive feels better."],energy:["Energy (-100 to 100)","Negative is drained; positive is energized."],action:["What happens?","Choose the intended change."],text:["What is it?","Write one clear goal, memory, or event."],item:["Exact item name","Match the name shown in My Character.","Silver travel cloak"],category:["Item category","Choose where the item is worn or carried."],covers:["Covered areas","Only select areas this worn item actually covers."],target_kind:["What kind of focus?","Choose what sort of thing the obsession targets."],target:["Who or what?","Choose or name the target."],substance:["Craving name","Use the same short name every time.","moonleaf"],from_char:["Whose action or feeling?","Direction starts with this person."],to_char:["Toward whom?","Direction ends with this person."],dimension:["Feeling to change","Choose one relationship dimension."],holder:["Who holds this view?","Choose whose knowledge or belief this is."],statement:["Statement","Write one complete proposition.","The eastern gate is sealed."],stance:["How certain are they?","Separate knowledge, belief, doubt, dispute, uncertainty, and rumor."],evidence_source:["How did they learn it?","Choose the source of their information."],teller:["Who told them? (optional)","Use only when another tracked person was the source."],cause:["Why is this authoritative?","Name the Creator or code-owned reason.","Established in world creation"],visibility:["Who may know it?","Hidden facts remain world truth without being player-facing."],importance:["Importance (1 to 10)","Use 10 only for campaign-defining events."],subject:["Whose boundary?","Consent belongs to this person."],partner:["With whom?","Choose the specific partner."],level:["Consent level","Choose the explicit current boundary."],signal:["Signal given","Choose what was actually communicated."],base:["Base position","Choose the simplest accurate pose."],type:["Contact type","Choose the physical contact being started or stopped."],intensity:["Intensity (0 to 3)","0 is minimal; 3 is strongest."],reason:["In-story reason","Briefly explain why standing changed.","Protected their caravan"],key:["Condition name","Use lower-case words joined by underscores.","city_curfew"],value:["Current value","Leave empty to clear this condition.","active"],faction:["Limit to one faction (optional)","Leave empty for a world-wide condition."]
+});
+function guidedEditMeta(){return GUIDED_EDIT_HELP[editOp]||{title:F[editOp].t,does:F[editOp].note||"Apply this supported game-state change.",benefit:"Corrects the selected running game.",risk:"The change takes effect immediately.",tip:"Make one small change and verify it.",apply:"Apply change"}}
+function guidedOptionLabel(value){const special={setup:"Beginning / setup",rising:"Building action",climax:"Peak / climax",resolution:"Aftermath / resolution",live:"Live story",flashback:"Flashback",dream:"Dream",unknown:"Unknown / not established",withdrawn:"Withdrawn",soft_limit:"Soft limit",hard_limit:"Hard limit",actor_scoped:"Only the affected character"};return special[value]||String(value).replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase())}
+function guidedFieldCopy(key,label){const c=GUIDED_FIELD_COPY[key];return c||[String(label).replace(/\b\w/g,c=>c.toUpperCase()),"Enter the value AetherState should record."]}
+function guidedEditGroupChanged(value){const first=Object.keys(F).find(k=>F[k].g===value);if(first){editOp=first;render()}}
+function guidedEditChanged(value){if(F[value]){editOp=value;render()}}
+function resetEditForm(){render();toast("Fields cleared")}
 function editTab(){const groups={};for(const [k,d] of Object.entries(F))(groups[d.g]??=[]).push([k,d]);
- let h=`<div class="card"><div class="opsel">`;
- for(const [g,items] of Object.entries(groups))
-  h+=`<span class="hint" style="width:100%;margin-top:4px">${g}</span>`+
-   items.map(([k,d])=>`<button class="${k===editOp?"on":""}" onclick="editOp='${k}';render()">${d.t}</button>`).join("");
- h+=`</div><div id="opform">${form(editOp)}</div>
-  <div class="row"><button class="act" onclick="applyForm()">apply</button>
-  <span class="hint">${F[editOp].note||""}</span></div></div>`;
+ let h=`<div class="card">`;
+ if(UI_VIEW==="guided"){const m=guidedEditMeta(),group=F[editOp].g;
+  h+=`<h3>Choose one part of the game to change</h3><p class="hint">All ${Object.keys(F).length} supported customizations are available here. Technical raw operations stay in Expert View.</p>
+   <div class="edit-picker"><label>Area<select id="editGroup" onchange="guidedEditGroupChanged(this.value)">${Object.keys(groups).map(g=>`<option value="${esc(g)}" ${g===group?"selected":""}>${esc(GUIDED_EDIT_GROUPS[g]||g)}</option>`).join("")}</select></label>
+   <label>Change<select id="editAction" onchange="guidedEditChanged(this.value)">${groups[group].map(([k])=>`<option value="${k}" ${k===editOp?"selected":""}>${esc(GUIDED_EDIT_HELP[k]?.title||F[k].t)}</option>`).join("")}</select></label></div>
+   <div class="edit-summary"><b>${esc(m.title)}</b><span>${esc(m.does)}</span></div>
+   <details class="choice-guide" open><summary>Benefits, risks, and best practice</summary><div class="guide-grid" style="padding-bottom:10px">
+    <div class="guide-point"><b>How it helps</b>${esc(m.benefit)}</div><div class="guide-point warn"><b>Watch out</b>${esc(m.risk)}</div><div class="guide-point"><b>Best practice</b>${esc(m.tip)}</div></div></details>`;
+ }else{h+=`<div class="opsel">`;for(const [g,items] of Object.entries(groups))
+   h+=`<span class="hint" style="width:100%;margin-top:4px">${g}</span>`+
+    items.map(([k,d])=>`<button class="${k===editOp?"on":""}" onclick="editOp='${k}';render()">${d.t}</button>`).join("");h+=`</div>`}
+ h+=`<div id="opform">${form(editOp)}</div><div id="editErrors" class="edit-errors" role="alert" aria-live="polite"></div>
+  <div class="edit-footer"><button class="act" onclick="applyForm()">${UI_VIEW==="guided"?esc(guidedEditMeta().apply):"apply"}</button>
+  ${UI_VIEW==="guided"?`<button class="mini" onclick="resetEditForm()">Clear fields</button><span class="hint">Only filled fields are changed unless this action says it replaces a list.</span>`:`<span class="hint">${F[editOp].note||""}</span>`}</div></div>`;
  if(UI_VIEW==="expert")h+=`<div class="card"><h3>Raw ops (power users)</h3><textarea id="raw" style="width:100%;min-height:90px"
    placeholder='[{"op":"...", ...}]'></textarea>
    <div class="row"><button class="act" onclick="applyRaw()">apply raw</button></div></div>`;
  return h}
 function form(key){const d=F[key];let h=`<div class="formgrid">`;
  for(const [k,label,type,opts] of d.f){
-  if(type==="text")h+=`<label class="field">${label}<input data-k="${k}"></label>`;
-  else if(type==="num")h+=`<label class="field">${label}<input data-k="${k}" type="number"></label>`;
-  else if(type==="check")h+=`<label class="field">${label}<input data-k="${k}" type="checkbox" style="width:18px;height:18px"></label>`;
-  else if(type==="sel")h+=`<label class="field">${label}<select data-k="${k}"><option value=""></option>`+
-   opts.map(o=>`<option>${o}</option>`).join("")+`</select></label>`;
-  else if(type==="char")h+=`<label class="field">${label}<select data-k="${k}"><option value=""></option>`+
-   cnames().map(([id,n])=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")+`</select></label>`;
-  else if(type==="mchar")h+=`<div class="field">${label}<div class="mchar" data-k="${k}">`+
-   cnames().map(([id,n])=>`<label><input type="checkbox" value="${esc(n)}">${esc(n)}</label>`).join("")+`</div></div>`;
-  else if(type==="zones")h+=`<div class="field" style="grid-column:1/-1">${label}<div class="zones" data-k="${k}">`+
-   ZONES.map(z=>`<label><input type="checkbox" value="${z}">${z}</label>`).join("")+`</div></div>`}
+  const copy=UI_VIEW==="guided"?guidedFieldCopy(k,label):[label,""],title=copy[0],help=copy[1],placeholder=copy[2]||"";
+  const range=UI_VIEW==="guided"?(guidedEditMeta().ranges||{})[k]:null,rangeAttrs=range?` min="${range[0]}" max="${range[1]}"`:"";
+  const helpHtml=UI_VIEW==="guided"?`<small>${esc(help)}</small>`:"";
+  const entityChoices=UI_VIEW==="guided"?guidedEntityChoices(key,k):cnames();
+  if(type==="text")h+=`<label class="field" data-field="${k}">${esc(title)}<input data-k="${k}" placeholder="${esc(placeholder)}">${helpHtml}</label>`;
+  else if(type==="num")h+=`<label class="field" data-field="${k}">${esc(title)}<input data-k="${k}" type="number"${rangeAttrs}>${helpHtml}</label>`;
+  else if(type==="check")h+=`<label class="field" data-field="${k}">${esc(title)}<input data-k="${k}" type="checkbox" style="width:18px;height:18px">${helpHtml}</label>`;
+  else if(type==="sel")h+=`<label class="field" data-field="${k}">${esc(title)}<select data-k="${k}"><option value="">${UI_VIEW==="guided"?"Choose…":""}</option>`+
+   opts.map(o=>`<option value="${esc(o)}">${esc(UI_VIEW==="guided"?guidedOptionLabel(o):o)}</option>`).join("")+`</select>${helpHtml}</label>`;
+  else if(type==="char"){const empty=UI_VIEW==="guided"&&(key==="set_soulmate"||key==="set_nemesis")?"No one / clear current":"Choose…";h+=`<label class="field" data-field="${k}">${esc(title)}<select data-k="${k}"><option value="">${UI_VIEW==="guided"?empty:""}</option>`+
+   entityChoices.map(([id,n])=>`<option value="${esc(n)}">${esc(n)}</option>`).join("")+`</select>${helpHtml}</label>`}
+  else if(type==="mchar")h+=`<div class="field" data-field="${k}">${esc(title)}<div class="mchar" data-k="${k}">`+
+   entityChoices.map(([id,n])=>`<label><input type="checkbox" value="${esc(n)}">${esc(n)}</label>`).join("")+`</div>${helpHtml}</div>`;
+  else if(type==="zones")h+=`<div class="field" data-field="${k}" style="grid-column:1/-1">${esc(title)}<div class="zones" data-k="${k}">`+
+   ZONES.map(z=>`<label><input type="checkbox" value="${z}">${esc(UI_VIEW==="guided"?guidedOptionLabel(z):z)}</label>`).join("")+`</div>${helpHtml}</div>`}
  return h+`</div>`}
+function guidedValidateEdit(op){const m=guidedEditMeta(),missing=[];document.querySelectorAll("#opform .invalid").forEach(el=>el.classList.remove("invalid"));
+ for(const k of m.required||[])if(!(k in op)||op[k]===null||op[k]===""||(Array.isArray(op[k])&&!op[k].length))missing.push(k);
+ if(m.requiredOne&&!m.requiredOne.some(k=>k in op))missing.push(m.requiredOne.join(" or "));
+ for(const [k,range] of Object.entries(m.ranges||{}))if(k in op&&(op[k]<range[0]||op[k]>range[1]))missing.push(`${k} must be ${range[0]} to ${range[1]}`);
+ for(const item of missing){const key=item.split(" ")[0],field=document.querySelector(`#opform [data-field="${key}"]`);if(field)field.classList.add("invalid")}
+ const box=$("#editErrors");if(missing.length){box.textContent="Please complete: "+missing.map(x=>x.includes(" ")?x:guidedFieldCopy(x,x)[0]).join(", ")+".";box.classList.add("show");return false}
+ box.textContent="";box.classList.remove("show");return true}
 function applyForm(){const d=F[editOp];const op={op:d.op||editOp,...(d.fix||{})};
  for(const [k,,type] of d.f.map(f=>[f[0],f[1],f[2]])){
   const el=document.querySelector(`#opform [data-k="${k}"]`);if(!el)continue;
@@ -450,6 +522,7 @@ function applyForm(){const d=F[editOp];const op={op:d.op||editOp,...(d.fix||{})}
   else if(type==="num"){if(el.value!=="")op[k]=Number(el.value)}
   else if(el.value)op[k]=el.value}
  for(const k of d.nulls||[])if(!(k in op))op[k]=null;  /* required-but-clearable fields */
+ if(UI_VIEW==="guided"&&!guidedValidateEdit(op))return;
  ops([op])}
 function applyRaw(){try{ops(JSON.parse($("#raw").value))}catch(e){toast("bad JSON: "+e,1)}}
 /* ---------- other tabs ---------- */

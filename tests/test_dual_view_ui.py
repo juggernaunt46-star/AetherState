@@ -91,3 +91,33 @@ def test_guided_my_games_shows_creation_and_activity_chronology_while_expert_kee
     assert "sessionAbsolute" in html and "sessionRelative" in html
     assert "Open world &amp; story" in html
     assert '<th>id</th><th>frontend</th><th>turn</th>' in html
+
+
+def test_customize_this_game_guided_face_covers_every_supported_edit_with_safe_help():
+    html = CONSOLE.read_text(encoding="utf-8")
+
+    edit_keys = {
+        "scene_set", "scene_dial", "scene_mode", "time_advance", "entity_add",
+        "presence", "move_entity", "mood", "arousal", "goal", "clothing_don",
+        "clothing_state", "obsession", "craving_adj", "craving_consume",
+        "relationship_adj", "belief_acquire", "fact_admit", "memory_event",
+        "consent_set", "consent_signal", "position", "contact_start", "contact_stop",
+        "affinity_adj", "world_flag", "set_soulmate", "set_nemesis",
+    }
+
+    assert "const GUIDED_EDIT_HELP=Object.freeze({" in html
+    for key in edit_keys:
+        assert f" {key}:{{title:" in html
+    assert 'All ${Object.keys(F).length} supported customizations are available here.' in html
+    assert "Benefits, risks, and best practice" in html
+    assert "How it helps" in html and "Watch out" in html and "Best practice" in html
+    assert "function guidedValidateEdit(op)" in html
+    assert 'role="alert" aria-live="polite"' in html
+    assert "min=\"${range[0]}\" max=\"${range[1]}\"" in html
+    assert "No one / clear current" in html
+    assert "const guidedEntityChoices=" in html
+    assert '["player","npc","character","enemy"]' in html
+    assert 'opKey==="world_flag"&&field==="faction"?["faction"]' in html
+    assert 'opKey==="affinity_adj"&&field==="target"?["faction","npc","character","enemy"]' in html
+    assert "Technical raw operations stay in Expert View." in html
+    assert 'if(UI_VIEW==="expert")h+=`<div class="card"><h3>Raw ops (power users)</h3>' in html
