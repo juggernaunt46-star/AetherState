@@ -765,6 +765,56 @@ def test_combat_row_reference_binds_exactly_one_projectile_patient(
     assert damage[0]["delta"] < 0
 
 
+def test_send_elemental_lance_towards_first_enemy_binds_one_combat_patient():
+    result = _run_state(
+        "((aether.check elementalism use ice_focus)) "
+        "I send a lance of ice towards the first hollow.",
+        _cohort_state(),
+        _Rig(),
+    )
+
+    frame = _frames(result)[0]
+    assert frame["action_class"] == "weapon_attack"
+    assert frame["capability_id"] == "elementalism"
+    assert frame["invoked_capability_ids"] == ["ice_focus"]
+    assert frame["target_entity_id"] == "hollowed"
+    damage = [op for op in result.rule_ops if op.get("op") == "combatant_hp"]
+    assert len(damage) == 1
+    assert damage[0]["target"] == "hollowed"
+    assert damage[0]["delta"] < 0
+
+
+def test_cast_elemental_tornado_at_first_enemy_binds_one_combat_patient():
+    result = _run_state(
+        "((aether.check elementalism use ice_focus)) "
+        "I cast a tornado of ice at the first hollow.",
+        _cohort_state(),
+        _Rig(),
+    )
+
+    frame = _frames(result)[0]
+    assert frame["action_class"] == "weapon_attack"
+    assert frame["target_entity_id"] == "hollowed"
+    damage = [op for op in result.rule_ops if op.get("op") == "combatant_hp"]
+    assert len(damage) == 1
+    assert damage[0]["target"] == "hollowed"
+    assert damage[0]["delta"] < 0
+
+
+@pytest.mark.parametrize(
+    "payload",
+    ["message", "vote", "blessing of fire", "lance of praise"],
+)
+def test_send_towards_combat_reference_requires_a_physical_harmful_spell_payload(payload: str):
+    result = _run_state(
+        f"((aether.check elementalism)) I send a {payload} towards the first hollow.",
+        _cohort_state(),
+        _Rig(),
+    )
+
+    assert not any(op.get("op") == "combatant_hp" for op in result.rule_ops)
+
+
 def test_tier0_discovers_every_state_owned_ordinal_surface_through_twenty_seven():
     state = _large_cohort_state()
     for ordinal in _COMBAT_REFERENCE_ORDINALS:

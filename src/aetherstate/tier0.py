@@ -4186,6 +4186,39 @@ _PHYSICAL_HARM_CARRIER_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Spell delivery needs its own typed construction. Treating every ``send ... towards <foe>`` or
+# ``cast ... on <foe>`` as an attack would turn messages, votes, glances, and blessings into HP
+# damage. A closed destructive head plus a physical carrier proves the harmful event corridor
+# while remaining independent of any creature name or Player-authored phrase.
+_HARMFUL_SPELL_HEADS = (
+    "beam", "blast", "bolt", "column", "cone", "eruption", "jet", "lance", "ray",
+    "shard", "spike", "storm", "torrent", "tornado", "vortex", "wave",
+)
+_HARMFUL_SPELL_HEAD_SET = set(_HARMFUL_SPELL_HEADS)
+_HARMFUL_SPELL_DELIVERY_SET = (
+    _conjugate("cast") | _conjugate("conjure") | _conjugate("send") | {"sent"}
+)
+_SPELL_DELIVERY_RE = re.compile(
+    r"\b(?:"
+    + "|".join(sorted(_HARMFUL_SPELL_DELIVERY_SET, key=len, reverse=True))
+    + r")\b\s+"
+    r"(?:(?:a|an|the|my|our|this|that)\s+)?"
+    r"(?:(?:[a-z][a-z0-9'-]*\s+){0,3})"
+    r"(?P<head>[a-z][a-z0-9'-]*)\s+of\s+"
+    r"(?P<carrier>" + "|".join(_PHYSICAL_HARM_CARRIERS) + r")"
+    r"(?:\s+(?:and\s+)?[a-z][a-z0-9'-]*){0,2}\s+"
+    r"(?:at|on|onto|against|toward|towards|through)\s+",
+    re.IGNORECASE,
+)
+
+
+def _harmful_spell_delivery_matches(text: str) -> list[re.Match[str]]:
+    """Return source-bounded physical spell deliveries with an explicit patient corridor."""
+    return [
+        match for match in _SPELL_DELIVERY_RE.finditer(text or "")
+        if match.group("head").lower() in _HARMFUL_SPELL_HEAD_SET
+    ]
+
 # Communicative payloads remain abstract across ordinary inflection. Compact forms are admitted
 # only when their other component is a known physical carrier or projectile head; arbitrary
 # substring overlap is never semantic evidence.
@@ -4336,6 +4369,12 @@ def _attack_token_is_abstract_payload(text: str, start: int, end: int) -> bool:
         if delivery.start() <= start and end <= payload_end \
                 and _abstract_projectile_payload(delivery.group("payload")):
             return True
+    # A physical carrier is not independently an attack verb when its containing spell payload
+    # has a harmless head (for example, ``send a blessing of fire towards ...``).
+    for delivery in _SPELL_DELIVERY_RE.finditer(source):
+        if delivery.start() <= start and end <= delivery.end() \
+                and delivery.group("head").lower() not in _HARMFUL_SPELL_HEAD_SET:
+            return True
     if _PHYSICAL_HARM_CARRIER_RE.fullmatch(source[start:end]) is None:
         return False
     # The same ambiguity exists in ``criticism of fire``. The topical-carrier classifier already
@@ -4358,6 +4397,7 @@ def _has_attack_intent(text: str) -> bool:
         *_performed_attack_verb_matches(source),
         *list(_RUN_WEAPON_THROUGH_RE.finditer(source)),
         *_directed_harmful_capability_matches(source),
+        *_harmful_spell_delivery_matches(source),
         *_harmful_projectile_delivery_matches(source),
     ]
     return any(
@@ -4652,6 +4692,8 @@ def _combat_transition_spans(text: str) -> list[tuple[int, int, bool]]:
                for m in _RUN_WEAPON_THROUGH_RE.finditer(text or ""))
     out.extend((m.start(), m.end(), True)
                for m in _directed_harmful_capability_matches(text or ""))
+    out.extend((m.start(), m.end(), True)
+               for m in _harmful_spell_delivery_matches(text or ""))
     out.extend((m.start(), m.end(), True)
                for m in _harmful_projectile_delivery_matches(text or ""))
     out.extend((m.start(), m.end(), False)
