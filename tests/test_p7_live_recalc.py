@@ -11,6 +11,8 @@ from __future__ import annotations
 import json
 import logging
 
+import pytest
+
 from aetherstate import tier0
 from aetherstate.compose import render_header
 from aetherstate.config import Config
@@ -230,8 +232,9 @@ def test_live_recalc_authorizes_foe_first_cohort_and_activates_war_room():
     assert pipe.recent_notices(sid) == []
 
 
-def test_live_recalc_keeps_literal_foe_when_optional_faction_is_explicitly_uncertain():
-    """An uncertain qualifier grants no faction and cannot erase the visible hostile actor."""
+@pytest.mark.parametrize("faction_ref", ["Ash Court?", "Ash Court"])
+def test_live_recalc_keeps_literal_foe_when_faction_qualifier_is_unverified(faction_ref):
+    """An unverified qualifier grants no faction and cannot erase the visible hostile actor."""
     from aetherstate.hud import hud_view
 
     cfg = _rpg_cfg()
@@ -240,7 +243,7 @@ def test_live_recalc_keeps_literal_foe_when_optional_faction_is_explicitly_uncer
     ctx = PostContext(sid, bid, 1, "new_turn", speaker="Narrator")
     reply = (
         "A gaunt raider reaches for the fallen guide.\n"
-        "[foe | Ash Husk | standard | claws | faction:Ash Court?]"
+        f"[foe | Ash Husk | standard | claws | faction:{faction_ref}]"
     )
 
     pipe.on_response(ctx, _json_reply(reply), "application/json")

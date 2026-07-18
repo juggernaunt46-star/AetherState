@@ -6827,9 +6827,15 @@ def parse_foe_tags(text: str, state: dict) -> list[dict]:
                         continue
                     faction_id = resolve_entity_ref(state, faction_ref)
                     faction_row = (state.get("entities") or {}).get(faction_id or "")
-                    if explicit_faction is not None or not faction_ref \
-                            or not isinstance(faction_row, dict) \
+                    if not faction_ref:
+                        invalid_faction = True
+                    elif not isinstance(faction_row, dict) \
                             or faction_row.get("kind") != "faction":
+                        # A hallucinated qualifier has no authority to invent a faction, but it
+                        # also cannot erase the independently grounded hostile actor.  Keep the
+                        # foe factionless; WorldOverlay admission remains the final boundary.
+                        continue
+                    elif explicit_faction is not None:
                         invalid_faction = True
                     else:
                         explicit_faction = faction_id
