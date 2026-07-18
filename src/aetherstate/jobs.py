@@ -28,7 +28,10 @@ from typing import Optional
 
 from . import assist, compose, director, discovery, linter, memory
 from .claim_ingress import link_extracted_beliefs_to_claims
-from .extraction import Endpoint, Ladder
+from .extraction import (Endpoint, Ladder, filter_unearned_social_ops,
+                         filter_realization_owned_ops,
+                         filter_unrealized_memory_ops)
+from .narrator_realization import build_narrator_realization_from_state
 from .state import (apply_delta, assign_damage_effect_ids, battle_ops, combat_ops, current_state,
                     faction_cascade_ops, is_empty,
                     progression_ops, reduce_state, world_ops)
@@ -59,6 +62,7 @@ class JobRunner:
         self._debounce: dict[str, asyncio.Task] = {}
         self._queued: set[str] = set()          # branch ids with a batch in queue/flight
         self._fails: dict[str, int] = {}        # session -> consecutive failed batches
+        self._transient_retries: dict[tuple[str, str, int, int], int] = {}
         self._disabled_until: dict[str, int] = {}   # session -> turn index (09 C2)
         self.models: dict[str, str] = {}        # session -> model from the last request
         self.user_names: dict[str, str] = {}    # session -> resolved player name (Q12 chain)
@@ -221,6 +225,14 @@ class JobRunner:
         if delta is None:
             self.store.mark_extraction(
                 b.branch_id, b.lo, b.hi, "failed", expected="pending")
+            failure_kind = getattr(self.ladder, "last_failure_kind", None) or "unknown"
+            attempts = getattr(self.ladder, "last_failure_attempts", None) or []
+            log.warning(
+                "extraction [%d,%d] failed: kind=%s attempts=%s",
+                b.lo, b.hi, failure_kind, attempts,
+            )
+            if failure_kind == "transient_upstream" and self._schedule_transient_retry(b):
+                return
             n = self._fails.get(b.session_id, 0) + 1
             self._fails[b.session_id] = n
             if n >= self.cfg.extraction.fail_autodisable_after:      # 09 C2
@@ -229,9 +241,49 @@ class JobRunner:
                 log.warning("extraction auto-disabled for session %s until turn %d",
                             b.session_id, self._disabled_until[b.session_id])
             return
+        self._transient_retries.pop((b.session_id, b.branch_id, b.lo, b.hi), None)
         self._fails.pop(b.session_id, None)
         delta_ops = assign_damage_effect_ids(
             delta.ops, b.branch_id, b.hi, "extraction", basis=f"{b.lo}:{b.hi}", canonical=True)
+        narration = "\n".join(
+            str(row["assistant_text"])
+            for row in self.store.get_turn_texts(b.branch_id, b.lo, b.hi)
+            if row["assistant_text"]
+        )
+        # Extraction ops do not carry per-op source turns.  If any turn in this bounded batch
+        # has a complete code-owned realization, prose cannot safely authorize an additional
+        # world mutation for the batch; actor-relative beliefs remain non-world truth.
+        rejected_realization_owned: list[dict] = []
+        for turn in range(b.lo, b.hi + 1):
+            realization = build_narrator_realization_from_state(
+                self.store.state_at(b.branch_id, turn, reduce_state)
+            )
+            delta_ops, rejected = filter_realization_owned_ops(
+                delta_ops, realization, turn=turn,
+            )
+            rejected_realization_owned.extend(rejected)
+            if rejected:
+                break
+        if rejected_realization_owned:
+            log.info(
+                "rejected %d deferred extraction world-change op(s): current code-owned "
+                "realization is closed",
+                len(rejected_realization_owned),
+            )
+        delta_ops, rejected_social = filter_unearned_social_ops(delta_ops, narration)
+        if rejected_social:
+            log.info(
+                "rejected %d unearned extraction social op(s): routine cooperation is not "
+                "standing",
+                len(rejected_social),
+            )
+        delta_ops, rejected_memories = filter_unrealized_memory_ops(delta_ops, narration)
+        if rejected_memories:
+            log.info(
+                "rejected %d unrealized extraction memory op(s): incipient handoff is not "
+                "completed transfer",
+                len(rejected_memories),
+            )
         # Claims from the exact Player/narrator exchange are already durable before Tier-1 runs.
         # Link actor-relative extraction beliefs to one unambiguous occurrence; never reparse the
         # exchange under a false ``extraction`` ingress or duplicate its Claim Records.
@@ -305,8 +357,8 @@ class JobRunner:
                     and getattr(spec, "living_world", True):   # and faction-front ticks
                 lw = world_ops(res.state, res.applied,
                                clock_turns=getattr(spec, "clock_turns", 6),
-                               session_id=res.session_id, branch_id=res.branch_id,
-                               turn_index=res.turn_index)
+                               session_id=b.session_id, branch_id=b.branch_id,
+                               turn_index=b.hi)
                 if lw:
                     r4 = apply_delta(self.store, b.session_id, b.branch_id, b.hi, lw,
                                      "rule", self.cfg,
@@ -347,6 +399,7 @@ class JobRunner:
         except Exception as exc:
             vios = []
             log.warning("lint pass skipped: %s", type(exc).__name__)
+
         try:                                   # L10 (03 SS9): cold-path ledger-contradiction pass
             ep_n = assist.endpoint_for_group(self.cfg, "linter_nli",   # assist/main gated, note-
                                              self.models.get(b.session_id, ""))   # only, fail-open
@@ -371,6 +424,33 @@ class JobRunner:
                            user_aliases=tuple(self.cfg.user_guard.aliases))
         except Exception as exc:
             log.warning("director pass skipped: %s", type(exc).__name__)
+
+    def _schedule_transient_retry(self, b: Batch) -> bool:
+        """Requeue one persistent-429/5xx batch later without immediate endpoint hammering."""
+        key = (b.session_id, b.branch_id, b.lo, b.hi)
+        used = self._transient_retries.get(key, 0)
+        limit = max(0, int(getattr(self.cfg.extraction, "transient_batch_retries", 1)))
+        if used >= limit:
+            self._transient_retries.pop(key, None)
+            return False
+        self._transient_retries[key] = used + 1
+        delay = max(0.0, float(getattr(self.cfg.extraction, "transient_retry_s", 2.0)))
+
+        async def fire() -> None:
+            await asyncio.sleep(delay)
+            self.store.mark_extraction(
+                b.branch_id, b.lo, b.hi, "pending", expected="failed")
+            if self.store.extraction_pending_range(b.branch_id, b.lo, b.hi):
+                log.info(
+                    "requeued transient extraction [%d,%d] after %.1fs",
+                    b.lo, b.hi, delay,
+                )
+                self.notify(b.session_id, b.branch_id, b.head)
+
+        task = asyncio.get_running_loop().create_task(fire())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return True
 
     def _lint_batch(self, b: Batch, res) -> list:
         """03 SS9: deterministic checks per turn against the batch's post-apply snapshot.

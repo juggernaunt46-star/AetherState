@@ -1,9 +1,11 @@
 """P6 (2026-07-04): update cadence, transcript intake, idle settle, restart resume."""
 from __future__ import annotations
 
+import asyncio
+
 from aetherstate.config import Config
-from aetherstate.extraction import Ladder
-from aetherstate.jobs import JobRunner
+from aetherstate.extraction import Endpoint, Ladder
+from aetherstate.jobs import Batch, JobRunner
 from aetherstate.prompts import user_message
 from aetherstate.store import Store
 
@@ -87,3 +89,51 @@ def test_resume_pending_requeues_after_restart():
     assert jobs.resume_pending() == 1 and flushed == [bid]
     cfg.extraction.mode = "rules"
     assert jobs.resume_pending() == 0                   # respects off/rules
+
+
+class _TransientFailureLadder:
+    last_failure_kind = "transient_upstream"
+    last_failure_attempts = [{"rung": 2, "kind": "transient_upstream", "status": 429}]
+
+    def get_client(self):
+        return None
+
+    async def extract(self, *_args, **_kwargs):
+        return None
+
+
+async def test_transient_batch_failure_requeues_once_later():
+    cfg = Config()
+    cfg.extraction.mode = "assist"
+    cfg.extraction.transient_retry_s = 0
+    cfg.extraction.transient_batch_retries = 1
+    store, sid, bid = _store_with_turns(1, settled=1)
+    jobs = JobRunner(store, cfg, _TransientFailureLadder())
+    notified = []
+    jobs.notify = lambda session_id, branch_id, head: notified.append(
+        (session_id, branch_id, head)
+    )
+
+    await jobs._run_batch(
+        Batch(sid, bid, 0, 0, 0),
+        Endpoint(base_url="http://example.test", model="m"),
+    )
+    await asyncio.sleep(0.01)
+
+    row = store.db.execute(
+        "SELECT extraction FROM turns WHERE branch_id=? AND turn_index=0", (bid,)
+    ).fetchone()
+    assert row["extraction"] == "pending"
+    assert notified == [(sid, bid, 0)]
+
+    await jobs._run_batch(
+        Batch(sid, bid, 0, 0, 0),
+        Endpoint(base_url="http://example.test", model="m"),
+    )
+    await asyncio.sleep(0.01)
+
+    row = store.db.execute(
+        "SELECT extraction FROM turns WHERE branch_id=? AND turn_index=0", (bid,)
+    ).fetchone()
+    assert row["extraction"] == "failed"
+    assert notified == [(sid, bid, 0)]

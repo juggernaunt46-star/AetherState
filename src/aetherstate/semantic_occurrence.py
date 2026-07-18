@@ -237,6 +237,11 @@ _REPRESENTATION_GOVERNORS = frozenset({
     "suspect", "suspected", "suspecting", "suspects",
     "simulate", "simulated", "simulates", "simulating",
     "think", "thinking", "thinks", "thought",
+    # Classification/stance uses (``treat X as evidence``) describe how represented content is
+    # handled; they do not perform a capability named inside X.  A direct medical ``treat`` still
+    # remains actual because the performed head is itself the capability/action anchor and is not
+    # part of the prefix passed to the embedding classifier.
+    "treat", "treated", "treating", "treats",
     "write", "writes", "writing", "written", "wrote",
 })
 _DIRECTIVE_GOVERNORS = frozenset({

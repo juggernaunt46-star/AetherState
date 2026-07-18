@@ -58,6 +58,8 @@ Your only job: output the CHANGES the new exchange(s) caused, as one JSON object
 - Log only CHANGES. Never restate unchanged state. If nothing tracked changed, output ops: [].
 - Past events retold, remembered, or recapped are NOT new changes. Log only what happens NOW
   in the exchange; if it only recounts the past, output ops: [].
+- Starts, attempts, preparations, offers, and movements toward an act are NOT completed acts.
+  Never log a handoff, delivery, departure, arrival, acceptance, or receipt until it occurs.
 - Use the exact names from CHARACTERS for known people. If the text clearly introduces a
   NEW named person, log them under the name the text gives. Never invent people, places, or
   items not present in the text.
@@ -157,7 +159,11 @@ affinity_adj{target,delta,reason} — how the PLAYER's standing with an NPC or f
 exchange. delta -15..15 (typical 2-8); target = the NPC's or faction's exact name. Only for
 characters/factions in CHARACTERS; never for the player themselves. Any exchange where an
 NPC's attitude toward the Player visibly warms or cools warrants one — never leave standing
-stale while the story moves it.
+stale while the story moves it. Merely answering a request, cooperating professionally, reading
+a record, giving testimony/evidence, being careful, or continuing a conversation is NOT a
+standing change. Do not infer goodwill from competent or factual behavior. Require the story to
+show an actual relational shift such as earned/lost trust or respect, warmth, resentment, fear,
+betrayal, gratitude, or hostility.
 world_flag{key,value,faction?} — a standing world circumstance changed (war declared, plague
 spreading, gates sealed). key: short snake_case name; value: a short word, number, or
 true/false; value null clears the flag. faction: name a faction to scope it to that faction.

@@ -481,6 +481,9 @@ def test_creator_frozen_loot_table_wins_over_registry_floor():
     st2 = current_state(store, bid)
     drops = [it for it in st2["items"].values() if it["name"] == "Spent Chit"]
     assert drops and drops[0]["qty"] == 2 and drops[0]["loc"] == "world"
+    assert drops[0]["dropped_by"] == "rat"
+    assert drops[0]["dropped_by_name"] == "Rat"
+    assert drops[0]["world_origin_scene"] == st2["scene"].get("scene_index", 0)
     assert "Spent Chit" in st2["combat"]["history"][-1]["loot"]
 
 

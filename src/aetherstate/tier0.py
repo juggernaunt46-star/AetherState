@@ -83,6 +83,7 @@ from .state import (
     _COMBAT_PHASES,
     EFFECT_VALENCES,
     MASTERY_TICKS,
+    canonical_location,
     combatant_label,
     slug,
     translate_path,
@@ -6653,6 +6654,7 @@ _TIME_TAG_RE = re.compile(
     r"\[\s*time\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
 _RUMOR_TAG_RE = re.compile(
     r"\[\s*rumor\s*\|\s*([^|\[\]]+?)\s*(?:\|\s*([^|\[\]]+?)\s*)?\]", re.IGNORECASE)
+_NARRATOR_SCENE_PHASES = frozenset({"opening", "setup", "rising", "climax", "lull"})
 _QUEST_NEW = {"new", "add", "added", "start", "started", "begin", "begins", "accepted",
               "offered"}
 _QUEST_STATUS_WORDS = {"complete": "complete", "completed": "complete", "done": "complete",
@@ -6681,8 +6683,17 @@ def _parse_world_tags(text: str, state: dict) -> list[dict]:
             seg = seg.strip()
             if seg.lower().startswith("present:"):
                 present = [p.strip() for p in seg[8:].split(",") if p.strip()]
-            elif len(seg) <= 40:
-                op["phase"] = seg
+            else:
+                phase = re.sub(r"^phase\s*:?[ \t]*", "", seg, flags=re.IGNORECASE).lower()
+                if phase in _NARRATOR_SCENE_PHASES:
+                    op["phase"] = phase
+        current_location = str((state.get("scene") or {}).get("location_id") or "")
+        canonical_location_id, _, _ = canonical_location(state, loc)
+        if "phase" not in op and canonical_location_id != current_location:
+            # A real location boundary starts a new dramatic scene. Invalid time-of-day
+            # values are intentionally ignored above, but must not leave a historical bad
+            # phase (for example ``night``) attached to the newly admitted location.
+            op["phase"] = "opening"
         ops.append(op)
         if present:
             names = {_tag_char(p, state) for p in present}

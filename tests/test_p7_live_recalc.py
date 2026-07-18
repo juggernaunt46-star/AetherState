@@ -176,6 +176,155 @@ def test_live_recalc_ingests_fresh_reply_tags_at_this_turn():
                for q in (st.get("quests") or {}).values())
 
 
+def test_live_recalc_pickup_transfers_exact_world_instance_without_minting_substitute():
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    apply_delta(store, sid, bid, 0, [
+        {"op": "scene_set", "location": "abandoned_lot"},
+        {"op": "item_gain", "char": "Rune", "name": "a few coins", "qty": 3},
+    ], "user", cfg)
+    iid = next(iid for iid, item in current_state(store, bid)["items"].items()
+               if item["name"] == "a few coins")
+    apply_delta(store, sid, bid, 0, [
+        {"op": "item_move", "instance": iid, "to": "world"},
+    ], "user", cfg)
+    store.write_turn_text(
+        bid, 1, user_text="I pick up the coins the Knife Scout dropped.",
+    )
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+
+    pipe._ingest_reply_tags(ctx=PostContext(sid, bid, 1, "new_turn", speaker="Narrator"),
+                            text="[item gained | Rune | Copper Coin | 3]")
+
+    state = current_state(store, bid)
+    assert state["items"][iid]["owner"] == "rune"
+    assert state["items"][iid]["name"] == "a few coins"
+    assert not any(item["name"] == "Copper Coin" for item in state["items"].values())
+    assert len(state["items"]) == 1
+
+
+def test_live_recalc_remote_pickup_rejects_without_minting_or_moving_world_item():
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    apply_delta(store, sid, bid, 0, [
+        {"op": "scene_set", "location": "abandoned_lot"},
+        {"op": "item_gain", "char": "Rune", "name": "a few coins", "qty": 3},
+    ], "user", cfg)
+    iid = next(iid for iid, item in current_state(store, bid)["items"].items()
+               if item["name"] == "a few coins")
+    apply_delta(store, sid, bid, 0, [
+        {"op": "item_move", "instance": iid, "to": "world"},
+    ], "user", cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "scene_set", "location": "quiet_lantern_courtyard"},
+    ], "user", cfg)
+    store.write_turn_text(bid, 2, user_text="I pick up the coins from the abandoned lot.")
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+
+    pipe._ingest_reply_tags(ctx=PostContext(sid, bid, 2, "new_turn", speaker="Narrator"),
+                            text="[item gained | Rune | Copper Coin | 3]")
+
+    state = current_state(store, bid)
+    assert state["items"][iid]["owner"] is None
+    assert state["items"][iid]["loc"] == "world"
+    assert not any(item["name"] == "Copper Coin" for item in state["items"].values())
+    assert len(pipe.recent_notices(sid)) == 1
+
+
+def test_deferred_item_gain_cannot_mint_substitute_for_existing_world_custody():
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    apply_delta(store, sid, bid, 0, [
+        {"op": "scene_set", "location": "abandoned_lot"},
+        {"op": "item_gain", "char": "Rune", "name": "a few coins", "qty": 3},
+    ], "user", cfg)
+    iid = next(iid for iid, item in current_state(store, bid)["items"].items()
+               if item["name"] == "a few coins")
+    apply_delta(store, sid, bid, 0, [
+        {"op": "item_move", "instance": iid, "to": "world"},
+    ], "user", cfg)
+
+    result = apply_delta(store, sid, bid, 1, [
+        {"op": "item_gain", "char": "Rune", "name": "Copper Coin", "qty": 3},
+    ], "extraction", cfg)
+
+    assert not result.applied
+    assert "existing world custody" in result.quarantined[0]["reason"]
+    state = current_state(store, bid)
+    assert state["items"][iid]["owner"] is None
+    assert len(state["items"]) == 1
+
+
+def test_live_recalc_rejects_narrator_tags_owned_by_current_realization(monkeypatch):
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    ctx = PostContext(sid, bid, 1, "new_turn", speaker="Narrator")
+    monkeypatch.setattr(
+        "aetherstate.pipeline.build_narrator_realization_from_state",
+        lambda _state: {
+            "turn": 1,
+            "forbidden_inference": [{
+                "scope_ref": "turn:1",
+                "code": "only_realized_changes_may_be_world_changes",
+            }],
+        },
+    )
+
+    before = current_state(store, bid)
+    pipe._ingest_reply_tags(
+        ctx,
+        "[status gained | Rune | Echo Thread Resonance - Cistern Lip | neutral] "
+        "[affinity | Rune | +3 | one successful scene]",
+    )
+
+    state = current_state(store, bid)
+    assert state == before
+    assert state["effects"] == {}
+
+
+def test_live_recalc_rejects_same_location_same_cast_phase_only_scene_tag():
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    seeded = apply_delta(store, sid, bid, 0, [
+        {"op": "entity_add", "name": "Jex", "kind": "npc"},
+        {"op": "entity_add", "name": "Orla", "kind": "npc"},
+        {"op": "presence", "entity": "Jex", "present": True},
+        {"op": "presence", "entity": "Orla", "present": True},
+        {"op": "scene_set", "location": "the_public_cistern", "phase": "opening"},
+    ], "genesis", cfg)
+    assert not seeded.quarantined
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    ctx = PostContext(sid, bid, 1, "new_turn", speaker="Narrator")
+
+    pipe._ingest_reply_tags(
+        ctx,
+        "The same witnesses remain at the cistern. "
+        "[scene | the_public_cistern | rising | present: Jex, Orla]",
+    )
+
+    state = current_state(store, bid)
+    assert state["scene"]["phase"] == "opening"
+    assert state["entities"]["jex"]["present"] is True
+    assert state["entities"]["orla"]["present"] is True
+
+
+def test_live_recalc_keeps_real_scene_location_change():
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    apply_delta(store, sid, bid, 0, [
+        {"op": "scene_set", "location": "the_public_cistern", "phase": "night"},
+    ], "genesis", cfg)
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    ctx = PostContext(sid, bid, 1, "new_turn", speaker="Narrator")
+
+    pipe._ingest_reply_tags(ctx, "[scene | lantern_vault | night]")
+
+    scene = current_state(store, bid)["scene"]
+    assert scene["location_id"] == "lantern_vault"
+    assert scene["phase"] == "opening"
+
+
 def test_live_recalc_passes_exact_context_to_living_world_referee():
     """A delivered reply must reach the post-ingest world pass without a stale request object."""
     cfg = _rpg_cfg()

@@ -260,6 +260,50 @@ class _BeliefLadder:
         })
 
 
+class _UnrealizedProfessionalDeltaLadder:
+    def __init__(self) -> None:
+        self.get_client = lambda: None
+
+    async def extract(self, _ep, _snapshot, _characters, t0, t1, _exchange, *, context=""):
+        assert (t0, t1) == (1, 1) and isinstance(context, str)
+        return StateDelta.model_validate({
+            "schema": "aetherstate/delta/2",
+            "turn_range": [1, 1],
+            "ops": [
+                {
+                    "op": "affinity_adj",
+                    "target": "Hoel",
+                    "delta": 2,
+                    "reason": "Accepted factual correction without dispute and amended his "
+                              "own draft accurately",
+                },
+                {
+                    "op": "memory_event",
+                    "text": "The sealed order was handed to Hoel for direct delivery",
+                },
+            ],
+        })
+
+
+class _RealizationLeakLadder:
+    def __init__(self) -> None:
+        self.get_client = lambda: None
+
+    async def extract(self, _ep, _snapshot, _characters, t0, t1, _exchange, *, context=""):
+        assert (t0, t1) == (1, 1) and isinstance(context, str)
+        return StateDelta.model_validate({
+            "schema": "aetherstate/delta/2",
+            "turn_range": [1, 1],
+            "ops": [
+                {
+                    "op": "memory_event",
+                    "text": "Mara found an invented Tribunal testimony scrap.",
+                },
+                {"op": "time_advance", "minutes": 30},
+            ],
+        })
+
+
 @pytest.mark.asyncio
 async def test_cold_extraction_links_belief_to_existing_claim_without_minting_another() -> None:
     cfg = _cfg()
@@ -302,6 +346,86 @@ async def test_cold_extraction_links_belief_to_existing_claim_without_minting_an
     assert belief["authority_ceiling"] == "actor_epistemic_only"
     assert belief["establishes_truth"] is False
     assert store.claim_records(branch) == claims_before
+
+
+@pytest.mark.asyncio
+async def test_cold_extraction_rejects_unearned_correction_and_unrealized_handoff() -> None:
+    cfg = _cfg()
+    store, sid, branch = _seeded(cfg, "extraction-professional-handoff-guards")
+    store.record_turn(branch, 1, "new_turn", "normal")
+    store.write_turn_text(
+        branch,
+        1,
+        user_text="Mara Fen: I identify the clerical error and wait.",
+        assistant_text=(
+            "Narrator: Hoel accepts the factual correction and amends his draft. "
+            "His professional manner does not warm. Ivara extends the sealed order, and "
+            "Hoel steps forward to receive it."
+        ),
+    )
+    assert store.settle_head(branch) is True
+
+    runner = JobRunner(store, cfg, _UnrealizedProfessionalDeltaLadder())
+    await runner._run_batch(
+        Batch(sid, branch, 1, 1, 1),
+        Endpoint(base_url="http://example.test", model="m"),
+    )
+
+    state = current_state(store, branch)
+    assert not state.get("affinity")
+    assert not any(
+        op.get("op") == "memory_event"
+        for row in store.db.execute(
+            "SELECT ops FROM ops_journal WHERE branch_id=?", (branch,)
+        ).fetchall()
+        for op in json.loads(row["ops"])
+    )
+    assert store.extraction_range_is(branch, 1, 1, "done")
+
+
+@pytest.mark.asyncio
+async def test_cold_extraction_cannot_reopen_a_current_code_owned_realization(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _cfg()
+    store, sid, branch = _seeded(cfg, "extraction-current-realization-fence")
+    store.record_turn(branch, 1, "new_turn", "normal")
+    store.write_turn_text(
+        branch,
+        1,
+        user_text="Mara Fen: I hold position.",
+        assistant_text="Narrator: The settled exchange ends. No item appears.",
+    )
+    assert store.settle_head(branch) is True
+    monkeypatch.setattr(
+        "aetherstate.jobs.build_narrator_realization_from_state",
+        lambda _state: {
+            "turn": 1,
+            "forbidden_inference": [{
+                "scope_ref": "turn:1",
+                "code": "only_realized_changes_may_be_world_changes",
+            }],
+        },
+    )
+
+    runner = JobRunner(store, cfg, _RealizationLeakLadder())
+    await runner._run_batch(
+        Batch(sid, branch, 1, 1, 1),
+        Endpoint(base_url="http://example.test", model="m"),
+    )
+
+    state = current_state(store, branch)
+    assert not state.get("memories")
+    assert state.get("clock", {}).get("minutes", 0) == 0
+    extracted = [
+        op
+        for row in store.db.execute(
+            "SELECT ops FROM ops_journal WHERE branch_id=? AND source='extraction'",
+            (branch,),
+        ).fetchall()
+        for op in json.loads(row["ops"])
+    ]
+    assert extracted == []
+    assert store.extraction_range_is(branch, 1, 1, "done")
 
 
 @pytest.mark.asyncio

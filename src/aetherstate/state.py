@@ -2747,6 +2747,44 @@ def _index_add(state: dict, owner, iid: str, loc: str) -> bool:
     return kind0 in ("world", "gone")
 
 
+def _stamp_world_item_origin(state: dict, item: dict) -> None:
+    """Bind an ownerless world item to the scene in which it was dropped.
+
+    A canonical location survives leaving and returning. Older/untagged scenes have no location
+    identity, so their occurrence index is the conservative fallback: once the scene changes,
+    code cannot safely claim that the same ground is under the Player again.
+    """
+    scene = state.get("scene") if isinstance(state.get("scene"), dict) else {}
+    item["world_origin_location"] = str(scene.get("location_id") or "") or None
+    item["world_origin_scene"] = int(scene.get("scene_index", 0))
+
+
+def _world_item_is_here(state: dict, item: dict) -> bool:
+    """Return whether a provenance-bearing world item is reachable in the current scene."""
+    if str(item.get("loc") or "").split(":", 1)[0] != "world" or item.get("owner"):
+        return False
+    scene = state.get("scene") if isinstance(state.get("scene"), dict) else {}
+    origin_location = str(item.get("world_origin_location") or "")
+    if origin_location:
+        return origin_location == str(scene.get("location_id") or "")
+    if "world_origin_scene" not in item:
+        return False
+    return int(item["world_origin_scene"]) == int(scene.get("scene_index", 0))
+
+
+_ITEM_REFERENCE_STOP = frozenset({"a", "an", "the", "few", "some", "several", "of"})
+
+
+def _item_reference_terms(text: object) -> set[str]:
+    """Conservative singularized item words used only to detect custody collisions."""
+    terms: set[str] = set()
+    for raw in re.findall(r"[a-z0-9]+", str(text or "").lower()):
+        word = raw[:-1] if len(raw) > 3 and raw.endswith("s") and not raw.endswith("ss") else raw
+        if word not in _ITEM_REFERENCE_STOP:
+            terms.add(word)
+    return terms
+
+
 def _resolve_instance(state: dict, token) -> Optional[str]:
     """Exact instance id, else a UNIQUE case-insensitive name match among live instances —
     extraction references items by the names the [GEAR]/[INVENTORY] blocks render (doc 07 §2:
@@ -3794,6 +3832,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         it["loc"] = new
         if new.split(":", 1)[0] in ("world", "gone"):
             it["owner"] = None
+            if new.split(":", 1)[0] == "world":
+                _stamp_world_item_origin(state, it)
     elif kind == "item_equip":                  # RPG-2 (doc 07 §7.4): inv -> gear:<slot>
         iid = _resolve_instance(state, op["instance"])
         it = state.get("items", {}).get(iid) if iid else None
@@ -3837,6 +3877,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         it["loc"] = dest
         if dest.split(":", 1)[0] in ("world", "gone"):
             it["owner"] = None
+            if dest.split(":", 1)[0] == "world":
+                _stamp_world_item_origin(state, it)
     elif kind == "item_consume":                # RPG-2 (doc 07 §7.5): qty--; baked on_consume only
         iid = _resolve_instance(state, op["instance"])
         it = state.get("items", {}).get(iid) if iid else None
@@ -3863,6 +3905,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         it = state.get("items", {}).get(iid) if iid else None
         if not it:
             raise OpReject(f"unknown item instance '{op['instance']}'")
+        if op.get("_world_pickup_checked") and not op.get("_world_pickup_here"):
+            raise OpReject("world item is not in the current scene; remote pickup rejected")
         new_owner = op["to_owner"]
         dest = str(op.get("to") or f"inv:{_default_container(state, new_owner)}")
         if dest.split(":", 1)[0] not in ("inv", "gear"):
@@ -4018,6 +4062,10 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                 while len(w) > 32:
                     w.pop(next(iter(w)))
     elif kind == "item_gain":                   # RPG-5 (G2): the organic acquisition channel.
+        if op.get("_world_item_gain_conflict"):
+            raise OpReject(
+                "item gain overlaps existing world custody; bind and transfer one exact instance"
+            )
         owner = op["char"]                                  # Re-tagged acquisitions STACK on the
         name, _embed = _split_item_qty(op["name"])          # existing row — never a dupe (the
         items = state.setdefault("items", {})               # AI-Roguelite failure mode). Counts
@@ -4243,6 +4291,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
                             and not it.get("bound"):
                         _index_remove(state, iid)
                         it["loc"], it["owner"] = "world", None
+                        _stamp_world_item_origin(state, it)
         eff = op.get("_effect") or {}           # baked condition (Battered / Dead)
         if eff.get("id"):
             effs = state.setdefault("effects", {}).setdefault(op["char"], {})
@@ -4392,7 +4441,10 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             items[iid] = {"template_id": None, "name": str(drop.get("name", "loot"))[:80],
                           "qty": max(1, int(drop.get("qty", 1))), "loc": "world",
                           "owner": None, "mods_snapshot": {}, "minted_turn": turn,
-                          "class": "inv"}       # dropped on the field; picked up via item tags
+                          "class": "inv", "dropped_by": cid,
+                          "dropped_by_name": str(row.get("name") or cid)[:80]}
+            _stamp_world_item_origin(state, items[iid])
+            # A reply pickup resolves to this exact field instance; it never mints a substitute.
             row["dropped"].append(items[iid]["name"])
     elif kind == "combat_end":                  # extras evaporate; tracked wounds PERSIST
         cb = state.get("combat")
@@ -6113,7 +6165,27 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
         out["_delta"] = 1 if target > cur else -1 if target < cur else 0   # engine owns the pace:
     if op["op"] == "battle_wave":              # at most one step/turn. a cleared wave nudges the
         out["_delta"] = int(op.get("_delta", 1))   # tide toward the player (their slice won)
+    if op["op"] == "item_transfer":
+        iid = _resolve_instance(state or {}, op.get("instance"))
+        item = ((state or {}).get("items") or {}).get(iid) if iid else None
+        if isinstance(item, dict) and str(item.get("loc") or "").split(":", 1)[0] == "world":
+            # Bake the custody check into new journal rows. Historical rows have no marker and
+            # retain their historical replay meaning; all fresh world pickups fail closed.
+            out["_world_pickup_checked"] = True
+            out["_world_pickup_here"] = _world_item_is_here(state or {}, item)
     if op["op"] == "item_gain":                # RPG-5 (G2): template-snapshot floor — a name
+        if source == "extraction":
+            wanted_terms = _item_reference_terms(op.get("name"))
+            conflicts = sorted(
+                iid for iid, item in (((state or {}).get("items") or {}).items())
+                if isinstance(item, dict) and item.get("owner") is None
+                and str(item.get("loc") or "").split(":", 1)[0] == "world"
+                and wanted_terms & _item_reference_terms(item.get("name"))
+            )
+            if conflicts:
+                # Tier-1 cannot prove whether pickup wording denotes one of these instances or a
+                # genuinely new object. Fail closed; the live reply path can bind an exact transfer.
+                out["_world_item_gain_conflict"] = conflicts
         from . import registry as _registry    # matching a curated template grounds its
         tid = None                             # mechanics; anything else commits MECHANICS-FREE
         try:                                   # (no power minted from prose) but STILL classified
@@ -6293,7 +6365,11 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
             pname = str((((state or {}).get("entities") or {}).get(peid) or {}).get("name") or peid)
             player = ((state or {}).get("player") or {}).get(peid) or {}
             last = player.get("_opposition_last") if isinstance(player, dict) else None
-            previous = str(last.get("move_id") or "") if isinstance(last, dict) else ""
+            # Cadence history is actor-local. Borrowing the last move from another live enemy
+            # makes the freshly rotated intent fail its own frozen-kit identity check, so every
+            # later referee pass journals the same replacement again.
+            previous = str(last.get("move_id") or "") \
+                if isinstance(last, dict) and str(last.get("actor") or "") == str(cid) else ""
             kit = row.get("kit") if isinstance(row.get("kit"), dict) else None
             if not kit or not kit.get("moves"):
                 # Pre-kit saves migrate through this privileged journal op.  Replay consumes the

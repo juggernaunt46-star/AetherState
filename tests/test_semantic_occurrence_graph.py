@@ -475,6 +475,42 @@ def test_governor_itself_remains_an_actual_performative(
     ]
 
 
+def test_evidence_classification_does_not_perform_named_perception_capability():
+    state = _state()
+    player = state["player"]["mage"]
+    player["skills"].update({"echo_thread": 3, "perception": 4})
+    player["defs"]["skills"].update({
+        "echo_thread": {
+            "name": "Echo Thread",
+            "keyed_stat": "INT",
+            "governs": ["trace", "resonance read"],
+        },
+        "perception": {
+            "name": "Perception",
+            "keyed_stat": "INT",
+            "governs": ["notice", "spot", "perceive", "search", "listen", "watch"],
+        },
+    })
+    text = (
+        "I use Echo Thread on the glass-stone lip of the cistern, tracing only the single "
+        "stone-on-stone sound Talin described. I treat whatever I perceive as testimony-grade "
+        "evidence, not proof."
+    )
+
+    result = _run_in_state(text, state)
+    checks = [
+        member["skill"]
+        for settlement in _settlements(result)
+        for member in settlement.get("members") or ()
+        if member.get("op") == "check"
+    ]
+    perception = next(frame for frame in _frames(result)
+                      if frame["capability_id"] == "perception")
+
+    assert checks == ["echo_thread"]
+    assert "occurrence.actuality_unbound" in perception["ambiguity"]
+
+
 @pytest.mark.parametrize(
     "text",
     [

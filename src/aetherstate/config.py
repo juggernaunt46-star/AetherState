@@ -187,6 +187,8 @@ class ExtractionConfig(BaseModel):
     #                                  always ships whole; leftover budget prepends earlier
     #                                  turns as reference-only context (recency-first).
     batch_max_turns: int = 3         # turns per extraction call
+    transient_batch_retries: int = 1  # one delayed whole-batch retry after persistent 429/5xx
+    transient_retry_s: float = 2.0   # do not immediately hammer the same limited endpoint
     fail_autodisable_after: int = 5  # consecutive failed batches -> Tier-1 off for session (09 C2)
     fail_reenable_after_turns: int = 10
     language_hint: str = ""          # (08 E8)

@@ -212,6 +212,53 @@ def test_world_tags_scene_presence_item_quest_affinity_hp():
     assert r.applied  # sanity: the batch landed
 
 
+def test_scene_tag_keeps_real_move_but_drops_time_of_day_from_phase():
+    cfg = _rpg_cfg()
+    store, _sid, bid = _seeded(cfg)
+    state = current_state(store, bid)
+
+    ops = tier0._parse_world_tags(
+        "[time | +1] "
+        "[scene | Council Public Works office | night | present: Kael, Mira]",
+        state,
+    )
+
+    scene = next(op for op in ops if op["op"] == "scene_set")
+    assert scene == {
+        "op": "scene_set",
+        "location": "Council Public Works office",
+        "phase": "opening",
+    }
+    assert any(op["op"] == "time_advance" for op in ops)
+
+
+def test_scene_tag_accepts_documented_dramatic_phases():
+    cfg = _rpg_cfg()
+    store, _sid, bid = _seeded(cfg)
+    state = current_state(store, bid)
+
+    for phase in ("opening", "setup", "rising", "climax", "lull"):
+        ops = tier0._parse_world_tags(f"[scene | The Docks | {phase}]", state)
+        assert ops[0]["phase"] == phase
+
+
+def test_scene_tag_accepts_explicit_phase_field_label():
+    cfg = _rpg_cfg()
+    store, _sid, bid = _seeded(cfg)
+    state = current_state(store, bid)
+
+    ops = tier0._parse_world_tags(
+        "[scene | Lower Siltwright Bend | phase rising | present: Kael]",
+        state,
+    )
+
+    assert ops[0] == {
+        "op": "scene_set",
+        "location": "Lower Siltwright Bend",
+        "phase": "rising",
+    }
+
+
 def test_world_tags_inert_under_none():
     cfg = Config()
     store = Store(":memory:")

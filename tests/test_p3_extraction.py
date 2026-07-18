@@ -7,12 +7,169 @@ import httpx
 import pytest
 
 from aetherstate.config import Config
-from aetherstate.extraction import (Endpoint, Ladder, delta_json_schema, parse_and_validate,
-                                    repair_json)
+from aetherstate.extraction import (Endpoint, Ladder, delta_json_schema,
+                                    filter_realization_owned_ops,
+                                    filter_unearned_social_ops,
+                                    filter_unrealized_memory_ops, parse_and_validate, repair_json)
 from aetherstate.store import Store
 from tests.mock_upstream import MockUpstream, Reply
 
 GOOD = '{"schema":"aetherstate/delta/1","turn_range":[1,1],"ops":[]}'
+
+
+def test_routine_professional_cooperation_cannot_mint_social_standing():
+    narration = (
+        "The Warden's eyes settle on you -- not with warmth, not with hostility. "
+        '"Verbatim, as you asked. I will not paraphrase." She reads the admitted record. '
+        'Orla says, "I will give it to you the way I give evidence at tribunal. Nothing added."'
+    )
+    ops = [
+        {"op": "affinity_adj", "target": "Warden Ivara", "delta": 3,
+         "reason": "engaged professionally and read the Council record verbatim"},
+        {"op": "affinity_adj", "target": "Orla", "delta": 2,
+         "reason": "gave tribunal-grade firsthand testimony without embellishment"},
+        {"op": "belief_acquire", "holder": "Vale", "statement": "the record is scoped",
+         "stance": "believes", "evidence_source": "told", "teller": "Warden Ivara"},
+    ]
+
+    kept, rejected = filter_unearned_social_ops(ops, narration)
+
+    assert kept == [ops[2]]
+    assert rejected == ops[:2]
+
+
+def test_factual_record_correction_cannot_mint_social_standing():
+    narration = (
+        "Voss accepts the factual correction and amends his draft. "
+        "Ivara is not grateful or warm; she remains assessing."
+    )
+    ops = [
+        {"op": "affinity_adj", "target": "Halren Voss", "delta": 2,
+         "reason": "Accepted factual correction without dispute and amended his own draft "
+                   "accurately"},
+        {"op": "affinity_adj", "target": "Warden Ivara", "delta": 1,
+         "reason": "Acknowledged her dating error and corrected the record"},
+    ]
+
+    kept, rejected = filter_unearned_social_ops(ops, narration)
+
+    assert kept == []
+    assert rejected == ops
+
+
+def test_explicit_narrated_relational_shift_preserves_social_proposal():
+    narration = (
+        'Ivara lowers the record. "You handled this carefully. You have earned my respect, Vale."'
+    )
+    op = {"op": "affinity_adj", "target": "Warden Ivara", "delta": 3,
+          "reason": "careful handling of the admitted record earned her respect"}
+
+    kept, rejected = filter_unearned_social_ops([op], narration)
+
+    assert kept == [op]
+    assert rejected == []
+
+
+def test_social_guard_is_narrow_to_routine_cooperation_reasons():
+    op = {"op": "relationship_adj", "from_char": "Mara", "to_char": "Vess",
+          "dimension": "trust", "delta": -25, "reason": "admitted year-long deception"}
+
+    kept, rejected = filter_unearned_social_ops([op], "Mara reels from Vess's betrayal.")
+
+    assert kept == [op]
+    assert rejected == []
+
+
+def test_incipent_handoff_cannot_become_completed_memory():
+    narration = (
+        "Ivara extends the sealed order toward Dennic. "
+        "Dennic steps forward to receive it."
+    )
+    op = {
+        "op": "memory_event",
+        "text": "The sealed order was handed to Dennic Auer for direct delivery to Voss",
+        "participants": ["Ivara", "Dennic Auer"],
+        "importance": 5,
+        "tags": ["order_dispatched"],
+    }
+
+    kept, rejected = filter_unrealized_memory_ops([op], narration)
+
+    assert kept == []
+    assert rejected == [op]
+
+
+def test_realized_handoff_preserves_completed_memory():
+    narration = (
+        "Ivara extends the sealed order toward Dennic. "
+        "Dennic steps forward to receive it. Ivara places the order in his hands. "
+        "Dennic accepts the order and closes his dispatch case."
+    )
+    op = {
+        "op": "memory_event",
+        "text": "The sealed order was handed to Dennic Auer for direct delivery to Voss",
+    }
+
+    kept, rejected = filter_unrealized_memory_ops([op], narration)
+
+    assert kept == [op]
+    assert rejected == []
+
+
+def test_unrealized_handoff_guard_does_not_touch_unrelated_memory():
+    narration = "Dennic steps forward to receive the sealed order."
+    op = {"op": "memory_event", "text": "Morning watch began at the Public Cistern."}
+
+    kept, rejected = filter_unrealized_memory_ops([op], narration)
+
+    assert kept == [op]
+    assert rejected == []
+
+
+def test_current_realization_fences_deferred_world_changes_but_keeps_actor_belief():
+    realization = {
+        "turn": 9,
+        "forbidden_inference": [{
+            "scope_ref": "turn:9",
+            "code": "only_realized_changes_may_be_world_changes",
+        }],
+    }
+    ops = [
+        {"op": "item_gain", "char": "Vale", "item": "invented testimony scrap"},
+        {"op": "hp_adj", "char": "Vale", "delta": -3},
+        {"op": "memory_event", "text": "Vale found an invented testimony scrap."},
+        {
+            "op": "belief_acquire",
+            "holder": "Vale",
+            "statement": "the gate is shut",
+            "stance": "believes",
+            "evidence_source": "told",
+            "teller": "Ivara",
+        },
+    ]
+
+    kept, rejected = filter_realization_owned_ops(ops, realization, turn=9)
+
+    assert kept == [ops[3]]
+    assert rejected == ops[:3]
+
+
+@pytest.mark.parametrize("realization,turn", [
+    (None, 9),
+    ({"turn": 8, "forbidden_inference": [{
+        "scope_ref": "turn:8",
+        "code": "only_realized_changes_may_be_world_changes",
+    }]}, 9),
+    ({"turn": 9, "forbidden_inference": []}, 9),
+])
+def test_missing_stale_or_incomplete_realization_does_not_fence_extraction(
+        realization, turn):
+    ops = [{"op": "memory_event", "text": "A witnessed event."}]
+
+    kept, rejected = filter_realization_owned_ops(ops, realization, turn=turn)
+
+    assert kept == ops
+    assert rejected == []
 
 
 def chat_reply(content: str, status: int = 200) -> Reply:
@@ -339,6 +496,31 @@ async def test_persistent_429_aborts_ladder_without_strike_or_walkdown(harness):
     assert len(mock.requests) == 3                                  # no rung-3/4 hammering
     assert store.caps_get(EP.base_url, EP.model)["failures"] == 0   # no demotion pressure
     assert store.caps_get(EP.base_url, EP.model)["rung"] == 2
+    assert ladder.last_failure_kind == "transient_upstream"
+    assert ladder.last_failure_attempts == [{
+        "rung": 2,
+        "kind": "transient_upstream",
+        "status": 429,
+    }]
+
+
+async def test_validation_exhaustion_records_bounded_diagnostics(harness):
+    mock, ladder, cfg, store = harness
+    store.caps_set(EP.base_url, EP.model, 4)
+    mock.enqueue(chat_reply("not json"))
+    mock.enqueue(chat_reply("still not json"))
+
+    delta = await ladder.extract(EP, "s", "c", 9, 9, "x")
+
+    assert delta is None
+    assert ladder.last_failure_kind == "validation"
+    assert ladder.last_failure_attempts == [{
+        "rung": 4,
+        "kind": "validation",
+        "raw_chars": 14,
+        "raw_sha256": ladder.last_failure_attempts[0]["raw_sha256"],
+    }]
+    assert len(ladder.last_failure_attempts[0]["raw_sha256"]) == 64
 
 
 # ------------------------------ Q17: op vocabulary at schema rungs (live eval #1) ------------------------------

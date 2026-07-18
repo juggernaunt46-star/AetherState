@@ -25,6 +25,8 @@ _NAME = r"[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*){0,2}"
 _NAME_AT_END = re.compile(rf"(?P<name>{_NAME})\s*$")
 _QUOTE = re.compile(r'["“](.*?)["”]', re.DOTALL)
 _CONTENT_MARKER = re.compile(r"\b(?:that|whether|about)\b", re.IGNORECASE)
+_BARE_TELL_GOVERNORS = frozenset({"tell", "tells", "told", "telling"})
+_ADDRESSEE_PRONOUN = re.compile(r"\b(?:me|us|you|him|her|them)\b", re.IGNORECASE)
 _CONDITION = re.compile(r"\b(?:if|unless|provided\s+that|as\s+long\s+as)\b", re.IGNORECASE)
 _NEGATION = re.compile(
     r"\b(?:not|never|no\s+longer|cannot|can't|didn't|doesn't|isn't|wasn't|won't|wouldn't)\b",
@@ -115,6 +117,7 @@ _CLAIM_PRONOUN_SUBJECT = re.compile(
     re.IGNORECASE,
 )
 _CLAIM_NAMED_SUBJECT = re.compile(rf"\b{_NAME}(?:\s+\w+ly){{0,2}}\s*$")
+_CONTEXTUAL_SPEAKER_PRONOUNS = frozenset({"i", "we", "you", "he", "she", "they", "it"})
 _NOMINAL_GOVERNOR_SURFACES = frozenset({
     "state", "states", "report", "reports", "thought", "recall", "witness",
     "witnesses", "forecast", "forecasts", "promise", "promises", "quote", "quotes",
@@ -178,6 +181,43 @@ def _addressee_between(
     match = matches[-1]
     start, end = governor_end + match.start(), governor_end + match.end()
     return text[start:end], (start, end)
+
+
+def _bare_tell_addressee(
+    text: str,
+    governor_start: int,
+    governor_end: int,
+    sentence_end: int,
+) -> tuple[tuple[int, int] | None, int | None]:
+    """Split ``told <recipient> <content>`` when no explicit content marker exists.
+
+    ClaimFrame already handles ``told Ryn that ...`` through the bounded gap before ``that``.
+    Natural testimony often drops that complementizer: ``told me he left`` or ``told Ryn it
+    failed``.  In that one governor family, the leading object is grammatical recipient
+    evidence, not part of the proposition.  Keep the rule deliberately narrow so other claim
+    governors do not guess at free-form noun phrases.
+    """
+
+    if text[governor_start:governor_end].casefold() not in _BARE_TELL_GOVERNORS:
+        return None, None
+    cursor = governor_end
+    while cursor < sentence_end and text[cursor] in " \t,:;-":
+        cursor += 1
+    if cursor >= sentence_end:
+        return None, None
+    tail = text[cursor:sentence_end]
+    pronoun = _ADDRESSEE_PRONOUN.match(tail)
+    named = re.match(rf"(?P<name>{_NAME})(?=\b)", tail)
+    match = pronoun or named
+    if match is None:
+        return None, None
+    addressee_end = cursor + match.end()
+    proposition_start = addressee_end
+    while proposition_start < sentence_end and text[proposition_start] in " \t,:;-":
+        proposition_start += 1
+    if proposition_start >= sentence_end:
+        return None, None
+    return (cursor, addressee_end), proposition_start
 
 
 _NON_IDENTITY_LEADS = frozenset({"a", "an", "the", "this", "that", "these", "those"})
@@ -364,6 +404,15 @@ def build_claim_frames(
         else:
             proposition_start, quotation = _content_start(source_text, match.end, sentence_end)
             proposition_end = quotation[1] - 1 if quotation else sentence_end
+            bare_addressee_bounds = None
+            if quotation is None and _CONTENT_MARKER.search(
+                source_text, match.end, sentence_end
+            ) is None:
+                bare_addressee_bounds, bare_proposition_start = _bare_tell_addressee(
+                    source_text, match.start, match.end, sentence_end
+                )
+                if bare_proposition_start is not None:
+                    proposition_start = bare_proposition_start
         proposition_start, proposition_end = _trim_span(
             source_text, proposition_start, proposition_end
         )
@@ -384,9 +433,24 @@ def build_claim_frames(
             addressee, addressee_bounds = None, None
         else:
             speaker, speaker_bounds = _speaker_before(source_text, match.start, speaker_floor)
-            addressee, addressee_bounds = _addressee_between(
-                source_text, match.end, proposition_start
-            )
+            if bare_addressee_bounds is not None:
+                addressee_bounds = bare_addressee_bounds
+                addressee = source_text[addressee_bounds[0]:addressee_bounds[1]]
+            else:
+                addressee, addressee_bounds = _addressee_between(
+                    source_text, match.end, proposition_start
+                )
+        # Narrator prose commonly surrounds quoted NPC speech with pronoun attribution
+        # (``he says ... \"I think ...\"``).  Without an exact named dialogue construction,
+        # the local pronoun is not durable evidence of who made the claim.  Fail closed instead
+        # of recording a contextless ``I``/``he`` as a world speaker; richer coreference belongs
+        # to a separately evidenced resolver.
+        if ingress == "narrator" and dialogue is None and (
+            speaker is None
+            or speaker.casefold() in _CONTEXTUAL_SPEAKER_PRONOUNS
+            or speaker.casefold().split()[0] in _NON_IDENTITY_LEADS
+        ):
+            continue
         speaker_span = _evidence_span(source_text, *speaker_bounds) if speaker_bounds else None
         addressee_span = _evidence_span(source_text, *addressee_bounds) if addressee_bounds else None
         governor_span = _evidence_span(source_text, match.start, match.end)

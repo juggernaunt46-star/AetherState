@@ -16,7 +16,8 @@ from aetherstate import tier0
 from aetherstate.compose import (_attach_current_directive, _current_narration_overlay_state,
                                  _render_directive, _without_stale_engine_context)
 from aetherstate.config import Config
-from aetherstate.enemy_kits import build_enemy_kit, grounded_actor_armament
+from aetherstate.enemy_kits import (build_enemy_kit, grounded_actor_armament,
+                                    intent_matches_frozen_kit)
 from aetherstate.extraction import StateDelta
 from aetherstate.hud import hud_view
 from aetherstate.jobs import JobRunner
@@ -1453,6 +1454,33 @@ def test_committed_intent_resolves_exact_move_then_rotates_once():
     assert nxt["move_name"] in rendered
     assert "not passive readiness, a reset, or a skipped enemy turn" in rendered
     assert "Player's response window" in rendered
+
+
+def test_multi_enemy_rotation_does_not_borrow_previous_move_identity_across_actors():
+    cfg, store, sid, bid = _seeded(hp_max=100)
+    first_spawn = apply_delta(store, sid, bid, 1, [
+        {"op": "combatant_spawn", "name": "Rifleman", "side": "enemy",
+         "tier": "minion", "armament": "assault carbine"},
+    ], "rule", cfg)
+    apply_delta(store, sid, bid, 1, [
+        {"op": "combatant_spawn", "name": "Knife Scout", "side": "enemy",
+         "tier": "minion", "armament": "knife"},
+    ], "rule", cfg)
+    first = dict(first_spawn.state["combat"]["pending_intent"])
+    opposition = tier0._opposition_op(current_state(store, bid), cfg, turn=2)
+    assert opposition is not None and opposition["_opposition"]["actor"] == first["actor"]
+    settled = apply_delta(store, sid, bid, 2, [opposition], "rule", cfg)
+    rotated = _apply_referee(cfg, store, sid, bid, 2, settled.applied)
+    assert rotated is not None and rotated.applied
+
+    state = current_state(store, bid)
+    pending = state["combat"]["pending_intent"]
+    assert pending["actor"] == "knife_scout"
+    assert pending["previous_move_id"] == ""
+    assert intent_matches_frozen_kit(
+        pending, state["combat"]["combatants"]["knife_scout"]
+    )
+    assert combat_ops(state, settled.applied) == []
 
 
 def test_settled_enemy_hp_action_cannot_acquire_a_narrator_authored_condition():

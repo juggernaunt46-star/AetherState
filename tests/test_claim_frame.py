@@ -103,6 +103,64 @@ def test_addressee_is_separate_from_proposition() -> None:
     assert row["semantic_features"]["modality"]["value"] == "might"
 
 
+@pytest.mark.parametrize(
+    ("text", "speaker", "addressee", "proposition"),
+    (
+        (
+            "Essik told me he got it from his cousin, Marek.",
+            "Essik",
+            "me",
+            "he got it from his cousin, Marek",
+        ),
+        (
+            "Marek told Essik it wasn't just wet stone.",
+            "Marek",
+            "Essik",
+            "it wasn't just wet stone",
+        ),
+        (
+            "Marek told Warden Ivara the eastern grate was wet.",
+            "Marek",
+            "Warden Ivara",
+            "the eastern grate was wet",
+        ),
+    ),
+)
+def test_bare_tell_recipient_is_not_swallowed_by_proposition(
+    text: str,
+    speaker: str,
+    addressee: str,
+    proposition: str,
+) -> None:
+    row = _frames(text)[0]
+    assert row["speaker"] == speaker
+    assert row["addressee"] == addressee
+    assert row["addressee_span"]["text"] == addressee
+    assert row["proposition"] == proposition
+    assert row["proposition_span"]["text"] == proposition
+    assert row["establishes_truth"] is False
+
+
+def test_narrator_nested_report_sentences_keep_recipients_out_of_claim_content() -> None:
+    text = (
+        "Essik told me he got it from his cousin, Marek, who runs a water-cart. "
+        "Marek told Essik it wasn't just wet stone."
+    )
+    fabric = load_default_semantic_fabric()
+    rows = build_claim_frames(
+        text,
+        fabric.translate(text),
+        ingress="narrator",
+        source_id="narrator",
+    )
+    assert [(row["speaker"], row["addressee"], row["proposition"]) for row in rows] == [
+        ("Essik", "me", "he got it from his cousin, Marek, who runs a water-cart"),
+        ("Marek", "Essik", "it wasn't just wet stone"),
+    ]
+    assert all(row["nested_attribution_depth"] == 0 for row in rows)
+    assert all(row["establishes_truth"] is False for row in rows)
+
+
 def test_nominal_promise_mentions_are_not_fresh_promise_occurrences() -> None:
     for text in (
         "Your promise to this Guild, investigator.",
@@ -159,6 +217,35 @@ def test_direct_and_inverted_quoted_dialogue_build_exact_attributed_assertions()
         assert row["establishes_truth"] is False
         assert row["establishes_occurrence"] is False
     assert direct_row["proposition_identity"] == inverted_row["proposition_identity"]
+
+
+def test_narrator_unresolved_speaker_inside_dialogue_abstains() -> None:
+    text = (
+        'Talin meets your eyes. "Stormtide 7," he says. '
+        '"The other figure was moving — gesturing, I think, though I could not see hands. '
+        'I will not swear to it. That is everything I personally witnessed. If you ask, '
+        'I will tell you I do not know."'
+    )
+    meaning = load_default_semantic_fabric().translate(text)
+
+    assert build_claim_frames(
+        text,
+        meaning,
+        ingress="narrator",
+        source_id="Glasswake Tribunal",
+    ) == []
+
+
+def test_narrator_determiner_before_nominal_tell_is_not_a_speaker() -> None:
+    text = "The tell is clear: everything is committed to the next motion."
+    meaning = load_default_semantic_fabric().translate(text)
+
+    assert build_claim_frames(
+        text,
+        meaning,
+        ingress="narrator",
+        source_id="narrator",
+    ) == []
 
 
 @pytest.mark.parametrize(

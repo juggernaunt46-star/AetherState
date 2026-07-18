@@ -22,6 +22,7 @@ abort the ladder (the batch re-runs later; walking down rungs would just hammer 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
@@ -35,6 +36,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from . import prompts
+from .narrator_realization import narrator_realization_owns_turn
 from .state import _SPEC as OP_SPEC          # required-field sets (02 SS11)
 from .state import OP_FIELD_ENUMS            # per-op vocabularies (single source of truth)
 
@@ -151,6 +153,130 @@ _EXTRACTION_FIELD_ENUMS: dict[str, dict[str, list]] = {
         "evidence_source": ["inferred", "overheard", "told", "witnessed"],
     },
 }
+
+
+# Live claim/epistemic campaign 2026-07-18: a state logger twice converted ordinary
+# professional cooperation (reading a requested record; repeating requested testimony) into
+# positive Player standing. The model may still propose social changes, but routine cooperation
+# is not itself evidence that a relationship changed. This narrow apply-side filter catches the
+# recurring bad reasons while preserving them when the delivered narration explicitly records a
+# relational shift. It deliberately does not try to infer every possible social change.
+_ROUTINE_COOPERATION_REASON = re.compile(
+    r"\b(?:factual\s+correction|amend\w*.{0,30}\bdraft|"
+    r"acknowledg\w*.{0,30}\berror|correct\w*.{0,30}\b(?:draft|error|record)|"
+    r"answer(?:ed|ing)?|careful(?:ly)?|compli(?:ed|ance)|cooperat\w*|"
+    r"evidence|explain(?:ed|ing)?|gave|provid(?:ed|ing)?|profession\w*|read|"
+    r"record|scope|testimon\w*|tribunal|verbatim|without embellishment)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_RELATIONAL_SHIFT = re.compile(
+    r"\b(?:"
+    r"attitude|affection|affinity|fondness|loyalty|relationship|respect|standing|trust"
+    r")\b.{0,80}\b(?:"
+    r"changed?|deepened?|earned?|fell|grew|improved?|increased?|lost|rose|shifted?|worsened?"
+    r")\b|"
+    r"\b(?:earned?|gained?|lost)\b.{0,50}\b(?:respect|trust|loyalty|standing)\b|"
+    r"\b(?:forg(?:ave|iven)|resent(?:s|ed)?|soften(?:s|ed)?|warm(?:s|ed)? to|"
+    r"cool(?:s|ed)? toward|turn(?:s|ed)? hostile|grow(?:s|n)? wary)\b|"
+    r"\b(?:betray(?:s|ed|al)?|saved? (?:his|her|their) life)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Live claim/epistemic campaign 2026-07-18, turn 15: narration ended with a courier
+# merely stepping forward *to receive* a sealed order, while deferred extraction promoted
+# that onset into the completed memory "the sealed order was handed to Dennic".  Memory is
+# durable recall material, so an infinitive/incipient handoff cannot authorize a completed
+# transfer.  Keep this apply-side guard deliberately narrow to explicit handoff completion;
+# the prompt carries the broader instruction and the model may still log other events.
+_COMPLETED_HANDOFF_MEMORY = re.compile(
+    r"\b(?:was|were|is|are|has been|had been)\s+"
+    r"(?:delivered|handed|passed|transferred)\b|"
+    r"\b(?:accepted|received|took custody of)\b.{0,80}\b"
+    r"(?:document|envelope|letter|order|packet)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_INCIPIENT_HANDOFF_NARRATION = re.compile(
+    r"\b(?:begins?|moves?|reaches?|steps?)\b[^.!?\n]{0,100}\bto\s+"
+    r"(?:accept|receive|take)\b[^.!?\n]*",
+    re.IGNORECASE,
+)
+_REALIZED_HANDOFF_NARRATION = re.compile(
+    r"\b(?:accepts?|accepted|receives?|received|takes?|took)\b.{0,60}\b"
+    r"(?:document|envelope|letter|order|packet)\b|"
+    r"\b(?:document|envelope|letter|order|packet)\b.{0,60}\b"
+    r"(?:changes hands|is delivered|is handed|is passed|is transferred|"
+    r"was delivered|was handed|was passed|was transferred)\b|"
+    r"\b(?:hands?|handed|passes?|passed|transfers?|transferred)\b.{0,80}\b"
+    r"(?:document|envelope|letter|order|packet)\b.{0,40}\bto\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def filter_unearned_social_ops(ops: list[dict], narration: str) \
+        -> tuple[list[dict], list[dict]]:
+    """Reject routine-cooperation social proposals without explicit narrated change.
+
+    Extraction reasons are untrusted model summaries. When one describes only compliance,
+    testimony, evidence delivery, or professional care, it cannot by itself authorize affinity
+    or relationship movement. Explicit delivered narration of a relational shift overrides the
+    narrow routine-cooperation guard. Returns ``(kept, rejected)`` for traceable job logging.
+    """
+    explicit_shift = bool(_EXPLICIT_RELATIONAL_SHIFT.search(narration or ""))
+    kept: list[dict] = []
+    rejected: list[dict] = []
+    for op in ops:
+        if op.get("op") not in {"affinity_adj", "relationship_adj"}:
+            kept.append(op)
+            continue
+        reason = str(op.get("reason") or "")
+        if _ROUTINE_COOPERATION_REASON.search(reason) and not explicit_shift:
+            rejected.append(op)
+        else:
+            kept.append(op)
+    return kept, rejected
+
+
+def filter_unrealized_memory_ops(ops: list[dict], narration: str) \
+        -> tuple[list[dict], list[dict]]:
+    """Reject a completed handoff memory when narration only begins that handoff.
+
+    The infinitive onset is stripped before looking for a real completion, so "steps forward
+    to receive the order" cannot satisfy the completion test with its own word ``receive``.
+    Returns ``(kept, rejected)`` for traceable job logging.
+    """
+    story = narration or ""
+    has_inception = bool(_INCIPIENT_HANDOFF_NARRATION.search(story))
+    story_without_inception = _INCIPIENT_HANDOFF_NARRATION.sub("", story)
+    has_completion = bool(_REALIZED_HANDOFF_NARRATION.search(story_without_inception))
+    kept: list[dict] = []
+    rejected: list[dict] = []
+    for op in ops:
+        if op.get("op") == "memory_event" \
+                and _COMPLETED_HANDOFF_MEMORY.search(str(op.get("text") or "")) \
+                and has_inception and not has_completion:
+            rejected.append(op)
+        else:
+            kept.append(op)
+    return kept, rejected
+
+
+def filter_realization_owned_ops(
+        ops: list[dict], realization: object, *, turn: int,
+) -> tuple[list[dict], list[dict]]:
+    """Fence deferred world changes after code has fully realized this turn.
+
+    A complete current narrator realization is the closed list of world changes authorized by
+    the semantic/mechanic settlement.  Tier-1 runs later and must not reopen that settlement
+    from prose.  Actor-relative ``belief_acquire`` remains admissible because it records what a
+    character believes without establishing world truth; every other extraction op is a world,
+    body, social, temporal, or durable-memory mutation.  Missing, stale, or incomplete packets
+    preserve the legacy extraction path.
+    """
+    if not narrator_realization_owns_turn(realization, turn):
+        return list(ops), []
+    kept = [op for op in ops if op.get("op") == "belief_acquire"]
+    rejected = [op for op in ops if op.get("op") != "belief_acquire"]
+    return kept, rejected
 
 
 def _field_enums(kind: str) -> dict[str, list]:
@@ -599,6 +725,8 @@ class Ladder:
         self._forced_native: dict[tuple[str, str], str] = {}   # force_rung=1 dialect, in-memory
         self.last_rung: Optional[int] = None                   # rung of the last result
         self.last_raw: Optional[str] = None                    # raw model text of last extract (evals/debug)
+        self.last_failure_kind: Optional[str] = None           # bounded batch retry/diagnostic class
+        self.last_failure_attempts: list[dict] = []            # never stores raw provider content
         self.retry_sleep = asyncio.sleep                       # injectable for tests
 
     # -- probing --
@@ -797,6 +925,8 @@ class Ladder:
                       context: str = "") -> Optional[StateDelta]:
         seed = await self.rung_for(ep)
         self.last_raw = None
+        self.last_failure_kind = None
+        self.last_failure_attempts = []
         user = prompts.user_message(state_snapshot, characters, t0, t1, exchange,
                                     self.cfg.extraction.language_hint, ep.assist_tier,
                                     context=context)
@@ -810,14 +940,27 @@ class Ladder:
             except TransientUpstreamError as exc:       # 429/5xx: abort, no strike, retry later
                 log.warning("rung %d aborted (transient upstream %d — no strike): %s",
                             rung, exc.status, exc.snippet)
+                self.last_failure_kind = "transient_upstream"
+                self.last_failure_attempts.append({
+                    "rung": rung, "kind": "transient_upstream", "status": exc.status,
+                })
                 break
             except httpx.HTTPStatusError as exc:        # 4xx: capability signal
                 log.warning("rung %d call failed: upstream %d: %s", rung,
                             exc.response.status_code, exc.response.text[:300])
+                self.last_failure_kind = "call_failure"
+                self.last_failure_attempts.append({
+                    "rung": rung, "kind": "http_4xx",
+                    "status": exc.response.status_code,
+                })
                 self._strike(ep, rung, seed)
                 continue
             except Exception as exc:
                 log.warning("rung %d call failed: %s", rung, type(exc).__name__)
+                self.last_failure_kind = "call_failure"
+                self.last_failure_attempts.append({
+                    "rung": rung, "kind": "exception", "type": type(exc).__name__,
+                })
                 self._strike(ep, rung, seed)
                 continue
             delta = parse_and_validate(raw)
@@ -833,9 +976,25 @@ class Ladder:
                 if rung == seed:      # success at a LOWER rung doesn't absolve the seed rung:
                     self.store.caps_ok(ep.base_url, ep.model)   # 06 A.2 counts per-rung failures
                 self.last_rung = rung
+                self.last_failure_kind = None
+                self.last_failure_attempts = []
                 return delta
+            raw_final = self.last_raw or ""
+            self.last_failure_kind = "validation"
+            self.last_failure_attempts.append({
+                "rung": rung,
+                "kind": "validation",
+                "raw_chars": len(raw_final),
+                "raw_sha256": hashlib.sha256(raw_final.encode("utf-8")).hexdigest(),
+            })
             self._strike(ep, rung, seed)
         self.last_rung = None
+        log.warning(
+            "extraction ladder exhausted: kind=%s seed=%d attempts=%s",
+            self.last_failure_kind or "unknown",
+            seed,
+            self.last_failure_attempts,
+        )
         return None                                     # non-fatal: previous state stands
 
     def _strike(self, ep: Endpoint, rung: int, seed: int) -> None:

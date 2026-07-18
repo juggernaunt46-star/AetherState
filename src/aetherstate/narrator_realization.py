@@ -104,6 +104,20 @@ FORBIDDEN_INFERENCE_CODES = (
     "mechanic_numbers_are_not_story_language",
 )
 
+
+def narrator_realization_owns_turn(realization: object, turn: int) -> bool:
+    """Return whether one complete realization closes world-change authority for ``turn``."""
+    return bool(
+        isinstance(realization, Mapping)
+        and realization.get("turn") == turn
+        and any(
+            isinstance(row, Mapping)
+            and row.get("scope_ref") == f"turn:{turn}"
+            and row.get("code") == "only_realized_changes_may_be_world_changes"
+            for row in realization.get("forbidden_inference", [])
+        )
+    )
+
 _FINGERPRINT_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _STABLE_REF_RE = re.compile(r"[a-z0-9][a-z0-9_.:-]{0,159}\Z")
 _ENTITY_REF_RE = re.compile(r"[a-z0-9][a-z0-9_.:-]*(?:#[1-9][0-9]*)?\Z")

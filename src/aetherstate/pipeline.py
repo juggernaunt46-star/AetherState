@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import random
+import re
 import time
 from collections import OrderedDict
 from collections.abc import Mapping
@@ -34,6 +35,8 @@ from .narration_pre_display_guard import (
     build_narration_guard_basis,
     guard_narration_story,
 )
+from .narrator_realization import (build_narrator_realization_from_state,
+                                   narrator_realization_owns_turn)
 from .response_wire import decode_chat_story
 from .semantic_bootstrap_runtime import build_semantic_bootstrap_proof
 from .semantic_narration_orchestrator import (
@@ -45,8 +48,9 @@ from .semantic_narration_orchestrator import (
 )
 from .session_engine import SessionEngine
 from . import memory
-from .state import (apply_delta, assign_damage_effect_ids, battle_ops, combat_ops, current_state,
-                    empty_state, progression_ops, reduce_state, world_ops)
+from .state import (_norm_loc, apply_delta, assign_damage_effect_ids, battle_ops, combat_ops,
+                    current_state, empty_state, progression_ops, reduce_state,
+                    resolve_entity_ref, world_ops)
 from .stamps import Stamp
 from .store import Store
 from .turn_lifecycle import (
@@ -82,6 +86,105 @@ class SemanticGateConflict(ValueError):
 def _live_recalc(cfg) -> bool:
     """True when the newest reply is ingested immediately (default). Bean 2026-07-07."""
     return bool(getattr(getattr(cfg, "extraction", None), "live_recalc", True))
+
+
+def _drop_redundant_scene_restatement(
+    ops: list[dict], state: dict, combat_tags: list[dict]
+) -> tuple[list[dict], bool]:
+    """Ignore a narrator scene tag that only re-labels the current phase.
+
+    The wire contract requires ``[scene]`` when location or on-stage cast changes; ``phase`` is
+    optional metadata on that real boundary. Repeating the same location and already-present cast
+    is not authority to advance the dramatic phase. A combat declaration is exempt because its
+    code-owned spawn is itself the scene boundary even when the location remains unchanged.
+    """
+    scene_ops = [op for op in ops if op.get("op") == "scene_set"]
+    if not scene_ops or combat_tags:
+        return ops, False
+    scene = state.get("scene") if isinstance(state.get("scene"), dict) else {}
+    current_location = str(scene.get("location_id") or scene.get("location") or "")
+    if not current_location or any(
+        _norm_loc(str(op.get("location") or "")) != _norm_loc(current_location)
+        for op in scene_ops
+    ):
+        return ops, False
+    entities = state.get("entities") if isinstance(state.get("entities"), dict) else {}
+    presence_ops = [op for op in ops if op.get("op") == "presence"]
+    for op in presence_ops:
+        entity = resolve_entity_ref(state, op.get("entity"))
+        row = entities.get(entity)
+        if not isinstance(row, dict) or bool(row.get("present")) != bool(op.get("present")):
+            return ops, False
+    return [op for op in ops if op.get("op") not in {"scene_set", "presence"}], True
+
+
+_PICKUP_ACTION_RE = re.compile(
+    r"\b(?:pick(?:ing|ed)?\s+up|collect(?:ing|ed|s)?|gather(?:ing|ed|s)?|"
+    r"grab(?:bing|bed|s)?|loot(?:ing|ed|s)?|retriev(?:e|es|ed|ing)|recover(?:ing|ed|s)?)\b",
+    re.IGNORECASE,
+)
+_ITEM_WORD_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
+_ITEM_REFERENCE_STOP = frozenset({"a", "an", "the", "few", "some", "several", "of"})
+
+
+def _item_reference_terms(text: object) -> set[str]:
+    terms: set[str] = set()
+    for raw in _ITEM_WORD_RE.findall(str(text or "").lower()):
+        word = raw[:-1] if len(raw) > 3 and raw.endswith("s") and not raw.endswith("ss") else raw
+        if word not in _ITEM_REFERENCE_STOP:
+            terms.add(word)
+    return terms
+
+
+def _bind_reply_pickups(
+    ops: list[dict], state: dict, player_text: str,
+) -> tuple[list[dict], int]:
+    """Turn a narrated pickup into custody transfer of one exact world instance.
+
+    Organic gifts/finds still use ``item_gain``. When the Player explicitly retrieves a named
+    field object, however, a loosely renamed reply tag may not mint a substitute. The object and
+    optional defeated source must resolve uniquely; reachability is enforced by ``item_transfer``.
+    """
+    if not _PICKUP_ACTION_RE.search(player_text or ""):
+        return ops, 0
+    player_terms = _item_reference_terms(player_text)
+    world_items = [
+        (iid, item) for iid, item in ((state.get("items") or {}).items())
+        if isinstance(item, dict) and item.get("owner") is None
+        and str(item.get("loc") or "").split(":", 1)[0] == "world"
+    ]
+    bound: list[dict] = []
+    rejected = 0
+    for op in ops:
+        if op.get("op") != "item_gain":
+            bound.append(op)
+            continue
+        gain_terms = _item_reference_terms(op.get("name"))
+        candidates = [
+            (iid, item) for iid, item in world_items
+            if (_item_reference_terms(item.get("name")) & player_terms)
+            and (_item_reference_terms(item.get("name")) & gain_terms)
+        ]
+        source_hits = [
+            pair for pair in candidates
+            if _item_reference_terms(pair[1].get("dropped_by_name"))
+            and _item_reference_terms(pair[1].get("dropped_by_name")) <= player_terms
+        ]
+        if source_hits:
+            candidates = source_hits
+        if not candidates:
+            bound.append(op)  # no field-object reference: preserve the organic acquisition path
+            continue
+        if len(candidates) != 1:
+            rejected += 1
+            continue
+        iid, item = candidates[0]
+        tagged_qty = op.get("qty")
+        if tagged_qty is not None and int(tagged_qty) != int(item.get("qty", 1)):
+            rejected += 1
+            continue
+        bound.append({"op": "item_transfer", "instance": iid, "to_owner": op["char"]})
+    return bound, rejected
 
 
 def _message_text(content) -> str:
@@ -2957,6 +3060,43 @@ class Pipeline:
                 text, state,
                 allow_large_battle=bool(getattr(spec, "large_battle", True)),
             ) if getattr(spec, "war_room", True) else []
+            ops, redundant_scene = _drop_redundant_scene_restatement(
+                ops, state, combat_tags
+            )
+            if redundant_scene:
+                log.info(
+                    "live narrator scene tag rejected: location and cast were unchanged"
+                )
+                self._notice(ctx, [
+                    "The narrator repeated the current scene without a move or cast change, "
+                    "so AetherState ignored that scene record."
+                ])
+            realization = build_narrator_realization_from_state(state)
+            realization_owns_turn = narrator_realization_owns_turn(
+                realization, ctx.turn_index,
+            )
+            if realization_owns_turn and (ops or combat_tags):
+                # The code-owned settlement has already committed every authorized change.  A
+                # reply tag on that same turn can only duplicate it or invent an unlisted change;
+                # neither is narrator authority.  Keep legacy narrator-tag behavior on turns
+                # without a complete current realization.
+                log.info(
+                    "live narrator tag ingest rejected %d op(s) by current realization",
+                    len(ops) + len(combat_tags),
+                )
+                self._notice(ctx, [
+                    "The narrator proposed a world change outside this turn's settled result, "
+                    "so AetherState ignored it."
+                ])
+                ops = []
+                combat_tags = []
+            pickup_rejected = 0
+            if ops:
+                turn_rows = self.store.get_turn_texts(
+                    ctx.branch_id, ctx.turn_index, ctx.turn_index,
+                )
+                player_text = str(turn_rows[-1]["user_text"] or "") if turn_rows else ""
+                ops, pickup_rejected = _bind_reply_pickups(ops, state, player_text)
             cohort_candidate = any(
                 op.get("op") == "battle_start" and isinstance(op.get("cohort"), dict)
                 for op in combat_tags
@@ -3045,6 +3185,13 @@ class Pipeline:
                 self._index_memories(ctx, r)
                 for q in r.quarantined:
                     log.info("live tag quarantined: %s", q.get("reason", ""))
+                    if "world item is not in the current scene" in str(q.get("reason", "")):
+                        pickup_rejected += 1
+            if pickup_rejected:
+                self._notice(ctx, [
+                    "The narrated pickup did not resolve to one exact item in this scene, "
+                    "so AetherState left the world and inventory unchanged."
+                ])
             if getattr(spec, "war_room", True):
                 wr = combat_ops(
                     state, applied,
