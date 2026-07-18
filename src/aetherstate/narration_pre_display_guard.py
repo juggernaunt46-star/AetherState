@@ -1,10 +1,10 @@
-"""Deterministic pre-display guard for mechanically authoritative RPG turns.
+"""Deterministic narration-compliance diagnostics for authoritative RPG turns.
 
 The normal narrator remains free to write rich prose.  This module checks only a narrow class of
 claims that code has already settled: roll polarity and harm/defeat of exact War Room rows.  A
-current V3 mechanic turn is either released unchanged or replaced with the finite code-authored
-fallback before any candidate byte becomes visible.  Turns without current mechanic authority are
-outside this module and retain the transparent streaming path.
+current V3 mechanic turn is streamed unchanged; this evaluator runs on the cold path afterward and
+records bounded reason codes without delaying or replacing narration.  Turns without current
+mechanic authority remain outside this module.
 """
 from __future__ import annotations
 
@@ -223,7 +223,7 @@ class NarrationGuardBasis:
 
 @dataclass(frozen=True)
 class NarrationGuardDecision:
-    """One total story-level verdict; rejected candidates are never returned as visible text."""
+    """One advisory story-level verdict with no delivery or replacement authority."""
 
     accepted: bool
     story: str

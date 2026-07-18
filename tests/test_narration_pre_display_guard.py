@@ -799,7 +799,7 @@ def _guard_app(cfg: Config, pipeline: _GuardPipeline, upstream_client, events: l
     return _RecordVisibility(app, events)
 
 
-async def test_proxy_verdict_precedes_response_start_and_accepted_bytes_stay_exact() -> None:
+async def test_proxy_streams_authoritative_turn_verbatim_before_cold_advisory() -> None:
     events: list = []
     story = "The Hollowed hold their ground."
     raw = encode_chat_story(
@@ -830,30 +830,21 @@ async def test_proxy_verdict_precedes_response_start_and_accepted_bytes_stay_exa
 
     assert response.content == raw
     assert [event[0] for event in events] == [
-        "process", "guard", "response_start", "first_byte", "on_response", "trace",
+        "process", "response_start", "first_byte", "on_response", "trace",
     ]
-    assert events[1][1] == raw
-    assert events[4][1] == raw
+    assert raw.startswith(events[2][1])
+    assert events[3][1] == raw
 
 
-async def test_proxy_never_emits_or_cold_writes_rejected_candidate(caplog) -> None:
+async def test_proxy_fail_open_never_replaces_successful_upstream_narration(caplog) -> None:
     events: list = []
     secret_story = "The ice spike kills Hollowed #1."
     secret = encode_chat_story(
         secret_story, model="narrator", stream=False, artifact_ref="rejected-secret",
     ).raw
-    safe = encode_chat_story(
-        "Seraphine's Elementalism check resolves as success.",
-        model="narrator",
-        stream=False,
-        artifact_ref="safe-replacement",
-    ).raw
     upstream = MockUpstream()
     upstream.enqueue(Reply(
-        headers={
-            "content-type": "application/json",
-            "content-encoding": "br",
-        },
+        headers={"content-type": "application/json"},
         body=secret,
     ))
     upstream_client = httpx.AsyncClient(
@@ -861,7 +852,7 @@ async def test_proxy_never_emits_or_cold_writes_rejected_candidate(caplog) -> No
     )
     cfg = _cfg()
     cfg.upstream.base_url = "http://upstream/v1"
-    pipeline = _GuardPipeline(events, replacement=safe)
+    pipeline = _GuardPipeline(events, replacement=b"forbidden replacement")
 
     try:
         async with httpx.AsyncClient(
@@ -874,15 +865,17 @@ async def test_proxy_never_emits_or_cold_writes_rejected_candidate(caplog) -> No
     finally:
         await upstream_client.aclose()
 
-    assert response.content == safe
-    assert secret_story.encode() not in response.content
+    assert response.content == secret
+    assert secret_story.encode() in response.content
     assert response.headers["content-type"] == "application/json"
-    assert "content-encoding" not in response.headers
-    assert events[3] == ("first_byte", safe)
-    assert events[4][1:] == (safe, "application/json")
-    assert events[5][1]["content_sha256"] \
-        == __import__("hashlib").sha256(safe).hexdigest()
-    assert secret_story not in json.dumps(events[5][1], sort_keys=True)
+    assert [event[0] for event in events] == [
+        "process", "response_start", "first_byte", "on_response", "trace",
+    ]
+    assert events[2] == ("first_byte", secret)
+    assert events[3][1:] == (secret, "application/json")
+    assert events[4][1]["content_sha256"] \
+        == __import__("hashlib").sha256(secret).hexdigest()
+    assert secret_story not in json.dumps(events[4][1], sort_keys=True)
     assert secret_story not in caplog.text
 
 
@@ -915,7 +908,7 @@ async def test_guarded_context_still_relays_upstream_errors_verbatim() -> None:
     assert "upstream_error" in [event[0] for event in events]
 
 
-def test_pipeline_guard_uses_strict_wire_decode_and_code_fallback() -> None:
+def test_pipeline_guard_failure_is_advisory_and_preserves_original_wire() -> None:
     cfg, store, session_id, branch_id = _runtime("narration-guard-wire")
     applied = apply_delta(
         store, session_id, branch_id, 1, _ops(cfg, store, branch_id), "rule", cfg,
@@ -940,12 +933,11 @@ def test_pipeline_guard_uses_strict_wire_decode_and_code_fallback() -> None:
     malformed = b'data: {"choices":[{"delta":{"content":"false harm"}}]}\n\n'
 
     guarded, content_type = pipe.guard_response(ctx, malformed, "text/event-stream")
-    story = decode_chat_story(guarded, content_type)
-
-    assert ctx.narration_guard_replaced is True
+    assert guarded == malformed
+    assert content_type == "text/event-stream"
+    assert ctx.narration_guard_replaced is False
     assert ctx.narration_guard_reasons == ("candidate_wire_or_guard_unavailable",)
-    assert "Stealth check" in story and "success" in story
-    assert b"false harm" not in guarded
+    assert b"false harm" in guarded
 
 
 def test_pipeline_guard_releases_verified_rich_wire_byte_exact() -> None:

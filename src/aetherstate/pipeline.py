@@ -31,11 +31,10 @@ from .narration_fallback_runtime import build_proof_complete_fallback
 from .narration_artifact_basis import derive_swipe_fallback_from_persisted_basis
 from .narration_pre_display_guard import (
     NarrationGuardBasis,
-    NarrationGuardDecision,
     build_narration_guard_basis,
     guard_narration_story,
 )
-from .response_wire import decode_chat_story, encode_chat_story
+from .response_wire import decode_chat_story
 from .semantic_bootstrap_runtime import build_semantic_bootstrap_proof
 from .semantic_narration_orchestrator import (
     FallbackPromotionExpectation,
@@ -2724,6 +2723,10 @@ class Pipeline:
             if ctx.semantic_gate:
                 self._on_semantic_response(ctx, raw, content_type)
                 return
+            if ctx.narration_guard is not None:
+                # Compliance checks are cold-path diagnostics. They must never delay, replace,
+                # truncate, or otherwise corrupt the response that was already streamed.
+                self.guard_response(ctx, raw, content_type)
             text = _response_text(raw, content_type)
             if ctx.response_key and text and text.strip():
                 if ctx.response_key in self._completed_responses:
@@ -2791,17 +2794,11 @@ class Pipeline:
         raw: bytes,
         content_type: str,
     ) -> tuple[bytes, str]:
-        """Return only a fully checked candidate or a deterministic truthful replacement.
-
-        The proxy calls this after privately buffering a successful upstream response and before
-        ASGI response start.  Any malformed wire, changed state basis, or evaluator failure is a
-        rejection; unchecked candidate bytes are never returned from that path.
-        """
+        """Evaluate narration as a cold-path advisory and preserve upstream wire bytes exactly."""
         basis = ctx.narration_guard
         if basis is None:
             return raw, content_type
-        reasons: tuple[str, ...]
-        decision: NarrationGuardDecision
+        reasons: tuple[str, ...] = ()
         try:
             exact_state = self.store.state_at(
                 ctx.branch_id,
@@ -2820,44 +2817,17 @@ class Pipeline:
                 user_aliases=tuple(getattr(self.cfg.user_guard, "aliases", ()) or ()),
             )
             if decision.accepted:
-                ctx.narration_guard_replaced = False
-                ctx.narration_guard_reasons = ()
-                return raw, content_type
-            reasons = decision.reasons
-        except Exception:
-            decision = NarrationGuardDecision(
-                accepted=False,
-                story=basis.fallback_story,
-                reasons=("candidate_wire_or_guard_unavailable",),
-            )
-            reasons = decision.reasons
+                reasons = ()
+            else:
+                reasons = decision.reasons
+                log.warning("narration guard advisory: %s", ",".join(reasons))
+        except Exception as exc:
+            reasons = ("candidate_wire_or_guard_unavailable",)
+            log.warning("narration guard failed open: %s", type(exc).__name__)
 
-        stream = "text/event-stream" in str(content_type).lower() \
-            or raw.lstrip().startswith(b"data:")
-        artifact_ref = "narration-guard:" + content_hash(json.dumps({
-            "basis": basis.state_fingerprint,
-            "response_key": ctx.response_key,
-            "reasons": list(reasons),
-        }, sort_keys=True, separators=(",", ":")))
-        try:
-            artifact = encode_chat_story(
-                decision.story,
-                model=ctx.request_model or "aetherstate-narration-guard",
-                stream=stream,
-                artifact_ref=artifact_ref,
-            )
-        except Exception:
-            artifact = encode_chat_story(
-                "The scene holds to what is already established, without adding an unverified "
-                "outcome.",
-                model="aetherstate-narration-guard",
-                stream=stream,
-                artifact_ref=artifact_ref + ":empty",
-            )
-            reasons = tuple(dict.fromkeys((*reasons, "fallback_encoding_unavailable")))
-        ctx.narration_guard_replaced = True
+        ctx.narration_guard_replaced = False
         ctx.narration_guard_reasons = reasons
-        return artifact.raw, artifact.content_type
+        return raw, content_type
 
     def record_response_trace(
         self,
@@ -2883,8 +2853,8 @@ class Pipeline:
         try:
             guard_replaced = bool(getattr(ctx, "narration_guard_replaced", False))
             guard_reason_codes: list[str] = []
-            if guard_replaced:
-                raw_reasons = getattr(ctx, "narration_guard_reasons", ())
+            raw_reasons = getattr(ctx, "narration_guard_reasons", ())
+            if raw_reasons:
                 if isinstance(raw_reasons, str):
                     raw_reasons = (raw_reasons,)
                 elif not isinstance(raw_reasons, (tuple, list, set, frozenset)):
