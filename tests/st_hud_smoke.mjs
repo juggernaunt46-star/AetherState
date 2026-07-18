@@ -160,6 +160,7 @@ const payload = {
     crits: "a natural 12 crits", check_syntax: "((aether.check <skill>))", note: "",
     mechanics: [{ mechanic: "advantage", label: "roll an extra die, keep the best" }] },
   war_room: { active: true, round: 2, last: null, clashes: [],
+    order: [{ name: "Testa Vector", side: "player" }, { name: "Raider", side: "enemy" }],
     battle: { name: "Caravan Ambush", tide: "losing", waves: 1,
       cohort: { name: "Baser Hollow", total: 6, active: 3, defeated: 0, queued: 3 } },
     player_impacts: [
@@ -918,6 +919,10 @@ mustContain(strip, ["aes-expand", "expand"], "compact strip self-label (minimize
 mustContain(strip, ["Hooking Sweep", "INTENT_ACTOR_SENTINEL", "INTENT_TARGET_SENTINEL", "high",
   "the club drops low", "step outside the hook", "I brace."], "compact enemy intent");
 expect(occurrences(strip, "Hooking Sweep") === 1, "compact enemy intent appears exactly once");
+for (const clutter of ["WHAT YOU DID", "WHAT HAPPENED", "PLAYER_DAMAGE_SENTINEL",
+  "Driving Advance", "ON THE FIELD"]) {
+  expect(!strip.includes(clutter), `compact War Room omits prior-exchange clutter: ${clutter}`);
+}
 expect(typeof sandbox.aetherHudExpand === "function", "window.aetherHudExpand exists");
 expect(registry.get("aes_hud_min")._html !== undefined, "min button present");
 
@@ -936,8 +941,8 @@ mustContain(body._html, ["WAR ROOM", "Raider", "9/14", "tracked", "down", "Silen
             "war-room lane");
 mustContain(body._html, ["Ash Focus 4/8", "Unsafe Pool 1/2", "#b56cff"],
   "full HUD custom resources");
-mustContain(body._html, ["Newest Roll Sentinel", "No target impact"],
-  "full HUD latest check keeps target-impact truth visible");
+expect(!body._html.includes("Newest Roll Sentinel"),
+  "full combat HUD does not duplicate the latest roll already owned by WHAT YOU DID");
 expect(!body._html.includes("red;display:none"), "full HUD rejects unsafe resource color");
 mustContain(body._html, ["Hooking Sweep", "INTENT_ACTOR_SENTINEL", "INTENT_TARGET_SENTINEL", "high",
   "DELIVERY_PIPE_SENTINEL", "the club drops low", "step outside the hook", "jam the club",
@@ -947,6 +952,10 @@ mustContain(body._html, ["WHAT HAPPENED", "WHAT IS COMING", "WHAT YOU CAN DO", "
   "Driving Advance", "RESOLVED_ACTOR_SENTINEL", "RESOLVED_TARGET_SENTINEL",
   "RESOLVED_DELIVERY_SENTINEL", "MISSES", "no damage", "Impact HP", "20/20"],
   "resolved enemy action");
+mustContain(body._html, ["This move is committed as the next enemy threat",
+  "Danger is the committed threat level", "Grounded responses to the committed move",
+  "Code-owned action order", "Player-facing code truth for the current combat exchange"],
+  "War Room hover explanations");
 mustContain(body._html, ["WHAT YOU DID", "PLAYER_NO_IMPACT_SENTINEL",
   "PLAYER_NO_TARGET_IMPACT_TEXT", "PLAYER_DAMAGE_SENTINEL", "PLAYER_EXACT_DAMAGE_TEXT",
   'class="aes-roll-impact none"', 'class="aes-roll-impact damage"'],
@@ -960,6 +969,8 @@ expect(occurrences(body._html, "PLAYER_NO_IMPACT_SENTINEL") === 1 &&
   "current-turn Player impacts render exactly once each");
 mustContain(body._html, ["Caravan Ambush", "Baser Hollow", "3 active", "0 defeated",
   "3 queued / 6"], "expanded finite cohort summary");
+mustContain(body._html, ["aes-world-pulse", "active world change", "blocked quest",
+  "aes-tab-badge"], "world summary stays discoverable outside the World tab");
 expect(occurrences(body._html, "Driving Advance") === 1,
   "resolved enemy action appears exactly once");
 const playerActionAt = body._html.indexOf("WHAT YOU DID");
@@ -1027,8 +1038,8 @@ const TAB_MARKERS = {
   gear: ["Rusty Machete", "Its balance steadies defensive cuts.", "Patched Jacket",
     "Patch Kit", "Repairs one torn field layer.", "open:"],
   inventory: ["Ration", "Iron Key"],
-  status: ["Bleeding", "Condition"],
-  world: ["Mira", "Cross the Amber Road", "amber_road_open", "Raiders struck", "Roadwrights",
+  status: ["Bleeding", "Condition", "Consent boundaries", "romance"],
+  world: ["Mira", "Cross the Amber Road", "Amber Road Open", "Raiders struck", "Roadwrights",
     "World circumstance", "Ashfall has closed the eastern road",
     "Location circumstance", "The old mill floor is flooded",
     "World condition", "Marked by the ash storm",
@@ -1071,11 +1082,19 @@ expect(occurrences(body._html, "Unavailable due to world change") >= 1,
   "World tab plainly marks an unavailable quest");
 expect(occurrences(body._html, "Reputation modifier") === 2,
   "actor and faction reputation modifiers render as separate typed rows");
+expect(!body._html.includes("amber_road_open=true"),
+  "World tab translates raw key=value flags into readable Player labels");
+
+sandbox.aetherHudTab("inventory");
+expect(!body._html.includes("Patch Kit"),
+  "Items tab does not duplicate stowed equipment owned by Gear");
 
 // 4) Rolls actions expose their real combined cost. Custom labels/colors remain presentation
 // data, never CSS classes; an unaffordable or recharging button cannot insert a command.
 sandbox.aetherHudTab("rolls");
 const rollsHtml = body._html;
+expect(!rollsHtml.includes("WHAT YOU DID"),
+  "Rolls tab does not duplicate Player impacts in the persistent War Room");
 const newestRollAt = rollsHtml.indexOf("Newest Roll Sentinel");
 const olderRollAt = rollsHtml.indexOf("Older Roll Sentinel");
 expect(newestRollAt >= 0 && olderRollAt >= 0 && newestRollAt < olderRollAt,
@@ -1214,18 +1233,18 @@ payload.rules = { dice: "2d6", keep: 2, thresholds: "boom" };   // .map on a str
 sandbox.aetherHudTab("skills");
 mustContain(body._html, ["HUD render error"], "visible render-error fallback");
 
-// 6) compact war-room strip keeps the same decision order without the roster clutter
+// 6) compact War Room keeps the live decision only; resolved history stays in the full HUD
 payload.rules = { dice: "2d6", keep: 2, thresholds: [] };
 registry.get("aes_hud_min").onclick();       // back to compact
 await tick(); await tick(); await tick();
-mustContain(body._html, ["WHAT HAPPENED", "WHAT IS COMING", "WHAT YOU CAN DO", "Hooking Sweep",
+mustContain(body._html, ["WHAT IS COMING", "WHAT YOU CAN DO", "Hooking Sweep",
   "INTENT_TARGET_SENTINEL", "high", "the club drops low", "step outside the hook", "I brace.",
-  "WHAT YOU DID", "PLAYER_NO_TARGET_IMPACT_TEXT", "PLAYER_EXACT_DAMAGE_TEXT",
   "COHORT", "Baser Hollow", "3 active", "3 queued / 6", "aes-expand"],
   "compact war-room strip");
-expect(body._html.indexOf("PLAYER_NO_IMPACT_SENTINEL") <
-       body._html.indexOf("PLAYER_DAMAGE_SENTINEL"),
-  "compact Player impacts preserve backend order");
+for (const clutter of ["WHAT HAPPENED", "WHAT YOU DID", "PLAYER_NO_IMPACT_SENTINEL",
+  "PLAYER_DAMAGE_SENTINEL", "Driving Advance"]) {
+  expect(!body._html.includes(clutter), `compact War Room omits resolved history: ${clutter}`);
+}
 expect(occurrences(body._html, "Hooking Sweep") === 1,
   "mid-fight compact enemy intent appears exactly once");
 expect(!body._html.includes("Raider 9/14") && !body._html.includes("ON THE FIELD"),
@@ -1237,9 +1256,12 @@ payload.war_room = { ...activeWarRoom, active: false, round: null, intent: null,
     damage: 2, hp_cur: 0, hp_max: 3, current_hp_cur: 1, current_hp_max: 3 } };
 registry.get("aes_hud_ref").onclick();
 await tick(); await tick();
-mustContain(body._html, ["combat ended · last exchange", "WHAT HAPPENED", "Measured Cut",
-  "Impact HP", "0/3", "Current HP", "1/3", "aes-expand"],
-  "compact inactive lethal exchange");
+mustContain(body._html, ["aes-expand", "Newest Roll Sentinel", "No target impact"],
+  "compact inactive strip keeps vitals and latest Player roll");
+for (const clutter of ["combat ended · last exchange", "WHAT HAPPENED", "Measured Cut",
+  "Impact HP", "Current HP"]) {
+  expect(!body._html.includes(clutter), `compact inactive strip omits old combat history: ${clutter}`);
+}
 expect(!body._html.includes("WHAT IS COMING") && !body._html.includes("WHAT YOU CAN DO") &&
        !body._html.includes("ON THE FIELD"),
   "compact inactive lethal exchange contains no stale future or roster");

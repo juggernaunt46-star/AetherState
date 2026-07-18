@@ -199,7 +199,23 @@
 .aes-tab:hover { color:var(--ink); background:var(--panel); }
 .aes-tab.on { color:var(--ink); background:var(--panel); border-color:var(--line);
   border-bottom-color:var(--acc); box-shadow:inset 0 -2px 0 var(--acc); }
+.aes-tab-badge { display:inline-flex; align-items:center; justify-content:center; min-width:15px;
+  height:15px; margin-left:4px; padding:0 3px; border-radius:8px; background:var(--panel);
+  border:1px solid var(--acc2); color:var(--acc2); font-size:8.5px; line-height:1; }
+.aes-tab-badge.urgent { border-color:var(--warn); color:var(--warn); }
 .aes-tabbody { min-height:40px; }
+.aes-world-pulse { width:100%; display:flex; align-items:center; justify-content:space-between;
+  gap:8px; margin:3px 0 6px; padding:5px 7px; border:1px solid var(--acc2);
+  border-left:3px solid var(--acc2); border-radius:8px; background:var(--panel);
+  color:var(--dim); font:inherit; font-size:10.5px; line-height:1.25; text-align:left;
+  cursor:pointer; }
+.aes-world-pulse b { color:var(--ink); }
+.aes-world-pulse:hover { color:var(--ink); background:var(--bg); }
+.aes-world-pulse.urgent { border-color:var(--warn); }
+.aes-help { cursor:help; }
+.aes-sec-h.aes-help,.aes-war-section-h.aes-help,.aes-war-h.aes-help {
+  text-decoration-line:underline; text-decoration-style:dotted; text-decoration-color:var(--dim);
+  text-underline-offset:3px; }
 
 /* dice-rules panel — the rules MUST be visible to the player */
 .aes-rules { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--acc);

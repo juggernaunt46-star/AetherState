@@ -31,6 +31,8 @@ _MARKERS = (
     "function renderVitals",
     "function renderKnowledge",
     "function renderWarRoom",
+    "function renderWorldPulse",
+    "function worldSignal",
     "function renderEnemyAction",
     "function worldEffectLine",
     "function capabilityAvailability",
@@ -58,6 +60,8 @@ _MARKERS = (
     "window.aetherSetSeparateRoll",    # explicit one-shot independent-action path
     "function rollTruthContent",       # backend-owned target-impact text, no tier inference
     "WHAT YOU DID",                    # current-turn Player impacts in the War Room
+    "HUD clarity (2026-07-18)",        # tooltip/discoverability/density pass
+    "Consent boundaries",              # explicit boundaries live under Status
 )
 
 
@@ -92,6 +96,9 @@ def test_war_room_theme_and_viewport_contract():
     assert ".aes-world-effect" in css
     assert ".aes-quest.unavailable" in css
     assert ".aes-rollbtn.world-unavailable" in css
+    assert ".aes-world-pulse" in css
+    assert ".aes-tab-badge" in css
+    assert ".aes-help" in css
 
 
 def test_installed_copy_not_stale():

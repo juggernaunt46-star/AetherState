@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — combat-reference/composer build + world-overlay (2026-07-17)");
+  console.log("[AetherState] Companion loaded — combat-reference/composer build + world-overlay (2026-07-17) + HUD clarity (2026-07-18)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -937,8 +937,14 @@
   // two never diverge. Fail-open: proxy down -> a quiet "offline" line, ST untouched.
   const HUD_THEMES = { neutral: "Neutral", fantasy: "Fantasy", scifi: "Sci-Fi", modern: "Modern" };
   const HUD_TABS = [
-    ["char", "◈ Char"], ["skills", "✦ Skills"], ["abilities", "❋ Abilities"], ["rolls", "🎲 Rolls"],
-    ["gear", "⚔ Gear"], ["inventory", "🎒 Items"], ["status", "☤ Status"], ["world", "🌍 World"],
+    ["char", "◈ Char", "Character identity, attributes, drives, and goals."],
+    ["skills", "✦ Skills", "Your learned competencies, roll modifiers, and check rules."],
+    ["abilities", "❋ Abilities", "Active techniques and passive talents that change checks."],
+    ["rolls", "🎲 Rolls", "Choose a check, see its full cost, and review settled results."],
+    ["gear", "⚔ Gear", "Everything worn, wielded, or stowed as equipment."],
+    ["inventory", "🎒 Items", "Consumables, materials, devices, and keepsakes—not gear."],
+    ["status", "☤ Status", "Current conditions and explicit relationship consent boundaries."],
+    ["world", "🌍 World", "Current world changes, quests, people, factions, agendas, and known history."],
   ];
   let hudTimer = null;
   let lastHudView = null;             // cache the last /hud payload so tab-switching never refetches
@@ -1161,7 +1167,7 @@
     for (const k in (p.resources || {})) { const r = p.resources[k]; bars.push(bar(k, r.cur, r.max, r.name, r.color)); }
     if (bars.length) h += `<div class="aes-bars">${bars.join("")}</div>`;
     if ((p.effects || []).length) h += `<div class="aes-rows" style="margin-top:4px">${p.effects.map((e) => { const cls = e.valence === "positive" ? "pos good" : e.valence === "negative" ? "neg bad" : "neu"; return `<span class="aes-pill ${cls}"><span class="g">${esc(e.glyph)}</span> ${esc(e.name)}</span>`; }).join("")}</div>`;
-    if (v.war_room && (v.war_room.active || v.war_room.opposition)) h += renderWarRoom(v.war_room, true);
+    if (v.war_room && v.war_room.active) h += renderWarRoom(v.war_room, true);
     const lr = (v.rolls || []).slice(-1)[0];
     h += renderLastRoll(lr);
     // the strip must SAY it is a strip (2026-07-09) — a minimized HUD with no label reads
@@ -1176,10 +1182,53 @@
     const label = String(name || (id === "hp" ? "HP" : kind) || "resource")
       .replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
     const safeColor = /^#[0-9a-f]{6}$/i.test(String(color || "")) ? String(color).toLowerCase() : "";
-    return `<div class="aes-bar ${cls}"><i style="width:${pct}%${safeColor ? ";background:" + safeColor : ""}"></i><span>${esc(label)} ${esc(cur)}/${esc(max)}</span></div>`;
+    return `<div class="aes-bar ${cls}" title="${esc(label)}: ${esc(cur)} of ${esc(max)} remaining"><i style="width:${pct}%${safeColor ? ";background:" + safeColor : ""}"></i><span>${esc(label)} ${esc(cur)}/${esc(max)}</span></div>`;
   }
-  function sec(title, ic, html) { return `<div class="aes-sec"><div class="aes-sec-h"><span class="ic">${ic}</span>${esc(title)}</div>${html}</div>`; }
+  function sec(title, ic, html, help = "") { return `<div class="aes-sec"><div class="aes-sec-h${help ? " aes-help" : ""}"${help ? ` title="${esc(help)}"` : ""}><span class="ic">${ic}</span>${esc(title)}</div>${html}</div>`; }
   function sechdr(t) { return `<div class="aes-sec-h" style="margin-top:8px">${esc(t)}</div>`; }
+  function humanLabel(value) {
+    return String(value || "").replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  function worldSignal(v) {
+    const knowledge = v && v.knowledge && typeof v.knowledge === "object" ? v.knowledge : {};
+    const events = knowledgeRows(knowledge, "events");
+    const currentEvents = events.filter((row) =>
+      ["active", "accepted", "current", "admission"].includes(String(row.status || "").toLowerCase()));
+    const quests = Array.isArray(v && v.quests) ? v.quests : [];
+    const activeQuests = quests.filter((row) => row && row.status === "active");
+    const blockedQuests = activeQuests.filter((row) => row.available === false);
+    const fronts = Array.isArray(v && v.fronts) ? v.fronts : [];
+    const activeFronts = fronts.filter((row) => row && !row.done);
+    const freshFronts = fronts.filter((row) => row && row.done && row.fresh);
+    const scene = v && v.scene && typeof v.scene === "object" ? v.scene : {};
+    const circumstances = [scene.world_circumstance, scene.location_circumstance].filter(Boolean).length;
+    const worldFlags = Object.keys(v && v.world_flags && typeof v.world_flags === "object"
+      ? v.world_flags : {}).length;
+    const cast = Array.isArray(v && v.cast) ? v.cast.length : 0;
+    const standings = (Array.isArray(v && v.relations) ? v.relations.length : 0) +
+      (Array.isArray(v && v.factions) ? v.factions.length : 0);
+    const count = currentEvents.length + activeQuests.length + activeFronts.length +
+      freshFronts.length + circumstances + worldFlags + cast + standings;
+    const short = [];
+    if (freshFronts.length) short.push(`${freshFronts.length} ${freshFronts.length === 1 ? "agenda came" : "agendas came"} to a head`);
+    if (currentEvents.length) short.push(`${currentEvents.length} active world ${currentEvents.length === 1 ? "change" : "changes"}`);
+    if (blockedQuests.length) short.push(`${blockedQuests.length} blocked ${blockedQuests.length === 1 ? "quest" : "quests"}`);
+    else if (activeQuests.length) short.push(`${activeQuests.length} active ${activeQuests.length === 1 ? "quest" : "quests"}`);
+    if (activeFronts.length) short.push(`${activeFronts.length} moving ${activeFronts.length === 1 ? "agenda" : "agendas"}`);
+    if (circumstances) short.push(`${circumstances} local ${circumstances === 1 ? "condition" : "conditions"}`);
+    if (worldFlags) short.push(`${worldFlags} tracked world ${worldFlags === 1 ? "condition" : "conditions"}`);
+    if (cast) short.push(`${cast} known ${cast === 1 ? "person" : "people"}`);
+    if (standings) short.push(`${standings} social ${standings === 1 ? "standing" : "standings"}`);
+    const detail = short.join(" · ");
+    const text = short.slice(0, 3).join(" · ") + (short.length > 3 ? " · more" : "");
+    return { count, urgent: !!(freshFronts.length || blockedQuests.length), text, detail };
+  }
+  function renderWorldPulse(v) {
+    const signal = worldSignal(v);
+    if (!signal.count) return "";
+    return `<button class="aes-world-pulse${signal.urgent ? " urgent" : ""}" onclick="window.aetherHudTab('world')" title="${esc(signal.detail)}. Open the World tab for details."><span>🌍 <b>World</b></span><span>${esc(signal.text)}</span></button>`;
+  }
   function signedWorldModifier(value) {
     if (value == null || typeof value === "boolean" || String(value).trim() === "") return "";
     const n = Number(value);
@@ -1203,14 +1252,21 @@
   // Status · World. The player always sees vitals; the detail lives one tap away.
   function renderHud(v) {
     const p = (v.players || [])[0];
-    let head = renderVitals(v, p);
+    const tab = HUD_TABS.some((t) => t[0] === settings.hud.tab) ? settings.hud.tab : "char";
+    const playerImpacts = v.war_room && Array.isArray(v.war_room.player_impacts)
+      ? v.war_room.player_impacts : [];
+    let head = renderVitals(v, p, tab !== "rolls" && !playerImpacts.length);
     head += renderTransportError(v);
     if (v.frozen) head += `<div class="aes-hud-off">⏸ scene frozen${v.frozen_reason ? " (" + esc(v.frozen_reason) + ")" : ""}</div>`;
-    if (v.war_room && (v.war_room.active || v.war_room.opposition)) head += renderWarRoom(v.war_room);
+    if (v.war_room && (v.war_room.active || v.war_room.opposition)) head += renderWarRoom(v.war_room, false, tab === "rolls");
+    if (tab !== "world") head += renderWorldPulse(v);
     // The current turn's resolved enemy action remains above the tabs after combat ends.
-    const tab = HUD_TABS.some((t) => t[0] === settings.hud.tab) ? settings.hud.tab : "char";
-    head += `<div class="aes-tabs">${HUD_TABS.map(([k, label]) =>
-      `<button class="aes-tab ${k === tab ? "on" : ""}" onclick="window.aetherHudTab('${k}')">${esc(label)}</button>`).join("")}</div>`;
+    const signal = worldSignal(v);
+    head += `<div class="aes-tabs">${HUD_TABS.map(([k, label, help]) => {
+      const badge = k === "world" && signal.count
+        ? `<span class="aes-tab-badge${signal.urgent ? " urgent" : ""}">${esc(signal.count)}</span>` : "";
+      return `<button class="aes-tab ${k === tab ? "on" : ""}" title="${esc(help)}" onclick="window.aetherHudTab('${k}')">${esc(label)}${badge}</button>`;
+    }).join("")}</div>`;
     let body;
     if (!p) body = `<div class="aes-hud-empty">No player character yet.${v.spec !== "rpg"
       ? " Narrative mode is “" + esc(v.spec) + "” — switch to RPG to track a player." : " Build one in the Creator."}</div>`;
@@ -1230,7 +1286,7 @@
     return `<div class="aes-hud-off">⚠ Upstream request failed (HTTP ${esc(e.status || "error")})` +
       `${e.message ? " — " + esc(e.message) : ""}. No assistant reply was produced.</div>`;
   }
-  function renderVitals(v, p) {
+  function renderVitals(v, p, showLastRoll = true) {
     const s = v.scene || {};
     const loc = s.location ? esc(String(s.location).replace(/_/g, " ")) : "—";
     let h = `<div class="aes-vitals"><div class="aes-vit-scene">📍 ${loc}${s.time_of_day ? " · " + esc(s.time_of_day) : ""}${s.phase ? " · " + esc(s.phase) : ""} <span id="aes_pulse" class="aes-tag" style="display:none"></span></div>`;
@@ -1241,7 +1297,7 @@
       if (bars.length) h += `<div class="aes-bars">${bars.join("")}</div>`;
       h += `<div class="aes-act-row">${actBtn("HP −5", [{ op: "hp_adj", char: p.eid, delta: -5 }], "lose 5 HP")}${actBtn("−1", [{ op: "hp_adj", char: p.eid, delta: -1 }], "lose 1 HP")}${actBtn("+1", [{ op: "hp_adj", char: p.eid, delta: 1 }], "heal 1 HP")}${actBtn("+5", [{ op: "hp_adj", char: p.eid, delta: 5 }], "heal 5 HP")}</div>`;
       const lr = (v.rolls || []).slice(-1)[0];
-      h += renderLastRoll(lr);
+      if (showLastRoll) h += renderLastRoll(lr);
       const ln = (v.notices || []).slice(-1)[0];   // 2026-07-10 (pillar 17): latest engine
       if (ln) h += `<div class="aes-roll-note" title="engine notice — the Rolls tab keeps the recent ones">⚠ ${esc(ln.text)}</div>`;
     }
@@ -1255,14 +1311,15 @@
     const actor = i.actor_name || i.actor || "Enemy";
     const target = i.target_name || i.target || "Player";
     const danger = i.danger || "moderate";
-    if (compact) return `<div class="aes-enemy-intent compact">` +
-      `<b>${esc(i.move_name || i.move_id || "attack")}</b> · <span class="aes-tag warn">${esc(danger)}</span>` +
-      `<div class="aes-kv">${esc(actor)} → ${esc(target)}${i.delivery ? ` · ${esc(i.delivery)}` : ""}</div>` +
-      `${i.tell ? `<div class="aes-kv"><span class="aes-dim">tell</span> ${esc(i.tell)}</div>` : ""}</div>`;
-    return `<div class="aes-enemy-intent"><div class="aes-enemy-intent-h">` +
-      `<b>${esc(i.move_name || i.move_id || "attack")}</b> <span class="aes-tag warn">${esc(danger)}</span></div>` +
-      `<div class="aes-kv"><b>${esc(actor)}</b> → <b>${esc(target)}</b>${i.delivery ? ` · ${esc(i.delivery)}` : ""}</div>` +
-      `${i.tell ? `<div class="aes-kv"><span class="aes-dim">tell</span> ${esc(i.tell)}</div>` : ""}</div>`;
+    const dangerTip = "Danger is the committed threat level, not guaranteed damage.";
+    if (compact) return `<div class="aes-enemy-intent compact" title="This move is committed as the next enemy threat, but has not resolved yet.">` +
+      `<b>${esc(i.move_name || i.move_id || "attack")}</b> · <span class="aes-tag warn aes-help" title="${dangerTip}">${esc(danger)}</span>` +
+      `<div class="aes-kv" title="Committed attacker, target, and delivery.">${esc(actor)} → ${esc(target)}${i.delivery ? ` · ${esc(i.delivery)}` : ""}</div>` +
+      `${i.tell ? `<div class="aes-kv" title="Visible warning you can react to before the move resolves."><span class="aes-dim">tell</span> ${esc(i.tell)}</div>` : ""}</div>`;
+    return `<div class="aes-enemy-intent" title="This move is committed as the next enemy threat, but has not resolved yet."><div class="aes-enemy-intent-h">` +
+      `<b>${esc(i.move_name || i.move_id || "attack")}</b> <span class="aes-tag warn aes-help" title="${dangerTip}">${esc(danger)}</span></div>` +
+      `<div class="aes-kv" title="Committed attacker, target, and delivery."><b>${esc(actor)}</b> → <b>${esc(target)}</b>${i.delivery ? ` · ${esc(i.delivery)}` : ""}</div>` +
+      `${i.tell ? `<div class="aes-kv" title="Visible warning you can react to before the move resolves."><span class="aes-dim">tell</span> ${esc(i.tell)}</div>` : ""}</div>`;
   }
   function renderEnemyOptions(i, compact) {
     if (!i) return "";
@@ -1270,9 +1327,9 @@
     const counters = counterRows.map(esc).join(" · ");
     const brace = i.reaction && i.reaction.kind === "brace" && i.reaction.cost === "whole_action";
     if (!counters && !brace) return "";
-    return `<div class="aes-enemy-options${compact ? " compact" : ""}">` +
-      `${brace ? `<div class="aes-kv aes-brace"><b>BRACE</b> · send <code>I brace.</code> · uses your whole action and halves HP damage</div>` : ""}` +
-      `${counters ? `<div class="aes-kv"><span class="aes-dim">openings</span> ${counters}</div>` : ""}</div>`;
+    return `<div class="aes-enemy-options${compact ? " compact" : ""}" title="Grounded responses to the committed move. You can still attempt another valid action.">` +
+      `${brace ? `<div class="aes-kv aes-brace" title="Brace is a code-owned reaction: it spends the whole action and halves this move's HP damage if it lands."><b>BRACE</b> · send <code>I brace.</code> · whole action · half HP damage</div>` : ""}` +
+      `${counters ? `<div class="aes-kv" title="Openings are grounded counterplay cues, not a closed menu."><span class="aes-dim">openings</span> ${counters}</div>` : ""}</div>`;
   }
   function renderEnemyAction(a, compact = false) {
     if (!a) return "";
@@ -1288,15 +1345,15 @@
     const roll = Number.isFinite(Number(a.total)) ? `🎲${esc(a.total)} · ` : "";
     const outcome = damage > 0 ? `${esc(damage)} damage` : "no damage";
     const impactHp = a.hp_cur != null && a.hp_max != null
-      ? `<span><b>Impact HP</b> ${esc(a.hp_cur)}/${esc(a.hp_max)}</span>` : "";
+      ? `<span title="HP immediately after this enemy action settled."><b>Impact HP</b> ${esc(a.hp_cur)}/${esc(a.hp_max)}</span>` : "";
     const currentDiffers = a.current_hp_cur != null && a.current_hp_max != null &&
       (Number(a.current_hp_cur) !== Number(a.hp_cur) || Number(a.current_hp_max) !== Number(a.hp_max));
     const currentHp = currentDiffers
-      ? `<span><b>Current HP</b> ${esc(a.current_hp_cur)}/${esc(a.current_hp_max)}</span>` : "";
+      ? `<span title="Latest HP now, after any later healing or damage."><b>Current HP</b> ${esc(a.current_hp_cur)}/${esc(a.current_hp_max)}</span>` : "";
     const saved = brace && Number.isFinite(Number(a.damage_saved))
       ? ` · Brace saved ${esc(a.damage_saved)} HP` : "";
     return `<div class="aes-enemy-action ${cls}${compact ? " compact" : ""}" title="code-settled enemy action from this turn">` +
-      `<div class="aes-enemy-action-h"><b>${esc(move)}</b> <span class="aes-tag">${esc(tier)}</span></div>` +
+      `<div class="aes-enemy-action-h"><b>${esc(move)}</b> <span class="aes-tag aes-help" title="The code-settled outcome tier for this enemy action.">${esc(tier)}</span></div>` +
       `<div class="aes-kv"><b>${esc(actor)}</b> → <b>${esc(target)}</b>` +
       `${a.delivery ? ` · ${esc(a.delivery)}` : ""}</div>` +
       `<div class="aes-kv"><b>${roll}${outcome}</b>${saved}</div>` +
@@ -1316,19 +1373,19 @@
       ? String(impact.text).trim() : "Impact not recorded";
     return `<div class="aes-roll"><span><span class="aes-roll-kind">${kind} · ${esc(label)}</span> = <b>${esc(r && r.result)}</b>${r && r.mod != null ? ` <span class="aes-dim">(mod ${r.mod >= 0 ? "+" : ""}${esc(r.mod)})</span>` : ""}</span>${r && r.tier_label ? `<span class="t ${esc(r.tier)}">${esc(r.tier_label)}</span>` : ""}</div><div class="aes-roll-impact ${impactKind}">${esc(impactText)}</div>${turn || (r && r.note) ? `<div class="aes-roll-meta">${turn}${r && r.note ? `<span>${esc(r.note)}</span>` : ""}</div>` : ""}`;
   }
-  function renderWarRoom(w, compact = false) {
-    const die = (d) => d ? `<span class="aes-die ${d.tier === "MISSES" ? "miss" : d.tier === "GRAZES" ? "graze" : "hit"}" title="pre-rolled action die (deterministic this turn)">🎲${esc(d.total)} ${esc(d.tier.toLowerCase())}</span>` : "";
+  function renderWarRoom(w, compact = false, hidePlayerImpacts = false) {
+    const die = (d) => d ? `<span class="aes-die ${d.tier === "MISSES" ? "miss" : d.tier === "GRAZES" ? "graze" : "hit"}" title="This ally die was pre-rolled deterministically for the current turn.">🎲${esc(d.total)} ${esc(d.tier.toLowerCase())}</span>` : "";
     const card = (c) => {
       const pct = c.hp.max ? Math.max(0, Math.min(100, Math.round(100 * c.hp.cur / c.hp.max))) : 0;
       let h = `<div class="aes-com ${c.side}${c.defeated ? " down" : ""}">`;
       h += `<div class="aes-com-h">${c.side === "enemy" ? "⚔" : "🛡"} <b>${esc(c.name)}</b>`;
-      if (c.tier && c.tier !== "standard") h += ` <span class="aes-tag${c.tier === "boss" ? " warn" : ""}">${esc(c.tier)}</span>`;
+      if (c.tier && c.tier !== "standard") h += ` <span class="aes-tag aes-help${c.tier === "boss" ? " warn" : ""}" title="Combat tier: a grounded measure of this combatant's threat and durability.">${esc(c.tier)}</span>`;
       if (c.kind === "tracked") h += ` <span class="aes-tag ok" title="a tracked character — wounds persist after the fight">tracked</span>`;
-      h += c.defeated ? ` <span class="aes-tag bad">☠ down</span>` : ` ${die(c.die)}`;
+      h += c.defeated ? ` <span class="aes-tag bad aes-help" title="Defeated and no longer acting in this exchange.">☠ down</span>` : ` ${die(c.die)}`;
       h += `</div>`;
-      if (!c.defeated) h += `<div class="aes-bar hp com"><i style="width:${pct}%"></i><span>HP ${esc(c.hp.cur)}/${esc(c.hp.max)}</span></div>`;
+      if (!c.defeated) h += `<div class="aes-bar hp com" title="Exact code-tracked combat HP: ${esc(c.hp.cur)} of ${esc(c.hp.max)} remaining."><i style="width:${pct}%"></i><span>HP ${esc(c.hp.cur)}/${esc(c.hp.max)}</span></div>`;
       const bits = [];
-      if (c.armament) bits.push(`<span class="aes-dim">⚒ ${esc(c.armament)}</span>`);
+      if (c.armament) bits.push(`<span class="aes-dim" title="Grounded armament currently used by this combatant.">⚒ ${esc(c.armament)}</span>`);
       if ((c.dropped || []).length) bits.push(`<span class="aes-pill warn" title="dropped loot on the field">💰 ${c.dropped.map(esc).join(", ")}</span>`);
       if (bits.length) h += `<div class="aes-kv">${bits.join(" ")}</div>`;
       return h + `</div>`;
@@ -1336,15 +1393,23 @@
     const active = !!w.active;
     const foes = (w.combatants || []).filter((c) => c.side === "enemy");
     const allies = (w.combatants || []).filter((c) => c.side !== "enemy");
-    const section = (label, html) => html ? `<section class="aes-war-section"><div class="aes-war-section-h">${esc(label)}</div>${html}</section>` : "";
-    let h = `<div class="aes-war${active ? "" : " ended"}"><div class="aes-war-h">⚔ WAR ROOM <span class="m">${active ? `round ${esc(w.round)}` : "combat ended · last exchange"}</span></div>`;
+    const sectionHelp = {
+      "WHAT YOU DID": "Code-settled Player checks from this turn. The roll tier and target impact are separate truths.",
+      "WHAT HAPPENED": "The exact enemy action already settled by code this turn.",
+      "WHAT IS COMING": "One committed future enemy move. It is actionable warning, not damage that already happened.",
+      "WHAT YOU CAN DO": "Grounded counters to the incoming move. They do not limit Player freedom.",
+      "COHORT": "Finite enemy reserves in the wider battle.",
+      "ON THE FIELD": "Current combatants, exact HP, initiative, and wider battle state.",
+    };
+    const section = (label, html) => html ? `<section class="aes-war-section"><div class="aes-war-section-h aes-help" title="${esc(sectionHelp[label] || "")}">${esc(label)}</div>${html}</section>` : "";
+    let h = `<div class="aes-war${active ? "" : " ended"}"><div class="aes-war-h aes-help" title="Player-facing code truth for the current combat exchange. Hover the labels and chips for details.">⚔ WAR ROOM <span class="m">${active ? `round ${esc(w.round)}` : "combat ended · last exchange"}</span></div>`;
     const playerImpacts = Array.isArray(w.player_impacts)
       ? w.player_impacts.filter((row) => row && typeof row === "object") : [];
-    if (playerImpacts.length) {
+    if (!compact && !hidePlayerImpacts && playerImpacts.length) {
       h += section("WHAT YOU DID", `<div class="aes-player-impacts">${playerImpacts.map((row) =>
         `<div class="aes-player-impact">${rollTruthContent(row)}</div>`).join("")}</div>`);
     }
-    if (w.opposition) h += section("WHAT HAPPENED", renderEnemyAction(w.opposition, compact));
+    if (!compact && w.opposition) h += section("WHAT HAPPENED", renderEnemyAction(w.opposition, compact));
     if (active && w.intent) {
       h += section("WHAT IS COMING", renderEnemyIntent(w.intent, compact));
       h += section("WHAT YOU CAN DO", renderEnemyOptions(w.intent, compact));
@@ -1357,12 +1422,12 @@
     let field = "";
     if (active && w.battle) {                         // §F: the macro large-scale-battle chip
       const t = w.battle.tide, cls = t === "winning" ? "ok" : t === "losing" ? "bad" : "warn";
-      field += `<div class="aes-kv" title="the wider battle">⚑ <b>${esc(w.battle.name || "battle")}</b> <span class="aes-tag ${cls}">${esc(t)}</span>${w.battle.waves ? ` <span class="aes-dim">wave ${esc(w.battle.waves)}</span>` : ""}</div>`;
+      field += `<div class="aes-kv" title="The wider battle beyond the immediate combatants.">⚑ <b>${esc(w.battle.name || "battle")}</b> <span class="aes-tag ${cls}" title="Current battle tide: whether your side is gaining or losing ground.">${esc(t)}</span>${w.battle.waves ? ` <span class="aes-dim" title="Current reinforcement wave.">wave ${esc(w.battle.waves)}</span>` : ""}</div>`;
       const c = w.battle.cohort;
       if (c) field += `<div class="aes-kv" title="finite code-owned enemy cohort"><b>${esc(c.name || "cohort")}</b> <span class="aes-dim">${esc(c.active)} active · ${esc(c.defeated)} defeated · ${esc(c.queued)} queued / ${esc(c.total)}</span></div>`;
     }
     if (active && (w.order || []).length > 1) {       // explicit initiative order (2026-07-10)
-      field += `<div class="aes-war-init"><span class="aes-dim">initiative</span> ` +
+      field += `<div class="aes-war-init" title="Code-owned action order for this combat round."><span class="aes-dim">initiative</span> ` +
         w.order.map((o, i) => `<span class="aes-init ${o.side === "player" ? "me" : esc(o.side)}">` +
           `${i + 1}. ${esc(o.name)}</span>`).join(` <span class="aes-dim">→</span> `) + `</div>`;
     }
@@ -1765,10 +1830,8 @@
   function tabInventory(v, p) {
     // Inventory = everything that isn't gear: consumables, materials, devices, keepsakes.
     const inv = p.inventory || [];
-    const stowed = stowedRows(p, "⚔ Stowed gear — also carried (equips on the Gear tab too)");
-    if (!inv.length && !stowed) return `<div class="aes-hud-empty">Nothing carried. Consumables, materials & odds-and-ends show here — worn gear lives under ⚔ Gear.</div>`;
-    if (!inv.length) return stowed;
-    return stowed + sechdr("🎒 Inventory — carried items") + inv.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${i.consumable ? actBtn("use", [{ op: "item_consume", instance: i.iid }], "consume one", "mini") : ""}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}</span>`).join(" ")}</div>`).join("");
+    if (!inv.length) return `<div class="aes-hud-empty">No carried items. Worn and stowed equipment stays under ⚔ Gear.</div>`;
+    return sechdr("🎒 Inventory — carried items") + inv.map((c) => `<div class="aes-invrow"><b>${esc(c.container)}:</b> ${c.items.map((i) => `<span class="aes-inv">${esc((i.qty > 1 ? i.qty + "× " : "") + i.name)}${i.type ? ` <span class="aes-dim">${esc(i.type)}</span>` : ""}${i.consumable ? actBtn("use", [{ op: "item_consume", instance: i.iid }], "consume one", "mini") : ""}${i.slot ? actBtn("equip", [{ op: "item_equip", instance: i.iid, slot: i.slot }], "wear/wield", "mini") : ""}</span>`).join(" ")}</div>`).join("");
   }
   function renderPaperdoll(p) {
     const slots = p.gear_slots || [];
@@ -1793,6 +1856,9 @@
     let h = sechdr("Statuses · Conditions · Diseases");
     if ((p.effects || []).length) h += `<div class="aes-rows">${p.effects.map((e) => { const cls = e.valence === "positive" ? "pos good" : e.valence === "negative" ? "neg bad" : "neu"; return `<span class="aes-pill ${cls}" title="${esc(e.kind_label + (e.note ? " · " + e.note : "") + (e.mods ? " · " + e.mods : ""))}"><span class="g">${esc(e.glyph)}</span> ${esc(e.name)} <span class="aes-tag">${esc(e.kind_label)}</span>${e.stacks > 1 ? " ×" + e.stacks : ""}${e.remaining != null ? ` <span class="m">${e.remaining}t</span>` : ""}${actBtn("×", [{ op: "effect_remove", char: p.eid, effect: e.key }], "remove", "x")}</span>`; }).join("")}</div>`;
     else h += `<div class="aes-kv" style="opacity:.55">none active — you're unharmed and unafflicted</div>`;
+    if ((v.consent || []).length) h += sec("Consent boundaries", "✔",
+      v.consent.map((c) => `<div class="aes-kv" title="Explicit code-tracked boundary for this relationship and category."><b>${esc(c.pair)}</b> · ${esc(c.category)} <span class="m">${esc(c.level)}</span>${c.cap != null ? " ≤" + esc(c.cap) : ""}</div>`).join(""),
+      "Explicit relationship boundaries belong with Player status, not buried in world history.");
     return h;
   }
   function knowledgeRows(knowledge, key) {
@@ -1882,7 +1948,8 @@
       }).join("")}
     </div>`);
 
-    return sec("Claims & Events", "\u25c8", `<div class="aes-knowledge">${groups.join("")}</div>`);
+    return sec("Claims & Events", "\u25c8", `<div class="aes-knowledge">${groups.join("")}</div>`,
+      "Separates what was said, who believes it, accepted facts, and admitted world history.");
   }
   function renderQuest(q) {
     const worldUnavailable = q.available === false;
@@ -1910,31 +1977,36 @@
   function tabWorld(v, p) {
     const parts = [], s = v.scene || {};
     const sceneBits = [];
-    if (s.location) sceneBits.push("📍 " + esc(String(s.location).replace(/_/g, " ")));
-    const tod = [s.time_of_day, s.day ? ("day " + s.day) : ""].filter(Boolean).join(", ");
-    if (tod) sceneBits.push("🕓 " + esc(tod));
-    if (s.phase) sceneBits.push("phase " + esc(s.phase));
     if ((s.present || []).length) sceneBits.push("👥 " + s.present.map(esc).join(", "));
     const sceneOverlay = worldEffectLine("World circumstance", s.world_circumstance, "world") +
       worldEffectLine("Location circumstance", s.location_circumstance, "location");
-    if (sceneBits.length || sceneOverlay) parts.push(sec("Scene", "🗺", `${sceneBits.length ? `<div class="aes-kv">${sceneBits.join(" · ")}</div>` : ""}${sceneOverlay}`));
+    if (sceneBits.length || sceneOverlay) parts.push(sec("Here now", "🗺", `${sceneBits.length ? `<div class="aes-kv">${sceneBits.join(" · ")}</div>` : ""}${sceneOverlay}`,
+      "People present and world conditions affecting the current scene. Location and time stay in the fixed header."));
     const knowledge = renderKnowledge(v);
     if (knowledge) parts.push(knowledge);
     if ((v.cast || []).length) parts.push(renderCast(v.cast));
-    if ((v.quests || []).length) parts.push(sec("Quests", "🎯", v.quests.map(renderQuest).join("")));
+    if ((v.quests || []).length) parts.push(sec("Quests", "🎯", v.quests.map(renderQuest).join(""),
+      "Tracked goals and whether current world conditions still allow them."));
     const rel = [...(v.relations || []).map((r) => renderSocialEntry(r)), ...(v.factions || []).map((f) => renderSocialEntry(f, true))];
-    if (rel.length) parts.push(sec("Relations & Factions", "♥", `<div class="aes-rows">${rel.join("")}</div>`));
-    if ((v.relationships || []).length) parts.push(sec("Relationships", "🔗", v.relationships.map(renderRelationship).join("")));
-    if (Object.keys(v.world_flags || {}).length) parts.push(sec("World", "🌍", `<div class="aes-rows">${Object.entries(v.world_flags).map(([k, val]) => `<span class="aes-pill">${esc(k)}=${esc(String(val))}</span>`).join("")}</div>`));
+    if (rel.length) parts.push(sec("Relations & Factions", "♥", `<div class="aes-rows">${rel.join("")}</div>`,
+      "Player-facing standing and world modifiers affecting people and factions."));
+    if ((v.relationships || []).length) parts.push(sec("Relationships", "🔗", v.relationships.map(renderRelationship).join(""),
+      "Directional relationship dimensions and any current world modifier."));
+    if (Object.keys(v.world_flags || {}).length) parts.push(sec("World conditions", "🌍", `<div class="aes-rows">${Object.entries(v.world_flags).map(([k, val]) => {
+      const label = humanLabel(k);
+      const shown = val === true ? label : val === false ? `${label}: no` : `${label}: ${String(val)}`;
+      return `<span class="aes-pill aes-help" title="Ledger-tracked world condition: ${esc(label)}.">${esc(shown)}</span>`;
+    }).join("")}</div>`, "Readable current world conditions tracked by the ledger."));
     if ((v.fronts || []).length) parts.push(sec("Agendas", "⏳", v.fronts.map((f) => {
       const segs = Math.max(1, f.segments | 0), fill = Math.min(segs, f.filled | 0);
       const pips = "●".repeat(fill) + "○".repeat(segs - fill);
       const head = `<b>${esc(f.name)}</b>${f.faction ? ` <span class="m">(${esc(f.faction)})</span>` : ""}`;
-      if (f.done) return `<div class="aes-kv aes-front done">${head} — <b>${f.fresh ? "⚠ COME TO A HEAD" : "concluded"}</b>${f.consequence ? `: ${esc(f.consequence)}` : ""}</div>`;
-      return `<div class="aes-kv aes-front">${head} <span class="aes-pips" title="${fill}/${segs}">${pips}</span></div>`;
-    }).join("") + `<div class="aes-roll-note">Rumored faction clocks — they advance whether or not you watch.</div>`));
-    if ((v.memories || []).length) parts.push(sec("Recent events", "📜", v.memories.map((m) => `<div class="aes-kv"><span class="m">t${esc(m.turn)}</span> ${esc(m.text)}</div>`).join("")));
-    if ((v.consent || []).length) parts.push(sec("Consent", "✔", v.consent.map((c) => `<div class="aes-kv"><b>${esc(c.pair)}</b> · ${esc(c.category)} <span class="m">${esc(c.level)}</span>${c.cap != null ? " ≤" + esc(c.cap) : ""}</div>`).join("")));
+      if (f.done) return `<div class="aes-kv aes-front done" title="This agenda has concluded and its consequence is now player-facing world history.">${head} — <b>${f.fresh ? "⚠ COME TO A HEAD" : "concluded"}</b>${f.consequence ? `: ${esc(f.consequence)}` : ""}</div>`;
+      return `<div class="aes-kv aes-front">${head} <span class="aes-pips aes-help" title="${fill} of ${segs} segments filled. This rumored agenda can advance off-screen.">${pips}</span></div>`;
+    }).join("") + `<div class="aes-roll-note">Rumored agendas can advance off-screen.</div>`,
+      "Rumored faction clocks. Filled segments show visible progress toward a consequence."));
+    if ((v.memories || []).length) parts.push(sec("Recent events", "📜", v.memories.map((m) => `<div class="aes-kv"><span class="m">t${esc(m.turn)}</span> ${esc(m.text)}</div>`).join(""),
+      "Recent player-facing continuity, newest events kept as a short ledger-backed list."));
     return parts.join("") || `<div class="aes-hud-empty">The world is quiet.</div>`;
   }
 
