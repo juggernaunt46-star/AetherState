@@ -34,12 +34,14 @@ const $ = selector => {{
 let tab = "PlayerLex";
 let S = null;
 let RENDER_SEQ = 0;
+let UI_VIEW = "guided";
 const PRIVILEGED_STATE_TABS = new Set(["Overview", "Edit"]);
 const loadCalls = [];
 let releasePlayerLex;
 const pendingPlayerLex = new Promise(resolve => {{ releasePlayerLex = resolve; }});
 async function playerLexTab() {{ return await pendingPlayerLex; }}
 function playerLexReset() {{}}
+function guidedIntro() {{ return ""; }}
 function nav() {{}}
 async function load(privileged) {{ loadCalls.push(privileged); }}
 function headerRefresh() {{}}

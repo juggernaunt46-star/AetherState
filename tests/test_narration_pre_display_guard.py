@@ -21,7 +21,7 @@ from aetherstate.narration_pre_display_guard import (
 from aetherstate.narrator_realization import build_narrator_realization
 from aetherstate.pipeline import Pipeline, PostContext
 from aetherstate.proxy import make_relay_router
-from aetherstate.response_wire import decode_chat_story, encode_chat_story
+from aetherstate.response_wire import encode_chat_story
 from aetherstate.session_engine import SessionEngine
 from aetherstate.stamps import Stamp
 from aetherstate.state import apply_delta

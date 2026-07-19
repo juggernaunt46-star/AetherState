@@ -97,7 +97,8 @@ def test_console_exposes_separate_player_lesson_verticals():
     assert "delivered" not in application_view
 
     assert 'else if(renderTab==="Player Lessons")h=await playerLessonsTab()' in html
-    assert "if(seq===RENDER_SEQ&&tab===renderTab)v.innerHTML=h" in html
+    assert "if(seq===RENDER_SEQ&&tab===renderTab){v.innerHTML=h;" in html
+    assert 'if(renderTab==="PlayerLex")playerLexGuide()' in html
     navigation = html.split("async function go(t){", 1)[1].split("async function render()", 1)[0]
     assert 'if(t==="Player Lessons"||t==="PlayerLex"){S=null;J=null' in navigation
     assert "await load(PRIVILEGED_STATE_TABS.has(t))" in navigation
@@ -343,6 +344,7 @@ const $ = selector => {{
 let tab = "Player Lessons";
 let S = null;
 let RENDER_SEQ = 0;
+let UI_VIEW = "guided";
 const PRIVILEGED_STATE_TABS = new Set(["Overview", "Edit"]);
 const loadCalls = [];
 let releaseLessons;
@@ -351,6 +353,7 @@ async function playerLessonsTab() {{ return await pendingLessons; }}
 async function playerLexTab() {{ return "PLAYERLEX"; }}
 function playerLexReset() {{}}
 function playerLessonReset() {{}}
+function guidedIntro() {{ return ""; }}
 function nav() {{}}
 async function load(privileged) {{ loadCalls.push(privileged); }}
 function headerRefresh() {{}}
