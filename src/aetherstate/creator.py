@@ -25,6 +25,7 @@ from typing import Optional
 import httpx
 
 from . import registry
+from .secret_store import resolve_api_key
 from .extraction import is_venice_host
 from .state import TIMES, merge_baseline_skills, slug
 
@@ -1954,7 +1955,7 @@ async def _creator_chat(
             "include_venice_system_prompt": False,
         }
     headers = {"content-type": "application/json"}
-    key = getattr(ep, "api_key", "") or getattr(getattr(cfg, "upstream", None), "api_key", "")
+    key = resolve_api_key(ep) or resolve_api_key(getattr(cfg, "upstream", None))
     if key:
         headers["Authorization"] = f"Bearer {key}"
     url = str(ep.base_url or "").rstrip("/") + "/chat/completions"

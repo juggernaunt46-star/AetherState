@@ -11,7 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 
 from .config import Config
-from .control import make_control_router
+from .control import _persist_config, make_control_router
+from .secret_store import CredentialStoreUnavailable, migrate_legacy_credentials
 from .extraction import Ladder
 from .jobs import JobRunner
 from .pipeline import Pipeline
@@ -23,6 +24,12 @@ from .store import Store
 
 def create_app(cfg: Config, client_factory: Optional[Callable[[], httpx.AsyncClient]] = None,
                store: Optional[Store] = None) -> FastAPI:
+    migration = migrate_legacy_credentials(cfg, _persist_config)
+    if migration.failed:
+        raise CredentialStoreUnavailable(
+            "legacy provider credential could not be secured; "
+            "enable the operating-system credential vault or use environment injection"
+        )
     _client: dict = {}
 
     @asynccontextmanager

@@ -164,11 +164,11 @@ async def test_api_key_injected_when_client_sends_none(client, mock_upstream, cf
     assert mock_upstream.requests[0].headers.get("authorization") == "Bearer sk-test"
 
 
-async def test_client_auth_wins_over_config_key(client, mock_upstream, cfg):
+async def test_config_key_wins_over_client_auth(client, mock_upstream, cfg):
     cfg.upstream.api_key = "sk-config"
     mock_upstream.enqueue(Reply())
     await client.post("/v1/chat/completions", json={}, headers={"authorization": "Bearer sk-client"})
-    assert mock_upstream.requests[0].headers.get("authorization") == "Bearer sk-client"
+    assert mock_upstream.requests[0].headers.get("authorization") == "Bearer sk-config"
 
 
 async def test_status_endpoint_is_separate_surface(client):

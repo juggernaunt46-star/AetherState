@@ -40,7 +40,7 @@ diagnostic companion.
 | key | default | meaning |
 |---|---|---|
 | base_url | `""` | full OpenAI base **including version segment** (e.g. `https://api.openai.com/v1`) |
-| api_key | `""` | **fallback only** — a usable frontend Authorization value is forwarded unchanged and wins; this key replaces a missing/blank value or an empty case-insensitive Bearer placeholder (+ Console Connect test) |
+| credential_ref | `""` | Console-managed opaque reference to the key held by the operating-system credential vault; never the raw key |
 | force_rung | `0` | 1–4 forces an extraction rung, skips probing; 0 = auto |
 | probe_ttl_days | `7` | capability re-probe interval |
 | idle_timeout_s | `0` | 0 = no proxy stream timeout |
@@ -56,7 +56,7 @@ diagnostic companion.
 | timeout_s | `600` | per-request timeout for this cold path; ordinary narration and mechanics do not inherit it |
 | validation_retries | `1` | one clean full-document retry after an empty, truncated, invalid, incomplete, or mechanically checkable direction-breaking response |
 
-Creator always calls the configured **MAIN** base URL and API key. Extraction/assist routing never
+Creator always calls the configured **MAIN** base URL and saved credential. Extraction/assist routing never
 redirects it to a helper endpoint. Strict parsing accepts one complete JSON object (optionally inside
 one complete JSON fence); it never repairs a fragment, reads reasoning text as output, or loads a
 partial document. Both Creator notes boxes are sent as controlling instructions in the system and
@@ -173,7 +173,7 @@ user messages, remain unchanged on the retry, and remain visible in the editable
 | key | default | meaning |
 |---|---|---|
 | name | `local` | label |
-| base_url / api_key / model | `""` | the assist endpoint |
+| base_url / credential_ref / model | `""` | the assist endpoint; the reference is Console-managed and non-secret |
 | tier | `small` | `nano \| small \| medium` (prompt-size preset) |
 | max_concurrent | 1 | serialize weak machines |
 
@@ -198,7 +198,7 @@ endpoints at once (also honoured by extraction's own routing). Editable live in 
 Routes: `POST /aether/groups` now also accepts `"group_endpoints": {<group>: <endpoint name>}` alongside the
 `{<group>: <mode>}` pairs (persisted; a blank/unknown name clears the override). `POST /aether/assist/endpoints`
 `{ "endpoints": [ {name, base_url, model?, tier?, api_key?, max_concurrent?} ] }` replaces the endpoint list
-(a blank `api_key` keeps a stored key; never echoed back). `GET /aether/status` `.extraction` exposes
+(a blank `api_key` input keeps the vault-backed key; the raw value is never echoed). `GET /aether/status` `.extraction` exposes
 `groups`, `group_endpoints`, and `assist_endpoints` (name/model/tier/base_url) for the UIs.
 
 ### `[privacy]` — `PrivacyConfig`
@@ -218,11 +218,11 @@ Routes: `POST /aether/groups` now also accepts `"group_endpoints": {<group>: <en
 ### OpenAI surface (relay — `proxy.py`)
 `ANY /{path}` — the transparent proxy. Frontends call `/v1/chat/completions`, `/v1/completions`,
 `/v1/models`, etc. `/v1` is stripped and grafted onto `upstream.base_url`. `x-aetherstate-*` request
-headers are consumed, never forwarded. Usable frontend authorization is relayed exactly; blank or
-empty Bearer placeholders are treated as absent so a configured `upstream.api_key` can supply the
-fallback. Duplicate case-insensitive Authorization occurrences are treated as one logical field:
-the first usable inbound value wins and only one field is sent upstream. Errors are OpenAI-shaped
-JSON (502 `not_configured` / `upstream_unreachable`).
+headers are consumed, never forwarded. A saved vault-backed AetherState credential is authoritative.
+Frontend authorization remains a transient compatibility path only when no saved credential exists;
+blank or empty Bearer placeholders are then preserved as before. Duplicate case-insensitive
+Authorization occurrences are treated as one logical field. Errors are OpenAI-shaped JSON (502
+`not_configured` / `upstream_unreachable`).
 
 ### Control surface (`/aether/*` — `control.py` + `status.py`)
 | Method + path | Purpose |

@@ -20,6 +20,12 @@ from . import creator as _creator
 from . import narrator as _narrator
 from . import hud as _hud
 from .extraction import Endpoint
+from .secret_store import (
+    CredentialStoreError,
+    default_credential_store,
+    has_configured_key,
+    resolve_api_key,
+)
 from .playerlex import (
     PlayerLex,
     PlayerLexConflictError,
@@ -156,16 +162,16 @@ def _toml_dumps(d: dict, prefix: str = "") -> str:
     return "\n".join(out)
 
 
-def _persist_config(cfg) -> bool:
+def _persist_config(cfg, *, refresh_backup: bool = False) -> bool:
     """Merge the Console-managed values into config.toml so connection/extraction changes
     survive a restart WITHOUT clobbering host/port/data_dir or any hand-tuned section the
     Console doesn't manage (the old writer emitted a partial [server] block and dropped
     host/port -- restart then fell back to 127.0.0.1:9130). We read the existing file, overlay
     only the managed keys, and re-emit the whole thing.
 
-    Hardening: chmod 0600 on POSIX so the upstream key isn't world-readable; if the key is
-    supplied via env (AETHERSTATE_UPSTREAM__API_KEY) it is authoritative and is NOT written to
-    disk (and is actively dropped from the file), keeping the secret off disk entirely."""
+    Provider secrets are never emitted. New saves persist opaque OS-vault references; an unmigrated
+    legacy value blocks persistence rather than deleting the only usable copy. ``refresh_backup``
+    atomically sanitizes the last-known-good copy before replacing the source during migration."""
     if not bool(getattr(cfg, "persistence_enabled", True)):
         # Isolated live tests may borrow personal connection settings read-only.  Returning before
         # target selection is the fail-safe boundary: no source, fallback, temp, or secret-bearing
@@ -188,6 +194,15 @@ def _persist_config(cfg) -> bool:
             if getattr(cfg, "source_path", "")
             else _P(cfg.server.data_dir) / "config.toml"
         )
+        env_upstream_key = bool(_os.environ.get("AETHERSTATE_UPSTREAM__API_KEY"))
+        if (
+            cfg.upstream.api_key
+            and not cfg.upstream.credential_ref
+            and not env_upstream_key
+        ):
+            return False
+        if any(e.api_key and not e.credential_ref for e in cfg.assist.endpoints):
+            return False
         base: dict = {}
         if target.is_file():  # start from what's on disk -> unmanaged sections survive
             try:
@@ -214,10 +229,11 @@ def _persist_config(cfg) -> bool:
         up = _sec("upstream")
         up["base_url"] = cfg.upstream.base_url
         up["model"] = cfg.upstream.model
-        if _os.environ.get("AETHERSTATE_UPSTREAM__API_KEY"):
-            up.pop("api_key", None)  # env is authoritative -> keep the secret off disk
+        up.pop("api_key", None)
+        if cfg.upstream.credential_ref:
+            up["credential_ref"] = cfg.upstream.credential_ref
         else:
-            up["api_key"] = cfg.upstream.api_key
+            up.pop("credential_ref", None)
 
         # [creator]: cold-path main-model authoring limits are independent from extraction.
         # Re-emit the live values so a Console save cannot silently return Creator to an old
@@ -233,7 +249,7 @@ def _persist_config(cfg) -> bool:
             {
                 "name": e.name,
                 "base_url": e.base_url,
-                "api_key": e.api_key,
+                "credential_ref": e.credential_ref,
                 "model": e.model,
                 "tier": e.tier,
                 "max_concurrent": int(e.max_concurrent),
@@ -293,12 +309,21 @@ def _persist_config(cfg) -> bool:
         # atomic write (2026-07-06): write a sibling temp file then os.replace, so a crash
         # mid-save can never leave a truncated config.toml behind (load would fall back to
         # .bak/defaults and the Console would look mysteriously wiped).
+        content = header + _toml_dumps(base) + "\n"
         tmp = target.with_suffix(target.suffix + ".tmp")
-        tmp.write_text(header + _toml_dumps(base) + "\n", encoding="utf-8")
+        tmp.write_text(content, encoding="utf-8")
+        backup = target.with_suffix(target.suffix + ".bak")
+        if refresh_backup:
+            backup_tmp = backup.with_suffix(backup.suffix + ".tmp")
+            backup_tmp.write_text(content, encoding="utf-8")
+            _os.replace(backup_tmp, backup)
         _os.replace(tmp, target)
+
+        hardened = [target, backup] if refresh_backup else [target]
         if _os.name == "posix":  # POSIX-only; NTFS ACLs differ and chmod is a no-op there
             try:
-                _os.chmod(target, 0o600)
+                for path in hardened:
+                    _os.chmod(path, 0o600)
             except OSError:
                 pass
         elif _os.name == "nt":  # 2026-07-07: NTFS equivalent — strip inherited ACLs,
@@ -307,12 +332,13 @@ def _persist_config(cfg) -> bool:
 
                 user = _os.environ.get("USERNAME", "")
                 if user:
-                    _sp.run(
-                        ["icacls", str(target), "/inheritance:r", "/grant:r", f"{user}:F"],
-                        capture_output=True,
-                        timeout=10,
-                        check=False,
-                    )
+                    for path in hardened:
+                        _sp.run(
+                            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:F"],
+                            capture_output=True,
+                            timeout=10,
+                            check=False,
+                        )
             except Exception:  # fail-open: hardening never blocks a config save
                 pass
         return True
@@ -320,8 +346,9 @@ def _persist_config(cfg) -> bool:
         return False
 
 
-def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
+def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=None) -> APIRouter:
     router = APIRouter(prefix="/aether")
+    credential_store = credential_store or default_credential_store()
     owner_inspection_cookie = "aetherstate_owner_inspection"
     owner_inspection_token = secrets.token_urlsafe(32)
     playerlex_service: PlayerLex | None = None
@@ -844,7 +871,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         if not base_url:
             return {"endpoints": []}
         configured = str(cfg.upstream.model or "").strip()
-        detected = await _list_models(get_client, base_url, cfg.upstream.api_key)
+        detected = await _list_models(
+            get_client, base_url, resolve_api_key(cfg.upstream, credential_store)
+        )
         models = ([configured] if configured else []) + [
             model for model in detected if model != configured
         ]
@@ -1154,8 +1183,11 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         incoming = payload.get("endpoints")
         if not isinstance(incoming, list):
             return JSONResponse({"error": "endpoints list required"}, status_code=400)
-        old = {e.name: e for e in cfg.assist.endpoints}
+        old_list = list(cfg.assist.endpoints)
+        old_group_endpoints = cfg.assist.group_endpoints.model_copy(deep=True)
+        old = {e.name: e for e in old_list}
         new_eps, seen = [], set()
+        created_refs: list[str] = []
         for item in incoming:
             if not isinstance(item, dict):
                 continue
@@ -1165,8 +1197,40 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
                 continue  # a usable endpoint needs a unique name + a url
             seen.add(name)
             key = str(item.get("api_key", "") or "")
-            if not key and name in old:
-                key = old[name].api_key  # blank keeps the stored key (never wiped by edits)
+            credential_ref = ""
+            legacy_key = ""
+            if key:
+                try:
+                    credential_ref = credential_store.put(key)
+                except CredentialStoreError:
+                    for reference in created_refs:
+                        try:
+                            credential_store.delete(reference)
+                        except CredentialStoreError:
+                            pass
+                    return JSONResponse(
+                        {"error": "secure credential storage is unavailable"},
+                        status_code=503,
+                    )
+                created_refs.append(credential_ref)
+            elif name in old:
+                credential_ref = old[name].credential_ref
+                legacy_key = old[name].api_key
+                if legacy_key and not credential_ref:
+                    try:
+                        credential_ref = credential_store.put(legacy_key)
+                    except CredentialStoreError:
+                        for reference in created_refs:
+                            try:
+                                credential_store.delete(reference)
+                            except CredentialStoreError:
+                                pass
+                        return JSONResponse(
+                            {"error": "secure credential storage is unavailable"},
+                            status_code=503,
+                        )
+                    created_refs.append(credential_ref)
+                    legacy_key = ""
             try:
                 maxc = max(1, int(item.get("max_concurrent", 1)))
             except (TypeError, ValueError):
@@ -1175,7 +1239,8 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
                 AssistEndpointConfig(
                     name=name,
                     base_url=base,
-                    api_key=key,
+                    api_key=legacy_key,
+                    credential_ref=credential_ref,
                     model=str(item.get("model", "")).strip(),
                     tier=str(item.get("tier", "small")).strip() or "small",
                     max_concurrent=maxc,
@@ -1189,6 +1254,25 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
                 if getattr(ge, grp, "") and getattr(ge, grp) not in seen:
                     setattr(ge, grp, "")
         persisted = _persist_config(cfg)
+        if not persisted:
+            cfg.assist.endpoints = old_list
+            cfg.assist.group_endpoints = old_group_endpoints
+            for reference in created_refs:
+                try:
+                    credential_store.delete(reference)
+                except CredentialStoreError:
+                    pass
+            return JSONResponse(
+                {"error": "connection settings could not be saved"}, status_code=500
+            )
+        retained_refs = {e.credential_ref for e in new_eps if e.credential_ref}
+        for endpoint in old_list:
+            reference = str(endpoint.credential_ref or "")
+            if reference and reference not in retained_refs:
+                try:
+                    credential_store.delete(reference)
+                except CredentialStoreError:
+                    log.warning("retired provider credential could not be removed")
         return {
             "endpoints": [
                 {
@@ -1196,7 +1280,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
                     "base_url": e.base_url,
                     "model": e.model,
                     "tier": e.tier,
-                    "has_key": bool(e.api_key),
+                    "has_key": has_configured_key(e),
                     "max_concurrent": e.max_concurrent,
                 }
                 for e in new_eps
@@ -1252,14 +1336,14 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         return {
             "upstream": {
                 "base_url": cfg.upstream.base_url,
-                "has_key": bool(cfg.upstream.api_key),
+                "has_key": has_configured_key(cfg.upstream),
                 "model": cfg.upstream.model,
             },
             "assist": [
                 {
                     "name": e.name,
                     "base_url": e.base_url,
-                    "has_key": bool(e.api_key),
+                    "has_key": has_configured_key(e),
                     "model": e.model,
                     "tier": e.tier,
                 }
@@ -1287,9 +1371,11 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         if not key:  # fall back to the saved key for this target
             target = str(p.get("target", ""))
             if target == "upstream":
-                key = cfg.upstream.api_key
+                key = resolve_api_key(cfg.upstream, credential_store)
             elif target == "assist" and cfg.assist.endpoints:
-                key = cfg.assist.endpoints[0].api_key or cfg.upstream.api_key
+                key = resolve_api_key(cfg.assist.endpoints[0], credential_store) or resolve_api_key(
+                    cfg.upstream, credential_store
+                )
         if not base:
             return JSONResponse({"error": "base_url required"}, status_code=400)
         headers = {"Authorization": f"Bearer {key}"} if key else {}
@@ -1339,11 +1425,20 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
         target = p.get("target", "upstream")
+        old_upstream = cfg.upstream.model_copy(deep=True)
+        old_assist_endpoints = [e.model_copy(deep=True) for e in cfg.assist.endpoints]
+
+        def rollback_runtime_connection() -> None:
+            if target == "upstream":
+                cfg.upstream = old_upstream
+            else:
+                cfg.assist.endpoints = old_assist_endpoints
+
+        connection = None
         if target == "upstream":
+            connection = cfg.upstream
             if "base_url" in p:
                 cfg.upstream.base_url = str(p["base_url"]).strip()
-            if p.get("api_key"):
-                cfg.upstream.api_key = str(p["api_key"])
             if "model" in p:  # default for engine-initiated calls (creator/genesis)
                 cfg.upstream.model = str(p["model"]).strip()
         elif target == "assist":
@@ -1353,17 +1448,44 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
             if e is None:
                 e = AssistEndpointConfig(name="custom")
                 cfg.assist.endpoints.append(e)
+            connection = e
             if "base_url" in p:
                 e.base_url = str(p["base_url"]).strip()
-            if p.get("api_key"):
-                e.api_key = str(p["api_key"])
             if "model" in p:
                 e.model = str(p["model"])
             if p.get("tier"):
                 e.tier = str(p["tier"])
         else:
             return JSONResponse({"error": "target must be upstream|assist"}, status_code=422)
-        return {"ok": True, "persisted": _persist_config(cfg), **_connection_view()}
+        new_ref = ""
+        old_ref = str(getattr(connection, "credential_ref", "") or "")
+        if p.get("api_key"):
+            try:
+                new_ref = credential_store.put(str(p["api_key"]))
+            except CredentialStoreError:
+                rollback_runtime_connection()
+                return JSONResponse(
+                    {"error": "secure credential storage is unavailable"}, status_code=503
+                )
+            connection.credential_ref = new_ref
+            connection.api_key = ""
+        persisted = _persist_config(cfg)
+        if not persisted:
+            rollback_runtime_connection()
+            if new_ref:
+                try:
+                    credential_store.delete(new_ref)
+                except CredentialStoreError:
+                    pass
+            return JSONResponse(
+                {"error": "connection settings could not be saved"}, status_code=500
+            )
+        if new_ref and old_ref and old_ref != new_ref:
+            try:
+                credential_store.delete(old_ref)
+            except CredentialStoreError:
+                log.warning("retired provider credential could not be removed")
+        return {"ok": True, "persisted": True, **_connection_view()}
 
     @router.get("/sessions")
     async def sessions():
@@ -1598,12 +1720,14 @@ def make_control_router(cfg, store, jobs=None, pipeline=None) -> APIRouter:
             session_model = str(jobs.models.get(row["session_id"], "") or "").strip()
         model = requested_model or session_model or str(cfg.upstream.model or "").strip()
         if base_url and not model:
-            detected = await _list_models(get_client, base_url, cfg.upstream.api_key)
+            detected = await _list_models(
+                get_client, base_url, resolve_api_key(cfg.upstream, credential_store)
+            )
             model = detected[0] if detected else ""
         ep = Endpoint(
             base_url=base_url,
             model=model,
-            api_key=cfg.upstream.api_key,
+            api_key=resolve_api_key(cfg.upstream, credential_store),
         )
         if not ep.base_url or not ep.model:
             # No MAIN model to call: honest error. Templates remain an explicit separate button.

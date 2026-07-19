@@ -18,6 +18,7 @@ from array import array
 
 import httpx
 
+from .secret_store import resolve_api_key
 from .extraction import Endpoint, is_venice_host, repair_json
 
 log = logging.getLogger("aetherstate.assist")
@@ -62,7 +63,8 @@ def endpoint_for_group(cfg, group: str, model_hint: str = ""):
         if e is None:
             e = eps[0]
         return Endpoint(base_url=e.base_url, model=e.model or model_hint,
-                        api_key=e.api_key, assist_tier=e.tier in ("nano", "small"))
+                        api_key=e.api_key, credential_ref=e.credential_ref,
+                        assist_tier=e.tier in ("nano", "small"))
     if mode == "main":
         if not cfg.upstream.base_url:
             return None
@@ -95,7 +97,7 @@ async def _chat(get_client, cfg, ep: Endpoint, system: str, user: str,
         body["venice_parameters"] = {"disable_thinking": True,
                                      "include_venice_system_prompt": False}
     headers = {"content-type": "application/json"}
-    key = ep.api_key or cfg.upstream.api_key
+    key = resolve_api_key(ep) or resolve_api_key(cfg.upstream)
     if key:
         headers["Authorization"] = f"Bearer {key}"
     url = ep.base_url.rstrip("/") + "/chat/completions"
@@ -199,6 +201,7 @@ async def resolve_endpoint(get_client, cfg, ep: Endpoint) -> Endpoint:
         if eps and eps[0].model:
             e = eps[0]
             return Endpoint(base_url=e.base_url, model=e.model, api_key=e.api_key,
+                            credential_ref=e.credential_ref,
                             assist_tier=e.tier in ("nano", "small"))
         default = getattr(cfg.upstream, "model", "") or ""
         if default:
@@ -208,7 +211,7 @@ async def resolve_endpoint(get_client, cfg, ep: Endpoint) -> Endpoint:
         if not base:
             return ep
         headers = {}
-        key = ep.api_key or cfg.upstream.api_key
+        key = resolve_api_key(ep) or resolve_api_key(cfg.upstream)
         if key:
             headers["Authorization"] = f"Bearer {key}"
         r = await get_client().get(base + "/models", headers=headers, timeout=15.0)
@@ -227,7 +230,7 @@ async def embed_texts(get_client, cfg, ep: Endpoint, texts: list):
     if not texts:
         return []
     headers = {"content-type": "application/json"}
-    key = ep.api_key or cfg.upstream.api_key
+    key = resolve_api_key(ep) or resolve_api_key(cfg.upstream)
     if key:
         headers["Authorization"] = f"Bearer {key}"
     url = ep.base_url.rstrip("/") + "/embeddings"

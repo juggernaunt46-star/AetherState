@@ -45,7 +45,9 @@ Then:
 2. Add the endpoint, model, and API key for the model that writes your story.
 3. In SillyTavern, choose an OpenAI-compatible Chat Completion connection.
 4. Set the base URL to <code>http://127.0.0.1:9130/v1</code>.
-5. Keep the AetherState terminal open while you play.
+5. Do not duplicate the provider key in that SillyTavern profile; use a non-secret placeholder if
+   the connection requires a value.
+6. Keep the AetherState terminal open while you play.
 
 The backend-only launcher is <code>Start-AetherState.bat</code>. The extension-only fallback is <code>Install-ST-Extension.bat</code>.
 
@@ -365,14 +367,17 @@ This is off by default. A local NLI helper is available under <code>nli-shim/</c
 - Local-first does not mean fully offline when a cloud model or helper feature is enabled.
 - PlayerLex and Player Lessons do not automatically learn across users or mine chat history.
 - Secure removal clears active AetherState-owned database, cache, and WAL evidence. It cannot erase external backups or text a model provider already retained.
-- API keys are never part of the public repository. Use the Console, frontend connection, environment variables, or another private configuration method.
+- API keys saved in the Console go to the operating system credential vault. Ordinary AetherState
+  configuration stores only opaque references. Environment injection remains available when a
+  secure vault is unavailable.
 
 ## Troubleshooting
 
 - **Nothing updates:** confirm the SillyTavern connection points to <code>http://127.0.0.1:9130/v1</code> and the AetherState panel says the proxy is online.
 - **The extension looks unchanged after an update:** restart SillyTavern and hard-refresh the browser with **Ctrl+Shift+R**.
 - **A new chat seeded incorrectly:** use <code>/aether-genesis</code> to reseed it.
-- **Authentication fails:** the API key sent by your frontend normally takes priority. Make sure the real key is in the SillyTavern connection profile rather than a placeholder.
+- **Authentication fails:** save the provider key in the AetherState Console. A saved AetherState
+  credential takes priority over a SillyTavern placeholder.
 - **The Console takes a moment to appear:** leave the launcher open, wait for startup, and refresh once.
 - **Antivirus interferes with Python installation:** try <code>python -m pip install --use-feature=truststore -e .</code>
 - **A local model cannot follow the full RPG instructions:** enable the compact RPG contract or use a stronger story model.

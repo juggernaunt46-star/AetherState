@@ -609,7 +609,7 @@ async function connectionTab(){const d=await j("/aether/connection");const a=(d.
    <span class="hint" id="up_saved">${d.upstream.model?"saved model: "+esc(d.upstream.model):""}</span></div>
   <p class="hint">SillyTavern picks the story model per request — the model chosen here is AetherState's own
    DEFAULT (used by the Creator's auto-fill and chat-open genesis before any message has flowed). Saved keys stay
-   saved; leaving the key box blank keeps the stored key.</p></div>
+   in your operating system's credential vault; leaving the key box blank keeps the stored key.</p></div>
   <div class="card"><h3>Local helper — the mechanics (genesis, extraction, memory)</h3>
   <div class="formgrid">
    <label class="field">Endpoint URL<input id="as_url" value="${esc(a.base_url||"")}"></label>

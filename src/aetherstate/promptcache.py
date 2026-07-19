@@ -32,6 +32,8 @@ from typing import Optional
 
 import httpx
 
+from .secret_store import resolve_api_key
+
 log = logging.getLogger("aetherstate.promptcache")
 
 PREWARM_COOLDOWN_S = 240          # one prewarm per session per window (~ the provider TTL)
@@ -169,8 +171,9 @@ async def prewarm(get_client, cfg, doc: dict, stats: Optional[CacheStats] = None
         body["stream"] = False
         body.pop("stream_options", None)
         headers = {"content-type": "application/json"}
-        if cfg.upstream.api_key:
-            headers["Authorization"] = f"Bearer {cfg.upstream.api_key}"
+        key = resolve_api_key(cfg.upstream)
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         r = await get_client().post(
             upstream_url(cfg.upstream.base_url, "v1/chat/completions"),
             json=body, headers=headers,

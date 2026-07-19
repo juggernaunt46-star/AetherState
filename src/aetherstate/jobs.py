@@ -83,6 +83,7 @@ class JobRunner:
                 return (Endpoint(base_url=e.base_url,
                                  model=e.model or self.models.get(session_id, ""),
                                  api_key=e.api_key,
+                                 credential_ref=e.credential_ref,
                                  assist_tier=e.tier in ("nano", "small")),   # 04 SS5
                         f"assist:{e.name}", max(1, e.max_concurrent))
             if not self._warned_no_assist:

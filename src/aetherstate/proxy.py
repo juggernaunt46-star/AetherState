@@ -19,6 +19,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import Response, StreamingResponse
 
+from .secret_store import resolve_api_key
 from .semantic_selection_transport import MAX_SELECTION_RESPONSE_BYTES
 from .stamps import MARKER, parse_and_strip
 from .turn_lifecycle import TurnLifecycleError
@@ -66,10 +67,11 @@ def _semantic_selection_headers(request: Request, cfg) -> dict[str, str]:
         (value for value in authorization_values if _authorization_is_usable(value)),
         None,
     )
-    if authorization is not None:
+    saved_key = resolve_api_key(cfg.upstream)
+    if saved_key:
+        headers["authorization"] = f"Bearer {saved_key}"
+    elif authorization is not None:
         headers["authorization"] = authorization
-    elif cfg.upstream.api_key:
-        headers["authorization"] = f"Bearer {cfg.upstream.api_key}"
     elif authorization_values:
         headers["authorization"] = authorization_values[0]
     return headers
@@ -466,10 +468,11 @@ def make_relay_router(get_client: Callable[[], httpx.AsyncClient], cfg, engine=N
             (value for value in authorization_values if _authorization_is_usable(value)),
             None,
         )
-        if authorization is not None:
+        saved_key = resolve_api_key(cfg.upstream)
+        if saved_key:
+            headers["Authorization"] = f"Bearer {saved_key}"
+        elif authorization is not None:
             headers["Authorization"] = authorization
-        elif cfg.upstream.api_key:
-            headers["Authorization"] = f"Bearer {cfg.upstream.api_key}"
         elif authorization_values:
             headers["Authorization"] = authorization_values[0]
 

@@ -4,15 +4,19 @@ from __future__ import annotations
 import httpx
 import pytest
 
+import aetherstate.secret_store as secret_store
 from aetherstate.app import create_app
 from aetherstate.config import Config
+from aetherstate.secret_store import CredentialStore
 from aetherstate.store import Store
+from tests.test_credentials import SecureMemoryBackend
 from tests.mock_upstream import MockUpstream, Reply
 
 
 async def _relay_authorization(
     incoming: str | None | list[tuple[str, str]],
     configured_key: str = "saved-test-key",
+    credential_ref: str = "",
 ) -> list[str]:
     mock = MockUpstream()
     mock.enqueue(Reply())
@@ -20,6 +24,7 @@ async def _relay_authorization(
     cfg = Config()
     cfg.upstream.base_url = "http://mock-upstream/v1"
     cfg.upstream.api_key = configured_key
+    cfg.upstream.credential_ref = credential_ref
 
     upstream_client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=mock),
@@ -68,7 +73,26 @@ async def test_duplicate_placeholder_authorization_preserves_first_once_without_
 
 @pytest.mark.parametrize("incoming", ["Bearer frontend-test-key", "Basic synthetic-token"])
 async def test_usable_frontend_authorization_is_preserved(incoming):
-    assert await _relay_authorization(incoming) == [incoming]
+    assert await _relay_authorization(incoming, configured_key="") == [incoming]
+
+
+@pytest.mark.parametrize("incoming", ["Bearer frontend-test-key", "Basic synthetic-token"])
+async def test_configured_key_is_compartment_authority_over_frontend_secret(incoming):
+    assert await _relay_authorization(incoming) == ["Bearer saved-test-key"]
+
+
+async def test_vault_credential_is_resolved_only_for_upstream_transport(monkeypatch):
+    store = CredentialStore(SecureMemoryBackend())
+    reference = store.put("vault-only-test-key")
+    monkeypatch.setattr(secret_store, "_default_store", store)
+
+    authorization = await _relay_authorization(
+        "Bearer frontend-test-key",
+        configured_key="",
+        credential_ref=reference,
+    )
+
+    assert authorization == ["Bearer vault-only-test-key"]
 
 
 @pytest.mark.parametrize(
@@ -92,4 +116,4 @@ async def test_usable_frontend_authorization_is_preserved(incoming):
     ],
 )
 async def test_duplicate_authorization_forwards_first_usable_once(incoming, expected):
-    assert await _relay_authorization(incoming) == [expected]
+    assert await _relay_authorization(incoming, configured_key="") == [expected]

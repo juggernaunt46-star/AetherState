@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.6",
     "uvicorn>=0.29",
     "truststore>=0.8",
+    "keyring>=25.6,<26",
     "tomli>=2.0; python_version<'3.11'",
 ]
 

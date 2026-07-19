@@ -1,7 +1,8 @@
 # AetherState configuration — copied to aetherstate-data/config.toml on first run.
 # TIP: you don't have to edit this file at all. The Console
 # (http://127.0.0.1:9130/aether/console) Connection tab fills in endpoints and
-# keys for you and saves them here.
+# keys for you. Keys go to your operating system's credential vault; this file receives only
+# opaque references.
 
 [server]
 # host = "127.0.0.1"
@@ -22,18 +23,8 @@ base_url = ""     # e.g. "https://api.openai.com/v1", "https://api.your-provider
 model = ""        # DEFAULT model for engine-initiated calls only (Creator auto-fill, chat-open
                   # genesis) before any chat request has flowed. The relay NEVER uses it — your
                   # frontend names its own model per request. Set it from Console -> Connection.
-api_key = ""      # FALLBACK ONLY. AetherState is a transparent proxy: the key your frontend
-                  # (e.g. SillyTavern) sends in its connection profile is forwarded upstream
-                  # AS-IS and ALWAYS WINS. This key is used ONLY when the frontend sends no
-                  # Authorization header at all (rare — SillyTavern always sends one), plus for
-                  # the Console's Connect test. So if you're getting 401s, fix the key in your
-                  # frontend's connection profile, not here.
-                  # SECURITY: a key set here is stored in plaintext. Prefer keeping it out
-                  # of the file entirely via the env var  AETHERSTATE_UPSTREAM__API_KEY=sk-...
-                  # (env overrides the file and is never written back to disk). The Console
-                  # locks config.toml down on save — 0600 perms on POSIX, an owner-only NTFS
-                  # ACL (icacls) on Windows — and still: keep it out of synced folders
-                  # (OneDrive/Dropbox). The key is never echoed by any route or written to logs.
+credential_ref = ""  # Managed by the Console. This opaque reference is not the API key.
+                     # AETHERSTATE_UPSTREAM__API_KEY remains a transient fallback.
 disable_narrator_reasoning = true
                   # Venice only, typed narrator chats only. true hard-disables reasoning on the
                   # live response path for lower and steadier latency. Creator/background model
@@ -69,7 +60,7 @@ validation_retries = 1   # retry one empty, truncated, invalid, or incomplete re
 [[assist.endpoints]]
 name = "helper"
 base_url = ""
-api_key = ""
+credential_ref = ""  # Managed by the Console; paste the key there, not in this file.
 model = ""        # e.g. "zai-org-glm-5-2", or your local model's id
 tier = "small"    # nano | small | medium — small keeps prompts compact for local 7-13B models
 max_concurrent = 1

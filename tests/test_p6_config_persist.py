@@ -2,7 +2,7 @@
 
 Guards the two bugs reported at 1.0:
   1. dashboard save dropped [server].host/port -> restart fell back to 127.0.0.1:9130;
-  2. upstream api_key written to config.toml in plaintext, world-readable.
+  2. provider credentials must never be written to config.toml in plaintext.
 """
 from __future__ import annotations
 
@@ -27,7 +27,8 @@ def test_console_save_preserves_host_port_and_unmanaged_sections(tmp_path):
     p = tmp_path / "config.toml"
     _write(p, (
         '[server]\nhost = "0.0.0.0"\nport = 9999\ndata_dir = "%s"\n'
-        '[upstream]\nbase_url = "http://old"\napi_key = "sk-PLAINTEXT"\n'
+        '[upstream]\nbase_url = "http://old"\n'
+        'credential_ref = "cred_11111111111111111111111111111111"\n'
         '[injection]\nmax_tokens = 1500\n'
         '[director]\nminutes_per_turn = 7\n'
     ) % str(tmp_path).replace("\\", "/"))
@@ -43,7 +44,8 @@ def test_console_save_preserves_host_port_and_unmanaged_sections(tmp_path):
     assert r.injection.max_tokens == 1500                          # unmanaged section survives
     assert r.director.minutes_per_turn == 7
     assert r.upstream.base_url == "http://new"                     # managed edit persisted
-    assert r.upstream.api_key == "sk-PLAINTEXT"
+    assert r.upstream.api_key == ""
+    assert r.upstream.credential_ref == "cred_11111111111111111111111111111111"
 
 
 def test_first_save_with_no_file_writes_host_port(tmp_path):
@@ -91,7 +93,7 @@ def test_console_specialization_knobs_survive_restart(tmp_path):
 def test_saved_config_is_not_world_readable(tmp_path):
     c = Config()
     c.server.data_dir = str(tmp_path)
-    c.upstream.api_key = "sk-secret"
+    c.upstream.credential_ref = "cred_11111111111111111111111111111111"
     assert _persist_config(c) is True
     mode = stat.S_IMODE(os.stat(tmp_path / "config.toml").st_mode)
     assert mode == 0o600, oct(mode)

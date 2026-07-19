@@ -36,6 +36,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from . import prompts
+from .secret_store import resolve_api_key
 from .narrator_realization import narrator_realization_owns_turn
 from .state import _SPEC as OP_SPEC          # required-field sets (02 SS11)
 from .state import OP_FIELD_ENUMS            # per-op vocabularies (single source of truth)
@@ -705,6 +706,7 @@ class Endpoint:
     base_url: str
     model: str
     api_key: str = ""
+    credential_ref: str = ""
     assist_tier: bool = False        # 04 SS5: small local models keep the OP CARD on rung 1-2
 
 
@@ -771,7 +773,7 @@ class Ladder:
         try:
             client = self.get_client()
             headers = {}
-            key = ep.api_key or self.cfg.upstream.api_key
+            key = resolve_api_key(ep) or resolve_api_key(self.cfg.upstream)
             if key:
                 headers["Authorization"] = f"Bearer {key}"
             resp = await client.get(ep.base_url.rstrip("/") + "/models", headers=headers)
@@ -821,7 +823,7 @@ class Ladder:
         and the old path burned every remaining rung AND case on instant 429s)."""
         client = self.get_client()
         headers = {"content-type": "application/json"}
-        key = ep.api_key or self.cfg.upstream.api_key
+        key = resolve_api_key(ep) or resolve_api_key(self.cfg.upstream)
         if key:
             headers["Authorization"] = f"Bearer {key}"
         url = ep.base_url.rstrip("/") + "/chat/completions"

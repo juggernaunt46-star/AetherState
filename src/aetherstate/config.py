@@ -34,7 +34,10 @@ class ServerConfig(BaseModel):
 
 class UpstreamConfig(BaseModel):
     base_url: str = ""
-    api_key: str = ""
+    # ``api_key`` is legacy/transient only (old files and AETHERSTATE_UPSTREAM__API_KEY).
+    # New Console saves keep only an opaque OS-vault reference in ordinary configuration.
+    api_key: str = Field(default="", exclude=True, repr=False)
+    credential_ref: str = ""
     model: str = ""                  # DEFAULT model for engine-initiated calls (creator
     #                                  authoring, genesis stage B) when nothing has been
     #                                  proxied yet. The RELAY never uses it — the frontend
@@ -222,7 +225,8 @@ class AssistEndpointConfig(BaseModel):
     """Q8 / 06 C — local-LLM sidecar."""
     name: str = "local"
     base_url: str = ""
-    api_key: str = ""
+    api_key: str = Field(default="", exclude=True, repr=False)
+    credential_ref: str = ""
     model: str = ""
     tier: str = "small"              # nano | small | medium (06 C presets)
     max_concurrent: int = 1
