@@ -397,9 +397,10 @@ html[data-view="guided"] .expert-only{display:none!important}
         <div class="field"><label>Tier</label><select id="e_tier"><option value="minion">Minion</option><option value="standard" selected>Standard</option><option value="elite">Elite</option><option value="boss">Boss</option></select></div>
         <div class="field"><label>Combat role</label><input id="e_role" maxlength="160" placeholder="artillery, guard, skirmisher…"></div>
       </div>
-      <div class="row c2">
+      <div class="row c3">
         <div class="field"><label>Body / type / class</label><input id="e_type" maxlength="160" placeholder="combat drone, pyromancer, wolf…"></div>
         <div class="field"><label>Armament or delivery</label><input id="e_armament" maxlength="160" placeholder="plasma carbine, claws, fire bolt…"></div>
+        <div class="field"><label for="e_home">Home location in this World</label><input id="e_home" list="e_home_locations" maxlength="80" aria-describedby="e_home_status" placeholder="Choose an existing World location"><datalist id="e_home_locations"></datalist><small id="e_home_status" class="hint" aria-live="polite">Choose one of this World's authored locations.</small></div>
       </div>
       <div class="field" style="margin-bottom:12px"><label>Explicit combat powers or mutations</label><textarea id="e_powers" maxlength="400" data-limit="400" placeholder="Only state powers this enemy truly owns. Resistances, sensors, costumes, and references do not grant attacks."></textarea></div>
       <div class="field"><label>Other description and lore</label><textarea id="e_description" maxlength="1000" data-limit="1000" placeholder="Personality, history, appearance, relationships, and unsupported ideas remain useful story context without gaining mechanics."></textarea></div>
@@ -572,6 +573,7 @@ function showTab(name){
   $("tab_char").classList.toggle("on", name==="char");
   $("tab_enemy").classList.toggle("on", name==="enemy");
   $("tab_review").classList.toggle("on", name==="review");
+  if(name==="enemy") refreshEnemyHomeChoices();
   if(name==="review") renderReview();
 }
 
@@ -605,30 +607,46 @@ function readExtras(hostId){ return [...$(hostId).querySelectorAll(".item")].map
   const el=it.querySelectorAll("input,textarea"); return {label:el[0].value.trim(), text:el[1].value.trim()};
 }).filter(e=>e.label||e.text); }
 function fillExtras(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(e=>addExtra(hostId,e)); }
-function addNpc(n){ if(!mayAddRow("w_npcs",n==null)) return; n=n||{}; const host=$("w_npcs"); const d=document.createElement("div"); d.className="item struct-row";
+function addNpc(n){ if(!mayAddRow("w_npcs",n==null)) return false; n=n||{}; const host=$("w_npcs"); const d=document.createElement("div"); d.className="item struct-row";
   d.innerHTML=`<div class="row c3"><div><label>Name</label><input data-field="name" maxlength="80" value="${attrEsc(n.name||'')}"></div>
     <div><label>Role</label><input data-field="role" maxlength="120" value="${attrEsc(n.role||'')}"></div>
-    <div><label>Home location</label><input data-field="home" maxlength="120" title="Where this NPC is usually found — anchors them until the story moves them." value="${attrEsc(n.home||'')}"></div></div>
+    <div><label>Home location</label><input data-field="home" maxlength="80" title="Where this NPC is usually found — anchors them until the story moves them." value="${attrEsc(n.home||'')}"></div></div>
     <label>Description</label>${limitedControl(`<textarea data-field="desc" maxlength="4000" data-limit="4000" rows="2" placeholder="What makes this NPC distinct and playable">${esc(n.desc||'')}</textarea>`,4000)}
     <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove NPC</button></div>`;
-  host.appendChild(d); _autoTitle(d); refreshLimitCounters(d); refreshListCount("w_npcs");
+  host.appendChild(d); _autoTitle(d); refreshLimitCounters(d); refreshListCount("w_npcs"); return true;
 }
 function readNpcs(){ return [...$("w_npcs").querySelectorAll(".item")].map(it=>{
   const get=k=>(it.querySelector(`[data-field="${k}"]`)||{}).value?.trim()||"";
   return {name:get("name"), role:get("role"), desc:get("desc"), home:get("home")};
 }).filter(n=>n.name); }
 
+function namedRowHead(row){ const source=String(row||"").trim();
+  for(const sep of ["—","–"," - ",": "]){ const at=source.indexOf(sep); if(at<0)continue;
+    const head=source.slice(0,at).replace(/^[\s\-:—–]+|[\s\-:—–]+$/g,""); if(head)return head.slice(0,80); }
+  return source.slice(0,80);
+}
+function namedRowKey(row){ return namedRowHead(row).toLowerCase().replace(/-/g," ").split(/\s+/).filter(Boolean).join(" ").slice(0,60); }
+function worldLocationNames(){ return readLines("w_locations").map(namedRowHead).filter(Boolean); }
+function resolveWorldLocationName(value){ const key=namedRowKey(value); return key?worldLocationNames().find(name=>namedRowKey(name)===key)||"":""; }
+function setEnemyHomeStatus(message){ const status=$("e_home_status"); if(status)status.textContent=message; }
+function refreshEnemyHomeChoices(){ const list=$("e_home_locations"); if(!list) return;
+  const locations=worldLocationNames(); list.innerHTML=locations.map(name=>`<option value="${attrEsc(name)}"></option>`).join("");
+  const home=$("e_home"), resolved=home?resolveWorldLocationName(home.value):"";
+  if(resolved){ home.removeAttribute("aria-invalid"); setEnemyHomeStatus(`Using ${resolved}.`); }
+  else setEnemyHomeStatus(locations.length?"Choose an existing World location before adding this enemy.":"No World locations are authored yet; you can add this enemy without a home.");
+}
 function enemyDoc(){ return {
   name:$("e_name").value.trim(), tier:$("e_tier").value,
   role:$("e_role").value.trim(), type:$("e_type").value.trim(),
   armament:$("e_armament").value.trim(), powers:$("e_powers").value.trim(),
-  description:$("e_description").value.trim()
+  description:$("e_description").value.trim(), home:$("e_home").value.trim()
 }; }
 function applyEnemy(e){ e=e||{}; ENEMY_PREVIEW=null;
   $("e_name").value=e.name||""; $("e_tier").value=e.tier||"standard";
   $("e_role").value=e.role||""; $("e_type").value=e.type||"";
   $("e_armament").value=e.armament||""; $("e_powers").value=e.powers||"";
-  $("e_description").value=e.description||""; $("e_add_world").disabled=true;
+  $("e_description").value=e.description||""; $("e_home").value=e.home||"";
+  refreshEnemyHomeChoices(); $("e_add_world").disabled=true;
 }
 function renderEnemyPreview(preview){ const kit=preview&&preview.kit, result=$("e_result");
   if(!kit){ result.className="hint"; result.textContent="No grounded preview is available."; return; }
@@ -648,7 +666,8 @@ function renderEnemyPreview(preview){ const kit=preview&&preview.kit, result=$("
 async function previewEnemy(){ const doc=enemyDoc(), name=$("e_name"), button=$("e_preview");
   if(!doc.name){ name.setAttribute("aria-invalid","true"); name.focus(); toast("Give the enemy a name first","bad"); return; }
   name.removeAttribute("aria-invalid"); button.disabled=true; button.textContent="Compiling grounded moves…";
-  try{ ENEMY_PREVIEW=await api("/aether/enemies/preview",{method:"POST",body:JSON.stringify(doc)});
+  try{ const previewDoc=Object.assign({},doc); delete previewDoc.home;
+    ENEMY_PREVIEW=await api("/aether/enemies/preview",{method:"POST",body:JSON.stringify(previewDoc)});
     renderEnemyPreview(ENEMY_PREVIEW); $("e_add_world").disabled=false; scheduleDraft();
     toast(`Preview ready — ${(ENEMY_PREVIEW.kit.moves||[]).length} grounded moves`,"ok");
   }catch(e){ ENEMY_PREVIEW=null; $("e_add_world").disabled=true; $("e_result").className="enemy-boundary";
@@ -657,11 +676,28 @@ async function previewEnemy(){ const doc=enemyDoc(), name=$("e_name"), button=$(
 }
 function addEnemyToWorld(){ if(!ENEMY_PREVIEW){ toast("Preview this enemy first","bad"); return; }
   const doc=enemyDoc(), kit=ENEMY_PREVIEW.kit||{}, facts=[];
+  const locations=worldLocationNames(), resolvedHome=resolveWorldLocationName(doc.home), home=$("e_home");
+  if(locations.length && !resolvedHome){ home.setAttribute("aria-invalid","true"); home.focus();
+    setEnemyHomeStatus("Choose an existing World location before adding this enemy.");
+    toast("Choose an existing World location before adding this enemy","bad"); return; }
+  home.removeAttribute("aria-invalid"); setEnemyHomeStatus(resolvedHome?`Using ${resolvedHome}.`:"No World locations are authored yet; you can add this enemy without a home.");
   if(doc.type) facts.push("Type/class: "+doc.type); if(doc.armament) facts.push("Armament: "+doc.armament);
   if(doc.powers) facts.push("Explicit combat facts: "+doc.powers); if(doc.description) facts.push(doc.description);
   facts.push(`Enemy Workshop preview: ${kit.tier} tier; grounded basis ${(kit.basis||[]).join(", ")}; fingerprint ${kit.fingerprint}. Preview only — runtime still validates and freezes any spawned combatant.`);
-  addNpc({name:doc.name,role:doc.role||`${doc.tier} enemy`,home:"",desc:facts.join("\n")});
+  if(!addNpc({name:doc.name,role:doc.role||`${doc.tier} enemy`,home:resolvedHome,desc:facts.join("\n")})){
+    toast("The World already has 20 NPCs — remove one before adding this enemy","bad"); return; }
   showTab("world"); scheduleDraft(); toast(`${doc.name} added to the World draft as an NPC`,"ok");
+}
+
+function invalidateEnemyPreview(e){ const target=e&&e.target;
+  if(target&&target.id==="e_home"){
+    const resolved=resolveWorldLocationName(target.value);
+    if(resolved){ target.removeAttribute("aria-invalid"); setEnemyHomeStatus(`Using ${resolved}.`); }
+    else setEnemyHomeStatus(worldLocationNames().length?"Choose an existing World location before adding this enemy.":"No World locations are authored yet; you can add this enemy without a home.");
+    return;
+  }
+  if(!ENEMY_PREVIEW)return; ENEMY_PREVIEW=null; $("e_add_world").disabled=true;
+  $("e_result").className="hint"; $("e_result").textContent="Enemy facts changed — preview again before adding this version to the World draft.";
 }
 
 // Living-world structures used to survive only in WORLD_CACHE, so generated rows disappeared
@@ -1360,8 +1396,6 @@ async function boot(){
   renderSpec();
   refreshLimitCounters(document); refreshAllListCounts();
   wireDraftAutosave();
-  const invalidateEnemyPreview=()=>{ if(!ENEMY_PREVIEW)return; ENEMY_PREVIEW=null; $("e_add_world").disabled=true;
-    $("e_result").className="hint"; $("e_result").textContent="Enemy facts changed — preview again before adding this version to the World draft."; };
   $("enemy").addEventListener("input",invalidateEnemyPreview,true);
   $("enemy").addEventListener("change",invalidateEnemyPreview,true);
   $("sessRefresh").onclick=()=>{ loadSessions().then(()=>toast("Session list refreshed — your work is intact","ok")); };

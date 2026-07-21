@@ -33,6 +33,7 @@ function field(value) {
     removeAttribute(name) { delete this.attrs[name]; },
     setAttribute(name, next) { this.attrs[name] = next; },
     setCustomValidity(message) { this.validationMessage = message; },
+    focus() { this.focused = true; },
   };
 }
 
@@ -207,6 +208,123 @@ sandbox.routeRows = [dataRow({ a: "Lantern Refuge", b: "East Gate", segments: 3 
 assert.deepEqual(JSON.parse(JSON.stringify(sandbox.readRoutes())), [
   { a: "Lantern Refuge", b: "East Gate", segments: 3 },
 ]);
+
+// Enemy Workshop location identity must match the server's Creator row-head contract.
+sandbox.locationRows = [];
+sandbox.readLines = (id) => (id === "w_locations" ? sandbox.locationRows : []);
+vm.runInContext([
+  "namedRowHead", "namedRowKey", "worldLocationNames", "resolveWorldLocationName",
+].map(extractFunction).join("\n"), sandbox, { filename: "creator-enemy-home-contract.js" });
+sandbox.locationRows = [
+  "Spindle Market: pressurized bazaar",
+  "East-Gate — storm locks",
+  `${"A".repeat(90)} - overlong location`,
+];
+assert.deepEqual(JSON.parse(JSON.stringify(sandbox.worldLocationNames())), [
+  "Spindle Market", "East-Gate", "A".repeat(80),
+]);
+assert.equal(sandbox.resolveWorldLocationName("spindle-market"), "Spindle Market");
+assert.equal(sandbox.resolveWorldLocationName("east gate"), "East-Gate");
+assert.equal(sandbox.resolveWorldLocationName("missing quay"), "");
+
+// Exercise the actual add/validation controller with a small DOM-shaped harness.
+const originalDollar = sandbox.$;
+const enemyHomeField = field("");
+enemyHomeField.id = "e_home";
+const enemyAddButton = field("");
+const enemyResult = field("");
+const enemyStatus = field("");
+sandbox.$ = (id) => ({
+  e_home: enemyHomeField,
+  e_add_world: enemyAddButton,
+  e_result: enemyResult,
+  e_home_status: enemyStatus,
+}[id] || originalDollar(id));
+sandbox.enemyDraft = {
+  name: "Glasswake Bell-Thief", tier: "standard", role: "infiltrator",
+  type: "human saboteur", armament: "hooked blade", powers: "",
+  description: "Cuts archive-barge ropes.", home: "",
+};
+sandbox.enemyDoc = () => ({ ...sandbox.enemyDraft });
+sandbox.ENEMY_PREVIEW = { kit: { tier: "standard", basis: ["martial"], fingerprint: "enemy-1" } };
+sandbox.addedNpcs = [];
+sandbox.addNpc = (npc) => { sandbox.addedNpcs.push(npc); return true; };
+sandbox.toasts = [];
+sandbox.toast = (message, kind) => sandbox.toasts.push({ message, kind });
+sandbox.shownTab = "";
+sandbox.showTab = (tab) => { sandbox.shownTab = tab; };
+sandbox.scheduleDraft = () => {};
+vm.runInContext([
+  "setEnemyHomeStatus", "addEnemyToWorld", "invalidateEnemyPreview",
+].map(extractFunction).join("\n"), sandbox, { filename: "creator-enemy-add-contract.js" });
+
+sandbox.addEnemyToWorld();
+assert.equal(sandbox.addedNpcs.length, 0, "a missing home must not add an NPC");
+assert.equal(enemyHomeField.attrs["aria-invalid"], "true");
+assert.equal(enemyHomeField.focused, true);
+assert.match(sandbox.toasts.at(-1).message, /existing World location/);
+
+sandbox.enemyDraft.home = "spindle-market";
+enemyHomeField.value = "spindle-market";
+sandbox.addEnemyToWorld();
+assert.equal(sandbox.addedNpcs.at(-1).home, "Spindle Market", "the canonical authored location must be stored");
+assert.equal(sandbox.shownTab, "world");
+assert.equal(enemyHomeField.attrs["aria-invalid"], undefined);
+
+sandbox.shownTab = "enemy";
+sandbox.addNpc = () => false;
+sandbox.addEnemyToWorld();
+assert.equal(sandbox.shownTab, "enemy", "a full NPC list must keep the player in the Workshop");
+assert.match(sandbox.toasts.at(-1).message, /already has 20 NPCs/);
+assert.ok(sandbox.ENEMY_PREVIEW, "a capacity failure must retain the valid mechanical preview");
+
+sandbox.locationRows = [];
+sandbox.enemyDraft.home = "Stale Ghost Dock";
+sandbox.addedNpcs = [];
+sandbox.addNpc = (npc) => { sandbox.addedNpcs.push(npc); return true; };
+sandbox.addEnemyToWorld();
+assert.equal(sandbox.addedNpcs.at(-1).home, "", "an unauthored stale home must not become an orphan anchor");
+sandbox.locationRows = ["Spindle Market: pressurized bazaar"];
+sandbox.enemyDraft.home = "spindle-market";
+
+enemyHomeField.attrs["aria-invalid"] = "true";
+sandbox.ENEMY_PREVIEW = { kit: {} };
+sandbox.invalidateEnemyPreview({ target: enemyHomeField });
+assert.ok(sandbox.ENEMY_PREVIEW, "changing only home must retain the mechanical preview");
+assert.equal(enemyHomeField.attrs["aria-invalid"], undefined);
+assert.equal(enemyStatus.textContent, "Using Spindle Market.");
+enemyHomeField.value = "missing quay";
+sandbox.invalidateEnemyPreview({ target: enemyHomeField });
+assert.equal(enemyStatus.textContent, "Choose an existing World location before adding this enemy.");
+
+sandbox.ENEMY_PREVIEW = { kit: {} };
+enemyAddButton.disabled = false;
+sandbox.invalidateEnemyPreview({ target: { id: "e_armament" } });
+assert.equal(sandbox.ENEMY_PREVIEW, null, "changing a mechanical fact must invalidate the preview");
+assert.equal(enemyAddButton.disabled, true);
+
+// Home is World placement, not a combat fact, so it must not reach the preview endpoint.
+const enemyNameField = field("Glasswake Bell-Thief");
+const enemyPreviewButton = field("");
+sandbox.$ = (id) => ({
+  e_name: enemyNameField,
+  e_preview: enemyPreviewButton,
+  e_add_world: enemyAddButton,
+  e_result: enemyResult,
+  e_home: enemyHomeField,
+  e_home_status: enemyStatus,
+}[id] || originalDollar(id));
+sandbox.enemyDoc = () => ({ ...sandbox.enemyDraft, home: "Spindle Market" });
+sandbox.previewRequest = null;
+sandbox.api = async (url, options) => {
+  sandbox.previewRequest = { url, body: JSON.parse(options.body) };
+  return { kit: { moves: [] } };
+};
+sandbox.renderEnemyPreview = () => {};
+vm.runInContext(`async ${extractFunction("previewEnemy")}`, sandbox, { filename: "creator-enemy-preview-contract.js" });
+await sandbox.previewEnemy();
+assert.equal(sandbox.previewRequest.url, "/aether/enemies/preview");
+assert.equal("home" in sandbox.previewRequest.body, false, "World placement must be stripped from the combat preview request");
 
 for (const required of [
   'id="w_setting" maxlength="8000" data-limit="8000"',
