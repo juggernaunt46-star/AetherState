@@ -283,6 +283,11 @@ async def test_runtime_hp_and_encounter_progress_preserve_exact_seed_receipt(
     after = _assert_committed_sources_match_receipt(store, row, receipt)
     assert after["player"][player_id]["hp"]["cur"] == hp_before - 1
     assert after["entities"]["runtime_tide_wisp"]["kind"] == "npc"
+    listed = {
+        item["external_id"]: item for item in
+        (await client.get("/aether/sessions")).json()["sessions"]
+    }
+    assert listed[sid]["card_revision"] == fingerprint[7:23]
 
 
 async def test_world_only_seed_receipt_reports_exact_requested_flags(client, proxy_app):
@@ -314,6 +319,11 @@ async def test_world_only_seed_receipt_reports_exact_requested_flags(client, pro
     assert receipt["world_source"] is not None and receipt["player_source"] is None
     state = _assert_committed_sources_match_receipt(store, row, receipt)
     assert state.get("player") == {}
+    listed = {
+        item["external_id"]: item for item in
+        (await client.get("/aether/sessions")).json()["sessions"]
+    }
+    assert listed[sid]["card_revision"] == fingerprint[7:23]
 
 
 async def test_player_only_seed_receipt_reports_exact_requested_flags(client, proxy_app):
@@ -346,6 +356,11 @@ async def test_player_only_seed_receipt_reports_exact_requested_flags(client, pr
     state = _assert_committed_sources_match_receipt(store, row, receipt)
     assert state.get("creator_world") in (None, {})
     assert state.get("world_identity") in (None, {})
+    listed = {
+        item["external_id"]: item for item in
+        (await client.get("/aether/sessions")).json()["sessions"]
+    }
+    assert listed[sid]["card_revision"] == fingerprint[7:23]
 
 
 async def test_well_formed_unreceipted_fingerprint_cannot_suppress_genesis(
@@ -416,6 +431,11 @@ async def test_stale_receipt_fails_closed_then_exact_retry_reseeds(client, proxy
     assert stale.status_code == 409
     assert stale.json()["complete"] is False
     assert "stale" in stale.json()["error"]
+    listed = {
+        item["external_id"]: item for item in
+        (await client.get("/aether/sessions")).json()["sessions"]
+    }
+    assert listed[sid]["card_revision"] is None
 
     reseeded = await _post_seed(client, sid, seed)
     assert reseeded.status_code == 200
@@ -445,6 +465,11 @@ async def test_inherited_fork_keeps_receipt_valid_but_preseed_fork_requires_rese
         params={"seed_fingerprint": fingerprint},
     )
     assert inherited_status.status_code == 200
+    inherited_list = {
+        item["external_id"]: item for item in
+        (await client.get("/aether/sessions")).json()["sessions"]
+    }
+    assert inherited_list[sid]["card_revision"] == fingerprint[7:23]
     receipt = store.creator_seed_receipt(row["session_id"], fingerprint)
     assert receipt["branch_id"] != inherited
 
@@ -454,6 +479,11 @@ async def test_inherited_fork_keeps_receipt_valid_but_preseed_fork_requires_rese
         params={"seed_fingerprint": fingerprint},
     )
     assert stale.status_code == 409
+    stale_list = {
+        item["external_id"]: item for item in
+        (await client.get("/aether/sessions")).json()["sessions"]
+    }
+    assert stale_list[sid]["card_revision"] is None
     reseeded = await _post_seed(client, sid, seed)
     assert reseeded.status_code == 200 and reseeded.json()["applied"] > 0
     refreshed = store.creator_seed_receipt(row["session_id"], fingerprint)
@@ -556,6 +586,149 @@ async def test_corrupt_durable_receipt_fails_closed_for_status_seed_and_genesis(
     assert status.json()["complete"] is retry.json()["complete"] is False
     assert genesis.status_code == 200
     assert genesis.json()["structured_seed"] is False
+
+
+async def test_sessions_expose_only_revision_from_validated_seed_receipt(
+    client, proxy_app,
+):
+    seed = _seed()
+    fingerprint = narrator.seed_fingerprint(seed)
+    sids = (
+        "receipt-label-valid", "receipt-label-repeat", "receipt-label-corrupt",
+        "receipt-label-unsigned", "receipt-label-stale",
+    )
+    for sid in sids:
+        response = await _post_seed(client, sid, seed)
+        assert response.status_code == 200
+
+    changed = await client.post(
+        "/aether/session/receipt-label-stale/player",
+        json={"player": {**seed["player"], "concept": "reauthored witness"}},
+    )
+    assert changed.status_code == 200 and changed.json()["applied"] > 0
+
+    store = proxy_app.state.store
+    corrupt = _session(store, "receipt-label-corrupt")
+    unsigned = _session(store, "receipt-label-unsigned")
+    with store.transaction():
+        store.db.execute(
+            "UPDATE creator_seed_receipts SET receipt_fingerprint=? WHERE session_id=?",
+            ("sha256:" + "0" * 64, corrupt["session_id"]),
+        )
+        store.db.execute(
+            "UPDATE creator_seed_receipts SET receipt_fingerprint='' WHERE session_id=?",
+            (unsigned["session_id"],),
+        )
+        store.db.execute(
+            f"UPDATE sessions SET created_at=? WHERE external_id IN ({','.join('?' for _ in sids)})",
+            (1721582551.123, *sids),
+        )
+
+    statements: list[str] = []
+    total_changes = store.db.total_changes
+    store.db.set_trace_callback(statements.append)
+    try:
+        response = await client.get("/aether/sessions")
+    finally:
+        store.db.set_trace_callback(None)
+    assert response.status_code == 200
+    rows = {row["external_id"]: row for row in response.json()["sessions"]}
+    revision = fingerprint[7:23]
+    assert rows["receipt-label-valid"]["card_revision"] == revision
+    assert rows["receipt-label-repeat"]["card_revision"] == revision
+    assert rows["receipt-label-corrupt"]["card_revision"] is None
+    assert rows["receipt-label-unsigned"]["card_revision"] is None
+    assert rows["receipt-label-stale"]["card_revision"] is None
+    cues = [rows[sid]["session_cue"] for sid in sids]
+    assert len(set(cues)) == len(cues)
+    assert all(8 <= len(cue) <= 52 for cue in cues)
+    assert all(set(cue) <= set("abcdefghijklmnopqrstuvwxyz234567") for cue in cues)
+    assert all(rows[sid]["session_cue"] != rows[sid]["session_id"] for sid in sids)
+    for row in rows.values():
+        assert "seed_fingerprint" not in row
+        assert "receipt_fingerprint" not in row
+        assert "journal_fence" not in row
+    assert fingerprint not in json.dumps(rows)
+    receipt_selects = [
+        statement for statement in statements
+        if "FROM CREATOR_SEED_RECEIPTS" in " ".join(statement.split()).upper()
+        and "SELECT" in statement.upper()
+    ]
+    assert len(receipt_selects) == 1
+    assert not any(
+        " ".join(statement.split()).upper().startswith(("INSERT ", "UPDATE ", "DELETE "))
+        for statement in statements
+    )
+    assert store.db.total_changes == total_changes
+
+    refreshed = {
+        row["external_id"]: row for row in
+        (await client.get("/aether/sessions")).json()["sessions"]
+    }
+    assert [refreshed[sid]["session_cue"] for sid in sids] == cues
+    session_count = store.db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+    cue_route = await client.get(f"/aether/session/{cues[0]}/creator")
+    assert cue_route.status_code == 200 and cue_route.json()["session_id"] is None
+    assert store.db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == session_count
+
+
+def test_session_display_cues_lengthen_colliding_base32_prefixes(monkeypatch):
+    class _FakeDigest:
+        def __init__(self, payload: bytes) -> None:
+            self.payload = payload
+
+        def digest(self) -> bytes:
+            discriminator = b"\x00" if self.payload.endswith(b"session-a") else b"\x01"
+            return b"\x00" * 5 + discriminator + b"\x00" * 26
+
+    monkeypatch.setattr(control.hashlib, "sha256", _FakeDigest)
+    cues = control._creator_session_cues(["session-a", "session-b"])
+
+    assert cues["session-a"] != cues["session-b"]
+    assert len(cues["session-a"]) == len(cues["session-b"]) == 10
+    assert cues["session-a"][:8] == cues["session-b"][:8]
+
+
+async def test_sessions_omit_revision_across_rollback_reapply_aba(
+    client, proxy_app, cfg, monkeypatch,
+):
+    sid = "receipt-label-aba"
+    seed = _seed()
+    assert (await _post_seed(client, sid, seed)).status_code == 200
+    store = proxy_app.state.store
+    row = _session(store, sid)
+    branch_id = row["active_branch"]
+    original_current_state = control.current_state
+    raced = False
+
+    def current_state_with_aba(store_arg, requested_branch):
+        nonlocal raced
+        state = original_current_state(store_arg, requested_branch)
+        if requested_branch == branch_id and not raced:
+            raced = True
+            store.rollback_to(branch_id, -1)
+            changed_player = {**seed["player"], "concept": "different source after ABA"}
+            result = apply_delta(
+                store,
+                row["session_id"],
+                branch_id,
+                control._next_turn(store, branch_id),
+                creator.player_to_ops(changed_player, cfg),
+                "user",
+                cfg,
+            )
+            assert result.submitted_applied > 0 and result.quarantined == []
+        return state
+
+    monkeypatch.setattr(control, "current_state", current_state_with_aba)
+    response = await client.get("/aether/sessions")
+
+    assert response.status_code == 200 and raced
+    listed = {item["external_id"]: item for item in response.json()["sessions"]}
+    assert listed[sid]["card_revision"] is None
+    actual = original_current_state(store, branch_id)
+    assert actual["player"]["rook_vale"]["creator_source"]["concept"] \
+        == "different source after ABA"
 
 
 async def test_receipt_integrity_digest_covers_every_trusted_authority_family(

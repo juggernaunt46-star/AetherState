@@ -1264,8 +1264,10 @@
   const _TAG_RE = () => /\[\s*[A-Za-z][^\]\n|]*\|[^\]\n]*\]/g;
   // These are authoritative request-only records, never valid narrator output. A model echo is
   // mechanically ignored and hidden from the reader even when ordinary ledger-tag hiding is off.
+  // This scans rendered HTML, so markdown quote/list prefixes are already elements. Never consume
+  // a raw `>` here: at the start of a paragraph it is the closing boundary of the `<p>` tag.
   const _ENGINE_HEADER_RE = () =>
-    /[ \t]*(?:(?:>[ \t]*)|(?:[-+*][ \t]+)|(?:`{1,3}[ \t]*))*\[\s*(?:DIRECTIVE|ENEMY\s+(?:INTENT|ACTION)|WAR|INIT|PLAYER|RULES|OPPOSITION|PROTOCOL|CONTEXT\s+PRIORITY|AETHER\s+P[0-3]|PRIVATE\s+COMBAT\s+NARRATION\s+PRIMER)(?:\s+[^\]\r\n<|]*)?\][^<\r\n]*/gi;
+    /[ \t]*\[\s*(?:DIRECTIVE|ENEMY\s+(?:INTENT|ACTION)|WAR|INIT|PLAYER|RULES|OPPOSITION|PROTOCOL|CONTEXT\s+PRIORITY|AETHER\s+P[0-3]|PRIVATE\s+COMBAT\s+NARRATION\s+PRIMER)(?:\s+[^\]\r\n<|]*)?\][^<\r\n]*/gi;
   const _HIDDEN_WRAPPER_RE = () =>
     /(<span\b(?=[^>]*\bclass=(?:"[^"]*\baes-hidden-tag\b[^"]*"|'[^']*\baes-hidden-tag\b[^']*'))[^>]*>[\s\S]*?<\/span>)/gi;
   // Defense-only: hide a narrator-hallucinated OOC macro. The engine never parses or arms a

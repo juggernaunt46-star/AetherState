@@ -7,6 +7,7 @@ Localhost trust in P2 (12 [ui]: auth_token empty = single-user default)."""
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -157,6 +158,41 @@ def _creator_seed_receipt_response(
         "rejected": [],
         "migrated": bool(receipt.get("migrated")),
     }
+
+
+_CREATOR_SESSION_CUE_DOMAIN = b"aetherstate-creator-session-cue/1\0"
+
+
+def _creator_session_cues(session_ids) -> dict[str, str]:
+    """Build stable display-only Base32 cues without exposing routable session ids."""
+    ids = list(dict.fromkeys(str(value) for value in session_ids if str(value)))
+    tokens = {
+        session_id: base64.b32encode(hashlib.sha256(
+            _CREATOR_SESSION_CUE_DOMAIN + session_id.encode("utf-8")
+        ).digest()).decode("ascii").rstrip("=").lower()
+        for session_id in ids
+    }
+    lengths = {session_id: 8 for session_id in ids}
+    while True:
+        groups: dict[str, list[str]] = {}
+        for session_id in ids:
+            cue = tokens[session_id][:lengths[session_id]]
+            groups.setdefault(cue, []).append(session_id)
+        collisions = [members for members in groups.values() if len(members) > 1]
+        if not collisions:
+            return {
+                session_id: tokens[session_id][:lengths[session_id]]
+                for session_id in ids
+            }
+        for members in collisions:
+            for session_id in members:
+                if lengths[session_id] >= len(tokens[session_id]):
+                    fallback = base64.b32encode(hashlib.blake2s(
+                        _CREATOR_SESSION_CUE_DOMAIN + b"collision\0"
+                        + session_id.encode("utf-8")
+                    ).digest()).decode("ascii").rstrip("=").lower()
+                    tokens[session_id] += fallback
+                lengths[session_id] += 2
 
 
 class _CreatorSeedAdmissionError(RuntimeError):
@@ -1705,27 +1741,63 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
 
     @router.get("/sessions")
     async def sessions():
-        rows = store.db.execute(
-            "SELECT s.session_id, s.external_id, s.label, s.frontend, s.frozen, s.created_at, s.last_seen,"
-            " s.active_branch, b.head_turn FROM sessions s"
-            " LEFT JOIN branches b ON b.branch_id=s.active_branch"
-            " ORDER BY s.last_seen DESC"
-        ).fetchall()
+        with store.apply_guard():
+            rows = store.db.execute(
+                "SELECT s.session_id, s.external_id, s.label, s.frontend, s.frozen,"
+                " s.created_at, s.last_seen, s.active_branch, b.head_turn,"
+                " COALESCE(j.journal_fence, 0) AS journal_fence FROM sessions s"
+                " LEFT JOIN branches b ON b.branch_id=s.active_branch"
+                " LEFT JOIN (SELECT branch_id, MAX(id) AS journal_fence FROM ops_journal"
+                " GROUP BY branch_id) j ON j.branch_id=s.active_branch"
+                " ORDER BY s.last_seen DESC"
+            ).fetchall()
+        session_ids = [str(row["session_id"]) for row in rows]
+        session_cues = _creator_session_cues(session_ids)
+        states = {}
         out = []
         for r in rows:  # enrich with the committed world + player
+            session_id = str(r["session_id"])
             d = dict(r)  # names so the Creator's session picker is
-            d["world_name"], d["player_name"] = "", ""  # LEGIBLE (2026-07-08: cryptic st-ids
-            try:  # gave no clue which world a session was)
+            d.pop("journal_fence", None)  # internal ABA fence is never public metadata
+            # LEGIBLE (2026-07-08: cryptic st-ids gave no clue which world a session was)
+            d["world_name"], d["player_name"] = "", ""
+            d["card_revision"] = None
+            d["session_cue"] = session_cues.get(session_id, "")
+            st = None
+            try:
                 st = current_state(store, r["active_branch"])
                 players = st.get("player") or {}
                 pkey = next(iter(players), None)
                 if pkey:
-                    d["player_name"] = (st.get("entities", {}).get(pkey, {}) or {}).get("name") or pkey or ""
+                    d["player_name"] = (
+                        (st.get("entities", {}).get(pkey, {}) or {}).get("name")
+                        or pkey or ""
+                    )
                 if _world_seeded(st):
                     d["world_name"] = _creator.world_from_state(st).get("name") or ""
             except Exception:
                 pass  # fail-open: a legible-name miss is cosmetic
+            states[session_id] = st
             out.append(d)
+
+        positions, receipts = store.creator_seed_session_snapshot(session_ids)
+        for r, d in zip(rows, out):
+            session_id = str(r["session_id"])
+            initial_position = (
+                str(r["active_branch"] or ""), r["head_turn"], int(r["journal_fence"] or 0),
+            )
+            if positions.get(session_id) != initial_position:
+                continue  # changed during enumeration: omit authority-derived display metadata
+            st, receipt = states.get(session_id), receipts.get(session_id)
+            if st is None or receipt is None \
+                    or not _creator_seed_receipt_postconditions(st, receipt)["complete"]:
+                continue
+            # Receipt integrity alone is insufficient: current immutable Creator sources must
+            # still match. Use the canonical revisioned-card filename prefix.
+            fingerprint = str(receipt.get("seed_fingerprint") or "")
+            digest = fingerprint[7:] if fingerprint.startswith("sha256:") else ""
+            if len(digest) == 64 and all(ch in "0123456789abcdef" for ch in digest):
+                d["card_revision"] = digest[:16]
         return {"sessions": out}
 
     @router.post("/session/{sid}/label")

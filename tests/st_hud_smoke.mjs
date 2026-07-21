@@ -1918,6 +1918,16 @@ expect(occurrences(renderedMessage._html, "aes-hidden-tag") === 9,
 expect(rawMessage === "Story remains raw.\n[foe | Ash Hound | standard | teeth]",
   "raw message remains byte-for-byte untouched");
 
+const leadingRankMessage = makeEl("");
+leadingRankMessage.innerHTML = "<p>[AETHER P1]<br>Visible narration survives.</p>";
+messageTexts.push(leadingRankMessage);
+sandbox.aetherScrubTags();
+mustContain(leadingRankMessage._html,
+  ['<p><span class="aes-hidden-tag"', "Visible narration survives.</p>"],
+  "leading request-rank marker keeps its rendered paragraph valid");
+expect(!leadingRankMessage._html.includes("<p<span"),
+  "leading request-rank marker never consumes the paragraph tag boundary");
+
 ctx.extensionSettings.aetherstate.hud.hideTags = false;
 const debugMessage = makeEl("");
 debugMessage.innerHTML = "Debug.\n[foe | Visible Foe | standard | spear]" +

@@ -239,7 +239,7 @@ Authorization occurrences are treated as one logical field. Errors are OpenAI-sh
 | `GET /aether/connection` | current endpoint config |
 | `POST /aether/connection/models` | list models + real auth test for a base_url/key |
 | `POST /aether/connection` | save an endpoint (target: upstream \| assist) |
-| `GET /aether/sessions` | list sessions, newest first; each row also carries `world_name` + `player_name` from committed state so the Creator's session picker is legible (2026-07-08 — cryptic st-ids gave no clue which world a session was) |
+| `GET /aether/sessions` | list sessions, newest first; each row carries committed `world_name` + `player_name`, a display-only anonymous `session_cue`, and nullable `card_revision`. The revision is the canonical first 16 hex characters of the card seed fingerprint and appears only when a signed receipt passes exact integrity validation and still matches the active branch's immutable Creator sources. Corrupt, unsigned, or stale receipts fail closed to `null`; the API never returns the full seed or receipt fingerprint. `session_cue` is not a route id or authority token. |
 | `POST /aether/session/{sid}/label` | rename a session |
 | `DELETE /aether/session/{sid}` | delete a session |
 | `GET /aether/session/{sid}/state` | inspector "Now" view (`state_summary`) |

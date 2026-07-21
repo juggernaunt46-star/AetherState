@@ -360,6 +360,187 @@ async def test_world_authoring_retries_direction_breaking_front_count(monkeypatc
     assert "requires exactly 3 fronts" in calls[1]["system"].lower()
 
 
+async def test_world_authoring_quarantines_invalid_optional_model_only_front(monkeypatch):
+    complete = _complete_world_document()
+    complete["fronts"].append({
+        "name": "The Unlisted Fleet Claims the Harbor",
+        "faction": "A faction absent from the authored world",
+        "segments": 5,
+        "pace": 1,
+        "consequence": "An ungrounded fleet closes every harbor approach to civilian traffic.",
+        "event_duration_turns": None,
+        "spawn_eligibility": None,
+    })
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(complete), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {},
+    )
+
+    assert out["source"] == "llm"
+    assert len(calls) == 1
+    assert [row["name"] for row in out["doc"]["fronts"]] == [
+        "The Rust Union strikes",
+        "Vanta Court seizes the seawall",
+    ]
+
+
+async def test_world_authoring_keeps_invalid_player_front_fail_closed(monkeypatch):
+    incomplete = _complete_world_document()
+    incomplete["fronts"].append({
+        "name": "The Player's Named Agenda",
+        "faction": "A faction absent from the authored world",
+        "segments": 5,
+        "consequence": "This row must be completed correctly instead of silently discarded.",
+        "event_duration_turns": None,
+        "spawn_eligibility": None,
+    })
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(incomplete), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {"fronts": [{"name": "The Player's Named Agenda"}]},
+    )
+
+    assert out["source"] == "error"
+    assert len(calls) == 2
+    assert "front 3 has invalid fields" in calls[1]["system"].lower()
+
+
+async def test_world_authoring_keeps_invalid_front_when_default_floor_would_break(monkeypatch):
+    incomplete = _complete_world_document()
+    incomplete["fronts"] = [
+        incomplete["fronts"][0],
+        {
+            "name": "The Unlisted Fleet Claims the Harbor",
+            "faction": "A faction absent from the authored world",
+            "segments": 5,
+            "consequence": "An ungrounded fleet closes every harbor approach to civilian traffic.",
+            "event_duration_turns": None,
+            "spawn_eligibility": None,
+        },
+    ]
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(incomplete), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {},
+    )
+
+    assert out["source"] == "error"
+    assert len(calls) == 2
+
+
+async def test_world_authoring_keeps_invalid_front_required_by_exact_count(monkeypatch):
+    incomplete = _complete_world_document()
+    incomplete["fronts"].append({
+        "name": "The Unlisted Fleet Claims the Harbor",
+        "faction": "A faction absent from the authored world",
+        "segments": 5,
+        "consequence": "An ungrounded fleet closes every harbor approach to civilian traffic.",
+        "event_duration_turns": None,
+        "spawn_eligibility": None,
+    })
+    complete = _complete_world_document()
+    complete["fronts"].append({
+        "name": "The Lantern Mesh Frees the Constructs",
+        "faction": "Lantern Mesh",
+        "segments": 5,
+        "consequence": "Escaped constructs gain sanctuary and openly patrol Saint Voltage.",
+        "event_duration_turns": None,
+        "spawn_eligibility": True,
+    })
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        doc = incomplete if len(calls) == 1 else complete
+        return creator._CreatorReply(json.dumps(doc), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {"notes": "Create exactly three named fronts."},
+    )
+
+    assert out["source"] == "llm"
+    assert len(calls) == 2
+    assert len(out["doc"]["fronts"]) == 3
+    assert "front 3 has invalid fields" in calls[1]["system"].lower()
+
+
+async def test_world_authoring_normalizes_model_loot_mechanics_before_validation(monkeypatch):
+    complete = _complete_world_document()
+    complete["loot"]["boss"] = [
+        {
+            "name": "stormglass memory prism",
+            "chance": "0.75",
+            "qty_min": "1",
+            "qty_max": "2",
+        },
+        "sealed archive authority",
+    ]
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(complete), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {},
+    )
+
+    assert out["source"] == "llm"
+    assert len(calls) == 1
+    assert out["doc"]["loot"]["boss"] == [
+        {
+            "name": "stormglass memory prism",
+            "qty_min": 1,
+            "qty_max": 2,
+            "chance": 0.75,
+        },
+        {
+            "name": "sealed archive authority",
+            "qty_min": 1,
+            "qty_max": 1,
+            "chance": 1.0,
+        },
+    ]
+
+
 def test_world_validator_honors_explicit_lower_counts_and_no_fronts():
     world = _complete_world_document()
     world["factions"] = world["factions"][:2]

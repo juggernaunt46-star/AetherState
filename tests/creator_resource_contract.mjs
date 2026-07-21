@@ -719,6 +719,84 @@ assert.match(sequencedReviewHost.innerHTML, /Newest Review/,
   "an older same-session review response must not replace the newest refresh");
 assert.doesNotMatch(sequencedReviewHost.innerHTML, /Stale Review/);
 
+// Same-named committed sessions need a stable Player-facing distinction. A verified portable-card
+// receipt contributes only its short revision; legacy and fail-closed receipt rows use the exact
+// creation time instead. Neither path forces the Player to compare internal session ids.
+const sessionLabelController = {};
+vm.createContext(sessionLabelController);
+vm.runInContext([
+  extractFunction("relTime"), extractFunction("sessionCreatedLabel"),
+  extractFunction("sessionLabelPart"), extractFunction("sessOptLabel"),
+].join("\n"), sessionLabelController,
+{ filename: "creator-session-label-contract.js" });
+const commonSessionLabel = {
+  world_name: "Emberglass Concord", player_name: "Sera Emberward",
+  last_seen: Date.now() / 1000 - 3600, head_turn: -1,
+};
+const cardLabelA = sessionLabelController.sessOptLabel({
+  ...commonSessionLabel, session_id: "internal-card-a", card_revision: "f5cf1c39fa39ad1a",
+  session_cue: "zeta2345",
+  created_at: 1721582551.123,
+}, false);
+const cardLabelB = sessionLabelController.sessOptLabel({
+  ...commonSessionLabel, session_id: "internal-card-b", card_revision: "4bc9dd472706db8e",
+  session_cue: "beta2345",
+  created_at: 1721582551.456,
+}, false);
+assert.notEqual(cardLabelA, cardLabelB, "different validated card revisions must stay distinguishable");
+assert.match(cardLabelA, /rev f5cf1c39fa39ad1a · chat zeta2345/);
+assert.match(cardLabelB, /rev 4bc9dd472706db8e · chat beta2345/);
+assert.doesNotMatch(cardLabelA, /internal-card-a/);
+
+const repeatedCardLabel = sessionLabelController.sessOptLabel({
+  ...commonSessionLabel, session_id: "internal-card-repeat",
+  card_revision: "f5cf1c39fa39ad1a", session_cue: "gamma234",
+  created_at: 1721582551.123,
+}, false);
+assert.notEqual(cardLabelA, repeatedCardLabel,
+  "two chats from the exact same card and timestamp must retain distinct anonymous cues");
+assert.match(repeatedCardLabel, /rev f5cf1c39fa39ad1a · chat gamma234/);
+
+const legacyLabelA = sessionLabelController.sessOptLabel({
+  ...commonSessionLabel, session_id: "internal-legacy-a", card_revision: "",
+  session_cue: "delta234",
+  created_at: 1721582551.123,
+}, false);
+const legacyLabelB = sessionLabelController.sessOptLabel({
+  ...commonSessionLabel, session_id: "internal-legacy-b", card_revision: "",
+  session_cue: "epsilon2",
+  created_at: 1721582551.456,
+}, false);
+assert.notEqual(legacyLabelA, legacyLabelB, "legacy sessions must use precise stable creation times");
+assert.match(legacyLabelA, /created .*31\.123/);
+assert.match(legacyLabelB, /created .*31\.456/);
+assert.doesNotMatch(legacyLabelA, /internal-legacy-a/);
+const unnamedLegacyLabel = sessionLabelController.sessOptLabel({
+  external_id: "st-private-looking-id", session_id: "internal-legacy-c",
+  card_revision: "", session_cue: "theta234", created_at: 1721582551.789,
+  last_seen: 1721582551.789,
+  head_turn: 0,
+}, false);
+assert.match(unnamedLegacyLabel, /^Unnamed session · created /);
+assert.doesNotMatch(unnamedLegacyLabel, /st-private-looking-id|internal-legacy-c/);
+assert.match(unnamedLegacyLabel, / · chat theta234 · t0/);
+
+const invalidTimeLabel = sessionLabelController.sessOptLabel({
+  session_id: "internal-invalid-time", card_revision: null, session_cue: "kappa234",
+  created_at: "not-a-time", last_seen: 0, head_turn: 3,
+}, false);
+assert.match(invalidTimeLabel, /^Unnamed session · created time unavailable · chat kappa234 · t3$/);
+assert.doesNotMatch(invalidTimeLabel, /internal-invalid-time/);
+
+const longNameLabel = sessionLabelController.sessOptLabel({
+  world_name: "A World Name So Long It Would Previously Consume Every Useful Tail Cue",
+  player_name: "A Character Name That Is Also Far Too Long For One Select Option",
+  card_revision: "f5cf1c39fa39ad1a", session_cue: "iota2345",
+  created_at: 1721582551.123, last_seen: 1721582551.123, head_turn: 12,
+}, true);
+assert.match(longNameLabel, /rev f5cf1c39fa39ad1a · chat iota2345 · ● newest · t12/,
+  "component truncation must preserve revision, chat cue, newest marker, and turn");
+
 // Rapid session selection can leave two specialization requests in flight. Only the latest
 // selection may update Creator state when responses arrive out of order.
 const selectA = deferred(), selectB = deferred();

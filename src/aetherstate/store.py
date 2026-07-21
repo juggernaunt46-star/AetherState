@@ -233,6 +233,69 @@ def _creator_seed_receipt_integrity(authority: dict) -> str:
     return "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
+def _validated_creator_seed_receipt_row(row) -> Optional[dict]:
+    """Decode one receipt row only after exact source and integrity validation."""
+    if row is None:
+        return None
+    value = dict(row)
+    # Rows written before receipt-integrity/1 are not authority. They stay recoverable: an exact
+    # future POST can recheck current immutable sources and seal a replacement.
+    if not str(value.get("receipt_fingerprint") or ""):
+        return None
+    try:
+        seed = json.loads(value["seed_json"])
+        world_source = json.loads(value["world_source_json"] or "null")
+        player_source = json.loads(value["player_source_json"] or "null")
+        if int(value["world_requested"]) not in (0, 1) \
+                or int(value["player_requested"]) not in (0, 1) \
+                or int(value["migrated"]) not in (0, 1):
+            raise ValueError("portable seed receipt has invalid scalar fields")
+        authority = _creator_seed_receipt_authority(
+            session_id=value["session_id"],
+            seed_fingerprint=value["seed_fingerprint"],
+            branch_id=value["branch_id"],
+            seed=seed,
+            world_source=world_source,
+            player_source=player_source,
+            world_requested=bool(value["world_requested"]),
+            player_requested=bool(value["player_requested"]),
+            world_id=value["world_id"],
+            player_id=value["player_id"],
+            admitted_turn=value["admitted_turn"],
+            applied_ops=value["applied_ops"],
+            migrated=bool(value["migrated"]),
+            committed_at=value["committed_at"],
+        )
+        expected_integrity = _creator_seed_receipt_integrity(authority)
+        if not secrets.compare_digest(
+            str(value["receipt_fingerprint"]), expected_integrity,
+        ):
+            raise ValueError("portable seed receipt integrity digest does not match")
+    except (KeyError, TypeError, ValueError, OverflowError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "stored portable seed receipt failed exact integrity validation"
+        ) from exc
+    value["seed"] = seed
+    value["world_source"] = world_source
+    value["player_source"] = player_source
+    return value
+
+
+def _validated_creator_seed_receipt_rows(rows, wanted: set[str]) -> dict[str, dict]:
+    receipts = {}
+    for row in rows:
+        session_id = str(row["session_id"])
+        if session_id not in wanted:
+            continue
+        try:
+            receipt = _validated_creator_seed_receipt_row(row)
+        except ValueError:
+            continue
+        if receipt is not None:
+            receipts[session_id] = receipt
+    return receipts
+
+
 def _ulid() -> str:
     return uuid.uuid4().hex
 
@@ -339,62 +402,46 @@ class Store:
                 " WHERE session_id=? AND seed_fingerprint=?",
                 (str(session_id), str(seed_fingerprint)),
             ).fetchone()
-        if row is None:
-            return None
-        value = dict(row)
-        # Rows written before receipt-integrity/1 are not authority.  They stay recoverable:
-        # an exact future POST rechecks the current immutable sources and replaces the unsigned
-        # row without replaying already-present state.
-        if not str(value.get("receipt_fingerprint") or ""):
-            return None
-        try:
-            seed = json.loads(value["seed_json"])
-            world_source = json.loads(value["world_source_json"] or "null")
-            player_source = json.loads(value["player_source_json"] or "null")
-            if int(value["world_requested"]) not in (0, 1) \
-                    or int(value["player_requested"]) not in (0, 1) \
-                    or int(value["migrated"]) not in (0, 1):
-                raise ValueError("portable seed receipt has invalid scalar fields")
-            authority = _creator_seed_receipt_authority(
-                session_id=value["session_id"],
-                seed_fingerprint=value["seed_fingerprint"],
-                branch_id=value["branch_id"],
-                seed=seed,
-                world_source=world_source,
-                player_source=player_source,
-                world_requested=bool(value["world_requested"]),
-                player_requested=bool(value["player_requested"]),
-                world_id=value["world_id"],
-                player_id=value["player_id"],
-                admitted_turn=value["admitted_turn"],
-                applied_ops=value["applied_ops"],
-                migrated=bool(value["migrated"]),
-                committed_at=value["committed_at"],
-            )
-            expected_integrity = _creator_seed_receipt_integrity(authority)
-            if not secrets.compare_digest(
-                str(value["receipt_fingerprint"]), expected_integrity,
-            ):
-                raise ValueError("portable seed receipt integrity digest does not match")
-        except (KeyError, TypeError, ValueError, OverflowError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                "stored portable seed receipt failed exact integrity validation"
-            ) from exc
-        value["seed"] = seed
-        value["world_source"] = world_source
-        value["player_source"] = player_source
-        return value
+        return _validated_creator_seed_receipt_row(row)
 
     def creator_seed_receipt_for_session(self, session_id: str) -> Optional[dict]:
         """Return the session's sole validated receipt, regardless of fingerprint."""
         with self._lock:
             row = self.db.execute(
-                "SELECT seed_fingerprint FROM creator_seed_receipts WHERE session_id=?",
+                "SELECT * FROM creator_seed_receipts WHERE session_id=?",
                 (str(session_id),),
             ).fetchone()
-        if row is None:
-            return None
-        return self.creator_seed_receipt(session_id, str(row["seed_fingerprint"]))
+        return _validated_creator_seed_receipt_row(row)
+
+    def creator_seed_session_snapshot(
+        self, session_ids,
+    ) -> tuple[dict[str, tuple[str, object, int]], dict[str, dict]]:
+        """Atomically snapshot session positions and receipt rows, then validate unlocked.
+
+        The lock covers only two bounded reads. Exact JSON/integrity validation happens after the
+        snapshot so a cosmetic session-list request never holds the global apply guard while doing
+        per-session decoding or historical state replay.
+        """
+        wanted = {str(session_id) for session_id in session_ids if str(session_id)}
+        if not wanted:
+            return {}, {}
+        with self._lock:
+            session_rows = self.db.execute(
+                "SELECT s.session_id, s.active_branch, b.head_turn,"
+                " COALESCE(j.journal_fence, 0) AS journal_fence FROM sessions s"
+                " LEFT JOIN branches b ON b.branch_id=s.active_branch"
+                " LEFT JOIN (SELECT branch_id, MAX(id) AS journal_fence FROM ops_journal"
+                " GROUP BY branch_id) j ON j.branch_id=s.active_branch"
+            ).fetchall()
+            receipt_rows = self.db.execute("SELECT * FROM creator_seed_receipts").fetchall()
+        positions = {
+            str(row["session_id"]): (
+                str(row["active_branch"] or ""), row["head_turn"],
+                int(row["journal_fence"] or 0),
+            )
+            for row in session_rows if str(row["session_id"]) in wanted
+        }
+        return positions, _validated_creator_seed_receipt_rows(receipt_rows, wanted)
 
     def persist_creator_seed_receipt(
         self,

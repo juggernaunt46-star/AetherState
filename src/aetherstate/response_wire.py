@@ -135,6 +135,15 @@ def _choice(doc: object, label: str) -> dict[str, Any]:
     return choices[0]
 
 
+def _is_usage_only_event(doc: object, label: str) -> bool:
+    """Recognize the one choice-less SSE event permitted by ``include_usage``."""
+    if not isinstance(doc, dict) or doc.get("choices") != []:
+        return False
+    if not isinstance(doc.get("usage"), dict):
+        raise ChatWireError(f"{label} empty choices require a usage object")
+    return True
+
+
 def _json_doc(raw: bytes, label: str) -> object:
     try:
         return json.loads(raw.decode("utf-8"))
@@ -160,6 +169,7 @@ def decode_chat_story(raw: bytes, content_type: str = "") -> str:
     parts: list[str] = []
     done = False
     saw_event = False
+    saw_usage = False
     normalized = raw.replace(b"\r\n", b"\n")
     for block in normalized.split(b"\n\n"):
         if not block.strip():
@@ -180,8 +190,16 @@ def decode_chat_story(raw: bytes, content_type: str = "") -> str:
         if payload == b"[DONE]":
             done = True
             continue
+        if saw_usage:
+            raise ChatWireError("SSE contains data after terminal usage event")
+        doc = _json_doc(payload, "SSE event")
+        if _is_usage_only_event(doc, "SSE event"):
+            if not saw_event:
+                raise ChatWireError("SSE usage event precedes completion events")
+            saw_usage = True
+            continue
         saw_event = True
-        choice = _choice(_json_doc(payload, "SSE event"), "SSE event")
+        choice = _choice(doc, "SSE event")
         delta = choice.get("delta")
         message = choice.get("message")
         content: object = None

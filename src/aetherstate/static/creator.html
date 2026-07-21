@@ -538,14 +538,24 @@ function limitedControl(control,max){ return `<div class="limit-box">${control}<
 function relTime(sec){ if(!sec) return ""; const d=Date.now()/1000-sec;
   if(d<60) return "just now"; if(d<3600) return Math.floor(d/60)+"m ago";
   if(d<86400) return Math.floor(d/3600)+"h ago"; return Math.floor(d/86400)+"d ago"; }
+function sessionCreatedLabel(sec){ const n=Number(sec), d=new Date(n*1000);
+  if(!Number.isFinite(n)||n<=0||!Number.isFinite(d.getTime())) return "created time unavailable";
+  const pad=(value,width=2)=>String(value).padStart(width,"0");
+  return `created ${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(),3)}`; }
+function sessionLabelPart(value,max=24){ const text=String(value||"").trim();
+  return text.length>max?text.slice(0,max-1)+"…":text; }
 // legible session label (2026-07-08): the committed WORLD + PLAYER names, freshness, and turn —
 // so "which session is the newest / the one I want" is obvious instead of a cryptic st-id.
 function sessOptLabel(x, newest){
-  const bits=[]; if(x.world_name) bits.push("🌍 "+x.world_name); if(x.player_name) bits.push("🧑 "+x.player_name);
-  let head=bits.join(" · ")||(x.label||x.external_id||x.session_id||"session").slice(0,20);
-  const meta=[]; const rt=relTime(x.last_seen); if(rt) meta.push(rt); meta.push("t"+(x.head_turn??"?"));
-  if(newest) meta.unshift("● newest");
-  return (head+" · "+meta.join(" · ")).slice(0,66); }
+  const world=sessionLabelPart(x.world_name), player=sessionLabelPart(x.player_name);
+  const head=world&&player?world+" / "+player:world||player||sessionLabelPart(x.label,52)||"Unnamed session";
+  const revision=String(x.card_revision||"");
+  const receiptCue=/^[0-9a-f]{16}$/.test(revision)?"rev "+revision:sessionCreatedLabel(x.created_at);
+  const sessionCue=String(x.session_cue||"");
+  const meta=[receiptCue,"chat "+(/^[a-z2-7]{8,104}$/.test(sessionCue)?sessionCue:"unavailable")];
+  if(newest) meta.push("● newest"); meta.push("t"+(x.head_turn??"?"));
+  const rt=relTime(x.last_seen); if(rt) meta.push(rt);
+  return head+" · "+meta.join(" · "); }
 // ---- draft autosave (2026-07-08): your work is kept in this browser so a page refresh, a
 // session-list refresh, or reopening the Creator never wipes what you typed.
 const DRAFT_KEY="aether_creator_draft_v1"; let _draftT=null;

@@ -86,3 +86,43 @@ def test_sse_keepalive_metadata_is_allowed_but_story_is_required():
         b"data: [DONE]\n\n"
     )
     assert decode_chat_story(raw, SSE_CONTENT_TYPE) == "Ready."
+
+
+def test_sse_terminal_usage_only_event_preserves_complete_story():
+    raw = (
+        b'data: {"choices":[{"index":0,"delta":{"content":"Ready."},'
+        b'"finish_reason":null}]}\n\n'
+        b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+        b'data: {"id":"chatcmpl-1","object":"chat.completion.chunk",'
+        b'"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":3,'
+        b'"total_tokens":15}}\n\n'
+        b"data: [DONE]\n\n"
+    )
+
+    assert decode_chat_story(raw, SSE_CONTENT_TYPE) == "Ready."
+
+
+@pytest.mark.parametrize(
+    "usage_event, suffix",
+    [
+        (b'data: {"choices":[]}\n\n', b"data: [DONE]\n\n"),
+        (b'data: {"choices":[],"usage":null}\n\n', b"data: [DONE]\n\n"),
+        (
+            b'data: {"choices":[],"usage":{"total_tokens":15}}\n\n',
+            b'data: {"choices":[{"index":0,"delta":{"content":"Late."}}]}\n\n'
+            b"data: [DONE]\n\n",
+        ),
+    ],
+)
+def test_sse_rejects_unvalidated_or_nonterminal_empty_choice_event(
+    usage_event: bytes,
+    suffix: bytes,
+):
+    raw = (
+        b'data: {"choices":[{"index":0,"delta":{"content":"Ready."}}]}\n\n'
+        + usage_event
+        + suffix
+    )
+
+    with pytest.raises(ChatWireError):
+        decode_chat_story(raw, SSE_CONTENT_TYPE)

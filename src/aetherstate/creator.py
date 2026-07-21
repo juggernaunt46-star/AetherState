@@ -2453,6 +2453,97 @@ def _direction_world_count(notes: str, noun: str) -> Optional[int]:
     return 0 if any(re.search(pattern, text, re.IGNORECASE) for pattern in no_fronts) else None
 
 
+def _world_front_issue(front, faction_names: set[str]) -> str:
+    """Return the content-free validation issue for one proposed World front."""
+    if not isinstance(front, dict):
+        return "is not an object"
+    required = ("name", "faction", "segments", "consequence",
+                "event_duration_turns", "spawn_eligibility")
+    if any(key not in front for key in required):
+        return "is incomplete"
+    segments = front.get("segments")
+    duration = front.get("event_duration_turns")
+    spawn = front.get("spawn_eligibility")
+    pace = front.get("pace")
+    if (not isinstance(front.get("name"), str) or not front["name"].strip()
+            or len(front["name"].strip()) > 120
+            or not isinstance(front.get("faction"), str)
+            or len(front["faction"].strip()) > 64
+            or _row_head(front.get("faction")) not in faction_names
+            or isinstance(segments, bool) or not isinstance(segments, int)
+            or not 4 <= segments <= 8
+            or (pace is not None and (
+                isinstance(pace, bool) or not isinstance(pace, int)
+                or not 1 <= pace <= 3))
+            or not _prose_complete(front.get("consequence"), minimum=8)
+            or len(str(front.get("consequence") or "").strip())
+            > _CREATOR_ROW_PROSE_MAX
+            or (duration is not None and (
+                isinstance(duration, bool) or not isinstance(duration, int)
+                or not 1 <= duration <= 100))
+            or (spawn is not None and not isinstance(spawn, bool))):
+        return "has invalid fields"
+    return ""
+
+
+def _admit_optional_world_fronts(doc: dict, seed: Optional[dict] = None) -> dict:
+    """Quarantine malformed model-only *extra* fronts without weakening Player intent.
+
+    World fronts are optional model-authored enrichment. A third or fourth malformed extra must
+    not erase an otherwise complete proposal, but an explicitly counted row, a Player-authored
+    row, or a row needed to meet the default two-front floor still forces a clean retry.
+    """
+    if not isinstance(doc, dict):
+        return doc
+    seed = seed if isinstance(seed, dict) else {}
+    if _direction_world_count(seed.get("notes", ""), "front") is not None:
+        return doc
+    fronts = doc.get("fronts")
+    if not isinstance(fronts, list):
+        return doc
+    faction_names = {
+        _row_head(row) for row in _lst(doc.get("factions")) if _row_head(row)
+    }
+    seeded_front_heads = {
+        _row_head(row) for row in _lst(seed.get("fronts")) if _row_head(row)
+    }
+    admitted: list = []
+    quarantined = 0
+    valid_count = 0
+    for front in fronts:
+        issue = _world_front_issue(front, faction_names)
+        if not issue:
+            admitted.append(front)
+            valid_count += 1
+        elif _row_head(front) in seeded_front_heads:
+            admitted.append(front)
+        else:
+            quarantined += 1
+    if not quarantined or valid_count < 2:
+        return doc
+    out = dict(doc)
+    out["fronts"] = admitted
+    log.info(
+        "World Creator quarantined %s invalid optional model-only front row(s)",
+        quarantined,
+    )
+    return out
+
+
+def _prepare_world_proposal(doc: dict, seed: Optional[dict] = None) -> dict:
+    """Apply the same code-owned mechanical normalization used by committed World state."""
+    prepared = _admit_optional_world_fronts(doc, seed)
+    if not isinstance(prepared, dict) or not isinstance(prepared.get("loot"), dict):
+        return prepared
+    normalized_loot = _norm_loot(prepared["loot"])
+    if normalized_loot == prepared["loot"]:
+        return prepared
+    out = dict(prepared)
+    out["loot"] = normalized_loot
+    log.info("World Creator normalized model-proposed loot mechanics before admission")
+    return out
+
+
 def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str]:
     """Return structural/completeness failures without echoing generated prose."""
     issues: list[str] = []
@@ -2581,36 +2672,9 @@ def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str
         issues.append(f"fronts need at least {front_floor} rows")
     else:
         for index, front in enumerate(fronts):
-            if not isinstance(front, dict):
-                issues.append(f"front {index + 1} is not an object")
-                continue
-            required = ("name", "faction", "segments", "consequence",
-                         "event_duration_turns", "spawn_eligibility")
-            if any(key not in front for key in required):
-                issues.append(f"front {index + 1} is incomplete")
-                continue
-            segments = front.get("segments")
-            duration = front.get("event_duration_turns")
-            spawn = front.get("spawn_eligibility")
-            pace = front.get("pace")
-            if (not isinstance(front.get("name"), str) or not front["name"].strip()
-                    or len(front["name"].strip()) > 120
-                    or not isinstance(front.get("faction"), str)
-                    or len(front["faction"].strip()) > 64
-                    or _row_head(front.get("faction")) not in faction_names
-                    or isinstance(segments, bool) or not isinstance(segments, int)
-                    or not 4 <= segments <= 8
-                    or (pace is not None and (
-                        isinstance(pace, bool) or not isinstance(pace, int)
-                        or not 1 <= pace <= 3))
-                    or not _prose_complete(front.get("consequence"), minimum=8)
-                    or len(str(front.get("consequence") or "").strip())
-                    > _CREATOR_ROW_PROSE_MAX
-                    or (duration is not None and (
-                        isinstance(duration, bool) or not isinstance(duration, int)
-                        or not 1 <= duration <= 100))
-                    or (spawn is not None and not isinstance(spawn, bool))):
-                issues.append(f"front {index + 1} has invalid fields")
+            issue = _world_front_issue(front, faction_names)
+            if issue:
+                issues.append(f"front {index + 1} {issue}")
     collections = {
         "faction": factions,
         "location": locations,
@@ -2800,8 +2864,9 @@ def _player_validation_issues(doc: dict, reg, pack: Optional[dict] = None,
 
 
 async def _complete_creator_object(
-        get_client, cfg, ep, *, system: str, user: str, validator) -> tuple[Optional[dict], str]:
-    """Request, strictly parse, and validate a whole document with one clean restart."""
+        get_client, cfg, ep, *, system: str, user: str, validator,
+        prepare=None) -> tuple[Optional[dict], str]:
+    """Request, strictly parse, prepare, and validate a whole document with one clean restart."""
     max_tokens, timeout_s, validation_retries = _creator_limits(cfg)
     last_issue = "the main model did not return a complete document"
     attempt_system = system
@@ -2833,6 +2898,8 @@ async def _complete_creator_object(
                 last_issue = "the provider did not report a complete response"
                 continue
             parsed = _strict_creator_json_object(reply.content)
+            if prepare is not None:
+                parsed = prepare(parsed)
             issues = validator(parsed)
             if issues:
                 last_issue = "; ".join(issues[:8])
@@ -2963,6 +3030,7 @@ async def author_world(get_client, cfg, ep, seed: dict) -> dict:
             system=_WORLD_SYSTEM,
             user=_world_user(seed),
             validator=lambda doc: _world_validation_issues(doc, seed),
+            prepare=lambda doc: _prepare_world_proposal(doc, seed),
         )
         if parsed is None:
             log.warning("World Creator rejected two incomplete main-model proposals")
