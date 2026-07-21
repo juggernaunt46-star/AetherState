@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from aetherstate import creator
+from aetherstate import creator, narrator
 from aetherstate.config import Config
 from aetherstate.state import apply_delta, current_state
 from aetherstate.store import Store
@@ -125,7 +125,10 @@ async def test_world_identity_survives_creator_preset_card_and_second_session(cl
     seed = card["data"]["extensions"]["aetherstate"]["seed"]
     assert seed["world"]["world_id"] == world_id
 
-    second = await client.post("/aether/session/world-b/seed", json={"seed": seed})
+    second = await client.post("/aether/session/world-b/seed", json={
+        "seed": seed,
+        "seed_fingerprint": narrator.seed_fingerprint(seed),
+    })
     assert second.status_code == 200 and second.json()["world_id"] == world_id
     second_world = (await client.get("/aether/session/world-b/creator")).json()["world"]
     assert second_world["world_id"] == world_id

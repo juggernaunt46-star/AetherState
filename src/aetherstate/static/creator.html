@@ -110,6 +110,9 @@ summary:hover{color:var(--fg)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px)}
 .toast.ok{border-color:var(--ok);color:var(--ok)}.toast.bad{border-color:var(--bad);color:var(--bad)}
 .hint{font-size:11.5px;color:var(--dim);margin-top:-6px;margin-bottom:10px}
+.author-status{display:flex;align-items:center;gap:8px;min-height:24px;margin:7px 0 2px;font-size:12px;color:var(--dim)}
+.author-status .ok{color:var(--ok)}.author-status .bad{color:var(--bad)}
+.author-elapsed{font-variant-numeric:tabular-nums;color:var(--accent)}
 .pts{font-size:12px;color:var(--dim)}.pts b{color:var(--fg)}.pts.over b{color:var(--bad)}
 .view-switch{display:inline-flex;gap:2px;padding:2px;background:var(--bg);border:1px solid var(--edge);border-radius:8px}
 .view-switch button{border:0;background:transparent;color:var(--dim);border-radius:6px;padding:4px 9px;cursor:pointer;font-size:12px;font-weight:650}
@@ -249,10 +252,11 @@ html[data-view="guided"] .expert-only{display:none!important}
 
     <div class="actions">
       <button class="act ai" id="w_ai" onclick="authorWorld()">✨ Auto-fill blanks with AI</button>
-      <button class="act ghost" onclick="fillOffline('world')" title="No AI — fill blanks from the built-in genre template">Fill blanks with templates</button>
+      <button class="act ghost" id="w_template" onclick="fillOffline('world')" title="No AI — fill blanks from the built-in genre template">Fill blanks with templates</button>
       <button class="act" onclick="showTab('char')">Next: Character →</button>
       <button class="act ghost" id="w_save" onclick="saveWorld()" title="Optional: apply this world straight to the selected live session (usually not needed — the Narrator card carries the world itself)">Save to live session</button>
     </div>
+    <div class="author-status"><span id="w_ai_status" role="status" aria-live="polite">AI fills blanks only. You can keep editing while it works; newer edits are protected.</span><span id="w_ai_elapsed" class="author-elapsed" aria-hidden="true"></span><button id="w_ai_retry" class="mini" type="button" onclick="authorWorld()" hidden>Try again with current draft</button></div>
     <div class="card guide-card guided-only" style="margin-top:14px">
       <h2>Choose how to continue</h2>
       <div class="guide-grid">
@@ -316,7 +320,7 @@ html[data-view="guided"] .expert-only{display:none!important}
     <div class="card">
       <h2><span class="guided-only">More character control</span><span class="expert-only">Advanced</span> <small>custom skills, abilities, health, and power pools</small></h2>
       <details>
-        <summary>Custom skills & abilities (optional)</summary>
+        <summary>Custom skills & abilities (optional) <span id="c_custom_summary_count" aria-live="polite" style="color:var(--acc2);font-weight:650;margin-left:6px">0 skills · 0 abilities</span></summary>
         <div style="margin-top:10px">
           <div class="hint">Give a custom skill or ability a <b>category</b> to make your own sheet sections — e.g. <i>Spells</i>, <i>Cyber-Ware</i>, <i>Disciplines</i>. Costs use whole amounts from 1–10,000 and may combine bars with <b>+</b>, e.g. <i>2 Ash Focus + 1 Mana</i>. Blank means no cost; a missing bar blocks save instead of changing the mechanic.</div>
           <datalist id="aes_cats"><option value="Spells"><option value="Cyber-Ware"><option value="Disciplines"><option value="Techniques"><option value="Maneuvers"><option value="Powers"><option value="Rituals"><option value="Gadgets"><option value="Mutations"><option value="Hexes"></datalist>
@@ -358,9 +362,10 @@ html[data-view="guided"] .expert-only{display:none!important}
 
     <div class="actions">
       <button class="act ai" id="c_ai" onclick="authorPlayer()">✨ Auto-fill blanks with AI</button>
-      <button class="act ghost" onclick="fillOffline('player')" title="No AI — fill blanks from registry defaults">Fill blanks with defaults</button>
+      <button class="act ghost" id="c_template" onclick="fillOffline('player')" title="No AI — fill blanks from registry defaults">Fill blanks with defaults</button>
       <button class="act" onclick="genNarratorCard()" title="Build the SillyTavern Narrator card from your world + character. It carries them as a seed — a new chat auto-loads everything, no re-applying.">🎭 Generate Narrator card</button>
     </div>
+    <div class="author-status"><span id="c_ai_status" role="status" aria-live="polite">AI fills blanks only. You can keep editing while it works; newer edits are protected.</span><span id="c_ai_elapsed" class="author-elapsed" aria-hidden="true"></span><button id="c_ai_retry" class="mini" type="button" onclick="authorPlayer()" hidden>Try again with current draft</button></div>
     <div class="card guide-card guided-only" style="margin-top:14px">
       <h2>Save the right way</h2>
       <div class="guide-grid">
@@ -442,6 +447,8 @@ html[data-view="guided"] .expert-only{display:none!important}
 const QS = new URLSearchParams(location.search);
 let SID = QS.get("session") || "";
 let REG = null, SPEC = "none", WORLD_CACHE = null, PLAYER_CACHE = null, WORLD_ID = "", PRESETS = [], ENEMY_PREVIEW = null;
+let WORLD_FORM_EPOCH=0, PLAYER_FORM_EPOCH=0, CREATOR_SESSION_EPOCH=0, AUTHORING_ACTIVE="", AUTHORING_TIMER=null;
+const CREATOR_SESSION_REQUESTS=Object.create(null);
 
 const $ = id => document.getElementById(id);
 const CREATOR_VIEW_KEY="aether_creator_view_v1";
@@ -498,6 +505,11 @@ const LIST_LIMITS=Object.freeze({w_factions:20,w_locations:20,w_npcs:20,w_aspect
 
 function toast(msg, kind){ const t=$("toast"); t.textContent=msg; t.className="toast show "+(kind||"");
   setTimeout(()=>{t.className="toast";}, 2600); }
+function creatorSessionSnapshot(lane=""){ const key=String(lane||""); let request=0;
+  if(key){ request=(CREATOR_SESSION_REQUESTS[key]||0)+1; CREATOR_SESSION_REQUESTS[key]=request; }
+  return {sid:SID,epoch:CREATOR_SESSION_EPOCH,lane:key,request}; }
+function creatorSessionIsCurrent(context){ return !!context&&SID===context.sid&&CREATOR_SESSION_EPOCH===context.epoch&&
+  (!context.lane||CREATOR_SESSION_REQUESTS[context.lane]===context.request); }
 async function api(path, opts){ const r = await fetch(path, Object.assign({headers:{"Content-Type":"application/json"}}, opts||{}));
   if(!r.ok){ let detail=null; try{ detail=await r.json(); }catch(e){}
     throw new Error((detail&&detail.error)||("HTTP "+r.status)); } return r.json(); }
@@ -541,7 +553,7 @@ function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({world
   const c=$("draftChip"); if(c) c.style.display=""; }catch(e){} }
 function scheduleDraft(){ clearTimeout(_draftT); _draftT=setTimeout(saveDraft, 600); }
 function removeDraftRow(btn){ const row=btn&&btn.closest?btn.closest(".item"):null;
-  if(row){ row.remove(); refreshAllListCounts(); scheduleDraft(); } }
+  if(row){ row.remove(); refreshAllListCounts(); refreshCustomDefinitionSummary(); scheduleDraft(); } }
 function clearCreatorDraft(){
   clearTimeout(_draftT); try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
   WORLD_CACHE=null; PLAYER_CACHE=null;
@@ -787,6 +799,22 @@ function readGear(){ return [...$("c_gear_rows").querySelectorAll(".item")].map(
 }).filter(Boolean); }
 // ---- custom skills / abilities
 function customSkillId(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,""); }
+function customDefinitionCountLabel(count,singular,plural){ return `${count} ${count===1?singular:(plural||singular+"s")}`; }
+function refreshCustomDefinitionSummary(){ const summary=$("c_custom_summary_count"); if(!summary) return;
+  const skills=$("c_cskills")?.querySelectorAll(".item").length||0;
+  const abilities=$("c_cabil")?.querySelectorAll(".item").length||0;
+  summary.textContent=`${customDefinitionCountLabel(skills,"skill")} · ${customDefinitionCountLabel(abilities,"ability","abilities")}`;
+}
+function applyPlayerCustomDefinitions(p){
+  $("c_cskills").innerHTML=""; $("c_cabil").innerHTML="";
+  const defs=p&&p.defs&&typeof p.defs==="object"?p.defs:{};
+  if(defs.skills&&typeof defs.skills==="object") Object.entries(defs.skills).forEach(([sid,def])=>{
+    const ranks=p.skills||{}, rid=customSkillId((def||{}).id||(def||{}).name||sid);
+    addCustomSkill(Object.assign({id:sid},def,{_rank:+ranks[sid]||+ranks[rid]||0}));
+  });
+  if(defs.abilities&&typeof defs.abilities==="object") Object.values(defs.abilities).forEach(addCustomAbil);
+  refreshCustomDefinitionSummary();
+}
 function attrEsc(s){ return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 const BUILTIN_RESOURCE_IDS=new Set(["hp","stamina","mana"]);
 function creatorResourceError(message,field){ const e=new Error(message); e.creatorField=field||null; return e; }
@@ -915,7 +943,7 @@ function addCustomSkill(s){ if(!mayAddRow("c_cskills",s==null)) return; s=s||{};
   // Keep fields without a dedicated editor (id/requires_ability/max_rank) in the frozen source
   // snapshot. Every visible field below owns its value, so clearing it cannot revive stale AI prose.
   try{ d.dataset.def = JSON.stringify(s); }catch(e){}
-  host.appendChild(d); refreshLimitCounters(d); refreshListCount("c_cskills");
+  host.appendChild(d); refreshLimitCounters(d); refreshListCount("c_cskills"); refreshCustomDefinitionSummary();
 }
 function readCustomSkills(){ return [...$("c_cskills").querySelectorAll(".item")].map(it=>{
   const el=it.querySelectorAll("input,select,textarea");
@@ -962,7 +990,7 @@ function addCustomAbil(a){ if(!mayAddRow("c_cabil",a==null)) return; a=a||{}; co
     <div><label>Description</label>${limitedControl(`<textarea data-field="desc" rows="2" maxlength="4000" data-limit="4000" placeholder="What this ability is in the fiction">${esc(a.desc||'')}</textarea>`,4000)}</div></div>
     <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove ability</button></div>`;
   try{ d.dataset.def = JSON.stringify(a); }catch(e){}   // full def survives the round-trip
-  host.appendChild(d); refreshLimitCounters(d); refreshListCount("c_cabil");
+  host.appendChild(d); refreshLimitCounters(d); refreshListCount("c_cabil"); refreshCustomDefinitionSummary();
 }
 function readCustomAbils(){ return [...$("c_cabil").querySelectorAll(".item")].map(it=>{
   const el=it.querySelectorAll("input,select,textarea");
@@ -1088,6 +1116,17 @@ function worldDoc(){ const d = {
   if(WORLD_CACHE){ if(/^world_[0-9a-f]{32}$/.test(WORLD_CACHE.parent_world_id||""))
       d.parent_world_id=WORLD_CACHE.parent_world_id; }
   return d; }
+function creatorDefinitionMap(value){ const out={}, rows=Array.isArray(value)?value.map(row=>["",row]):Object.entries(isCreatorRecord(value)?value:{});
+  for(const [fallback,row] of rows){ if(!isCreatorRecord(row)) continue; const id=customSkillId(fallback||row.id||row.name);
+    if(id) out[id]=cloneCreatorValue(row); }
+  return out; }
+function canonicalPlayerDocument(doc){ const out=cloneCreatorValue(isCreatorRecord(doc)?doc:{}),custom=isCreatorRecord(out.custom)?out.custom:{};
+  const defs=isCreatorRecord(out.defs)?out.defs:{};
+  out.defs=Object.assign({},defs,{
+    skills:Object.assign({},creatorDefinitionMap(defs.skills),creatorDefinitionMap(custom.skills)),
+    abilities:Object.assign({},creatorDefinitionMap(defs.abilities),creatorDefinitionMap(custom.abilities)),
+  });
+  delete out.custom; return out; }
 function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks[k]>0) skills[k]=skillRanks[k]; }
   // Pack entries aren't registry rows: everything USED from the genre pack ships as a custom
   // def so the server freezes it into the card (snapshot overlay) and the ranks stick.
@@ -1109,16 +1148,16 @@ function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks
   const cachedHp=PLAYER_CACHE&&((PLAYER_CACHE.resources||{}).hp||PLAYER_CACHE.hp);
   if(cachedHp&&Number.isFinite(+cachedHp.cur)) hp.cur=Math.max(0,Math.min(+cachedHp.cur,hp.max));
   const resources=Object.assign({hp},readCustomResources());
-  return { name:$("c_name").value.trim(), sex:$("c_sex").value.trim(), pronouns:$("c_pronouns").value.trim(),
+  return canonicalPlayerDocument({ name:$("c_name").value.trim(), sex:$("c_sex").value.trim(), pronouns:$("c_pronouns").value.trim(),
   species:$("c_species").value.trim(), appearance:$("c_appearance").value.trim(), concept:$("c_concept").value.trim(), level:+$("c_level").value||1,
   stats:Object.assign({},statVals), skills, abilities:pickedAbilities(),
   custom,
   notes:$("c_notes").value.trim(),
   gear:readGear(),
-  extras:readExtras("c_extras"), resources }; }
+  extras:readExtras("c_extras"), resources }); }
 
 // ---- apply a doc back into the form
-function applyWorld(w){ if(!w) return; const genreBefore=currentGenre(); WORLD_CACHE=w;
+function applyWorld(w){ if(!w) return; WORLD_FORM_EPOCH+=1; const genreBefore=currentGenre(); WORLD_CACHE=w;
   WORLD_ID=/^world_[0-9a-f]{32}$/.test(w.world_id||"")?w.world_id:mintWorldId();
   $("w_name").value=w.name||""; if(w.genre) $("w_genre").value=w.genre; $("w_setting").value=w.setting||"";
   if(currentGenre()!==genreBefore) genreChanged();
@@ -1132,7 +1171,7 @@ function applyWorld(w){ if(!w) return; const genreBefore=currentGenre(); WORLD_C
   refreshLimitCounters(document); refreshAllListCounts();
   scheduleDraft(); }
 function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); refreshListCount(hostId); }
-function applyPlayer(p){ if(!p) return; PLAYER_CACHE=p;
+function applyPlayer(p){ if(!p) return; p=canonicalPlayerDocument(p); PLAYER_FORM_EPOCH+=1; PLAYER_CACHE=p;
   $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
   $("c_species").value=p.species||""; $("c_appearance").value=p.appearance||""; $("c_concept").value=p.concept||""; $("c_level").value=p.level||1;
   $("c_notes").value=p.notes||"";
@@ -1146,35 +1185,103 @@ function applyPlayer(p){ if(!p) return; PLAYER_CACHE=p;
   if(p.skills){ for(const k in skillRanks) skillRanks[k]=0; Object.assign(skillRanks, p.skills); }
   buildSkills();
   buildAbilities(); (p.abilities||[]).forEach(aid=>{ const c=$("ab_"+aid); if(c) c.checked=true; });
-  $("c_cskills").innerHTML=""; $("c_cabil").innerHTML="";
-  if(p.defs&&p.defs.skills) Object.entries(p.defs.skills).forEach(([sid,def])=>{
-    const ranks=p.skills||{}, rid=customSkillId((def||{}).id||(def||{}).name||sid);
-    addCustomSkill(Object.assign({id:sid},def,{_rank:+ranks[sid]||+ranks[rid]||0}));
-  });
-  if(p.defs&&p.defs.abilities) Object.values(p.defs.abilities).forEach(addCustomAbil);
+  applyPlayerCustomDefinitions(p);
   fillExtras("c_extras", Array.isArray(p.extras)?p.extras:[]);
   refreshLimitCounters(document); refreshAllListCounts();
   refreshSkillMods(); scheduleDraft(); }
 
-// ---- AI authoring (2026-07-06: an AI failure shows the reason and leaves the form
-// alone — templates are an explicit button now, never a silent substitute)
-async function authorWorld(){ const draft=worldDoc(); const b=$("w_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take several minutes)";
-  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode:"world", doc:draft, model:$("modelSel").value||undefined})});
-    if(r.source==="llm"){ applyWorld(Object.assign({},r.doc,{notes:draft.notes})); toast(`World authored by the main AI ✨ (${r.model||"auto"})`, "ok"); }
-    else toast("AI fill failed: "+(r.detail||"unknown")+" — your form is untouched", "bad");
-  }catch(e){ toast("Authoring failed: "+e.message, "bad"); }
-  b.disabled=false; b.textContent="✨ Auto-fill blanks with AI"; }
-async function authorPlayer(){ const draft=playerDoc(); const b=$("c_ai"); b.disabled=true; b.textContent="✨ Authoring… (can take several minutes)";
-  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode:"player", doc:draft, world:worldDoc(), model:$("modelSel").value||undefined})});
-    if(r.source==="llm"){ applyPlayer(Object.assign({},r.doc,{notes:draft.notes})); toast(`Character authored by the main AI ✨ (${r.model||"auto"})`, "ok"); }
-    else toast("AI fill failed: "+(r.detail||"unknown")+" — your form is untouched", "bad");
-  }catch(e){ if(e.creatorField) showCreatorValidation(e,"Authoring blocked: "); else toast("Authoring failed: "+e.message, "bad"); }
-  b.disabled=false; b.textContent="✨ Auto-fill blanks with AI"; }
+// ---- AI authoring: the server protects the snapshot sent at request start; this controller also
+// protects edits made DURING a slow request. Generated values fill untouched paths only. Arrays are
+// atomic because guessing row identity could combine two different Player-authored structures.
+function isCreatorRecord(value){ return !!value&&typeof value==="object"&&!Array.isArray(value); }
+function creatorValuesEqual(a,b){
+  if(a===b) return true;
+  if(Array.isArray(a)||Array.isArray(b)) return Array.isArray(a)&&Array.isArray(b)&&
+    a.length===b.length&&a.every((value,index)=>creatorValuesEqual(value,b[index]));
+  if(!isCreatorRecord(a)||!isCreatorRecord(b)) return false;
+  const ak=Object.keys(a).sort(),bk=Object.keys(b).sort();
+  return ak.length===bk.length&&ak.every((key,index)=>key===bk[index]&&creatorValuesEqual(a[key],b[key]));
+}
+function cloneCreatorValue(value){ return value===undefined?undefined:JSON.parse(JSON.stringify(value)); }
+function mergeCreatorValue(base,proposal,current,path=""){
+  if(creatorValuesEqual(current,base)) return {value:cloneCreatorValue(proposal),preserved:[]};
+  if(isCreatorRecord(base)&&isCreatorRecord(proposal)&&isCreatorRecord(current)){
+    const value={},preserved=[],keys=new Set([...Object.keys(base),...Object.keys(proposal),...Object.keys(current)]);
+    for(const key of keys){ const child=mergeCreatorValue(base[key],proposal[key],current[key],path?`${path}.${key}`:key);
+      if(child.value!==undefined) value[key]=child.value; preserved.push(...child.preserved); }
+    return {value,preserved};
+  }
+  return {value:cloneCreatorValue(current),preserved:[path||"draft"]};
+}
+function mergeAuthorResult(base,proposal,current){ const merged=mergeCreatorValue(base,proposal,current);
+  return {doc:merged.value||{},preserved:[...new Set(merged.preserved)]}; }
+function setAuthorStatus(mode,message,kind="",retry=false){
+  const status=$(mode==="world"?"w_ai_status":"c_ai_status"),button=$(mode==="world"?"w_ai_retry":"c_ai_retry");
+  if(status){ status.textContent=message; status.className=kind; status.setAttribute("role",kind==="bad"?"alert":"status");
+    status.setAttribute("aria-live",kind==="bad"?"assertive":"polite"); }
+  if(button) button.hidden=!retry;
+}
+function setAuthoringBusy(mode,busy){
+  for(const id of ["w_ai","c_ai","w_template","c_template"]){ const button=$(id); if(button) button.disabled=busy; }
+  const activeSection=mode==="player"?"char":"world";
+  for(const section of ["world","char"]){ const panel=$(section); if(panel) panel.setAttribute("aria-busy",String(busy&&section===activeSection)); }
+}
+function formatAuthorElapsed(ms){ const seconds=Math.max(0,Math.floor(ms/1000));
+  return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`; }
+function startAuthoringTimer(mode){ const started=Date.now(),elapsed=$(mode==="world"?"w_ai_elapsed":"c_ai_elapsed");
+  setAuthorStatus(mode,`Authoring ${mode==="world"?"World":"Character"}. You can keep editing; newer edits will be kept.`);
+  const update=()=>{ if(elapsed) elapsed.textContent=`(${formatAuthorElapsed(Date.now()-started)})`; };
+  update(); AUTHORING_TIMER=setInterval(update,1000);
+}
+function stopAuthoringTimer(mode){ if(AUTHORING_TIMER){ clearInterval(AUTHORING_TIMER); AUTHORING_TIMER=null; }
+  const elapsed=$(mode==="world"?"w_ai_elapsed":"c_ai_elapsed"); if(elapsed) elapsed.textContent=""; }
+async function runCreatorAuthoring(mode){
+  if(AUTHORING_ACTIVE){ const active=AUTHORING_ACTIVE==="world"?"World":"Character";
+    setAuthorStatus(mode,`A ${active} fill is already running. Wait for it to finish; no second model call was sent.`,"bad");
+    toast("Another AI fill is already running — no second model call was sent","bad"); return; }
+  let draft,worldDraft;
+  try{ draft=mode==="world"?worldDoc():playerDoc(); worldDraft=mode==="player"?worldDoc():null; }
+  catch(e){ if(e.creatorField) showCreatorValidation(e,"Authoring blocked: "); else toast("Authoring blocked: "+e.message,"bad");
+    setAuthorStatus(mode,`Authoring blocked. ${e.message||"Fix the highlighted field and try again."}`,"bad",true); return; }
+  const context={worldEpoch:WORLD_FORM_EPOCH,playerEpoch:PLAYER_FORM_EPOCH,worldId:WORLD_ID,
+    genre:draft.genre,world:worldDraft,session:creatorSessionSnapshot()};
+  AUTHORING_ACTIVE=mode; setAuthoringBusy(mode,true); startAuthoringTimer(mode);
+  try{
+    const payload={mode,doc:draft,model:$("modelSel").value||undefined}; if(mode==="player") payload.world=worldDraft;
+    const r=await api(`/aether/session/${context.session.sid||"new"}/author`,{method:"POST",body:JSON.stringify(payload)});
+    if(r.source!=="llm"){ const detail=r.detail||"unknown error";
+      setAuthorStatus(mode,`AI fill failed. Your current draft is untouched. ${detail}`,"bad",true);
+      toast("AI fill failed: "+detail+" — your form is untouched","bad"); return; }
+    const explicitReplacement=!creatorSessionIsCurrent(context.session)||(mode==="world"?
+      WORLD_FORM_EPOCH!==context.worldEpoch||WORLD_ID!==context.worldId||currentGenre()!==context.genre:
+      PLAYER_FORM_EPOCH!==context.playerEpoch||WORLD_FORM_EPOCH!==context.worldEpoch||!creatorValuesEqual(worldDoc(),context.world));
+    if(explicitReplacement){ setAuthorStatus(mode,"AI result skipped because a prefill, preset, or generation context changed. Your current draft is safe.","bad",true);
+      toast("AI result skipped — the current draft changed context and was left untouched","bad"); return; }
+    const current=mode==="world"?worldDoc():canonicalPlayerDocument(playerDoc());
+    const proposed=Object.assign({},r.doc,{notes:draft.notes}),proposal=mode==="world"?proposed:canonicalPlayerDocument(proposed);
+    const merged=mergeAuthorResult(draft,proposal,current); if(mode==="world") applyWorld(merged.doc); else applyPlayer(merged.doc);
+    const kept=merged.preserved.length,subject=mode==="world"?"World":"Character";
+    setAuthorStatus(mode,kept?`AI fill complete. Kept ${kept} newer ${kept===1?"edit":"edits"} you made while it worked.`:
+      "AI fill complete. Your existing choices stayed in place.","ok");
+    toast(`${subject} authored by the main AI ✨ (${r.model||"auto"})${kept?` — kept ${kept} newer edits`:""}`,"ok");
+  }catch(e){ if(e.creatorField) showCreatorValidation(e,"Authoring blocked: ");
+    setAuthorStatus(mode,"Authoring failed. Your current draft is untouched. Try again when ready.","bad",true);
+    toast("Authoring failed: "+e.message,"bad");
+  }finally{ stopAuthoringTimer(mode); AUTHORING_ACTIVE=""; setAuthoringBusy(mode,false); }
+}
+async function authorWorld(){ return runCreatorAuthoring("world"); }
+async function authorPlayer(){ return runCreatorAuthoring("player"); }
 async function fillOffline(mode){
+  if(AUTHORING_ACTIVE){ toast("Wait for the current Creator fill to finish — no second request was sent","bad"); return; }
+  AUTHORING_ACTIVE=mode; setAuthoringBusy(mode,true);
+  setAuthorStatus(mode,`Filling ${mode==="world"?"World blanks from templates":"Character blanks from defaults"}…`);
   try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode, offline:1, doc:mode==="world"?worldDoc():playerDoc(), world:worldDoc()})});
     if(mode==="world") applyWorld(r.doc); else applyPlayer(r.doc);
-    toast(mode==="world"?"Blanks filled from the genre template":"Blanks filled from registry defaults", "ok");
-  }catch(e){ if(e.creatorField) showCreatorValidation(e,"Fill blocked: "); else toast("Fill failed: "+e.message, "bad"); } }
+    const message=mode==="world"?"Blanks filled from the genre template":"Blanks filled from registry defaults";
+    setAuthorStatus(mode,message+".","ok"); toast(message,"ok");
+  }catch(e){ if(e.creatorField) showCreatorValidation(e,"Fill blocked: "); else toast("Fill failed: "+e.message,"bad");
+    setAuthorStatus(mode,`Fill failed. ${e.message||"Your draft is untouched."}`,"bad");
+  }finally{ AUTHORING_ACTIVE=""; setAuthoringBusy(mode,false); } }
 
 // ---- presets (2026-07-06: save a world/character once, reuse it on any session)
 async function loadPresets(){
@@ -1193,13 +1300,17 @@ async function savePreset(kind){
   }catch(e){ if(e.creatorField) showCreatorValidation(e,"Preset blocked: "); else toast("Preset save failed: "+e.message, "bad"); } }
 async function loadPreset(kind){
   const sel=$(kind==="world"?"w_presets":"c_presets"); if(!sel.value){ toast("pick a preset first",""); return; }
+  if(AUTHORING_ACTIVE){ toast("Wait for the current Creator fill to finish — the preset was not loaded","bad"); return; }
+  AUTHORING_ACTIVE=kind; setAuthoringBusy(kind,true);
+  setAuthorStatus(kind,`Loading the selected ${kind==="world"?"World":"Character"} preset…`);
   try{ const p=await api(`/aether/presets/${sel.value}`);
     if(kind==="world") applyWorld(p.doc); else applyPlayer(normalizePresetPlayer(p.doc));
+    setAuthorStatus(kind,`Preset “${p.name}” loaded into the editable draft.`,"ok");
     toast(`Preset “${p.name}” loaded — now Save it to the session you want`, "ok");
-  }catch(e){ toast("Preset load failed: "+e.message, "bad"); } }
-function normalizePresetPlayer(d){ d=d||{}; if(d.custom&&!d.defs){ d=Object.assign({},d);
-  d.defs={skills:Object.fromEntries((d.custom.skills||[]).map(s=>[s.name,s])),
-          abilities:Object.fromEntries((d.custom.abilities||[]).map(a=>[a.name,a]))}; } return d; }
+  }catch(e){ setAuthorStatus(kind,"Preset load failed. Your current draft is untouched.","bad");
+    toast("Preset load failed: "+e.message,"bad");
+  }finally{ AUTHORING_ACTIVE=""; setAuthoringBusy(kind,false); } }
+function normalizePresetPlayer(d){ return canonicalPlayerDocument(d); }
 async function deletePreset(kind){
   const sel=$(kind==="world"?"w_presets":"c_presets"); if(!sel.value){ toast("pick a preset first",""); return; }
   if(!confirm("Delete this preset?")) return;
@@ -1219,9 +1330,11 @@ function reviewRows(label,rows){ rows=(rows||[]).filter(Boolean); if(!rows.lengt
   }).join("")+`</div>`; }
 async function renderReview(){
   const host=$("rv_body"); if(!SID){ host.textContent="No session selected — pick one in the header."; return; }
+  const sessionContext=creatorSessionSnapshot("review");
   host.textContent="Loading…";
   try{
-    const pre=await api(`/aether/session/${SID}/creator`);
+    const pre=await api(`/aether/session/${sessionContext.sid}/creator`);
+    if(!creatorSessionIsCurrent(sessionContext)) return;
     let h="";
     const w=pre.world_live||pre.world;
     if(w){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:4px 0 8px">🌍 World — ${esc(w.name||"(unnamed)")}${w.genre?` <span style="color:var(--dim)">(${esc(w.genre)})</span>`:""}</h3>`;
@@ -1266,13 +1379,19 @@ async function renderReview(){
     const effects=pre.effects_live||{}, effs=Object.keys(effects).length;
     if(effs) h+=chipRow("active effects", Object.entries(effects).flatMap(([who,m])=>Object.values(m||{}).map(f=>`${who}: ${f.name}`)));
     host.innerHTML=h;
-  }catch(e){ host.textContent="Could not load session state: "+e.message; } }
+  }catch(e){ if(creatorSessionIsCurrent(sessionContext)) host.textContent="Could not load session state: "+e.message; } }
 async function loadCommitted(kind){
-  try{ const pre=await api(`/aether/session/${SID}/creator`);
-    if(kind==="world"){ if(!pre.world){ toast("No world committed yet",""); return; } applyWorld(pre.world); showTab("world"); toast("Committed world loaded into the form","ok"); }
-    else { if(!pre.player){ toast("No character committed yet",""); return; }
-      const p=Object.assign({}, pre.player, {name:pre.player_name||""}); applyPlayer(p); showTab("char"); toast("Committed character loaded into the form","ok"); }
-  }catch(e){ toast("Load failed: "+e.message, "bad"); } }
+  if(AUTHORING_ACTIVE){ toast("Wait for the current Creator fill to finish — the session prefill was not loaded","bad"); return; }
+  const sessionContext=creatorSessionSnapshot();
+  AUTHORING_ACTIVE=kind; setAuthoringBusy(kind,true);
+  setAuthorStatus(kind,`Loading the committed ${kind==="world"?"World":"Character"} into the editable form…`);
+  try{ const pre=await api(`/aether/session/${sessionContext.sid}/creator`);
+    if(!creatorSessionIsCurrent(sessionContext)){ setAuthorStatus(kind,"Session prefill skipped because you selected a different game. Your current draft is untouched.","bad"); return; }
+    if(kind==="world"){ if(!pre.world){ setAuthorStatus(kind,"This session has no committed World to load.","bad"); toast("No world committed yet",""); return; } applyWorld(pre.world); showTab("world"); setAuthorStatus(kind,"Committed World loaded into the editable form.","ok"); toast("Committed world loaded into the form","ok"); }
+    else { if(!pre.player){ setAuthorStatus(kind,"This session has no committed Character to load.","bad"); toast("No character committed yet",""); return; }
+      const p=Object.assign({},pre.player,{name:pre.player_name||""}); applyPlayer(p); showTab("char"); setAuthorStatus(kind,"Committed Character loaded into the editable form.","ok"); toast("Committed character loaded into the form","ok"); }
+  }catch(e){ if(creatorSessionIsCurrent(sessionContext)){ setAuthorStatus(kind,"Session prefill failed. Your current draft is untouched.","bad"); toast("Load failed: "+e.message,"bad"); }
+  }finally{ AUTHORING_ACTIVE=""; setAuthoringBusy(kind,false); } }
 
 // ---- world Narrator card (2026-07-08 rework): the card is the DELIVERABLE and the CARRIER.
 // It is built straight from what you typed — NO session, NO "save to a blank session first" —
@@ -1282,22 +1401,29 @@ async function loadCommitted(kind){
 // empty (so the Session-review tab's button still makes a card for what's committed).
 function setCardMsg(m){ for(const id of ["c_cardmsg","rv_card"]){ const el=$(id); if(el) el.textContent=m; } }
 async function genNarratorCard(fromSession){
+  let sessionContext=null;
   try{
     const w=worldDoc(), p=fromSession?{}:playerDoc();
     const haveForm = !fromSession&&!!(w.name || w.setting || (w.factions&&w.factions.length) || (w.npcs&&w.npcs.length));
+    sessionContext=creatorSessionSnapshot("narrator-card");
     setCardMsg("Building the Narrator card…");
     let r, dl;
-    if(fromSession && SID){                         // explicit review of a committed live session
-      r=await api(`/aether/session/${SID}/narrator-card`, {method:"POST"});
-      dl=r.png_b64 ? "data:image/png;base64,"+r.png_b64 : `/aether/session/${SID}/narrator-card.png`;
+    if(fromSession && sessionContext?.sid){         // explicit review of a committed live session
+      r=await api(`/aether/session/${sessionContext.sid}/narrator-card`, {method:"POST"});
+      dl=r.png_b64 ? "data:image/png;base64,"+r.png_b64 : `/aether/session/${sessionContext.sid}/narrator-card.png`;
     }else if(haveForm){                             // session-free: straight from the Creator form
       r=await api(`/aether/narrator-card`, {method:"POST", body:JSON.stringify({world:w, player:p})});
       dl=r.png_b64 ? "data:image/png;base64,"+r.png_b64 : null;
-    }else if(SID){                                  // fall back to this session's committed world
-      r=await api(`/aether/session/${SID}/narrator-card`, {method:"POST"});
-      dl=r.png_b64 ? "data:image/png;base64,"+r.png_b64 : `/aether/session/${SID}/narrator-card.png`;
+    }else if(sessionContext?.sid){                  // fall back to this session's committed world
+      r=await api(`/aether/session/${sessionContext.sid}/narrator-card`, {method:"POST"});
+      dl=r.png_b64 ? "data:image/png;base64,"+r.png_b64 : `/aether/session/${sessionContext.sid}/narrator-card.png`;
     }else{ toast("Fill in a world first (name/setting), then generate the card","bad");
       setCardMsg("Nothing to build yet — give your world a name or setting, then generate."); return; }
+    if(!creatorSessionIsCurrent(sessionContext)){
+      // A newer build owns this shared result/download surface. Its status must remain visible.
+      if(CREATOR_SESSION_REQUESTS[sessionContext.lane]!==sessionContext.request) return;
+      setCardMsg("A card finished for the previously selected session, so it was not downloaded or presented as the current result. Generate again for the game now selected.");
+      toast("Previous-session card finished — current selection was left untouched","bad"); return; }
     if(dl){ const a=document.createElement("a"); a.href=dl; a.download=r.filename||"Narrator.png";
       document.body.appendChild(a); a.click(); a.remove(); }
     const nm=r.name||"Narrator", carries=!!r.seeded_world;
@@ -1313,7 +1439,8 @@ async function genNarratorCard(fromSession){
     if(r.error) msg+=` (install note: ${r.error})`;
     toast("Narrator card ready ✓ — check your downloads","ok");
     setCardMsg(msg);
-  }catch(e){ if(e.creatorField) showCreatorValidation(e,"Card blocked: "); else toast("Card generation failed: "+e.message,"bad"); setCardMsg(""); }
+  }catch(e){ if(sessionContext&&!creatorSessionIsCurrent(sessionContext)) return;
+    if(e.creatorField) showCreatorValidation(e,"Card blocked: "); else toast("Card generation failed: "+e.message,"bad"); setCardMsg(""); }
 }
 
 // ---- session switcher (2026-07-06: apply the same world/char to ANY session)
@@ -1329,29 +1456,40 @@ async function loadSessions(){
       list.map(x=>`<option value="${esc(x.session_id)}" ${x.session_id===SID||x.external_id===SID?"selected":""}>${esc(sessOptLabel(x, x.session_id===newest))}</option>`).join("");
     if(!SID){ sel.insertAdjacentHTML("afterbegin",
       `<option value="" selected>— card only (no session) —</option>`); }
-    sel.onchange=async()=>{ SID=sel.value; history.replaceState(null,"",`?session=${encodeURIComponent(SID)}`);
-      try{ const pre=await api(`/aether/session/${SID}/creator`);
+    sel.onchange=async()=>{ SID=sel.value; CREATOR_SESSION_EPOCH+=1;
+      const sessionContext=creatorSessionSnapshot("session-select");
+      history.replaceState(null,"",`?session=${encodeURIComponent(sessionContext.sid)}`);
+      try{ const pre=await api(`/aether/session/${sessionContext.sid}/creator`);
+        if(!creatorSessionIsCurrent(sessionContext)) return;
         SPEC=pre.specialization||"none"; renderSpec();
         toast("Now targeting this session for “Save to live session”","ok");
       }catch(e){}
+      if(!creatorSessionIsCurrent(sessionContext)) return;
       if($("review").classList.contains("on")) renderReview(); };
   }catch(e){} }
 
 // ---- save
 function sessLabel(){ const sel=$("sessSel"); return sel&&sel.selectedIndex>=0&&sel.value?sel.options[sel.selectedIndex].text.split(" · ")[0]:"session"; }
 async function saveWorld(){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
-  try{ const r=await api(`/aether/session/${SID}/world`, {method:"POST", body:JSON.stringify({world:worldDoc()})});
+  const sessionContext=creatorSessionSnapshot("save-world");
+  try{ const submitted=worldDoc(),r=await api(`/aether/session/${sessionContext.sid}/world`, {method:"POST", body:JSON.stringify({world:submitted})});
     if(!r.applied&&!r.already_committed) throw new Error("the World was not admitted");
+    if(!creatorSessionIsCurrent(sessionContext)){ toast("World save finished for the previously selected session; the current target and draft cache were left untouched","ok"); return; }
     if(r.world_id) WORLD_ID=r.world_id;
-    WORLD_CACHE=worldDoc(); toast(r.already_committed?`World already committed to ${sessLabel()} — no changes needed`:
+    WORLD_CACHE=cloneCreatorValue(submitted); toast(r.already_committed?`World already committed to ${sessLabel()} — no changes needed`:
       `World saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
-  }catch(e){ toast("Save failed: "+e.message, "bad"); } }
+  }catch(e){ toast(creatorSessionIsCurrent(sessionContext)?"Save failed: "+e.message:
+    "Save to the previously selected session failed: "+e.message, "bad"); } }
 async function savePlayer(){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
-  try{ const r=await api(`/aether/session/${SID}/player`, {method:"POST", body:JSON.stringify({player:playerDoc()})});
+  const sessionContext=creatorSessionSnapshot("save-player");
+  try{ const submitted=playerDoc(),r=await api(`/aether/session/${sessionContext.sid}/player`, {method:"POST", body:JSON.stringify({player:submitted})});
     if(!r.applied&&!r.already_committed) throw new Error("the Character was not admitted");
-    PLAYER_CACHE=playerDoc(); toast(r.already_committed?`Character already committed to ${sessLabel()} — no changes needed`:
+    if(!creatorSessionIsCurrent(sessionContext)){ toast("Character save finished for the previously selected session; the current target and draft cache were left untouched","ok"); return; }
+    PLAYER_CACHE=cloneCreatorValue(submitted); toast(r.already_committed?`Character already committed to ${sessLabel()} — no changes needed`:
       `Character saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
-  }catch(e){ if(e.creatorField) showCreatorValidation(e,"Save blocked: "); else toast("Save failed: "+e.message, "bad"); } }
+  }catch(e){ if(e.creatorField&&creatorSessionIsCurrent(sessionContext)) showCreatorValidation(e,"Save blocked: ");
+    else toast(creatorSessionIsCurrent(sessionContext)?"Save failed: "+e.message:
+      "Save to the previously selected session failed: "+e.message, "bad"); } }
 
 async function switchRpg(){ try{ await api("/aether/specialization", {method:"POST", body:JSON.stringify({name:"rpg"})});
   SPEC="rpg"; renderSpec(); toast("Specialization set to RPG", "ok"); }catch(e){ toast("Could not switch: "+e.message, "bad"); } }
@@ -1387,9 +1525,10 @@ async function boot(){
   // the "the session has to be blank" confusion). Load a committed world/character on demand from
   // the Session tab. Your draft wins, so a refresh/reopen never costs you what you typed.
   const restored = restoreDraft();
-  if(SID){ try{ const pre = await api(`/aether/session/${SID}/creator`);
-    SPEC = pre.specialization || "none";
-    if(!restored && pre.persona && !$("c_name").value) $("c_name").value=pre.persona;
+  if(SID){ const sessionContext=creatorSessionSnapshot("boot-session");
+    try{ const pre = await api(`/aether/session/${sessionContext.sid}/creator`);
+    if(creatorSessionIsCurrent(sessionContext)){ SPEC = pre.specialization || "none";
+      if(!restored && pre.persona && !$("c_name").value) $("c_name").value=pre.persona; }
   }catch(e){ /* no session yet — fine */ } }
   else { try{ const st = await api("/aether/status");   // no session picked: show the GLOBAL
     SPEC = st.specialization || "none";                  // spec honestly (2026-07-09: the chip

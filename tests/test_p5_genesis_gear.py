@@ -8,7 +8,7 @@ import json
 
 import httpx
 
-from aetherstate import genesis
+from aetherstate import genesis, narrator
 from aetherstate.config import Config
 from aetherstate.extraction import Endpoint
 from aetherstate.state import apply_delta, current_state, validate_op
@@ -398,15 +398,20 @@ async def test_turn0_genesis_endpoint_seeds_before_first_message(client):
 
 
 async def test_structured_narrator_seed_skips_llm_genesis(client, proxy_app):
-    seeded = await client.post("/aether/session/structured-narrator/seed", json={"seed": {
+    seed = {
         "world": {"name": "Cinder Gate"},
         "player": {"name": "Ash Walker", "concept": "gate warden"},
-    }})
+    }
+    fingerprint = narrator.seed_fingerprint(seed)
+    seeded = await client.post("/aether/session/structured-narrator/seed", json={
+        "seed": seed, "seed_fingerprint": fingerprint,
+    })
     assert seeded.status_code == 200 and seeded.json()["complete"] is True
 
     r = await client.post("/aether/session/structured-narrator/genesis", json={
         "card": "THE WORLD — Cinder Gate", "greeting": "An ash-wolf advances.",
         "speaker": "Cinder Gate", "card_role": "narrator", "structured_seed": True,
+        "seed_fingerprint": fingerprint,
     })
 
     body = r.json()

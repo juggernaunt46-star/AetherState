@@ -126,10 +126,16 @@ The **Creative Direction** box tells the AI how to write and what kind of result
 
 Creator generation allows **32,768 output tokens by default**, can be configured up to **131,072**, and waits up to 600 seconds. Empty, incomplete, or cut-off JSON is rejected and retried once instead of quietly creating half a world.
 
+Slow AI fills show persistent progress and elapsed time while every field stays editable. When the
+result returns, generated values fill only paths that were untouched during the wait; newer Player
+edits, custom skills, abilities, and resource choices win. World and Character AI/default fills share
+one request gate, so an accidental second click cannot start another paid generation.
+
 Narrator cards are admitted seed-first when a new SillyTavern chat opens. AetherState verifies that
-the exact World and Character carried by the card are both present before genesis continues; a
-rejected, partial, or identity-mismatched seed stops visibly instead of opening an apparently valid
-but unseeded game.
+the exact fingerprint carried by the card has one durable, atomic admission receipt before genesis
+continues. If the browser loses a slow response, the extension checks that read-only receipt instead
+of retrying the write or falsely reporting failure. A rejected, partial, or identity-mismatched seed
+rolls back and stops visibly instead of opening an apparently valid but unseeded game.
 
 If no main model is configured, deterministic offline templates remain available.
 

@@ -386,17 +386,28 @@ async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
     failure (no reply at all) re-marks 'rules' instead of 'done' so the next trigger
     (first message, chat re-open, /aether-genesis) retries instead of being locked out."""
     from .assist import _chat, resolve_endpoint      # shared client plumbing
+    claim_epoch = None
     try:
-        if not store.genesis_claim_llm(session_id):
+        claim_epoch = store.genesis_claim_llm(session_id)
+        if claim_epoch is None:
+            return 0
+        if not store.genesis_claim_is_current(session_id, claim_epoch, branch_id):
+            store.genesis_mark_if_claim(session_id, claim_epoch, "rules")
             return 0
         if not card.strip():
-            store.genesis_mark(session_id, "done")
+            if not store.genesis_mark_if_claim(
+                session_id, claim_epoch, "done", branch_id,
+            ):
+                store.genesis_mark_if_claim(session_id, claim_epoch, "rules")
             return 0
         ep = await resolve_endpoint(get_client, cfg, ep)
         if not ep.model:
             log.warning("genesis stage B: no model resolvable at %s — leaving session "
                         "re-seedable", ep.base_url or "(no endpoint)")
-            store.genesis_mark(session_id, "rules")
+            store.genesis_mark_if_claim(session_id, claim_epoch, "rules")
+            return 0
+        if not store.genesis_claim_is_current(session_id, claim_epoch, branch_id):
+            store.genesis_mark_if_claim(session_id, claim_epoch, "rules")
             return 0
         pname = ""
         try:                                     # the PLAYER's name (stage A already seeded it),
@@ -417,11 +428,12 @@ async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
         if raw is None:                      # hard failure (timeout/auth/transport):
             log.warning("genesis stage B: no reply from %s (%s) — leaving session "
                         "re-seedable", ep.base_url, ep.model)
-            store.genesis_mark(session_id, "rules")
+            store.genesis_mark_if_claim(session_id, claim_epoch, "rules")
+            return 0
+        if not store.genesis_claim_is_current(session_id, claim_epoch, branch_id):
+            store.genesis_mark_if_claim(session_id, claim_epoch, "rules")
             return 0
         is_narrator = narrator_role(card, card_role)
-        if is_narrator:
-            store.narrator_speaker_set(session_id, speaker)
         ops = _presence_with_basis(_parse_ops(
             raw,
             speaker=speaker,
@@ -436,41 +448,80 @@ async def seed_llm(store, cfg, get_client, ep, session_id: str, branch_id: str,
                  len(raw or ""), len(ops), ep.model)
         if not ops and raw:
             log.info("genesis stage B raw head: %r", raw[:300])
-        n = 0
-        if ops:
-            head = store.db.execute("SELECT head_turn FROM branches WHERE branch_id=?",
-                                    (branch_id,)).fetchone()
-            turn = max(0, (head["head_turn"] if head else 0))
-            res = apply_delta(store, session_id, branch_id, turn, ops, "genesis", cfg)
-            n = len(res.applied)
-            if res.quarantined:
-                log.info("genesis: %d applied, %d quarantined: %s", n,
-                         len(res.quarantined),
-                         "; ".join(str(q.get("reason"))[:60]
-                                   for q in res.quarantined[:5]))
-        head = store.db.execute("SELECT head_turn FROM branches WHERE branch_id=?",
-                                (branch_id,)).fetchone()
-        claim_turn = max(0, (head["head_turn"] if head else 0))
-        for authored_text, authored_source in ((card, "creator_card"),
-                                               (prompt, "creator_opening")):
-            claim_ops = claim_ops_from_text(
+        authored_claims = [
+            claim_ops_from_text(
                 authored_text,
                 ingress="creator",
                 source_id=authored_source,
             )
-            if not claim_ops:
-                continue
-            claim_result = apply_delta(
-                store, session_id, branch_id, claim_turn, claim_ops, "rule", cfg
+            for authored_text, authored_source in (
+                (card, "creator_card"), (prompt, "creator_opening"),
             )
-            n += sum(1 for op in claim_result.applied if op.get("op") == "claim_record")
-        store.genesis_mark(session_id, "done")
+        ]
+
+        def commit_stage_b() -> int | None:
+            # The post-provider ownership check and every resulting state write share one fence.
+            # A structured/forced genesis can win before this transaction, or wait until it ends;
+            # an older worker can never publish after its claim has been superseded.
+            with store.transaction():
+                if not store.genesis_claim_is_current(session_id, claim_epoch, branch_id):
+                    store.genesis_mark_if_claim(session_id, claim_epoch, "rules")
+                    return None
+                if is_narrator:
+                    store.narrator_speaker_set(session_id, speaker)
+                applied = 0
+                if ops:
+                    head = store.db.execute(
+                        "SELECT head_turn FROM branches WHERE branch_id=?", (branch_id,),
+                    ).fetchone()
+                    turn = max(0, (head["head_turn"] if head else 0))
+                    res = apply_delta(
+                        store, session_id, branch_id, turn, ops, "genesis", cfg,
+                    )
+                    applied = len(res.applied)
+                    if res.quarantined:
+                        log.info(
+                            "genesis: %d applied, %d quarantined: %s",
+                            applied,
+                            len(res.quarantined),
+                            "; ".join(
+                                str(q.get("reason"))[:60] for q in res.quarantined[:5]
+                            ),
+                        )
+                head = store.db.execute(
+                    "SELECT head_turn FROM branches WHERE branch_id=?", (branch_id,),
+                ).fetchone()
+                claim_turn = max(0, (head["head_turn"] if head else 0))
+                for claim_ops in authored_claims:
+                    if not claim_ops:
+                        continue
+                    claim_result = apply_delta(
+                        store, session_id, branch_id, claim_turn, claim_ops, "rule", cfg,
+                    )
+                    applied += sum(
+                        1 for op in claim_result.applied if op.get("op") == "claim_record"
+                    )
+                if not store.genesis_mark_if_claim(
+                    session_id, claim_epoch, "done", branch_id,
+                ):
+                    raise RuntimeError("Stage-B genesis claim changed during its commit fence")
+                return applied
+
+        n = commit_stage_b()
+        if n is None:
+            return 0
         log.info("genesis stage B seeded %d op(s) for %s", n, session_id[:8])
         return n
     except Exception as exc:
         log.warning("genesis LLM pass failed open: %s", type(exc).__name__)
         try:
-            store.genesis_mark(session_id, "done")   # never retry-loop a broken pass
+            if claim_epoch is not None:
+                # Never retry-loop a broken pass, but never overwrite a newer structured/forced
+                # decision that already revoked this exact worker generation.
+                if not store.genesis_mark_if_claim(
+                    session_id, claim_epoch, "done", branch_id,
+                ):
+                    store.genesis_mark_if_claim(session_id, claim_epoch, "rules")
         except Exception:
             pass
         return 0

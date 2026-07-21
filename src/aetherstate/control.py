@@ -7,6 +7,7 @@ Localhost trust in P2 (12 [ui]: auth_token empty = single-user default)."""
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import secrets
@@ -16,6 +17,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 
 from .state import apply_delta, current_state, state_summary, translate_path, validate_op
 from . import creator as _creator
@@ -78,6 +80,90 @@ def _world_seeded(state: dict) -> bool:
     """True once a world genesis has written entities (faction/location/npc) into state."""
     ents = (state.get("entities") or {}).values()
     return any((e or {}).get("kind") in ("faction", "location", "npc") for e in ents)
+
+
+def _seed_fingerprint_text(value: object) -> str:
+    fingerprint = value if isinstance(value, str) else ""
+    digest = fingerprint.removeprefix("sha256:")
+    if fingerprint != f"sha256:{digest}" or len(digest) != 64 \
+            or any(char not in "0123456789abcdef" for char in digest):
+        return ""
+    return fingerprint
+
+
+def _creator_seed_source_postconditions(
+    state: dict,
+    *,
+    world_source: dict | None,
+    player_source: dict | None,
+    expected_player_id: str,
+    requested_world: bool,
+    requested_player: bool,
+) -> dict:
+    """Verify immutable exact Creator sources, never a same-name runtime projection."""
+    state = state or {}
+    actual_world_id = str((state.get("world_identity") or {}).get("world_id") or "")
+    committed_world = (state.get("creator_world") or {}).get("document")
+    player = (state.get("player") or {}).get(expected_player_id) or {}
+    world_seeded = bool(
+        requested_world
+        and isinstance(world_source, dict)
+        and committed_world == world_source
+        and actual_world_id == str(world_source.get("world_id") or "")
+    )
+    player_seeded = bool(
+        requested_player
+        and isinstance(player_source, dict)
+        and isinstance(player, dict)
+        and player.get("creator_source") == player_source
+    )
+    return {
+        "world_seeded": world_seeded,
+        "player_seeded": player_seeded,
+        "complete": (
+            (not requested_world or world_seeded)
+            and (not requested_player or player_seeded)
+        ),
+        "world_id": actual_world_id,
+    }
+
+
+def _creator_seed_receipt_postconditions(state: dict, receipt: dict) -> dict:
+    return _creator_seed_source_postconditions(
+        state,
+        world_source=receipt.get("world_source"),
+        player_source=receipt.get("player_source"),
+        expected_player_id=str(receipt.get("player_id") or ""),
+        requested_world=bool(receipt.get("world_requested")),
+        requested_player=bool(receipt.get("player_requested")),
+    )
+
+
+def _creator_seed_receipt_response(
+    receipt: dict,
+    state: dict,
+    *,
+    applied: int,
+    already_present: bool,
+) -> dict:
+    return {
+        "session_id": receipt["session_id"],
+        "seed_fingerprint": receipt["seed_fingerprint"],
+        "world_requested": bool(receipt["world_requested"]),
+        "player_requested": bool(receipt["player_requested"]),
+        **_creator_seed_receipt_postconditions(state, receipt),
+        "already_present": bool(already_present),
+        "applied": int(applied),
+        "rejected": [],
+        "migrated": bool(receipt.get("migrated")),
+    }
+
+
+class _CreatorSeedAdmissionError(RuntimeError):
+    def __init__(self, body: dict, status_code: int = 409) -> None:
+        super().__init__(str(body.get("error") or "portable seed admission failed"))
+        self.body = body
+        self.status_code = status_code
 
 
 def _next_turn(store, branch_id: str) -> int:
@@ -1002,28 +1088,13 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             payload = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
-        row = _session(store, sid)
-        if not row:
-            session_id, _branch = store.create_session(external_id=sid)
-            row = _session(store, session_id)
-        if ifearly and _head(store, row["active_branch"]) >= 1:
-            return {
-                "session_id": row["session_id"],
-                "applied": 0,
-                "scheduled": False,
-                "skipped": "session already has real turns (ifearly)",
-            }
-        prior = store.genesis_state(row["session_id"])
-        if force and prior:
-            store.genesis_mark(row["session_id"], "")
         speaker = str(payload.get("speaker", ""))[:80]
         card_role = str(payload.get("card_role", "")).strip().lower()[:32]
-        structured_seed_requested = bool(payload.get("structured_seed")) \
-            and card_role == "narrator"
-        seed_state = current_state(store, row["active_branch"])
-        structured_seed = structured_seed_requested and (
-            _world_seeded(seed_state) or bool(seed_state.get("player") or {})
+        structured_seed_fingerprint = _seed_fingerprint_text(
+            payload.get("seed_fingerprint")
         )
+        structured_seed_requested = bool(payload.get("structured_seed")) \
+            and card_role == "narrator" and bool(structured_seed_fingerprint)
         card_len = len(str(payload.get("card", "")))
         greeting_len = len(str(payload.get("greeting", "")))
         doc = {
@@ -1033,16 +1104,75 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 {"role": "user", "content": str(payload.get("opening", ""))[:4000]},
             ]
         }
-        applied = _genesis.seed_rules(
-            store, cfg, row["session_id"], row["active_branch"], doc, speaker=speaker, card_role=card_role
-        )
-        _genesis.seed_player(store, cfg, row["session_id"], row["active_branch"], doc)
+
+        def commit_stage_a() -> dict:
+            # Receipt verification, Stage A, default-player fallback, and the decision that
+            # suppresses Stage B share one Store transaction. A rollback or Creator re-author
+            # cannot slip between receipt proof and the durable `done` marker.
+            with store.transaction():
+                row = _session(store, sid)
+                if row is None:
+                    session_id, _branch = store.create_session(external_id=sid)
+                    row = _session(store, session_id)
+                if ifearly and _head(store, row["active_branch"]) >= 1:
+                    return {
+                        "row": dict(row),
+                        "applied": 0,
+                        "prior": store.genesis_state(row["session_id"]),
+                        "structured_seed": False,
+                        "skipped": "session already has real turns (ifearly)",
+                    }
+                prior = store.genesis_state(row["session_id"])
+                if force and prior:
+                    store.genesis_supersede(row["session_id"], "")
+                structured_seed = structured_seed_requested \
+                    and _creator_seed_is_confirmed_sync(
+                        row["session_id"], structured_seed_fingerprint,
+                    )
+                applied = _genesis.seed_rules(
+                    store,
+                    cfg,
+                    row["session_id"],
+                    row["active_branch"],
+                    doc,
+                    speaker=speaker,
+                    card_role=card_role,
+                )
+                _genesis.seed_player(
+                    store, cfg, row["session_id"], row["active_branch"], doc,
+                )
+                finish_without_stage_b = structured_seed or jobs is None \
+                    or cfg.extraction.mode in ("off", "rules")
+                if structured_seed:
+                    # Exact Creator authority supersedes even an older Stage-B provider call that
+                    # has already claimed this session but has not yet published its result.
+                    store.genesis_supersede(row["session_id"], "done")
+                elif finish_without_stage_b \
+                        and store.genesis_state(row["session_id"]) == "rules":
+                    store.genesis_mark(row["session_id"], "done")
+                return {
+                    "row": dict(row),
+                    "applied": applied,
+                    "prior": prior,
+                    "structured_seed": structured_seed,
+                    "skipped": "",
+                }
+
+        stage_a = await run_in_threadpool(commit_stage_a)
+        row = stage_a["row"]
+        applied = stage_a["applied"]
+        prior = stage_a["prior"]
+        structured_seed = stage_a["structured_seed"]
+        if stage_a["skipped"]:
+            return {
+                "session_id": row["session_id"],
+                "applied": 0,
+                "scheduled": False,
+                "skipped": stage_a["skipped"],
+            }
         scheduled = False
-        if structured_seed:
-            # Creator cards have already committed their exact structured world+Player seed.
-            # Stage A may still ground the opening locally; an LLM must not reinterpret that seed.
-            store.genesis_mark(row["session_id"], "done")
-        elif jobs is not None and cfg.extraction.mode not in ("off", "rules"):
+        if not structured_seed and jobs is not None \
+                and cfg.extraction.mode not in ("off", "rules"):
             try:
                 import asyncio
 
@@ -1068,8 +1198,6 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                     scheduled = True
             except Exception:
                 pass  # stage A alone is a valid seed (fail-open)
-        elif store.genesis_state(row["session_id"]) == "rules":
-            store.genesis_mark(row["session_id"], "done")
         log.info(
             "genesis endpoint: ext=%s sid=%s prior=%r force=%s card=%d "
             "greeting=%d speaker=%r card_role=%r stageA_applied=%d stageB_scheduled=%s",
@@ -1776,7 +1904,22 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             payload = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
-        mode = str(payload.get("mode", "world")).lower()
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "request body must be an object"}, status_code=422)
+        raw_mode = payload.get("mode", "world")
+        if not isinstance(raw_mode, str):
+            return JSONResponse({"error": "mode must be a string"}, status_code=422)
+        if "doc" in payload and not isinstance(payload.get("doc"), dict):
+            return JSONResponse({"error": "doc must be an object"}, status_code=422)
+        if "world" in payload and not isinstance(payload.get("world"), dict):
+            return JSONResponse({"error": "world must be an object"}, status_code=422)
+        if payload.get("model") is not None and not isinstance(payload.get("model"), str):
+            return JSONResponse({"error": "model must be a string"}, status_code=422)
+        mode = raw_mode.strip().lower()
+        if mode == "character":
+            mode = "player"
+        if mode not in {"world", "player"}:
+            return JSONResponse({"error": "mode must be world|player"}, status_code=422)
         seed = payload.get("doc") if isinstance(payload.get("doc"), dict) else {}
         world = payload.get("world") if isinstance(payload.get("world"), dict) else None
         if mode == "world":
@@ -1784,7 +1927,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 seed = _creator.ensure_world_identity(seed)
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=422)
-        elif mode in ("player", "character"):
+        elif mode == "player":
             try:
                 _creator.deterministic_player(seed, cfg)
             except ValueError as exc:
@@ -1833,7 +1976,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 "configure the main endpoint in Console → Connection",
             }
         try:
-            if mode in ("player", "character"):
+            if mode == "player":
                 out = await _creator.author_player(get_client, cfg, ep, seed, world)
             else:
                 out = await _creator.author_world(get_client, cfg, ep, seed)
@@ -2078,116 +2221,375 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             res["ops"] = len(ops)
         return res
 
+    def _creator_seed_error(
+        message: str,
+        *,
+        seed_fingerprint: str = "",
+        requested_world: bool = False,
+        requested_player: bool = False,
+        rejected: list[dict] | None = None,
+    ) -> dict:
+        return {
+            "error": str(message),
+            "seed_fingerprint": seed_fingerprint,
+            "world_requested": bool(requested_world),
+            "player_requested": bool(requested_player),
+            "world_seeded": False,
+            "player_seeded": False,
+            "complete": False,
+            "already_present": False,
+            "applied": 0,
+            "rejected": list(rejected or []),
+        }
+
+    def _creator_seed_status_sync(sid: str, seed_fingerprint: object) -> tuple[dict, int]:
+        """Wait behind any in-flight admission, then read only one exact durable receipt."""
+        fingerprint = _seed_fingerprint_text(seed_fingerprint)
+        if not fingerprint:
+            return _creator_seed_error(
+                "seed_fingerprint must be sha256: followed by 64 lowercase hexadecimal characters"
+            ), 422
+        with store.apply_guard():
+            row = _session(store, sid)
+            if row is None:
+                return {
+                    **_creator_seed_error("unknown session", seed_fingerprint=fingerprint),
+                    "session_id": None,
+                    "pending": True,
+                }, 404
+            try:
+                receipt = store.creator_seed_receipt(row["session_id"], fingerprint)
+                other = store.creator_seed_receipt_for_session(row["session_id"])
+            except ValueError as exc:
+                return {
+                    **_creator_seed_error(str(exc), seed_fingerprint=fingerprint),
+                    "session_id": row["session_id"],
+                    "pending": False,
+                }, 409
+            if receipt is None:
+                if other is not None:
+                    message = "this session has a receipt for a different exact Narrator seed"
+                    status_code, pending = 409, False
+                else:
+                    message = "matching seed admission is still pending"
+                    status_code, pending = 202, True
+                return {
+                    **_creator_seed_error(message, seed_fingerprint=fingerprint),
+                    "session_id": row["session_id"],
+                    "pending": pending,
+                }, status_code
+            state = current_state(store, row["active_branch"])
+            out = _creator_seed_receipt_response(
+                receipt, state, applied=0, already_present=True,
+            )
+            if not out["complete"]:
+                out.update({
+                    "error": "matching seed receipt is stale on the active branch",
+                    "already_present": False,
+                    "pending": False,
+                })
+                return out, 409
+            out["pending"] = False
+            return out, 200
+
+    def _creator_seed_is_confirmed_sync(sid: str, seed_fingerprint: object) -> bool:
+        body, status_code = _creator_seed_status_sync(sid, seed_fingerprint)
+        return status_code == 200 and body.get("complete") is True
+
+    def _creator_seed_admit_sync(sid: str, payload: object) -> tuple[dict, int]:
+        """Normalize and commit one portable source under one outer Store transaction."""
+        if not isinstance(payload, dict):
+            return _creator_seed_error("request body must be an object"), 422
+        if "seed" in payload:
+            seed = payload.get("seed")
+            if not isinstance(seed, dict):
+                return _creator_seed_error("seed must be an object"), 422
+            if set(payload) - {"seed", "seed_fingerprint"}:
+                return _creator_seed_error("seed request contains unsupported fields"), 422
+        else:
+            seed = {key: value for key, value in payload.items() if key != "seed_fingerprint"}
+        if set(seed) - {"world", "player"}:
+            return _creator_seed_error("portable seed contains unsupported fields"), 422
+        supplied = payload.get("seed_fingerprint")
+        supplied_fingerprint = ""
+        if supplied is not None:
+            supplied_fingerprint = _seed_fingerprint_text(supplied)
+            if not supplied_fingerprint:
+                return _creator_seed_error(
+                    "seed_fingerprint must be sha256: followed by 64 lowercase hexadecimal "
+                    "characters"
+                ), 422
+        try:
+            # The card fingerprint names the exact raw portable object, before defaults.
+            json.dumps(seed, ensure_ascii=False, sort_keys=True, allow_nan=False)
+            seed_fingerprint = _narrator.seed_fingerprint(seed)
+        except (TypeError, ValueError) as exc:
+            return _creator_seed_error(f"portable seed is not finite JSON: {exc}"), 422
+        if supplied_fingerprint and not secrets.compare_digest(
+            supplied_fingerprint, seed_fingerprint,
+        ):
+            return _creator_seed_error(
+                "seed_fingerprint does not match the exact portable seed",
+                seed_fingerprint=supplied_fingerprint,
+            ), 422
+        world_value, player_value = seed.get("world"), seed.get("player")
+        if world_value is not None and not isinstance(world_value, dict):
+            return _creator_seed_error(
+                "portable World seed must be an object",
+                seed_fingerprint=seed_fingerprint,
+            ), 422
+        if player_value is not None and not isinstance(player_value, dict):
+            return _creator_seed_error(
+                "portable Character seed must be an object",
+                seed_fingerprint=seed_fingerprint,
+            ), 422
+        world = world_value if isinstance(world_value, dict) else None
+        player = player_value if isinstance(player_value, dict) else None
+        requested_world = bool(world and str(world.get("name") or "").strip())
+        requested_player = bool(player)
+        if not requested_world and not requested_player:
+            return _creator_seed_error(
+                "Narrator card seed carries no World or Character",
+                seed_fingerprint=seed_fingerprint,
+            ), 422
+        try:
+            if requested_world:
+                world, player = _creator.portable_seed_documents(
+                    world, player if requested_player else None, cfg,
+                )
+            elif requested_player:
+                player = _creator.deterministic_player(player, cfg)
+            world_ops = _creator.world_to_ops(world) if requested_world else []
+            player_ops = _creator.player_to_ops(player, cfg) if requested_player else []
+        except ValueError as exc:
+            return _creator_seed_error(
+                str(exc),
+                seed_fingerprint=seed_fingerprint,
+                requested_world=requested_world,
+                requested_player=requested_player,
+            ), 422
+        world_source = next(
+            (op["document"] for op in world_ops if op.get("op") == "creator_world_seed"),
+            None,
+        )
+        player_seed_op = next(
+            (op for op in player_ops if op.get("op") == "player_seed"),
+            None,
+        )
+        player_source = (
+            (player_seed_op.get("card") or {}).get("creator_source")
+            if isinstance(player_seed_op, dict) else None
+        )
+        expected_world_id = str((world_source or {}).get("world_id") or "")
+        expected_player_id = (
+            _creator.slug(str((player_source or {}).get("name") or ""))
+            if requested_player else ""
+        )
+
+        try:
+            with store.transaction():
+                row = _session(store, sid)
+                if row is None:
+                    row = store.get_or_create_session(sid)
+                branch = row["active_branch"]
+                state = current_state(store, branch)
+                try:
+                    prior = store.creator_seed_receipt_for_session(row["session_id"])
+                except ValueError as exc:
+                    raise _CreatorSeedAdmissionError(
+                        _creator_seed_error(
+                            str(exc), seed_fingerprint=seed_fingerprint,
+                            requested_world=requested_world,
+                            requested_player=requested_player,
+                        )
+                    ) from exc
+                stale_exact_receipt = False
+                if prior is not None:
+                    if prior["seed_fingerprint"] != seed_fingerprint:
+                        raise _CreatorSeedAdmissionError(_creator_seed_error(
+                            "this session already admitted a different exact Narrator seed",
+                            seed_fingerprint=seed_fingerprint,
+                            requested_world=requested_world,
+                            requested_player=requested_player,
+                        ))
+                    prior_postconditions = _creator_seed_receipt_postconditions(state, prior)
+                    if prior_postconditions["complete"]:
+                        return _creator_seed_receipt_response(
+                            prior, state, applied=0, already_present=True,
+                        ), 200
+                    stale_exact_receipt = True
+
+                existing_world = (state.get("creator_world") or {}).get("document")
+                if requested_world:
+                    if existing_world is None:
+                        occupied_world = bool(
+                            state.get("world_identity") or state.get("creator_world")
+                            or _world_seeded(state)
+                        )
+                        if occupied_world:
+                            raise _CreatorSeedAdmissionError(_creator_seed_error(
+                                "existing World has no exact Creator source for this card",
+                                seed_fingerprint=seed_fingerprint,
+                                requested_world=requested_world,
+                                requested_player=requested_player,
+                            ))
+                        did_world = True
+                    elif existing_world != world_source:
+                        raise _CreatorSeedAdmissionError(_creator_seed_error(
+                            "existing World belongs to a different exact Creator source",
+                            seed_fingerprint=seed_fingerprint,
+                            requested_world=requested_world,
+                            requested_player=requested_player,
+                        ))
+                    else:
+                        world_post = _creator_seed_source_postconditions(
+                            state,
+                            world_source=world_source,
+                            player_source=None,
+                            expected_player_id="",
+                            requested_world=True,
+                            requested_player=False,
+                        )
+                        if not world_post["complete"]:
+                            raise _CreatorSeedAdmissionError(_creator_seed_error(
+                                "existing World source has inconsistent immutable identity",
+                                seed_fingerprint=seed_fingerprint,
+                                requested_world=requested_world,
+                                requested_player=requested_player,
+                            ))
+                        did_world = False
+                else:
+                    did_world = False
+
+                players = state.get("player") or {}
+                expected_player = players.get(expected_player_id) if requested_player else None
+                if requested_player:
+                    if not players:
+                        did_player = True
+                    elif isinstance(expected_player, dict) \
+                            and expected_player.get("creator_source") == player_source:
+                        did_player = False
+                    elif all(
+                        isinstance(value, dict) and value.get("genesis_default")
+                        for value in players.values()
+                    ):
+                        did_player = True
+                    else:
+                        raise _CreatorSeedAdmissionError(_creator_seed_error(
+                            "existing Character belongs to a different exact Creator source",
+                            seed_fingerprint=seed_fingerprint,
+                            requested_world=requested_world,
+                            requested_player=requested_player,
+                        ))
+                else:
+                    did_player = False
+
+                ops = (world_ops if did_world else []) + (player_ops if did_player else [])
+                applied = 0
+                turn = _next_turn(store, branch)
+                post_state = state
+                if ops:
+                    result = apply_delta(
+                        store, row["session_id"], branch, turn, ops, "user", cfg,
+                    )
+                    rejected = [
+                        {
+                            "op": (entry.get("op") or {}).get("op"),
+                            "reason": str(entry.get("reason") or "seed operation rejected"),
+                        }
+                        for entry in result.quarantined
+                    ]
+                    applied = int(result.submitted_applied)
+                    if rejected or applied != len(ops):
+                        reason = (
+                            rejected[0]["reason"] if rejected
+                            else "Narrator card seed was not admitted completely"
+                        )
+                        raise _CreatorSeedAdmissionError(_creator_seed_error(
+                            reason,
+                            seed_fingerprint=seed_fingerprint,
+                            requested_world=requested_world,
+                            requested_player=requested_player,
+                            rejected=rejected,
+                        ))
+                    post_state = result.state
+                postconditions = _creator_seed_source_postconditions(
+                    post_state,
+                    world_source=world_source,
+                    player_source=player_source,
+                    expected_player_id=expected_player_id,
+                    requested_world=requested_world,
+                    requested_player=requested_player,
+                )
+                if not postconditions["complete"]:
+                    raise _CreatorSeedAdmissionError(_creator_seed_error(
+                        "Narrator card seed did not establish its exact immutable sources",
+                        seed_fingerprint=seed_fingerprint,
+                        requested_world=requested_world,
+                        requested_player=requested_player,
+                    ))
+                try:
+                    receipt = store.persist_creator_seed_receipt(
+                        session_id=row["session_id"],
+                        seed_fingerprint=seed_fingerprint,
+                        branch_id=branch,
+                        seed=seed,
+                        world_source=world_source,
+                        player_source=player_source,
+                        world_requested=requested_world,
+                        player_requested=requested_player,
+                        world_id=expected_world_id,
+                        player_id=expected_player_id,
+                        admitted_turn=turn,
+                        applied_ops=applied,
+                        migrated=not ops,
+                        replace_stale=stale_exact_receipt,
+                    )
+                except (RuntimeError, ValueError) as exc:
+                    raise _CreatorSeedAdmissionError(_creator_seed_error(
+                        "Narrator card seed receipt could not be committed",
+                        seed_fingerprint=seed_fingerprint,
+                        requested_world=requested_world,
+                        requested_player=requested_player,
+                    ), status_code=500) from exc
+                return _creator_seed_receipt_response(
+                    receipt,
+                    post_state,
+                    applied=applied,
+                    already_present=not ops,
+                ), 200
+        except _CreatorSeedAdmissionError as exc:
+            return exc.body, exc.status_code
+        except Exception:
+            log.exception("portable Narrator seed admission failed")
+            return _creator_seed_error(
+                "Narrator card seed admission failed before commit",
+                seed_fingerprint=seed_fingerprint,
+                requested_world=requested_world,
+                requested_player=requested_player,
+            ), 500
+
+    @router.get("/session/{sid}/seed-status")
+    async def creator_seed_status(sid: str, seed_fingerprint: str = ""):
+        """Confirm only one matching durable seed receipt; never infer success from state."""
+        body, status_code = await run_in_threadpool(
+            _creator_seed_status_sync, sid, seed_fingerprint,
+        )
+        return JSONResponse(
+            body, status_code=status_code, headers={"Cache-Control": "no-store"},
+        )
+
     @router.post("/session/{sid}/seed")
     async def creator_seed(sid: str, request: Request):
-        """Auto-seed a session from a Narrator card's embedded seed (the ST extension calls this
-        on chat-open when the card carries extensions.aetherstate.seed). IDEMPOTENT by design:
-        commits the world only when none is seeded yet, and the Player Card only when none
-        exists — so re-opening an established chat never clobbers progress (player XP, gained
-        items, moved scenes). Deterministic, no LLM (weak-model floor); privileged source='user'
-        through the same validated world_to_ops/player_to_ops apply path. Fail-open."""
+        """Atomically admit one exact portable Narrator seed and its durable receipt."""
         try:
             payload = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
-        seed = payload.get("seed") if isinstance(payload.get("seed"), dict) else payload
-        world = seed.get("world") if isinstance(seed.get("world"), dict) else None
-        player = seed.get("player") if isinstance(seed.get("player"), dict) else None
-        requested_world = bool(world and str(world.get("name") or "").strip())
-        requested_player = bool(player)
-        if not requested_world and not requested_player:
-            return JSONResponse({
-                "error": "Narrator card seed carries no World or Character",
-                "world_seeded": False,
-                "player_seeded": False,
-                "complete": False,
-                "already_present": False,
-                "applied": 0,
-            }, status_code=422)
-        try:
-            if requested_world:
-                world, normalized_player = _creator.portable_seed_documents(
-                    world, player if requested_player else None, cfg,
-                )
-                player = normalized_player
-            elif requested_player:
-                player = _creator.deterministic_player(player, cfg)
-        except ValueError as exc:
-            return JSONResponse({
-                "error": str(exc),
-                "world_seeded": False,
-                "player_seeded": False,
-                "complete": False,
-                "already_present": False,
-                "applied": 0,
-            }, status_code=422)
-        expected_world_id = str((world or {}).get("world_id") or "")
-        expected_player_id = (
-            _creator.slug(str((player or {}).get("name") or "")) if requested_player else ""
+        body, status_code = await run_in_threadpool(
+            _creator_seed_admit_sync, sid, payload,
         )
-        row = _session(store, sid)
-        if not row:
-            try:  # creator-first: mint the row the chat's first
-                row = store.get_or_create_session(sid)  # stamped message will adopt (converges)
-            except Exception:
-                return JSONResponse({"error": "unknown session"}, status_code=404)
-        state = current_state(store, row["active_branch"])
-        did_world = requested_world and not _world_seeded(state)
-        did_player = requested_player and not (state.get("player") or {})
-        ops: list = []
-        try:
-            if did_world:
-                ops += _creator.world_to_ops(world)
-            if did_player:
-                ops += _creator.player_to_ops(player, cfg)
-        except ValueError as exc:
-            return JSONResponse({"error": str(exc)}, status_code=422)
-        applied = 0
-        rejected: list[dict] = []
-        post_state = state
-        if ops:
-            branch = row["active_branch"]
-            turn = _next_turn(store, branch)
-            res = apply_delta(store, row["session_id"], branch, turn, ops, "user", cfg)
-            applied = res.submitted_applied
-            post_state = res.state
-            rejected = [
-                {"op": q["op"].get("op"), "reason": q["reason"]}
-                for q in res.quarantined
-            ]
-        actual_world_id = str((post_state.get("world_identity") or {}).get("world_id") or "")
-        actual_players = post_state.get("player") or {}
-        world_seeded = (
-            actual_world_id == expected_world_id and _world_seeded(post_state)
-            if requested_world else _world_seeded(post_state)
-        )
-        player_seeded = (
-            expected_player_id in actual_players
-            if requested_player else bool(actual_players)
-        )
-        complete = (
-            (not requested_world or world_seeded)
-            and (not requested_player or player_seeded)
-        )
-        out = {
-            "session_id": row["session_id"],
-            "world_requested": requested_world,
-            "player_requested": requested_player,
-            "world_seeded": world_seeded,
-            "player_seeded": player_seeded,
-            "complete": complete,
-            "already_present": complete and applied == 0,
-            "applied": applied,
-            "rejected": rejected,
-            "world_id": actual_world_id,
-        }
-        if rejected or (ops and applied == 0) or not complete:
-            out["error"] = (
-                rejected[0]["reason"] if rejected
-                else "Narrator card seed was not admitted completely"
-            )
-            return JSONResponse(out, status_code=409)
-        return out
+        return JSONResponse(body, status_code=status_code)
 
     @router.patch("/session/{sid}/state")
     async def patch_state(sid: str, request: Request):

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from aetherstate import narrator
 from aetherstate.state import apply_delta, current_state
 
 
@@ -51,6 +52,70 @@ async def test_creator_page_is_never_served_from_a_stale_browser_cache(client):
     assert "r.seeded_player||p.name" not in response.text
     assert "Next: reload SillyTavern" in response.text
     assert "avatar hover shows “${r.filename}”" in response.text
+
+
+async def test_seeded_custom_mechanics_survive_committed_creator_prefill(client):
+    sid = "prefill-seeded-custom-mechanics"
+    seed = {
+        "world": {
+            "name": "Oathglass Reach",
+            "world_id": "world_77777777777777777777777777777777",
+        },
+        "player": {
+            "name": "Sera",
+            "skills": {"Oathglass Triage": 2},
+            "abilities": ["Crack-Map Instinct"],
+            "custom": {
+                "skills": [{
+                    "name": "Oathglass Triage",
+                    "keyed_stat": "INT",
+                    "base_mod": 1,
+                    "max_rank": 6,
+                    "governs": ["diagnose", "stabilize"],
+                    "group": "Bridgecraft",
+                    "desc": "Reads exact fracture geometry.",
+                }],
+                "abilities": [{
+                    "name": "Crack-Map Instinct",
+                    "kind": "passive",
+                    "mechanic": "edge",
+                    "magnitude": 2,
+                    "applies_to": "Oathglass Triage",
+                    "group": "Bridgecraft",
+                    "effect": "Gain edge while mapping a fresh crack.",
+                    "desc": "A trained surveyor's first-glance pattern sense.",
+                }],
+            },
+        },
+    }
+    admitted = await client.post(f"/aether/session/{sid}/seed", json={
+        "seed": seed,
+        "seed_fingerprint": narrator.seed_fingerprint(seed),
+    })
+    assert admitted.status_code == 200 and admitted.json()["complete"] is True
+
+    prefill = (await client.get(f"/aether/session/{sid}/creator")).json()["player"]
+    assert prefill["skills"]["oathglass_triage"] == 2
+    assert "crack_map_instinct" in prefill["abilities"]
+    assert prefill["defs"]["skills"]["oathglass_triage"] == {
+        "name": "Oathglass Triage",
+        "keyed_stat": "INT",
+        "base_mod": 1,
+        "max_rank": 6,
+        "governs": ["diagnose", "stabilize"],
+        "desc": "Reads exact fracture geometry.",
+        "group": "Bridgecraft",
+    }
+    assert prefill["defs"]["abilities"]["crack_map_instinct"] == {
+        "name": "Crack-Map Instinct",
+        "kind": "passive",
+        "effect": "Gain edge while mapping a fresh crack.",
+        "desc": "A trained surveyor's first-glance pattern sense.",
+        "applies_to": "oathglass_triage",
+        "group": "Bridgecraft",
+        "mechanic": "edge",
+        "magnitude": 2,
+    }
 
 
 async def test_world_prefill_separates_authored_source_from_live_projection(
@@ -243,13 +308,17 @@ async def test_session_free_card_rejects_cross_document_entity_collision(client)
 
 async def test_seed_rejection_is_non_2xx_and_reports_post_apply_truth(client):
     sid = "portable-seed-collision"
-    response = await client.post(f"/aether/session/{sid}/seed", json={"seed": {
+    seed = {
         "world": {
             "name": "Collision Reach",
             "npcs": [{"name": "Mara Venn", "role": "guide"}],
         },
         "player": {"name": "Mara-Venn", "concept": "scout"},
-    }})
+    }
+    response = await client.post(f"/aether/session/{sid}/seed", json={
+        "seed": seed,
+        "seed_fingerprint": narrator.seed_fingerprint(seed),
+    })
 
     assert response.status_code in {409, 422}
     body = response.json()
@@ -268,8 +337,10 @@ async def test_seed_idempotence_reports_confirmed_presence_not_attempt_flags(cli
         "world": {"name": "Stable Reach", "world_id": "world_11111111111111111111111111111111"},
         "player": {"name": "Rook", "concept": "witness"},
     }
-    first = await client.post(f"/aether/session/{sid}/seed", json={"seed": seed})
-    second = await client.post(f"/aether/session/{sid}/seed", json={"seed": seed})
+    fingerprint = narrator.seed_fingerprint(seed)
+    request = {"seed": seed, "seed_fingerprint": fingerprint}
+    first = await client.post(f"/aether/session/{sid}/seed", json=request)
+    second = await client.post(f"/aether/session/{sid}/seed", json=request)
 
     assert first.status_code == 200
     assert first.json()["world_seeded"] and first.json()["player_seeded"]
@@ -280,7 +351,95 @@ async def test_seed_idempotence_reports_confirmed_presence_not_attempt_flags(cli
     assert second.json()["already_present"] is True
 
 
-async def test_seed_requires_the_requested_world_and_player_identities(client):
+async def test_seed_status_reconciles_exact_receipt_without_writing(client, proxy_app):
+    sid = "portable-seed-status"
+    world_id = "world_66666666666666666666666666666666"
+    seed = {
+        "world": {"name": "Reconcile Reach", "world_id": world_id},
+        "player": {"name": "Rook Vale", "concept": "witness"},
+    }
+    fingerprint = narrator.seed_fingerprint(seed)
+    store = proxy_app.state.store
+    sessions_before = store.db.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()["n"]
+
+    pending = await client.get(
+        f"/aether/session/{sid}/seed-status",
+        params={"seed_fingerprint": fingerprint},
+    )
+
+    assert pending.status_code == 404
+    assert pending.headers["cache-control"] == "no-store"
+    assert pending.json() == {
+        "session_id": None,
+        "seed_fingerprint": fingerprint,
+        "world_requested": False,
+        "player_requested": False,
+        "world_seeded": False,
+        "player_seeded": False,
+        "complete": False,
+        "already_present": False,
+        "applied": 0,
+        "rejected": [],
+        "pending": True,
+        "error": "unknown session",
+    }
+    sessions_after = store.db.execute("SELECT COUNT(*) AS n FROM sessions").fetchone()["n"]
+    assert sessions_after == sessions_before
+
+    admitted = await client.post(
+        f"/aether/session/{sid}/seed",
+        json={"seed": seed, "seed_fingerprint": fingerprint},
+    )
+    assert admitted.status_code == 200 and admitted.json()["complete"] is True
+    journal_before = store.journal_high_water()
+
+    confirmed = await client.get(
+        f"/aether/session/{sid}/seed-status",
+        params={"seed_fingerprint": fingerprint},
+    )
+    journal_after = store.journal_high_water()
+
+    assert confirmed.status_code == 200
+    assert confirmed.headers["cache-control"] == "no-store"
+    assert confirmed.json()["session_id"] == admitted.json()["session_id"]
+    assert confirmed.json()["world_seeded"] is True
+    assert confirmed.json()["player_seeded"] is True
+    assert confirmed.json()["complete"] is True
+    assert confirmed.json()["already_present"] is True
+    assert confirmed.json()["applied"] == 0
+    assert confirmed.json()["world_id"] == world_id
+    assert confirmed.json()["seed_fingerprint"] == fingerprint
+    assert confirmed.json()["pending"] is False
+    assert journal_after == journal_before
+
+    wrong_fingerprint = narrator.seed_fingerprint({
+        "world": {"name": "Other Reach", "world_id": world_id},
+        "player": {"name": "Rook Vale", "concept": "witness"},
+    })
+    wrong = await client.get(
+        f"/aether/session/{sid}/seed-status",
+        params={"seed_fingerprint": wrong_fingerprint},
+    )
+    assert wrong.status_code == 409
+    assert wrong.json()["world_seeded"] is False
+    assert wrong.json()["player_seeded"] is False
+    assert wrong.json()["complete"] is False
+
+
+async def test_seed_status_requires_exact_fingerprint(client):
+    missing = await client.get("/aether/session/seed-status-invalid/seed-status")
+    malformed = await client.get(
+        "/aether/session/seed-status-invalid/seed-status",
+        params={"seed_fingerprint": "not-a-fingerprint"},
+    )
+
+    assert missing.status_code == 422
+    assert "seed_fingerprint must be sha256" in missing.json()["error"]
+    assert malformed.status_code == 422
+    assert "seed_fingerprint must be sha256" in malformed.json()["error"]
+
+
+async def test_seed_rejects_different_exact_world_and_player_sources(client):
     first = {
         "world": {"name": "First Reach", "world_id": "world_22222222222222222222222222222222"},
         "player": {"name": "Rook"},
@@ -290,10 +449,12 @@ async def test_seed_requires_the_requested_world_and_player_identities(client):
         "player": {"name": "Mara"},
     }
     admitted = await client.post(
-        "/aether/session/seed-identity/seed", json={"seed": first},
+        "/aether/session/seed-identity/seed",
+        json={"seed": first, "seed_fingerprint": narrator.seed_fingerprint(first)},
     )
     refused = await client.post(
-        "/aether/session/seed-identity/seed", json={"seed": wrong},
+        "/aether/session/seed-identity/seed",
+        json={"seed": wrong, "seed_fingerprint": narrator.seed_fingerprint(wrong)},
     )
 
     assert admitted.status_code == 200 and admitted.json()["complete"]
@@ -325,8 +486,10 @@ async def test_genesis_never_trusts_an_unverified_structured_seed_flag(client):
         },
         "player": {"name": "Rook"},
     }
+    fingerprint = narrator.seed_fingerprint(seed)
     admitted = await client.post(
-        "/aether/session/verified-structured/seed", json={"seed": seed},
+        "/aether/session/verified-structured/seed",
+        json={"seed": seed, "seed_fingerprint": fingerprint},
     )
     assert admitted.status_code == 200 and admitted.json()["complete"]
     verified = await client.post(
@@ -337,6 +500,7 @@ async def test_genesis_never_trusts_an_unverified_structured_seed_flag(client):
             "speaker": "Narrator",
             "card_role": "narrator",
             "structured_seed": True,
+            "seed_fingerprint": fingerprint,
         },
     )
     assert verified.status_code == 200

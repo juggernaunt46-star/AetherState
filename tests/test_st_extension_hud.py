@@ -81,7 +81,8 @@ def test_extension_has_every_render_surface():
 def test_genesis_handoff_preserves_structured_seed_boundary():
     """Creator state stays authoritative and dialogue examples stay illustrative."""
     src = EXT.read_text(encoding="utf-8")
-    assert "structured_seed: structuredSeed" in src
+    assert "structured_seed: Boolean(verifiedFingerprint)" in src
+    assert "seed_fingerprint: verifiedFingerprint" in src
     assert "sub(ch.mes_example)" not in src
 
 

@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from aetherstate import creator
+from aetherstate import creator, narrator
 from aetherstate.compose import render_header
 from aetherstate.config import AssistEndpointConfig, Config
 from aetherstate.state import (_SPEC, apply_delta, current_state, empty_state,
@@ -671,7 +671,7 @@ async def test_creator_page_served(client):
     assert '$("newDraft").onclick=clearCreatorDraft;' in r.text
     assert "function removeDraftRow" in r.text
     assert "onclick=\"removeDraftRow(this)\"" in r.text
-    assert "if(fromSession && SID)" in r.text
+    assert 'if(fromSession && sessionContext?.sid)' in r.text
     assert "const haveForm = !fromSession&&!!(" in r.text
     assert 'refreshPoints(); refreshSkillMods(); scheduleDraft();' in r.text
     assert '$("sr_"+sid).textContent=skillRanks[sid]; refreshSkillMods(); scheduleDraft();' in r.text
@@ -702,10 +702,19 @@ async def test_creator_page_served(client):
     assert "addCustomResource(rid,spec)" in r.text
     assert 'chipRow("resources"' in r.text
     assert 'title="Main story model used for every AI auto-fill"' in r.text
-    assert "const draft=worldDoc();" in r.text
-    assert "applyWorld(Object.assign({},r.doc,{notes:draft.notes}))" in r.text
-    assert "const draft=playerDoc();" in r.text
-    assert "applyPlayer(Object.assign({},r.doc,{notes:draft.notes}))" in r.text
+    assert 'draft=mode==="world"?worldDoc():playerDoc()' in r.text
+    assert 'worldDraft=mode==="player"?worldDoc():null' in r.text
+    assert "function mergeAuthorResult" in r.text
+    assert "mergeAuthorResult(draft,proposal,current)" in r.text
+    assert 'return runCreatorAuthoring("world")' in r.text
+    assert 'return runCreatorAuthoring("player")' in r.text
+    assert "WORLD_FORM_EPOCH!==context.worldEpoch" in r.text
+    assert "PLAYER_FORM_EPOCH!==context.playerEpoch" in r.text
+    assert 'const activeSection=mode==="player"?"char":"world"' in r.text
+    assert 'setAttribute("aria-busy",String(busy&&section===activeSection))' in r.text
+    assert "function canonicalPlayerDocument" in r.text
+    assert "return canonicalPlayerDocument({" in r.text
+    assert 'id="w_ai_retry"' in r.text and 'id="c_ai_retry"' in r.text
 
 
 async def test_world_and_player_routes_persist(client):
@@ -731,10 +740,15 @@ async def test_creator_control_routes_reject_invalid_resource_references(client)
             "cost": {"removed_pool": 2},
         }]},
     }
+    bad_seed = {
+        "world": {"name": "No Partial World"},
+        "player": bad_player,
+    }
     requests = [
         ("/aether/session/resource-bad/player", {"player": bad_player}),
         ("/aether/session/resource-bad-seed/seed", {
-            "seed": {"world": {"name": "No Partial World"}, "player": bad_player},
+            "seed": bad_seed,
+            "seed_fingerprint": narrator.seed_fingerprint(bad_seed),
         }),
         ("/aether/session/resource-bad-author/author", {
             "mode": "player", "offline": 1, "doc": bad_player,
@@ -829,6 +843,28 @@ async def test_author_route_offline_fills_templates_on_request(client):
     r2 = await client.post("/aether/session/route-missing/author",
                            json={"mode": "player", "offline": 1, "doc": {"name": "Vex"}})
     assert r2.json()["source"] == "deterministic" and r2.json()["doc"]["name"] == "Vex"
+
+    alias = await client.post("/aether/session/route-missing/author",
+                              json={"mode": "character", "offline": 1,
+                                    "doc": {"name": "Alias Vex"}})
+    assert alias.status_code == 200 and alias.json()["mode"] == "player"
+
+    invalid = await client.post("/aether/session/route-missing/author",
+                                json={"mode": "typo", "offline": 1, "doc": {}})
+    assert invalid.status_code == 422
+    assert invalid.json() == {"error": "mode must be world|player"}
+
+    malformed_cases = [
+        ([], "request body must be an object"),
+        ({"mode": ["world"], "offline": 1}, "mode must be a string"),
+        ({"mode": "world", "offline": 1, "doc": []}, "doc must be an object"),
+        ({"mode": "player", "offline": 1, "world": "none"}, "world must be an object"),
+        ({"mode": "world", "offline": 1, "model": 7}, "model must be a string"),
+    ]
+    for body, message in malformed_cases:
+        malformed = await client.post("/aether/session/route-missing/author", json=body)
+        assert malformed.status_code == 422
+        assert malformed.json() == {"error": message}
 
 
 # ------------------------------ model detection (menu + author route) ---------------

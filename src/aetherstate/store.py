@@ -6,7 +6,10 @@ harness, and the inspector scrubber. Phase 2 supplies the real reducer; the spin
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import math
+import secrets
 import sqlite3
 import threading
 import time
@@ -52,6 +55,17 @@ CREATE TABLE IF NOT EXISTS semantic_bootstrap_proofs(
   session_id TEXT PRIMARY KEY, branch_id TEXT UNIQUE, turn_index INTEGER,
   proof_fingerprint TEXT, post_ledger_hash TEXT, journal_high_water_after INTEGER,
   proof_json TEXT, committed_at REAL);
+CREATE TABLE IF NOT EXISTS creator_seed_receipts(
+  session_id TEXT, seed_fingerprint TEXT, branch_id TEXT, seed_json TEXT,
+  world_source_json TEXT, player_source_json TEXT,
+  world_requested INTEGER, player_requested INTEGER, world_id TEXT, player_id TEXT,
+  admitted_turn INTEGER, applied_ops INTEGER, migrated INTEGER DEFAULT 0,
+  receipt_fingerprint TEXT, committed_at REAL,
+  PRIMARY KEY(session_id, seed_fingerprint));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_creator_seed_receipt_session
+  ON creator_seed_receipts(session_id);
+CREATE INDEX IF NOT EXISTS idx_creator_seed_receipt_fingerprint
+  ON creator_seed_receipts(seed_fingerprint);
 CREATE TABLE IF NOT EXISTS claim_records(
   branch_id TEXT, claim_id TEXT, origin_branch TEXT, session_id TEXT, world_id TEXT,
   turn_index INTEGER, source TEXT, fingerprint TEXT, record_json TEXT,
@@ -116,11 +130,107 @@ CREATE TABLE IF NOT EXISTS presets(
 _MIGRATIONS = [("caps", "native", "TEXT DEFAULT ''"),
                ("caps", "anyof", "INTEGER DEFAULT -1"),   # Q18 addendum (-1 unprobed)
                ("sessions", "genesis", "TEXT DEFAULT ''"),  # ''|rules|llm|done|skipped
+               ("sessions", "genesis_epoch", "INTEGER DEFAULT 0"),
+               ("creator_seed_receipts", "receipt_fingerprint", "TEXT DEFAULT ''"),
                ("sessions", "mode", "TEXT DEFAULT 'enriched'"),  # 05 SS7: enriched|passthrough
                ("sessions", "label", "TEXT DEFAULT ''"),  # user-facing friendly name (rename)
                ("sessions", "narrator_speaker", "TEXT DEFAULT ''"),
                # Typed event ownership is needed for extraction-only retraction on old DBs.
                ("world_event_records", "source", "TEXT DEFAULT ''")]
+
+_CREATOR_SEED_RECEIPT_SCHEMA = "aetherstate-creator-seed-receipt/1"
+
+
+def _creator_seed_receipt_authority(
+    *,
+    session_id: str,
+    seed_fingerprint: str,
+    branch_id: str,
+    seed: dict,
+    world_source: Optional[dict],
+    player_source: Optional[dict],
+    world_requested: bool,
+    player_requested: bool,
+    world_id: str,
+    player_id: str,
+    admitted_turn: int,
+    applied_ops: int,
+    migrated: bool,
+    committed_at: float,
+) -> dict:
+    """Build and validate every field that grants one portable seed receipt authority."""
+    authority = {
+        "schema": _CREATOR_SEED_RECEIPT_SCHEMA,
+        "session_id": str(session_id),
+        "seed_fingerprint": str(seed_fingerprint),
+        "branch_id": str(branch_id),
+        "seed": seed,
+        "world_source": world_source,
+        "player_source": player_source,
+        "world_requested": bool(world_requested),
+        "player_requested": bool(player_requested),
+        "world_id": str(world_id),
+        "player_id": str(player_id),
+        "admitted_turn": int(admitted_turn),
+        "applied_ops": int(applied_ops),
+        "migrated": bool(migrated),
+        "committed_at": float(committed_at),
+    }
+    # This also rejects NaN/infinity and values with no deterministic JSON representation.
+    json.dumps(
+        authority, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"), allow_nan=False,
+    )
+    if not authority["session_id"] or not authority["branch_id"]:
+        raise ValueError("portable seed receipt scope is incomplete")
+    if not isinstance(seed, dict) or set(seed) - {"world", "player"}:
+        raise ValueError("portable seed receipt raw source is invalid")
+    from .narrator import seed_fingerprint as exact_seed_fingerprint
+
+    if exact_seed_fingerprint(seed) != authority["seed_fingerprint"]:
+        raise ValueError("portable seed fingerprint does not match its exact source")
+    seed_world = seed.get("world")
+    seed_player = seed.get("player")
+    expected_world_requested = bool(
+        isinstance(seed_world, dict) and str(seed_world.get("name") or "").strip()
+    )
+    expected_player_requested = bool(isinstance(seed_player, dict) and seed_player)
+    if authority["world_requested"] != expected_world_requested \
+            or authority["player_requested"] != expected_player_requested:
+        raise ValueError("portable seed receipt request flags diverge from its raw source")
+    if not authority["world_requested"] and not authority["player_requested"]:
+        raise ValueError("portable seed receipt has no requested source")
+    if authority["world_requested"]:
+        if not isinstance(world_source, dict) \
+                or authority["world_id"] != str(world_source.get("world_id") or "") \
+                or not authority["world_id"]:
+            raise ValueError("portable seed receipt World identity diverges from its source")
+    elif world_source is not None or authority["world_id"]:
+        raise ValueError("portable seed receipt carries an unrequested World authority")
+    if authority["player_requested"]:
+        from .state import slug
+
+        source_name = str((player_source or {}).get("name") or "") \
+            if isinstance(player_source, dict) else ""
+        if not source_name or authority["player_id"] != slug(source_name):
+            raise ValueError("portable seed receipt Character identity diverges from its source")
+    elif player_source is not None or authority["player_id"]:
+        raise ValueError("portable seed receipt carries an unrequested Character authority")
+    if authority["admitted_turn"] < 0 or authority["applied_ops"] < 0:
+        raise ValueError("portable seed receipt admission counters are invalid")
+    if authority["migrated"] != (authority["applied_ops"] == 0):
+        raise ValueError("portable seed receipt migration flag diverges from its admission")
+    if not math.isfinite(authority["committed_at"]) or authority["committed_at"] <= 0:
+        raise ValueError("portable seed receipt commit time is invalid")
+    return authority
+
+
+def _creator_seed_receipt_integrity(authority: dict) -> str:
+    canonical = json.dumps(
+        authority, ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
 def _ulid() -> str:
@@ -141,7 +251,10 @@ class Store:
                 self.db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
         # A process can stop during the cold LLM pass. Its in-flight claim is not durable work;
         # make the session retryable on the next start.
-        self.db.execute("UPDATE sessions SET genesis='rules' WHERE genesis='llm'")
+        self.db.execute(
+            "UPDATE sessions SET genesis='rules',"
+            " genesis_epoch=COALESCE(genesis_epoch, 0)+1 WHERE genesis='llm'"
+        )
         self.db.commit()
         self._lock = threading.RLock()  # apply_delta holds this across receipt + journal commit
         self.worldlex = WorldLexStore(self.db, self._lock)
@@ -212,6 +325,188 @@ class Store:
                 " active_branch, created_at, last_seen) VALUES(?,?,?,?,?,?,?)",
                 (sid, external_id, anchor_hash, frontend, bid, now, now))
             return sid, bid
+
+    def creator_seed_receipt(self, session_id: str, seed_fingerprint: str) -> Optional[dict]:
+        """Return one validated durable portable-seed admission receipt.
+
+        The raw portable source is retained so the fingerprint remains independently
+        re-checkable after restart.  A damaged or manually forged row fails closed instead of
+        becoming authority merely because its primary-key text happens to match a card.
+        """
+        with self._lock:
+            row = self.db.execute(
+                "SELECT * FROM creator_seed_receipts"
+                " WHERE session_id=? AND seed_fingerprint=?",
+                (str(session_id), str(seed_fingerprint)),
+            ).fetchone()
+        if row is None:
+            return None
+        value = dict(row)
+        # Rows written before receipt-integrity/1 are not authority.  They stay recoverable:
+        # an exact future POST rechecks the current immutable sources and replaces the unsigned
+        # row without replaying already-present state.
+        if not str(value.get("receipt_fingerprint") or ""):
+            return None
+        try:
+            seed = json.loads(value["seed_json"])
+            world_source = json.loads(value["world_source_json"] or "null")
+            player_source = json.loads(value["player_source_json"] or "null")
+            if int(value["world_requested"]) not in (0, 1) \
+                    or int(value["player_requested"]) not in (0, 1) \
+                    or int(value["migrated"]) not in (0, 1):
+                raise ValueError("portable seed receipt has invalid scalar fields")
+            authority = _creator_seed_receipt_authority(
+                session_id=value["session_id"],
+                seed_fingerprint=value["seed_fingerprint"],
+                branch_id=value["branch_id"],
+                seed=seed,
+                world_source=world_source,
+                player_source=player_source,
+                world_requested=bool(value["world_requested"]),
+                player_requested=bool(value["player_requested"]),
+                world_id=value["world_id"],
+                player_id=value["player_id"],
+                admitted_turn=value["admitted_turn"],
+                applied_ops=value["applied_ops"],
+                migrated=bool(value["migrated"]),
+                committed_at=value["committed_at"],
+            )
+            expected_integrity = _creator_seed_receipt_integrity(authority)
+            if not secrets.compare_digest(
+                str(value["receipt_fingerprint"]), expected_integrity,
+            ):
+                raise ValueError("portable seed receipt integrity digest does not match")
+        except (KeyError, TypeError, ValueError, OverflowError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                "stored portable seed receipt failed exact integrity validation"
+            ) from exc
+        value["seed"] = seed
+        value["world_source"] = world_source
+        value["player_source"] = player_source
+        return value
+
+    def creator_seed_receipt_for_session(self, session_id: str) -> Optional[dict]:
+        """Return the session's sole validated receipt, regardless of fingerprint."""
+        with self._lock:
+            row = self.db.execute(
+                "SELECT seed_fingerprint FROM creator_seed_receipts WHERE session_id=?",
+                (str(session_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        return self.creator_seed_receipt(session_id, str(row["seed_fingerprint"]))
+
+    def persist_creator_seed_receipt(
+        self,
+        *,
+        session_id: str,
+        seed_fingerprint: str,
+        branch_id: str,
+        seed: dict,
+        world_source: Optional[dict],
+        player_source: Optional[dict],
+        world_requested: bool,
+        player_requested: bool,
+        world_id: str,
+        player_id: str,
+        admitted_turn: int,
+        applied_ops: int,
+        migrated: bool,
+        replace_stale: bool = False,
+    ) -> dict:
+        """Persist exactly one portable-source authority receipt for a session.
+
+        Callers normally hold the outer reducer transaction.  Nested use is a savepoint, so the
+        receipt cannot survive a later admission rollback.  The unique session index prevents a
+        second, merely similar card revision from being blessed concurrently.
+        """
+        try:
+            committed_at = time.time()
+            authority = _creator_seed_receipt_authority(
+                session_id=session_id,
+                seed_fingerprint=seed_fingerprint,
+                branch_id=branch_id,
+                seed=seed,
+                world_source=world_source,
+                player_source=player_source,
+                world_requested=world_requested,
+                player_requested=player_requested,
+                world_id=world_id,
+                player_id=player_id,
+                admitted_turn=admitted_turn,
+                applied_ops=applied_ops,
+                migrated=migrated,
+                committed_at=committed_at,
+            )
+            seed_json = json.dumps(
+                authority["seed"], ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"), allow_nan=False,
+            )
+            world_source_json = json.dumps(
+                authority["world_source"], ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"), allow_nan=False,
+            )
+            player_source_json = json.dumps(
+                authority["player_source"], ensure_ascii=False, sort_keys=True,
+                separators=(",", ":"), allow_nan=False,
+            )
+            receipt_fingerprint = _creator_seed_receipt_integrity(authority)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("portable seed receipt source is not canonical finite JSON") from exc
+        with self.transaction():
+            # Lazy schema migration: an unsigned pre-integrity row grants no authority.  Remove
+            # only that exact legacy shape so the submitted seed must prove current postconditions
+            # before this method can seal a replacement.  A signed-but-corrupt row still raises.
+            unsigned = self.db.execute(
+                "SELECT receipt_fingerprint FROM creator_seed_receipts WHERE session_id=?",
+                (str(session_id),),
+            ).fetchone()
+            if unsigned is not None and not str(unsigned["receipt_fingerprint"] or ""):
+                self.db.execute(
+                    "DELETE FROM creator_seed_receipts WHERE session_id=?",
+                    (str(session_id),),
+                )
+            prior = self.creator_seed_receipt_for_session(session_id)
+            if prior is not None:
+                exact = (
+                    prior["seed_fingerprint"] == seed_fingerprint
+                    and prior["seed_json"] == seed_json
+                    and prior["world_source_json"] == world_source_json
+                    and prior["player_source_json"] == player_source_json
+                    and bool(prior["world_requested"]) == bool(world_requested)
+                    and bool(prior["player_requested"]) == bool(player_requested)
+                    and prior["world_id"] == str(world_id)
+                    and prior["player_id"] == str(player_id)
+                )
+                if not exact:
+                    raise ValueError(
+                        "session already has a different portable seed admission receipt"
+                    )
+                if not replace_stale:
+                    return prior
+                self.db.execute(
+                    "DELETE FROM creator_seed_receipts"
+                    " WHERE session_id=? AND seed_fingerprint=?",
+                    (str(session_id), str(seed_fingerprint)),
+                )
+            self.db.execute(
+                "INSERT INTO creator_seed_receipts("
+                "session_id, seed_fingerprint, branch_id, seed_json, world_source_json,"
+                "player_source_json, world_requested,"
+                "player_requested, world_id, player_id, admitted_turn, applied_ops, migrated,"
+                "receipt_fingerprint, committed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    str(session_id), str(seed_fingerprint), str(branch_id), seed_json,
+                    world_source_json, player_source_json,
+                    int(bool(world_requested)), int(bool(player_requested)), str(world_id),
+                    str(player_id), int(admitted_turn), int(applied_ops), int(bool(migrated)),
+                    receipt_fingerprint, committed_at,
+                ),
+            )
+            receipt = self.creator_seed_receipt(session_id, seed_fingerprint)
+            if receipt is None:  # defensive: the row was just written inside this transaction
+                raise RuntimeError("portable seed receipt was not durably readable")
+            return receipt
 
     def persist_semantic_bootstrap_proof(self, value):
         """Persist one exact T0 proof while its session/genesis transaction is still fenced.
@@ -1394,13 +1689,70 @@ class Store:
             self.db.execute("UPDATE sessions SET genesis=? WHERE session_id=?",
                             (stage, session_id))
 
-    def genesis_claim_llm(self, session_id: str) -> bool:
-        """Atomically claim Stage B so chat-open and first-request fallbacks cannot both run it."""
+    def genesis_claim_llm(self, session_id: str) -> Optional[int]:
+        """Claim Stage B and return its durable generation token.
+
+        A later forced or exact structured genesis increments ``genesis_epoch``.  The old worker
+        may finish its provider call, but it can no longer publish state or overwrite the newer
+        marker with its stale result.
+        """
         with self.transaction():
             cur = self.db.execute(
-                "UPDATE sessions SET genesis='llm' WHERE session_id=? "
+                "UPDATE sessions SET genesis='llm',"
+                " genesis_epoch=COALESCE(genesis_epoch, 0)+1 WHERE session_id=? "
                 "AND genesis IN ('', 'rules')", (session_id,))
-        return cur.rowcount == 1
+            if cur.rowcount != 1:
+                return None
+            row = self.db.execute(
+                "SELECT genesis_epoch FROM sessions WHERE session_id=?", (session_id,),
+            ).fetchone()
+            return int(row["genesis_epoch"]) if row is not None else None
+
+    def genesis_claim_is_current(
+        self,
+        session_id: str,
+        claim_epoch: int,
+        branch_id: Optional[str] = None,
+    ) -> bool:
+        """Return whether a Stage-B worker still owns this generation and active branch."""
+        with self._lock:
+            row = self.db.execute(
+                "SELECT 1 FROM sessions WHERE session_id=? AND genesis='llm'"
+                " AND genesis_epoch=? AND (? IS NULL OR active_branch=?)",
+                (session_id, int(claim_epoch), branch_id, branch_id),
+            ).fetchone()
+        return row is not None
+
+    def genesis_mark_if_claim(
+        self,
+        session_id: str,
+        claim_epoch: int,
+        stage: str,
+        branch_id: Optional[str] = None,
+    ) -> bool:
+        """Compare-and-set a claim terminal, optionally requiring its original active branch."""
+        with self.transaction():
+            cur = self.db.execute(
+                "UPDATE sessions SET genesis=? WHERE session_id=? AND genesis='llm'"
+                " AND genesis_epoch=? AND (? IS NULL OR active_branch=?)",
+                (stage, session_id, int(claim_epoch), branch_id, branch_id),
+            )
+            return cur.rowcount == 1
+
+    def genesis_supersede(self, session_id: str, stage: str) -> Optional[int]:
+        """Invalidate every older Stage-B claim and publish a newer session decision."""
+        with self.transaction():
+            cur = self.db.execute(
+                "UPDATE sessions SET genesis=?,"
+                " genesis_epoch=COALESCE(genesis_epoch, 0)+1 WHERE session_id=?",
+                (stage, session_id),
+            )
+            if cur.rowcount != 1:
+                return None
+            row = self.db.execute(
+                "SELECT genesis_epoch FROM sessions WHERE session_id=?", (session_id,),
+            ).fetchone()
+            return int(row["genesis_epoch"]) if row is not None else None
 
     def narrator_speaker(self, session_id: str) -> str:
         """Typed frontend/world voice protected from every entity-authority path."""
@@ -1478,6 +1830,9 @@ class Store:
                 self.db.execute(f"DELETE FROM {tbl} WHERE session_id=?", (session_id,))
             self.db.execute(
                 "DELETE FROM semantic_bootstrap_proofs WHERE session_id=?", (session_id,)
+            )
+            self.db.execute(
+                "DELETE FROM creator_seed_receipts WHERE session_id=?", (session_id,)
             )
             self.db.execute("DELETE FROM embeddings WHERE memory_id NOT IN"
                             " (SELECT memory_id FROM memories)")

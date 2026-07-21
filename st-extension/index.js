@@ -98,6 +98,66 @@
   }
   const sid = () => ensureChatIdentity().session;
   const isDerivedChat = () => ensureChatIdentity().derived;
+  const cardLifecycleSource = (character) => String(
+    character?.avatar || character?.data?.avatar || character?.avatar_url
+      || character?.data?.avatar_url || "",
+  ).trim();
+  const cardLifecycleFingerprint = (character) => {
+    const ext = character?.data?.extensions?.aetherstate || character?.extensions?.aetherstate;
+    return String(ext?.seed_fingerprint || "").trim();
+  };
+  function captureCardLifecycleContext(identity = null) {
+    const cx = C();
+    const exactIdentity = identity || ensureChatIdentity();
+    const characterId = cx.characterId;
+    return {
+      session: exactIdentity.session,
+      derived: Boolean(exactIdentity.derived),
+      chatId: String(exactIdentity.chatId || cx.chatId || ""),
+      characterId,
+      character: cx.characters?.[characterId] || null,
+      cardName: String(cx.characters?.[characterId]?.name || ""),
+      cardSource: cardLifecycleSource(cx.characters?.[characterId]),
+      seedFingerprint: cardLifecycleFingerprint(cx.characters?.[characterId]),
+    };
+  }
+  function cardLifecycleIsCurrent(origin) {
+    if (!origin) return true;
+    const cx = C(), identity = ensureChatIdentity();
+    if (identity.session !== origin.session
+        || String(identity.chatId || cx.chatId || "") !== origin.chatId) return false;
+    const active = cx.characters?.[cx.characterId] || null;
+    if (origin.characterId !== undefined && origin.characterId !== null
+        && cx.characterId !== origin.characterId) return false;
+    if (!active) return true;
+    const activeSource = cardLifecycleSource(active);
+    const activeFingerprint = cardLifecycleFingerprint(active);
+    const sourceComparable = Boolean(origin.cardSource && activeSource);
+    const fingerprintComparable = Boolean(origin.seedFingerprint && activeFingerprint);
+    if (sourceComparable && activeSource !== origin.cardSource) return false;
+    if (fingerprintComparable && activeFingerprint !== origin.seedFingerprint) return false;
+    // ST can replace a character object while hydrating it, so object identity is not stable.
+    // When neither durable card field is comparable yet, the visible name is the remaining shell
+    // identity: a different name means a card switch, while the same name permits hydration.
+    if (!sourceComparable && !fingerprintComparable && origin.cardName
+        && String(active.name || "") && String(active.name || "") !== origin.cardName) return false;
+    return true;
+  }
+  function bindCardLifecycleCharacter(origin) {
+    if (!origin || !cardLifecycleIsCurrent(origin)) return null;
+    const cx = C(), active = cx.characters?.[cx.characterId] || null;
+    if (active) {
+      origin.characterId = cx.characterId;
+      origin.character = active;
+      if (!origin.cardName) origin.cardName = String(active.name || "");
+      if (!origin.cardSource) origin.cardSource = cardLifecycleSource(active);
+      if (!origin.seedFingerprint) origin.seedFingerprint = cardLifecycleFingerprint(active);
+    }
+    return active;
+  }
+  const staleCardLifecycle = () => ({
+    ok: true, requested: false, structuredSeed: false, stale: true, skipped: "active chat changed",
+  });
   const guardName = () => {
     try { return settings.guard.override_name || C().substituteParams("{{user}}"); }
     catch (e) { return ""; }
@@ -143,12 +203,17 @@
   // ---- turn-0 genesis (handoff 2026-07-04, REQUIRED): the greeting renders with NO
   // request, so at chat-open we hand the proxy the card ourselves. Fire-and-forget;
   // the proxy's genesis marker makes re-opens no-ops. First-request path = fallback.
-  async function doGenesis(reason, force = false, ifearly = false, structuredSeed = false) {
+  async function doGenesis(reason, force = false, ifearly = false,
+                           structuredSeed = false, seedFingerprint = "", lifecycleContext = null) {
     if (!settings.enabled) return { error: "extension disabled" };
+    const origin = lifecycleContext || captureCardLifecycleContext();
+    if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
     const sub = (t) => { try { return C().substituteParams(t || ""); } catch (e) { return t || ""; } };
-    let ch = null, cx = C();                                // CHAT_CHANGED can fire before the
+    let ch = bindCardLifecycleCharacter(origin), cx = C();  // CHAT_CHANGED can fire before the
     for (let i = 0; i < 8 && !ch; i++) {                    // character is loaded — retry briefly
+      if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
       cx = C(); ch = cx.characters?.[cx.characterId];
+      if (ch) bindCardLifecycleCharacter(origin);
       if (!ch) await new Promise((r) => setTimeout(r, 250));
     }
     if (!ch) { console.warn("[AetherState] genesis: no active character"); return { error: "no character" }; }
@@ -162,26 +227,35 @@
     try { const m = (cx.chat || []).find((x) => !x.is_user && x.mes); if (m) greeting = sub(m.mes); } catch (e) {}
     if (!greeting) greeting = sub(ch.first_mes || "");
     if (!card && !greeting) { console.warn("[AetherState] genesis: empty card+greeting"); return { error: "empty card" }; }
-    const S = sid();
+    if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
+    const S = origin.session;
     try {
       const ac = new AbortController();
       const t = setTimeout(() => ac.abort(), 8000);        // seeding is fast (Stage B is async)
       const q = [force ? "force=1" : "", ifearly ? "ifearly=1" : ""].filter(Boolean).join("&");
+      const verifiedFingerprint = structuredSeed
+        && /^sha256:[0-9a-f]{64}$/.test(seedFingerprint) ? seedFingerprint : "";
       const r = await fetch(settings.proxy_url.replace(/\/$/, "") + `/aether/session/${S}/genesis${q ? "?" + q : ""}`, {
         method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
         body: JSON.stringify({ card, greeting, speaker: ch.name || "", card_role: cardRole(),
-                               user: guardName(), opening: "", structured_seed: structuredSeed }),
+                               user: guardName(), opening: "",
+                               structured_seed: Boolean(verifiedFingerprint),
+                               seed_fingerprint: verifiedFingerprint }),
       });
       clearTimeout(t);
       const d = await r.json().catch(() => ({}));
       console.log(`[AetherState] genesis (${reason}) sid=${S} ->`, d);
-      try { refreshChip(); } catch (e) {}
+      if (cardLifecycleIsCurrent(origin)) { try { refreshChip(); } catch (e) {} }
       return d;
-    } catch (e) { console.warn("[AetherState] genesis fetch failed", e); return { error: String(e) }; }
+    } catch (e) {
+      if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
+      console.warn("[AetherState] genesis fetch failed", e); return { error: String(e) };
+    }
   }
-  function genesisAtChatOpen() {
-    if (isDerivedChat()) return;
-    seedThenGenesis("chat_open").catch(() => {});
+  function genesisAtChatOpen(identity = null) {
+    const origin = captureCardLifecycleContext(identity);
+    if (origin.derived) return;
+    seedThenGenesis("chat_open", false, false, origin).catch(() => {});
   }
   // 2026-07-06: swiping the FIRST message picks a different opening — re-seed so state
   // reflects the greeting the player actually chose. ifearly=1 makes the proxy refuse
@@ -189,10 +263,14 @@
   function genesisAtGreetingSwipe(i) {
     try {
       if (isDerivedChat()) return;
+      const origin = captureCardLifecycleContext();
       const chat = C().chat || [];
       const first = chat.findIndex((x) => !x.is_user);
       if (Number(i) !== first || first < 0) return;
-      setTimeout(() => seedThenGenesis("greeting_swipe", true, true).catch(() => {}), 400);
+      setTimeout(() => {
+        if (!cardLifecycleIsCurrent(origin)) return;
+        seedThenGenesis("greeting_swipe", true, true, origin).catch(() => {});
+      }, 400);
     } catch (e) {}
   }
 
@@ -201,17 +279,20 @@
   // On chat-open we hand that seed to the proxy, which commits it to THIS session's ledger —
   // deterministically, no LLM. This is what removes "you have to re-apply the world to every
   // new chat": import the card, open a chat, and the world + your character are already there.
-  // The /seed route is idempotent (skips a world/player already present), so an established
-  // chat is never disturbed. Runs BEFORE genesis so presence/mood seeding sees the committed
-  // world. A rejected portable seed must not be disguised as successful structured genesis.
-  function cardSeed() {
+  // The /seed route is receipt-idempotent for one exact card fingerprint, so retries/reopens can
+  // confirm that exact durable source without accepting a same-name world/player. It runs BEFORE
+  // genesis. A rejected portable seed must not be disguised as successful structured genesis.
+  function cardSeedEnvelope(lifecycleContext = null) {
     try {
       const cx = C();
-      const ch = cx.characters?.[cx.characterId];
+      if (lifecycleContext && !cardLifecycleIsCurrent(lifecycleContext)) return null;
+      const ch = lifecycleContext
+        ? (bindCardLifecycleCharacter(lifecycleContext) || lifecycleContext.character)
+        : cx.characters?.[cx.characterId];
       const ext = ch?.data?.extensions?.aetherstate || ch?.extensions?.aetherstate;
       const seed = ext && ext.seed;
       if (!seed || !(seed.world || seed.player)) return null;
-      return seed;
+      return { seed, seedFingerprint: String(ext?.seed_fingerprint || "").trim() };
     } catch (e) { return null; }
   }
   const reportedCardSeedFailures = new Map();
@@ -220,56 +301,191 @@
     const raw = data?.error || data?.detail || data?.message || rejected[0]?.reason || fallback;
     return String(raw || fallback).replace(/\s+/g, " ").trim().slice(0, 180);
   }
-  function reportCardSeedFailure(S, reason) {
+  function reportCardSeedFailure(S, reason,
+                                 recovery = "Re-export this Narrator from Creator, then run /aether-genesis.") {
     const concise = cardSeedFailureReason(null, reason);
     if (reportedCardSeedFailures.get(S) === concise) return;
     reportedCardSeedFailures.set(S, concise);
-    const message = `Card seed failed: ${concise}. Re-export this Narrator from Creator, then run /aether-genesis.`;
+    const message = `Card seed failed: ${concise}. ${recovery}`;
     console.warn("[AetherState] " + message);
     try {
       if (globalThis.toastr) toastr.error(message, "AetherState card seed needs recovery");
     } catch (e) {}
   }
-  async function seedFromCard() {
+  const reportedCardSeedConfirmations = new Set();
+  function reportCardSeedConfirming(S) {
+    if (reportedCardSeedConfirmations.has(S)) return;
+    reportedCardSeedConfirmations.add(S);
+    try {
+      if (globalThis.toastr?.info) {
+        toastr.info(
+          "The seed is still being confirmed; your new chat is safe to leave open.",
+          "AetherState is finishing setup",
+        );
+      }
+    } catch (e) {}
+  }
+  function cardSeedPostconditions(data, requestedWorld, requestedPlayer, seedFingerprint) {
+    const rejected = Array.isArray(data?.rejected) ? data.rejected : [];
+    const quarantined = Array.isArray(data?.quarantined)
+      ? data.quarantined.length > 0 : Boolean(data?.quarantined);
+    return data?.complete === true && rejected.length === 0 && !quarantined
+      && data?.seed_fingerprint === seedFingerprint
+      && (!requestedWorld || data?.world_seeded === true)
+      && (!requestedPlayer || data?.player_seeded === true);
+  }
+  function cardSeedExplicitlyRejected(data) {
+    const rejected = Array.isArray(data?.rejected) ? data.rejected : [];
+    const quarantined = Array.isArray(data?.quarantined)
+      ? data.quarantined.length > 0 : Boolean(data?.quarantined);
+    return rejected.length > 0 || quarantined
+      || Boolean(String(data?.error || data?.detail || "").trim());
+  }
+  function cardSeedStatusUrl(S, seedFingerprint) {
+    return settings.proxy_url.replace(/\/$/, "") + `/aether/session/${S}/seed-status`
+      + `?seed_fingerprint=${encodeURIComponent(seedFingerprint)}`;
+  }
+  function cardSeedStatusConfirmed(data, requestedWorld, requestedPlayer, seedFingerprint) {
+    return data?.world_requested === requestedWorld
+      && data?.player_requested === requestedPlayer
+      && cardSeedPostconditions(data, requestedWorld, requestedPlayer, seedFingerprint);
+  }
+  async function reconcileCardSeed(S, seedFingerprint, requestedWorld, requestedPlayer,
+                                   lifecycleContext = null) {
+    // Losing the browser response does not prove that the deterministic server commit failed.
+    // Poll a dedicated NO-WRITE postcondition instead of sending the mutating seed a second time.
+    // The server owns World/Player identity normalization, so the extension never guesses it.
+    const deadline = Date.now() + 90000;
+    let lastData = null;
+    let lastReason = "the committed seed could not be confirmed";
+    while (Date.now() < deadline) {
+      if (lifecycleContext && !cardLifecycleIsCurrent(lifecycleContext))
+        return { ...staleCardLifecycle(), requested: true };
+      let timer = null;
+      try {
+        const ac = new AbortController();
+        const remaining = Math.max(1, deadline - Date.now());
+        timer = setTimeout(() => ac.abort(), Math.min(45000, remaining));
+        const r = await fetch(cardSeedStatusUrl(S, seedFingerprint),
+          { method: "GET", signal: ac.signal });
+        let d = null;
+        let parsed = true;
+        try {
+          d = await r.json();
+        } catch (e) {
+          // A status body can itself be truncated while the original commit continues. Keep
+          // polling this exact immutable receipt until the bounded deadline instead of treating
+          // a transport-level parse failure as a negative admission result.
+          lastReason = "the seed receipt status response was incomplete";
+          parsed = false;
+        }
+        if (parsed) {
+          lastData = d;
+          if (r.ok && cardSeedStatusConfirmed(
+            d, requestedWorld, requestedPlayer, seedFingerprint,
+          )) {
+            console.log(`[AetherState] card-seed sid=${S} confirmed from committed state ->`, d);
+            if (!lifecycleContext || cardLifecycleIsCurrent(lifecycleContext)) {
+              try { refreshChip(); } catch (e) {}
+            }
+            reportedCardSeedFailures.delete(S);
+            return { ok: true, requested: true, structuredSeed: true,
+                     applied: Number.isFinite(Number(d?.applied)) ? Number(d.applied) : 0, data: d,
+                     reconciled: true, seed_fingerprint: seedFingerprint };
+          }
+          lastReason = cardSeedFailureReason(d,
+            !r.ok ? `status returned HTTP ${r.status || "error"}`
+              : "the committed seed did not satisfy its postconditions");
+          // Invalid criteria cannot become valid by waiting. A missing receipt can: the original
+          // POST may still be ahead of this status request in the server queue.
+          if ([400, 401, 403, 409, 422].includes(Number(r.status))
+              || (r.ok && d?.seed_fingerprint
+                && d.seed_fingerprint !== seedFingerprint)
+              || (r.ok && d?.seed_fingerprint === seedFingerprint
+                && d?.complete === false && d?.pending !== true)) break;
+        }
+      } catch (e) {
+        lastReason = e?.name === "AbortError"
+          ? "the committed seed check timed out" : String(e?.message || e);
+      } finally {
+        if (timer !== null) clearTimeout(timer);
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(1000, remaining)));
+    }
+    return { ok: false, requested: true, structuredSeed: false,
+             error: lastReason, data: lastData, reconciled: false };
+  }
+  async function seedFromCard(lifecycleContext = null) {
     if (!settings.enabled)
       return { ok: false, requested: false, structuredSeed: false, error: "extension disabled" };
-    if (isDerivedChat())
+    const origin = lifecycleContext || captureCardLifecycleContext();
+    if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
+    if (origin.derived)
       return { ok: true, requested: false, structuredSeed: false, skipped: "derived chat" };
 
-    let seed = null, metadataReady = false, cx = C();
+    let envelope = null, metadataReady = false, cx = C();
     for (let i = 0; i < 8 && !metadataReady; i++) {          // CHAT_CHANGED can fire after the
+      if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
       cx = C();                                              // character shell but before its
-      const ch = cx.characters?.[cx.characterId];            // extension metadata is attached.
+      const ch = bindCardLifecycleCharacter(origin);         // extension metadata is attached.
       const aes = ch?.data?.extensions?.aetherstate || ch?.extensions?.aetherstate;
-      if (aes) { metadataReady = true; seed = cardSeed(); break; }
+      if (aes) { metadataReady = true; envelope = cardSeedEnvelope(origin); break; }
       await new Promise((r) => setTimeout(r, 250));
     }
-    if (!seed) seed = cardSeed();
-    if (!seed)
+    if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
+    if (!envelope) envelope = cardSeedEnvelope(origin);
+    if (!envelope)
       return { ok: true, requested: false, structuredSeed: false, skipped: "no card seed" };
 
+    const { seed, seedFingerprint } = envelope;
     const requestedWorld = Boolean(seed.world), requestedPlayer = Boolean(seed.player);
     const requested = requestedWorld || requestedPlayer;
-    const S = sid();
+    const S = origin.session;
+    if (!/^sha256:[0-9a-f]{64}$/.test(seedFingerprint)) {
+      const reason = "the Narrator card is missing a valid seed fingerprint";
+      reportCardSeedFailure(S, reason);
+      return { ok: false, requested, structuredSeed: false, error: reason };
+    }
     let t = null;
     try {
       const ac = new AbortController();
       t = setTimeout(() => ac.abort(), 6000);
       const r = await fetch(settings.proxy_url.replace(/\/$/, "") + `/aether/session/${S}/seed`, {
         method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
-        body: JSON.stringify({ seed }),
+        body: JSON.stringify({ seed, seed_fingerprint: seedFingerprint }),
       });
-      const d = await r.json().catch(() => ({}));
+      let d = {};
+      try {
+        d = await r.json();
+      } catch (e) {
+        // A successful HTTP status with a lost/truncated body is still commit-ambiguous.
+        if (r.ok || Number(r.status) >= 500) throw e;
+      }
+      if (Number(r.status) >= 500) {
+        const ambiguous = new Error(`seed endpoint returned HTTP ${r.status}`);
+        ambiguous.name = "SeedCommitAmbiguous";
+        throw ambiguous;
+      }
       console.log(`[AetherState] card-seed sid=${S} ->`, d);
-      try { refreshChip(); } catch (e) {}
-      const rejected = Array.isArray(d?.rejected) ? d.rejected : [];
-      const quarantined = Array.isArray(d?.quarantined)
-        ? d.quarantined.length > 0 : Boolean(d?.quarantined);
+      if (r.ok && d?.seed_fingerprint !== seedFingerprint) {
+        const ambiguous = new Error("seed response did not echo the requested fingerprint");
+        ambiguous.name = "SeedCommitAmbiguous";
+        throw ambiguous;
+      }
       const applied = Number(d?.applied);
-      const postconditions = (!requestedWorld || d?.world_seeded === true)
-        && (!requestedPlayer || d?.player_seeded === true);
-      const verified = r.ok && d?.complete === true && rejected.length === 0 && !quarantined
-        && Number.isFinite(applied) && applied >= 0 && postconditions;
+      const verified = r.ok && cardSeedPostconditions(
+        d, requestedWorld, requestedPlayer, seedFingerprint,
+      )
+        && Number.isFinite(applied) && applied >= 0;
+      if (r.ok && !verified && !cardSeedExplicitlyRejected(d)) {
+        // Valid JSON can still be a clipped success response. Only an explicit rejection is
+        // terminal; otherwise confirm the immutable receipt through the read-only status route.
+        const ambiguous = new Error("seed response did not prove every required postcondition");
+        ambiguous.name = "SeedCommitAmbiguous";
+        throw ambiguous;
+      }
       if (!verified) {
         const reason = cardSeedFailureReason(d,
           !r.ok ? `server returned HTTP ${r.status || "error"}` : "seed admission was not confirmed");
@@ -277,21 +493,45 @@
         return { ok: false, requested, structuredSeed: false, error: reason, data: d };
       }
       reportedCardSeedFailures.delete(S);
-      return { ok: true, requested, structuredSeed: true, applied, data: d };
+      if (cardLifecycleIsCurrent(origin)) { try { refreshChip(); } catch (e) {} }
+      return { ok: true, requested, structuredSeed: true, applied, data: d,
+               seed_fingerprint: seedFingerprint };
     } catch (e) {
-      const reason = e?.name === "AbortError" ? "the seed request timed out" : String(e?.message || e);
-      reportCardSeedFailure(S, reason);
-      return { ok: false, requested, structuredSeed: false, error: reason };
+      if (t !== null) { clearTimeout(t); t = null; }
+      if (!cardLifecycleIsCurrent(origin)) return { ...staleCardLifecycle(), requested };
+      reportCardSeedConfirming(S);
+      const reconciled = await reconcileCardSeed(
+        S, seedFingerprint, requestedWorld, requestedPlayer, origin,
+      );
+      if (reconciled.ok) return reconciled;
+      if (reconciled.stale) return reconciled;
+      const transport = e?.name === "AbortError"
+        ? "the seed request timed out" : String(e?.message || e);
+      const reason = `${transport}; ${reconciled.error || "the committed seed could not be confirmed"}`;
+      reportCardSeedFailure(
+        S,
+        reason,
+        "Keep this chat open, restore the AetherState connection, then run /aether-genesis.",
+      );
+      return { ok: false, requested, structuredSeed: false, error: reason,
+               data: reconciled.data };
     } finally {
       if (t !== null) clearTimeout(t);
     }
   }
-  async function seedThenGenesis(reason, force = false, ifearly = false) {
-    const seeded = await seedFromCard();
+  async function seedThenGenesis(reason, force = false, ifearly = false, lifecycleContext = null) {
+    const origin = lifecycleContext || captureCardLifecycleContext();
+    if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
+    const seeded = await seedFromCard(origin);
+    if (seeded.stale || !cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
     if (!seeded.ok && seeded.requested)
       return { error: `card seed failed: ${seeded.error || "admission was not confirmed"}`,
                card_seed: seeded };
-    return doGenesis(reason, force, ifearly, Boolean(seeded.structuredSeed));
+    return doGenesis(
+      reason, force, ifearly, Boolean(seeded.structuredSeed),
+      seeded.structuredSeed ? String(seeded.seed_fingerprint || "") : "",
+      origin,
+    );
   }
 
   // ---- fire-and-forget hints (05 §5): 2 s timeout, silent — proxy never depends on them
@@ -696,7 +936,7 @@
       const identity = ensureChatIdentity();
       turnCounter = 0; stampHeader(); hint("chat_changed"); refreshChip();
       if (!identity.derived) {
-        genesisAtChatOpen();                               // verified card seed FIRST,
+        genesisAtChatOpen(identity);                       // verified card seed FIRST,
         //                                           then turn-0 genesis (both proxy-idempotent)
       }
       try { setTimeout(scrubTags, 400); setTimeout(scrubTags, 1400); } catch (e) {}   // hide ledger tags

@@ -247,19 +247,61 @@ const documentStub = {
   querySelectorAll(selector) { return selector === "#chat .mes_text" ? messageTexts : []; },
 };
 const fetchCalls = [];
+const LINEAGE_SEED_FINGERPRINT = `sha256:${"1".repeat(64)}`;
+const DELAYED_SEED_FINGERPRINT = `sha256:${"2".repeat(64)}`;
+const SLOW_SEED_FINGERPRINT = `sha256:${"3".repeat(64)}`;
+const PARSE_SEED_FINGERPRINT = `sha256:${"4".repeat(64)}`;
+const MISMATCH_SEED_FINGERPRINT = `sha256:${"5".repeat(64)}`;
+const SERVER_SEED_FINGERPRINT = `sha256:${"6".repeat(64)}`;
+const DEADLINE_SEED_FINGERPRINT = `sha256:${"7".repeat(64)}`;
+const CONTEXT_SEED_FINGERPRINT = `sha256:${"8".repeat(64)}`;
+const PENDING_SEED_FINGERPRINT = `sha256:${"9".repeat(64)}`;
+const CONFLICT_SEED_FINGERPRINT = `sha256:${"a".repeat(64)}`;
+const INCOMPLETE_SEED_FINGERPRINT = `sha256:${"b".repeat(64)}`;
 let seedFetchReply = {
   ok: true,
-  body: { applied: 2, complete: true, world_seeded: true, player_seeded: true },
+  body: { applied: 2, complete: true, world_seeded: true, player_seeded: true,
+          seed_fingerprint: LINEAGE_SEED_FINGERPRINT },
 };
+let seedFetchError = null;
+let seedFetchBarrier = null;
+let seedStatusFetchReply = {
+  ok: true, status: 200,
+  body: { applied: 0, complete: true, world_seeded: true, player_seeded: true,
+          already_present: true, rejected: [] },
+};
+let seedStatusFetchReplies = [];
 async function fetchStub(url, options = {}) {
   fetchCalls.push({ url: String(url), options });
+  if (String(url).includes("/seed-status")) {
+    const reply = seedStatusFetchReplies.length
+      ? seedStatusFetchReplies.shift() : seedStatusFetchReply;
+    return { ok: reply.ok, status: reply.status,
+             json: async () => {
+               if (reply.jsonError) throw reply.jsonError;
+               return reply.body;
+             } };
+  }
+  if (String(url).includes("/seed") && seedFetchError) {
+    const error = seedFetchError;
+    seedFetchError = null;
+    throw error;
+  }
+  if (String(url).includes("/seed") && seedFetchBarrier) {
+    const barrier = seedFetchBarrier;
+    seedFetchBarrier = null;
+    await barrier;
+  }
   const j = String(url).includes("/seed") ? seedFetchReply.body
     : String(url).includes("/genesis")
       ? { session_id: "smoke-session", applied: 1, card_len: 20, greeting_len: 8 }
     : String(url).includes("/hud") ? payload
     : String(url).includes("/aether/status")
       ? { version: "smoke", mode: "relay", extraction: { mode: "off" } } : {};
-  return { ok: String(url).includes("/seed") ? seedFetchReply.ok : true, json: async () => j };
+  return { ok: String(url).includes("/seed") ? seedFetchReply.ok : true,
+           status: String(url).includes("/seed")
+             ? (seedFetchReply.status ?? (seedFetchReply.ok ? 200 : 409)) : 200,
+           json: async () => j };
 }
 // PARTIAL saved hud on purpose: only open+compact — the per-key default merge must fill the
 // rest (tab, theme, hideTags…). A wholesale-replace regression makes settings.hud.tab
@@ -329,6 +371,7 @@ const sandbox = {
   console, document: documentStub, fetch: fetchStub,
   SillyTavern: { getContext: () => ctx },
   toastr: {
+    info(message, title) { toastCalls.push({ kind: "info", message, title }); },
     warning(message, title) { toastCalls.push({ kind: "warning", message, title }); },
     error(message, title) { toastCalls.push({ kind: "error", message, title }); },
   },
@@ -842,7 +885,8 @@ const lineageCard = {
   name: "Lineage Narrator", description: "A deterministic branch test narrator.",
   personality: "steady", scenario: "at the fork", first_mes: "Opening.",
   data: { extensions: { aetherstate: {
-    role: "narrator", seed: { world: { name: "Lineage World" } },
+    role: "narrator", seed_fingerprint: LINEAGE_SEED_FINGERPRINT,
+    seed: { world: { name: "Lineage World" } },
   } } },
 };
 ctx.characters = [lineageCard];
@@ -871,14 +915,19 @@ let lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.te
 expect(lifecycleCalls.length === 2 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
        && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
        "card seed is verified before automatic genesis");
-expect(JSON.parse(lifecycleCalls[1].options.body).structured_seed === true,
-       "automatic genesis claims structured seed only after verified card admission");
+expect(JSON.parse(lifecycleCalls[0].options.body).seed_fingerprint === LINEAGE_SEED_FINGERPRINT,
+       "card seed POST carries the exact immutable Narrator-card fingerprint");
+expect(JSON.parse(lifecycleCalls[1].options.body).structured_seed === true
+       && JSON.parse(lifecycleCalls[1].options.body).seed_fingerprint
+         === LINEAGE_SEED_FINGERPRINT,
+       "automatic genesis carries the exact fingerprint of verified card admission");
 
 // Reopening an already-seeded source chat is a successful no-op only when the backend confirms
 // that every requested part is present. `applied: 0` by itself is not proof.
 seedFetchReply = {
   ok: true,
-  body: { applied: 0, complete: true, world_seeded: true, player_seeded: true },
+  body: { applied: 0, complete: true, world_seeded: true, player_seeded: true,
+          seed_fingerprint: LINEAGE_SEED_FINGERPRINT },
 };
 fetchCalls.length = 0;
 chatChanged();
@@ -887,7 +936,9 @@ lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(c
 expect(lifecycleCalls.length === 2 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
        && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
        "idempotent card reopen confirms postconditions before genesis");
-expect(JSON.parse(lifecycleCalls[1].options.body).structured_seed === true,
+expect(JSON.parse(lifecycleCalls[1].options.body).structured_seed === true
+       && JSON.parse(lifecycleCalls[1].options.body).seed_fingerprint
+         === LINEAGE_SEED_FINGERPRINT,
        "verified applied-zero reopen remains a structured genesis");
 
 // A shell can appear before SillyTavern attaches data.extensions.aetherstate. The extension must
@@ -902,7 +953,8 @@ ctx.chatMetadata = {};
 ctx.chat = [{ is_user: false, mes: "Opening." }];
 seedFetchReply = {
   ok: true,
-  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false },
+  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false,
+          seed_fingerprint: DELAYED_SEED_FINGERPRINT },
 };
 fetchCalls.length = 0;
 const inertSetTimeout = sandbox.setTimeout;
@@ -910,9 +962,12 @@ let metadataWaits = 0;
 sandbox.setTimeout = (fn, delay) => {
   if (delay === 250) queueMicrotask(() => {
     metadataWaits += 1;
-    if (metadataWaits === 2) delayedCard.data.extensions = { aetherstate: {
-      role: "narrator", seed: { world: { name: "Delayed World" } },
-    } };
+    if (metadataWaits === 2) ctx.characters[0] = {
+      ...delayedCard, data: { ...delayedCard.data, extensions: { aetherstate: {
+        role: "narrator", seed_fingerprint: DELAYED_SEED_FINGERPRINT,
+        seed: { world: { name: "Delayed World" } },
+      } } },
+    };
     fn();
   });
   return 0;
@@ -926,6 +981,427 @@ expect(metadataWaits >= 2 && lifecycleCalls.length === 2
        && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
        "character-shell race waits for AetherState metadata, then seeds before genesis");
 
+// A slow seed belongs to the chat/card that initiated it. Switching away before the response
+// arrives must not let that old continuation genesis the newly active chat.
+const originBoundCard = {
+  name: "Origin Bound Narrator", description: "Setup must remain on its originating chat.",
+  personality: "steady", scenario: "before a chat switch", first_mes: "Origin opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: CONTEXT_SEED_FINGERPRINT, seed: { world: { name: "Origin World" } },
+  } } },
+};
+ctx.characters = [originBoundCard];
+ctx.chatId = "origin-bound-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Origin opening." }];
+seedFetchReply = { ok: true, status: 200,
+  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false,
+          seed_fingerprint: CONTEXT_SEED_FINGERPRINT } };
+let releaseOriginSeed;
+seedFetchBarrier = new Promise((resolve) => { releaseOriginSeed = resolve; });
+fetchCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 8 && !fetchCalls.some((call) => /\/seed(?:\?|$)/.test(call.url)); i++) await tick();
+expect(fetchCalls.some((call) => /\/seed(?:\?|$)/.test(call.url)),
+       "origin-bound race reaches the delayed seed boundary");
+ctx.characters = [{
+  name: "New Active Narrator", description: "This chat must not receive the old continuation.",
+  personality: "steady", scenario: "after switching chats", first_mes: "New opening.",
+  data: { extensions: { aetherstate: { role: "narrator" } } },
+}];
+ctx.chatId = "new-active-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "New opening." }];
+releaseOriginSeed();
+for (let i = 0; i < 8; i++) await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 1 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url),
+       "a delayed seed continuation cannot genesis a newly active chat");
+
+// A character switch can expose the destination shell before its avatar/source and extension
+// metadata arrive. Even when ST temporarily retains the same chat/session/character coordinates,
+// a different visible card name must stop the old card's lifecycle instead of combining the old
+// fingerprint with the new shell's card prose.
+ctx.characters = [originBoundCard];
+ctx.chatId = "same-coordinate-card-switch";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Origin opening." }];
+seedFetchReply = { ok: true, status: 200,
+  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false,
+          seed_fingerprint: CONTEXT_SEED_FINGERPRINT } };
+let releaseSameCoordinateSeed;
+seedFetchBarrier = new Promise((resolve) => { releaseSameCoordinateSeed = resolve; });
+fetchCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 8 && !fetchCalls.some((call) => /\/seed(?:\?|$)/.test(call.url)); i++) await tick();
+expect(fetchCalls.some((call) => /\/seed(?:\?|$)/.test(call.url)),
+       "same-coordinate card-switch race reaches the delayed seed boundary");
+ctx.characters = [{
+  name: "Different Destination Shell",
+  description: "A different card whose stable metadata has not hydrated yet.",
+  personality: "different", scenario: "same coordinates, different card", first_mes: "Different opening.",
+  data: {},
+}];
+ctx.chat = [{ is_user: false, mes: "Different opening." }];
+releaseSameCoordinateSeed();
+for (let i = 0; i < 8; i++) await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 1 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url),
+       "a different-name unhydrated card shell stops the old lifecycle at identical coordinates");
+
+// Greeting swipes are delayed 400ms. The callback must retain the originating chat instead of
+// applying a forced genesis to whichever chat happens to be active when the timer fires.
+ctx.characters = [originBoundCard];
+ctx.chatId = "swipe-origin-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Origin opening." }];
+let delayedSwipeCallback = null;
+const beforeSwipeTimer = sandbox.setTimeout;
+sandbox.setTimeout = (fn, delay) => {
+  if (Number(delay) === 400) delayedSwipeCallback = fn;
+  return { delay };
+};
+fetchCalls.length = 0;
+messageSwiped(0);
+expect(typeof delayedSwipeCallback === "function", "greeting swipe schedules its delayed setup");
+ctx.characters = [{
+  name: "Swipe Destination", description: "Must not be force-reset by the previous chat.",
+  personality: "steady", scenario: "after a fast switch", first_mes: "Destination opening.",
+  data: { extensions: { aetherstate: { role: "narrator" } } },
+}];
+ctx.chatId = "swipe-destination-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Destination opening." }];
+delayedSwipeCallback();
+for (let i = 0; i < 8; i++) await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 0,
+       "a delayed greeting-swipe callback cannot seed or force-genesis a different active chat");
+sandbox.setTimeout = beforeSwipeTimer;
+
+// A portable seed can take longer than the browser's request timeout even though the server keeps
+// working and commits it. A lost response is ambiguous, not rejection: poll the exact immutable
+// receipt through the read-only status route before genesis, without POSTing the seed twice.
+const reconciledCard = {
+  name: "Slow Seed Narrator", description: "A deterministic slow-seed recovery narrator.",
+  personality: "steady", scenario: "after a slow bridge crossing", first_mes: "Opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: SLOW_SEED_FINGERPRINT, seed: {
+    world: { world_id: "world_0123456789abcdef0123456789abcdef", name: "Slow Seed World" },
+    player: { name: "Sera Emberward" },
+  } } } },
+};
+ctx.characters = [reconciledCard];
+ctx.chatId = "slow-seed-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+const ambiguousSeedError = new Error("Failed to fetch");
+ambiguousSeedError.name = "AbortError";
+seedFetchError = ambiguousSeedError;
+seedStatusFetchReplies = [
+  { ok: false, status: 404, body: { detail: "seed receipt not found" } },
+  { ok: true, status: 200,
+    body: { applied: 0, complete: true, world_requested: true, player_requested: true,
+            world_seeded: true, player_seeded: true, already_present: true, rejected: [],
+            seed_fingerprint: SLOW_SEED_FINGERPRINT } },
+];
+fetchCalls.length = 0;
+toastCalls.length = 0;
+sandbox.setTimeout = (fn, delay = 0) => {
+  const timer = { cancelled: false };
+  if (Number(delay) <= 1000) queueMicrotask(() => {
+    if (!timer.cancelled) { fakeNow += Math.max(1, Number(delay) || 1); fn(); }
+  });
+  return timer;
+};
+sandbox.clearTimeout = (timer) => { if (timer) timer.cancelled = true; };
+chatChanged();
+for (let i = 0; i < 12; i++) await tick();
+const seedStatusCalls = fetchCalls.filter((call) => call.url.includes("/seed-status"));
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 2 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
+       && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
+       "ambiguous slow seed is read-only reconciled before automatic genesis");
+expect(seedStatusCalls.length === 2
+       && seedStatusCalls.every((call) => call.options.method === "GET")
+       && seedStatusCalls.every((call) => call.url.includes(
+         `seed_fingerprint=${encodeURIComponent(SLOW_SEED_FINGERPRINT)}`,
+       )), "missing receipt is polled by exact fingerprint until its durable commit appears");
+expect(fetchCalls.filter((call) => /\/seed(?:\?|$)/.test(call.url)).length === 1,
+       "ambiguous response recovery never repeats the mutating card-seed POST");
+expect(JSON.parse(lifecycleCalls[1].options.body).structured_seed === true
+       && JSON.parse(lifecycleCalls[1].options.body).seed_fingerprint
+         === SLOW_SEED_FINGERPRINT,
+       "read-only receipt proof authorizes genesis with that exact fingerprint");
+expect(toastCalls.filter((toast) => toast.kind === "info").length === 1
+       && toastCalls.every((toast) => toast.kind !== "error"),
+       "ambiguous slow seed shows one calm progress notice and no false recovery error");
+
+// A known session can answer 202 while its exact receipt is still behind the in-flight atomic
+// commit. `fetch.ok` is true for 202, so pending:true must continue polling rather than becoming a
+// false terminal rejection.
+const pendingReceiptCard = {
+  name: "Pending Receipt Narrator", description: "A deterministic pending-receipt narrator.",
+  personality: "steady", scenario: "while an atomic commit finishes", first_mes: "Opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: PENDING_SEED_FINGERPRINT, seed: { world: { name: "Pending World" } },
+  } } },
+};
+ctx.characters = [pendingReceiptCard];
+ctx.chatId = "pending-receipt-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+const pendingSeedError = new Error("Failed to fetch");
+pendingSeedError.name = "AbortError";
+seedFetchError = pendingSeedError;
+seedStatusFetchReplies = [
+  { ok: true, status: 202,
+    body: { pending: true, complete: false, world_requested: true, player_requested: false,
+            world_seeded: false, player_seeded: false, rejected: [],
+            seed_fingerprint: PENDING_SEED_FINGERPRINT } },
+  { ok: true, status: 200,
+    body: { complete: true, world_requested: true, player_requested: false,
+            world_seeded: true, player_seeded: false, already_present: true, rejected: [],
+            seed_fingerprint: PENDING_SEED_FINGERPRINT } },
+];
+fetchCalls.length = 0;
+toastCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 14; i++) await tick();
+const pendingStatusCalls = fetchCalls.filter((call) => call.url.includes("/seed-status"));
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(pendingStatusCalls.length === 2 && lifecycleCalls.length === 2
+       && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
+       "HTTP 202 pending receipt continues polling until exact durable confirmation");
+expect(toastCalls.every((toast) => toast.kind !== "error"),
+       "receipt-pending progress never emits a false card-seed failure");
+
+// Receipt conflict is a durable negative result, not a transport ambiguity. Polling it repeatedly
+// cannot make a different exact source become valid.
+const conflictReceiptCard = {
+  name: "Conflict Receipt Narrator", description: "A deterministic receipt-conflict narrator.",
+  personality: "steady", scenario: "after a conflicting source", first_mes: "Opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: CONFLICT_SEED_FINGERPRINT, seed: { world: { name: "Conflict World" } },
+  } } },
+};
+ctx.characters = [conflictReceiptCard];
+ctx.chatId = "conflict-receipt-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+const conflictSeedError = new Error("Failed to fetch");
+conflictSeedError.name = "AbortError";
+seedFetchError = conflictSeedError;
+seedStatusFetchReplies = [{ ok: false, status: 409,
+  body: { error: "another exact seed receipt already owns this session",
+          seed_fingerprint: CONFLICT_SEED_FINGERPRINT } }];
+fetchCalls.length = 0;
+toastCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 120; i++) await tick();
+const conflictStatusCalls = fetchCalls.filter((call) => call.url.includes("/seed-status"));
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(conflictStatusCalls.length === 1 && lifecycleCalls.length === 1
+       && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url),
+       "HTTP 409 receipt conflict is terminal after one read-only status check");
+expect(toastCalls.filter((toast) => toast.kind === "error").length === 1,
+       "receipt conflict gives one visible recovery error without genesis");
+
+// A truncated status response is transport ambiguity too. It must consume bounded polling time,
+// then accept only a later status body that echoes the exact requested fingerprint.
+const parseCard = {
+  name: "Parse Recovery Narrator", description: "A deterministic receipt-body recovery card.",
+  personality: "steady", scenario: "after a clipped receipt", first_mes: "Opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: PARSE_SEED_FINGERPRINT, seed: { world: { name: "Parse World" } },
+  } } },
+};
+ctx.characters = [parseCard];
+ctx.chatId = "parse-receipt-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+const parseSeedError = new Error("Failed to fetch");
+parseSeedError.name = "AbortError";
+seedFetchError = parseSeedError;
+seedStatusFetchReplies = [
+  { ok: true, status: 200, jsonError: new SyntaxError("truncated JSON") },
+  { ok: true, status: 200,
+    body: { applied: 0, complete: true, world_requested: true, player_requested: false,
+            world_seeded: true, player_seeded: false, already_present: true, rejected: [],
+            seed_fingerprint: PARSE_SEED_FINGERPRINT } },
+];
+fetchCalls.length = 0;
+toastCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 12; i++) await tick();
+let parseStatusCalls = fetchCalls.filter((call) => call.url.includes("/seed-status"));
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(parseStatusCalls.length === 2 && lifecycleCalls.length === 2
+       && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
+       "truncated seed-status JSON continues polling and confirms before genesis");
+
+// A nominal 2xx with the wrong receipt identity is not trustworthy. Reconcile the exact requested
+// fingerprint and pass only that confirmed identity into genesis.
+const mismatchCard = {
+  name: "Mismatch Recovery Narrator", description: "A deterministic wrong-echo recovery card.",
+  personality: "steady", scenario: "after a stale bridge reply", first_mes: "Opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: MISMATCH_SEED_FINGERPRINT,
+    seed: { world: { name: "Mismatch World" } },
+  } } },
+};
+ctx.characters = [mismatchCard];
+ctx.chatId = "mismatch-receipt-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+seedFetchReply = { ok: true, status: 200,
+  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false,
+          seed_fingerprint: LINEAGE_SEED_FINGERPRINT } };
+seedStatusFetchReplies = [{ ok: true, status: 200,
+  body: { applied: 0, complete: true, world_requested: true, player_requested: false,
+          world_seeded: true, player_seeded: false, already_present: true, rejected: [],
+          seed_fingerprint: MISMATCH_SEED_FINGERPRINT } }];
+fetchCalls.length = 0;
+toastCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 12; i++) await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+const mismatchGenesis = JSON.parse(lifecycleCalls.at(-1)?.options?.body || "{}");
+expect(lifecycleCalls.length === 2
+       && fetchCalls.filter((call) => /\/seed(?:\?|$)/.test(call.url)).length === 1
+       && fetchCalls.filter((call) => call.url.includes("/seed-status")).length === 1
+       && mismatchGenesis.structured_seed === true
+       && mismatchGenesis.seed_fingerprint === MISMATCH_SEED_FINGERPRINT,
+       "mismatched 2xx echo is reconciled, never trusted or forwarded into genesis");
+
+// A 2xx body can be valid JSON and echo the exact receipt while still losing a required field.
+// Missing `applied` is not a durable rejection: confirm the exact committed receipt through the
+// read-only route instead of either claiming success or telling the Player to re-export the card.
+const incompleteReceiptCard = {
+  name: "Incomplete Receipt Narrator", description: "A deterministic partial-success narrator.",
+  personality: "steady", scenario: "after a clipped successful body", first_mes: "Opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: INCOMPLETE_SEED_FINGERPRINT,
+    seed: { world: { name: "Incomplete Receipt World" } },
+  } } },
+};
+ctx.characters = [incompleteReceiptCard];
+ctx.chatId = "incomplete-receipt-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+seedFetchReply = { ok: true, status: 200,
+  body: { complete: true, world_seeded: true, player_seeded: false,
+          seed_fingerprint: INCOMPLETE_SEED_FINGERPRINT } };
+seedStatusFetchReplies = [{ ok: true, status: 200,
+  body: { applied: 0, complete: true, world_requested: true, player_requested: false,
+          world_seeded: true, player_seeded: false, already_present: true, rejected: [],
+          seed_fingerprint: INCOMPLETE_SEED_FINGERPRINT } }];
+fetchCalls.length = 0;
+toastCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 12; i++) await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+const incompleteGenesis = JSON.parse(lifecycleCalls.at(-1)?.options?.body || "{}");
+expect(lifecycleCalls.length === 2
+       && fetchCalls.filter((call) => /\/seed(?:\?|$)/.test(call.url)).length === 1
+       && fetchCalls.filter((call) => call.url.includes("/seed-status")).length === 1
+       && incompleteGenesis.structured_seed === true
+       && incompleteGenesis.seed_fingerprint === INCOMPLETE_SEED_FINGERPRINT,
+       "incomplete successful seed body is reconciled by exact receipt before genesis");
+expect(toastCalls.every((toast) => toast.kind !== "error"),
+       "confirmed incomplete success never emits a false card re-export error");
+
+// A 5xx can be emitted after the server committed but before its response arrived intact. Treat it
+// exactly like a dropped response: one POST, then exact read-only receipt confirmation.
+const serverCard = {
+  name: "Server Recovery Narrator", description: "A deterministic 5xx receipt recovery card.",
+  personality: "steady", scenario: "after a response fault", first_mes: "Opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: SERVER_SEED_FINGERPRINT,
+    seed: { world: { name: "Server World" }, player: { name: "Five" } },
+  } } },
+};
+ctx.characters = [serverCard];
+ctx.chatId = "server-receipt-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+seedFetchReply = { ok: false, status: 503, body: { detail: "response bridge failed" } };
+seedStatusFetchReplies = [{ ok: true, status: 200,
+  body: { applied: 0, complete: true, world_requested: true, player_requested: true,
+          world_seeded: true, player_seeded: true, already_present: true, rejected: [],
+          seed_fingerprint: SERVER_SEED_FINGERPRINT } }];
+fetchCalls.length = 0;
+toastCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 12; i++) await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+const serverGenesis = JSON.parse(lifecycleCalls.at(-1)?.options?.body || "{}");
+expect(lifecycleCalls.length === 2 && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url)
+       && fetchCalls.filter((call) => /\/seed(?:\?|$)/.test(call.url)).length === 1
+       && fetchCalls.filter((call) => call.url.includes("/seed-status")).length === 1
+       && serverGenesis.structured_seed === true
+       && serverGenesis.seed_fingerprint === SERVER_SEED_FINGERPRINT,
+       "HTTP 5xx is commit-ambiguous and reconciles one exact receipt without a second POST");
+
+// Polling is bounded. If an exact receipt never appears, genesis stays blocked and the player gets
+// one actionable recovery message instead of either a false success or an endless loop.
+const deadlineCard = {
+  name: "Deadline Recovery Narrator", description: "A deterministic missing-receipt card.",
+  personality: "steady", scenario: "while the bridge is offline", first_mes: "Opening.",
+  data: { extensions: { aetherstate: { role: "narrator",
+    seed_fingerprint: DEADLINE_SEED_FINGERPRINT,
+    seed: { world: { name: "Deadline World" } },
+  } } },
+};
+ctx.characters = [deadlineCard];
+ctx.chatId = "deadline-receipt-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+const deadlineSeedError = new Error("Failed to fetch");
+deadlineSeedError.name = "AbortError";
+seedFetchError = deadlineSeedError;
+seedStatusFetchReplies = [];
+seedStatusFetchReply = { ok: false, status: 404, body: { detail: "seed receipt not found" } };
+fetchCalls.length = 0;
+toastCalls.length = 0;
+chatChanged();
+for (let i = 0; i < 120; i++) await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+const deadlineStatusCalls = fetchCalls.filter((call) => call.url.includes("/seed-status"));
+expect(lifecycleCalls.length === 1 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
+       && deadlineStatusCalls.length > 1
+       && deadlineStatusCalls.every((call) => call.url.includes(
+         `seed_fingerprint=${encodeURIComponent(DEADLINE_SEED_FINGERPRINT)}`,
+       )), "missing receipt reaches a bounded deadline without genesis or a second POST");
+expect(toastCalls.filter((toast) => toast.kind === "error").length === 1
+       && toastCalls.some((toast) => /Keep this chat open/i.test(toast.message)),
+       "receipt deadline gives one visible connection-recovery action");
+sandbox.setTimeout = inertSetTimeout;
+sandbox.clearTimeout = () => {};
+
+// A seed-bearing card without the exact generated fingerprint cannot enter either admission or
+// genesis. Cover both missing and malformed metadata without sending any write.
+for (const [label, fingerprint] of [["missing", ""], ["malformed", "sha256:not-a-digest"]]) {
+  ctx.characters = [{
+    name: `${label} Fingerprint Narrator`, description: "A card with invalid receipt identity.",
+    personality: "steady", scenario: "before safe rejection", first_mes: "Opening.",
+    data: { extensions: { aetherstate: { role: "narrator", seed_fingerprint: fingerprint,
+      seed: { world: { name: `${label} Fingerprint World` } } } } },
+  }];
+  ctx.chatId = `${label}-fingerprint-chat`;
+  ctx.chatMetadata = {};
+  ctx.chat = [{ is_user: false, mes: "Opening." }];
+  fetchCalls.length = 0;
+  toastCalls.length = 0;
+  chatChanged();
+  for (let i = 0; i < 6; i++) await tick();
+  lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+  expect(lifecycleCalls.length === 0,
+         `${label} seed fingerprint blocks both card admission and genesis`);
+  expect(toastCalls.some((toast) => toast.kind === "error" && /fingerprint/i.test(toast.message)),
+         `${label} seed fingerprint gives one visible re-export recovery action`);
+}
+
 // Rejection must stay visible and must not let prose genesis claim a structured admission.
 ctx.characters = [lineageCard];
 ctx.chatId = "rejected-card-chat";
@@ -934,7 +1410,7 @@ ctx.chat = [{ is_user: false, mes: "Opening." }];
 seedFetchReply = {
   ok: true,
   body: { applied: 0, complete: false, world_seeded: false, player_seeded: false,
-          error: "portable seed was rejected" },
+          error: "portable seed was rejected", seed_fingerprint: LINEAGE_SEED_FINGERPRINT },
 };
 fetchCalls.length = 0;
 toastCalls.length = 0;
@@ -943,6 +1419,8 @@ await tick(); await tick(); await tick(); await tick();
 lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
 expect(lifecycleCalls.length === 1 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url),
        "rejected card seed blocks automatic genesis");
+expect(fetchCalls.every((call) => !call.url.includes("/seed-status")),
+       "explicit card rejection remains terminal without ambiguous-status polling");
 expect(toastCalls.some((toast) => toast.kind === "error"
        && /card seed/i.test(toast.message) && /Creator/i.test(toast.message)),
        "rejected card seed gives the player a concise visible recovery action");
@@ -954,7 +1432,8 @@ expect(typeof genesisCommand === "function", "manual genesis recovery command re
 seedFetchReply = {
   ok: false,
   body: { applied: 0, complete: true, world_seeded: true, player_seeded: false,
-          error: "seed endpoint refused the request" },
+          error: "seed endpoint refused the request",
+          seed_fingerprint: LINEAGE_SEED_FINGERPRINT },
 };
 fetchCalls.length = 0;
 let commandResult = await genesisCommand();
@@ -964,14 +1443,17 @@ expect(lifecycleCalls.length === 1 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].ur
        "manual genesis reports card rejection without running prose genesis");
 seedFetchReply = {
   ok: true,
-  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false },
+  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false,
+          seed_fingerprint: LINEAGE_SEED_FINGERPRINT },
 };
 fetchCalls.length = 0;
 commandResult = await genesisCommand();
 lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
 expect(lifecycleCalls.length === 2 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
        && /\/genesis\?force=1$/.test(lifecycleCalls[1].url)
-       && JSON.parse(lifecycleCalls[1].options.body).structured_seed === true,
+       && JSON.parse(lifecycleCalls[1].options.body).structured_seed === true
+       && JSON.parse(lifecycleCalls[1].options.body).seed_fingerprint
+         === LINEAGE_SEED_FINGERPRINT,
        "manual genesis retries and verifies the card seed before forced structured genesis");
 
 ctx.chatId = "branch-chat";

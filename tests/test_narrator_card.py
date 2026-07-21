@@ -461,13 +461,18 @@ async def test_form_to_png_to_fresh_seed_to_prefill_is_one_exact_vertical(client
     })
     assert built.status_code == 200
     card = _extract_chara(base64.b64decode(built.json()["png_b64"]))
-    seed = card["data"]["extensions"]["aetherstate"]["seed"]
+    extension = card["data"]["extensions"]["aetherstate"]
+    seed = extension["seed"]
+    fingerprint = extension["seed_fingerprint"]
+    assert fingerprint == narrator.seed_fingerprint(seed)
 
     admitted = await client.post(
-        "/aether/session/png-vertical/seed", json={"seed": seed},
+        "/aether/session/png-vertical/seed",
+        json={"seed": seed, "seed_fingerprint": fingerprint},
     )
     receipt = admitted.json()
     assert admitted.status_code == 200
+    assert receipt["seed_fingerprint"] == fingerprint
     assert receipt["complete"] and receipt["applied"] > 0
     assert receipt["world_seeded"] and receipt["player_seeded"]
 
@@ -484,15 +489,16 @@ async def test_form_to_png_to_fresh_seed_to_prefill_is_one_exact_vertical(client
 
 
 async def test_seed_route_is_idempotent_and_non_clobbering(client):
-    """The extension replays the card seed on chat-open; the route commits a world/player only
-    when none is present, so re-opening an established chat never clobbers progress."""
+    """The exact same card receipt is reused without replaying or clobbering progress."""
     await client.post("/aether/specialization", json={"name": "rpg"})
     seed = {"world": dict(_WORLD, world_id="world_44444444444444444444444444444444"),
             "player": {"name": "Rook", "concept": "gravedigger",
                                         "stats": {"STR": 12, "DEX": 10}}}
-    r1 = (await client.post("/aether/session/seed-t/seed", json={"seed": seed})).json()
+    fingerprint = narrator.seed_fingerprint(seed)
+    request = {"seed": seed, "seed_fingerprint": fingerprint}
+    r1 = (await client.post("/aether/session/seed-t/seed", json=request)).json()
     assert r1["world_seeded"] and r1["player_seeded"] and r1["applied"] > 0
-    r2 = (await client.post("/aether/session/seed-t/seed", json={"seed": seed})).json()
+    r2 = (await client.post("/aether/session/seed-t/seed", json=request)).json()
     assert r2["world_seeded"] and r2["player_seeded"] and r2["applied"] == 0
     assert r2["complete"] and r2["already_present"]
     pre = (await client.get("/aether/session/seed-t/creator")).json()
@@ -503,8 +509,10 @@ async def test_sessions_list_carries_legible_world_and_player_names(client):
     """The Creator's session picker was a wall of cryptic st-ids; /aether/sessions now carries
     each session's committed world + player name so 'which session' is legible."""
     await client.post("/aether/specialization", json={"name": "rpg"})
+    seed = {"world": _WORLD, "player": {"name": "Rook"}}
     await client.post("/aether/session/named-t/seed",
-                      json={"seed": {"world": _WORLD, "player": {"name": "Rook"}}})
+                      json={"seed": seed,
+                            "seed_fingerprint": narrator.seed_fingerprint(seed)})
     rows = (await client.get("/aether/sessions")).json()["sessions"]
     hit = [s for s in rows if s.get("world_name") == "Gallowmere"]
     assert hit and hit[0]["player_name"] == "Rook"
