@@ -20,6 +20,7 @@ from . import creator as _creator
 from . import narrator as _narrator
 from . import hud as _hud
 from .extraction import Endpoint
+from .enemy_kits import build_enemy_kit
 from .secret_store import (
     CredentialStoreError,
     default_credential_store,
@@ -586,6 +587,78 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
     async def registry_view():
         """The curated stats/skills/abilities for the creator sheet (cached load, cold-path)."""
         return _creator.registry_export(cfg)
+
+    @router.post("/enemies/preview")
+    async def enemy_preview(request: Request):
+        """Compile an authoring-only enemy-kit preview without granting runtime authority."""
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "enemy preview requires a JSON object"}, status_code=422)
+        if not isinstance(payload, dict):
+            return JSONResponse({"error": "enemy preview requires a JSON object"}, status_code=422)
+
+        allowed = {"name", "tier", "armament", "role", "type", "powers", "description"}
+        unknown = sorted(set(payload) - allowed)
+        if unknown:
+            return JSONResponse(
+                {"error": f"unknown enemy preview fields: {unknown}"},
+                status_code=422,
+            )
+
+        def bounded_text(field: str, limit: int) -> str:
+            value = payload.get(field, "")
+            if value is None:
+                return ""
+            if not isinstance(value, str):
+                raise ValueError(f"{field} must be text")
+            return value.strip()[:limit]
+
+        try:
+            name = bounded_text("name", 80)
+            tier = bounded_text("tier", 20).lower() or "standard"
+            armament = bounded_text("armament", 160)
+            identity = {
+                key: value
+                for key, limit in (
+                    ("role", 160),
+                    ("type", 160),
+                    ("powers", 400),
+                    ("description", 1000),
+                )
+                if (value := bounded_text(key, limit))
+            }
+        except ValueError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+
+        if not name:
+            return JSONResponse({"error": "enemy name is required"}, status_code=422)
+        if tier not in {"minion", "standard", "elite", "boss"}:
+            return JSONResponse(
+                {"error": "tier must be minion, standard, elite, or boss"},
+                status_code=422,
+            )
+
+        kit = build_enemy_kit(name, tier, armament, identity)
+        return {
+            "schema": "aetherstate-enemy-preview/1",
+            "input": {
+                "name": name,
+                "tier": tier,
+                "armament": armament,
+                "identity": identity,
+            },
+            "kit": kit,
+            "authority": {
+                "scope": "authoring_preview_only",
+                "supported_channel": "hp",
+                "target_rule": "player",
+                "target_count": "single",
+                "reusable_blueprint": False,
+                "runtime_admission": False,
+                "settlement": False,
+            },
+        }
 
     @router.get("/playerlex")
     async def playerlex_list():

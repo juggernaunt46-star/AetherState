@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AetherState — World & Character Creator</title>
+<title>AetherState — World, Character & Enemy Creator</title>
 <style>
 :root{--bg:#13141a;--panel:#1c1e27;--panel2:#20222d;--edge:#2b2e3b;--fg:#dde1ec;--dim:#8b90a5;
  --acc:#7aa2f7;--acc2:#bb9af7;--ok:#9ece6a;--warn:#e0af68;--bad:#f7768e;--vio:#bb9af7;--r:10px}
@@ -56,6 +56,15 @@ textarea{resize:vertical;min-height:64px}
 .review-prose{white-space:pre-wrap;overflow-wrap:anywhere;margin:3px 0;color:var(--fg)}
 .review-row{padding:5px 0;border-bottom:1px solid var(--edge);overflow-wrap:anywhere}.review-row:last-child{border-bottom:0}
 .review-label{color:var(--dim);font-size:11.5px}
+.enemy-summary{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}
+.enemy-summary .chip{background:var(--panel2);border:1px solid var(--edge);color:var(--fg)}
+.enemy-moves{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.enemy-move{background:var(--panel2);border:1px solid var(--edge);border-radius:9px;padding:11px}
+.enemy-move h3{font-size:13px;color:var(--acc);margin:0 0 5px}
+.enemy-move p{margin:4px 0;color:var(--dim);font-size:12px}
+.enemy-move b{color:var(--fg)}
+.enemy-boundary{border-left:3px solid var(--warn);padding:8px 10px;background:#272315;color:#d8c99a;border-radius:0 7px 7px 0}
+@media(max-width:720px){.enemy-moves{grid-template-columns:1fr}}
 .resource-head,.list .item.resource-row{display:grid;grid-template-columns:minmax(150px,1fr) 82px 82px 62px 36px;gap:8px;align-items:center}
 .resource-head{font-size:10.5px;color:var(--dim);padding:0 0 3px;text-transform:uppercase;letter-spacing:.45px}
 .list .item.resource-row input{min-width:0;width:100%}
@@ -129,6 +138,7 @@ html[data-view="guided"] .expert-only{display:none!important}
   <nav>
     <button id="tab_world" class="on" onclick="showTab('world')">🌍 World</button>
     <button id="tab_char" onclick="showTab('char')">🧑 Character</button>
+    <button id="tab_enemy" onclick="showTab('enemy')">⚔ Enemy Workshop</button>
     <button id="tab_review" onclick="showTab('review')">📋 Session</button>
   </nav>
   <div class="view-switch" aria-label="Creator view">
@@ -369,6 +379,41 @@ html[data-view="guided"] .expert-only{display:none!important}
     </div>
   </section>
 
+  <!-- ===================== ENEMY WORKSHOP TAB ===================== -->
+  <section id="enemy" class="tab">
+    <div class="card guide-card guided-only">
+      <h2>See what an enemy can actually do</h2>
+      <p>Describe an opponent, then preview the exact grounded moves AetherState can support before adding that character to your world draft.</p>
+      <div class="guide-grid">
+        <div class="guide-point"><b>Facts grant possibilities</b>Body, equipment, and explicit powers decide which move families are grounded.</div>
+        <div class="guide-point"><b>Tier controls breadth</b>Stronger tiers can hold more moves, but a tier never invents a weapon, power, or body part.</div>
+        <div class="guide-point guide-caution"><b>Current limit</b>Only single-target HP moves have mechanics. Other ideas stay lore instead of becoming fake effects.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Enemy facts <small>deterministic preview — no AI call</small></h2>
+      <div class="row c3">
+        <div class="field"><label>Name</label><input id="e_name" maxlength="80" placeholder="e.g. Vanta Drone"></div>
+        <div class="field"><label>Tier</label><select id="e_tier"><option value="minion">Minion</option><option value="standard" selected>Standard</option><option value="elite">Elite</option><option value="boss">Boss</option></select></div>
+        <div class="field"><label>Combat role</label><input id="e_role" maxlength="160" placeholder="artillery, guard, skirmisher…"></div>
+      </div>
+      <div class="row c2">
+        <div class="field"><label>Body / type / class</label><input id="e_type" maxlength="160" placeholder="combat drone, pyromancer, wolf…"></div>
+        <div class="field"><label>Armament or delivery</label><input id="e_armament" maxlength="160" placeholder="plasma carbine, claws, fire bolt…"></div>
+      </div>
+      <div class="field" style="margin-bottom:12px"><label>Explicit combat powers or mutations</label><textarea id="e_powers" maxlength="400" data-limit="400" placeholder="Only state powers this enemy truly owns. Resistances, sensors, costumes, and references do not grant attacks."></textarea></div>
+      <div class="field"><label>Other description and lore</label><textarea id="e_description" maxlength="1000" data-limit="1000" placeholder="Personality, history, appearance, relationships, and unsupported ideas remain useful story context without gaining mechanics."></textarea></div>
+      <div class="actions" style="margin-top:12px">
+        <button class="act" id="e_preview" onclick="previewEnemy()">Preview grounded moves</button>
+        <button class="act ghost" id="e_add_world" onclick="addEnemyToWorld()" disabled>Add to World draft as NPC</button>
+      </div>
+    </div>
+    <div class="card" id="e_result_card">
+      <h2>Mechanical preview <small>authoring aid, not a spawned or admitted combatant</small></h2>
+      <div id="e_result" class="hint" aria-live="polite">Enter enemy facts and preview them. AetherState will show only what its current engine can ground.</div>
+    </div>
+  </section>
+
   <!-- ===================== SESSION REVIEW TAB ===================== -->
   <section id="review" class="tab">
     <div class="card guide-card guided-only">
@@ -395,7 +440,7 @@ html[data-view="guided"] .expert-only{display:none!important}
 <script>
 const QS = new URLSearchParams(location.search);
 let SID = QS.get("session") || "";
-let REG = null, SPEC = "none", WORLD_CACHE = null, WORLD_ID = "", PRESETS = [];
+let REG = null, SPEC = "none", WORLD_CACHE = null, WORLD_ID = "", PRESETS = [], ENEMY_PREVIEW = null;
 
 const $ = id => document.getElementById(id);
 const CREATOR_VIEW_KEY="aether_creator_view_v1";
@@ -427,6 +472,13 @@ const CREATOR_HELP=Object.freeze({
   c_notes:"What it does: guides the AI's character fill. Use it for required backstory beats, voice, mechanics, gear, and exclusions.",
   c_level:"What it does: sets the starting power tier. Higher levels can reduce early challenge; level 1 is the safest first-game default.",
   c_hp:"What it does: sets maximum health. More health increases survival; too much can make danger feel unimportant. The supplied default is balanced.",
+  e_name:"What it does: names the authored opponent and its eventual world NPC row.",
+  e_tier:"What it does: caps move count and danger. It never grants equipment, anatomy, or powers.",
+  e_role:"What it does: ranks moves that are already grounded. A role cannot create a missing move.",
+  e_type:"What it does: supplies literal body, species, chassis, or class facts for grounding.",
+  e_armament:"What it does: names the actual weapon, anatomy, or delivery the enemy owns.",
+  e_powers:"What it does: supplies explicit owned combat facts. References, resistance, and cosmetic traits do not grant attacks.",
+  e_description:"What it does: preserves personality, history, appearance, and lore without silently turning them into mechanics.",
   sessSel:"What it does: chooses an existing game for review or direct application. It is not required when creating a new Narrator card."
 });
 function installCreatorHelp(){for(const [id,tip] of Object.entries(CREATOR_HELP)){
@@ -434,7 +486,7 @@ function installCreatorHelp(){for(const [id,tip] of Object.entries(CREATOR_HELP)
   if(!control)continue;control.title=tip;
   const host=label||(id==="sessSel"?control.parentElement:null);if(!host||host.querySelector?.(`[data-help-for="${id}"]`))continue;
   const help=document.createElement("button");help.type="button";help.className="help-dot guided-only";
-  help.textContent="?";help.dataset.helpFor=id;help.dataset.tip=tip;help.setAttribute("aria-label","Help for "+id.replace(/^[wc]_/,"").replace(/_/g," "));
+  help.textContent="?";help.dataset.helpFor=id;help.dataset.tip=tip;help.setAttribute("aria-label","Help for "+id.replace(/^[wce]_/,"").replace(/_/g," "));
   if(id==="sessSel"&&control.parentElement===host)host.insertBefore(help,control.nextSibling);else host.appendChild(help);
 }}
 const CREATOR_LIMITS=Object.freeze({ordinaryRows:20,gearRows:32,frontRows:8,routeRows:24,
@@ -446,7 +498,8 @@ const LIST_LIMITS=Object.freeze({w_factions:20,w_locations:20,w_npcs:20,w_aspect
 function toast(msg, kind){ const t=$("toast"); t.textContent=msg; t.className="toast show "+(kind||"");
   setTimeout(()=>{t.className="toast";}, 2600); }
 async function api(path, opts){ const r = await fetch(path, Object.assign({headers:{"Content-Type":"application/json"}}, opts||{}));
-  if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); }
+  if(!r.ok){ let detail=null; try{ detail=await r.json(); }catch(e){}
+    throw new Error((detail&&detail.error)||("HTTP "+r.status)); } return r.json(); }
 function statMod(v){ if(!REG) return 0; return REG.mod_policy==="direct" ? v : Math.floor((v-10)/2); }
 function fmt(n){ return (n>=0?"+":"")+n; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -483,7 +536,7 @@ function sessOptLabel(x, newest){
 // ---- draft autosave (2026-07-08): your work is kept in this browser so a page refresh, a
 // session-list refresh, or reopening the Creator never wipes what you typed.
 const DRAFT_KEY="aether_creator_draft_v1"; let _draftT=null;
-function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({world:worldDoc(), player:playerDoc(), ts:Date.now()}));
+function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({world:worldDoc(), player:playerDoc(), enemy:enemyDoc(), ts:Date.now()}));
   const c=$("draftChip"); if(c) c.style.display=""; }catch(e){} }
 function scheduleDraft(){ clearTimeout(_draftT); _draftT=setTimeout(saveDraft, 600); }
 function removeDraftRow(btn){ const row=btn&&btn.closest?btn.closest(".item"):null;
@@ -494,9 +547,9 @@ function clearCreatorDraft(){
   location.href=location.pathname+(SID?`?session=${encodeURIComponent(SID)}`:"");
 }
 function restoreDraft(){ try{ const raw=localStorage.getItem(DRAFT_KEY); if(!raw) return false; const d=JSON.parse(raw); if(!d) return false;
-  if(d.world) applyWorld(d.world); if(d.player) applyPlayer(normalizePresetPlayer(d.player));
+  if(d.world) applyWorld(d.world); if(d.player) applyPlayer(normalizePresetPlayer(d.player)); if(d.enemy) applyEnemy(d.enemy);
   const c=$("draftChip"); if(c) c.style.display="";
-  return !!((d.world&&(d.world.name||d.world.setting))||(d.player&&d.player.name)); }catch(e){ return false; } }
+  return !!((d.world&&(d.world.name||d.world.setting))||(d.player&&d.player.name)||(d.enemy&&d.enemy.name)); }catch(e){ return false; } }
 function wireDraftAutosave(){ document.addEventListener("input", scheduleDraft, true);
   document.addEventListener("change", scheduleDraft, true); }
 
@@ -514,6 +567,7 @@ function showTab(name){
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on", t.id===name));
   $("tab_world").classList.toggle("on", name==="world");
   $("tab_char").classList.toggle("on", name==="char");
+  $("tab_enemy").classList.toggle("on", name==="enemy");
   $("tab_review").classList.toggle("on", name==="review");
   if(name==="review") renderReview();
 }
@@ -560,6 +614,52 @@ function readNpcs(){ return [...$("w_npcs").querySelectorAll(".item")].map(it=>{
   const get=k=>(it.querySelector(`[data-field="${k}"]`)||{}).value?.trim()||"";
   return {name:get("name"), role:get("role"), desc:get("desc"), home:get("home")};
 }).filter(n=>n.name); }
+
+function enemyDoc(){ return {
+  name:$("e_name").value.trim(), tier:$("e_tier").value,
+  role:$("e_role").value.trim(), type:$("e_type").value.trim(),
+  armament:$("e_armament").value.trim(), powers:$("e_powers").value.trim(),
+  description:$("e_description").value.trim()
+}; }
+function applyEnemy(e){ e=e||{}; ENEMY_PREVIEW=null;
+  $("e_name").value=e.name||""; $("e_tier").value=e.tier||"standard";
+  $("e_role").value=e.role||""; $("e_type").value=e.type||"";
+  $("e_armament").value=e.armament||""; $("e_powers").value=e.powers||"";
+  $("e_description").value=e.description||""; $("e_add_world").disabled=true;
+}
+function renderEnemyPreview(preview){ const kit=preview&&preview.kit, result=$("e_result");
+  if(!kit){ result.className="hint"; result.textContent="No grounded preview is available."; return; }
+  const basis=(kit.basis||[]).map(esc).join(", ")||"physical fallback";
+  const moves=(kit.moves||[]).map(m=>`<article class="enemy-move">
+    <h3>${esc(m.name)}</h3>
+    <p><b>${esc(m.basis)}</b> · ${esc(m.delivery)} · ${esc(m.range)} · ${esc(m.timing)}</p>
+    <p>Danger: <b>${esc(m.danger)}</b> · accuracy ${fmt(+m.accuracy||0)} · damage ${fmt(+m.damage||0)}</p>
+    <p><b>Tell:</b> ${esc(m.tell)}</p>
+    <p><b>Counterplay:</b> ${(m.counterplay||[]).map(esc).join("; ")}</p>
+  </article>`).join("");
+  result.className="";
+  result.innerHTML=`<div class="enemy-summary"><span class="chip">${esc(kit.tier)} tier</span><span class="chip">${(kit.moves||[]).length} grounded moves</span><span class="chip">basis: ${basis}</span><span class="chip">fingerprint: ${esc(kit.fingerprint)}</span></div>
+    <p class="enemy-boundary"><b>Honest mechanics boundary:</b> these are preview-only, single-target HP moves. This page does not spawn, assign, admit, or settle an enemy. Other authored ideas remain lore until AetherState has an exact supporting receipt.</p>
+    <div class="enemy-moves">${moves}</div>`;
+}
+async function previewEnemy(){ const doc=enemyDoc(), name=$("e_name"), button=$("e_preview");
+  if(!doc.name){ name.setAttribute("aria-invalid","true"); name.focus(); toast("Give the enemy a name first","bad"); return; }
+  name.removeAttribute("aria-invalid"); button.disabled=true; button.textContent="Compiling grounded moves…";
+  try{ ENEMY_PREVIEW=await api("/aether/enemies/preview",{method:"POST",body:JSON.stringify(doc)});
+    renderEnemyPreview(ENEMY_PREVIEW); $("e_add_world").disabled=false; scheduleDraft();
+    toast(`Preview ready — ${(ENEMY_PREVIEW.kit.moves||[]).length} grounded moves`,"ok");
+  }catch(e){ ENEMY_PREVIEW=null; $("e_add_world").disabled=true; $("e_result").className="enemy-boundary";
+    $("e_result").textContent="Preview failed: "+e.message; toast("Preview failed: "+e.message,"bad"); }
+  button.disabled=false; button.textContent="Preview grounded moves";
+}
+function addEnemyToWorld(){ if(!ENEMY_PREVIEW){ toast("Preview this enemy first","bad"); return; }
+  const doc=enemyDoc(), kit=ENEMY_PREVIEW.kit||{}, facts=[];
+  if(doc.type) facts.push("Type/class: "+doc.type); if(doc.armament) facts.push("Armament: "+doc.armament);
+  if(doc.powers) facts.push("Explicit combat facts: "+doc.powers); if(doc.description) facts.push(doc.description);
+  facts.push(`Enemy Workshop preview: ${kit.tier} tier; grounded basis ${(kit.basis||[]).join(", ")}; fingerprint ${kit.fingerprint}. Preview only — runtime still validates and freezes any spawned combatant.`);
+  addNpc({name:doc.name,role:doc.role||`${doc.tier} enemy`,home:"",desc:facts.join("\n")});
+  showTab("world"); scheduleDraft(); toast(`${doc.name} added to the World draft as an NPC`,"ok");
+}
 
 // Living-world structures used to survive only in WORLD_CACHE, so generated rows disappeared
 // from the Player's review/edit flow. The visible controls now own the same normalized shapes.
@@ -1252,6 +1352,10 @@ async function boot(){
   renderSpec();
   refreshLimitCounters(document); refreshAllListCounts();
   wireDraftAutosave();
+  const invalidateEnemyPreview=()=>{ if(!ENEMY_PREVIEW)return; ENEMY_PREVIEW=null; $("e_add_world").disabled=true;
+    $("e_result").className="hint"; $("e_result").textContent="Enemy facts changed — preview again before adding this version to the World draft."; };
+  $("enemy").addEventListener("input",invalidateEnemyPreview,true);
+  $("enemy").addEventListener("change",invalidateEnemyPreview,true);
   $("sessRefresh").onclick=()=>{ loadSessions().then(()=>toast("Session list refreshed — your work is intact","ok")); };
   $("newDraft").onclick=clearCreatorDraft;
   $("draftChip").onclick=clearCreatorDraft;

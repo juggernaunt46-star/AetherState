@@ -262,6 +262,7 @@ Authorization occurrences are treated as one logical field. Errors are OpenAI-sh
 | `POST /aether/player-lessons/{lesson_id}/enabled` | enable/disable using `enabled` plus the same complete optimistic version proof |
 | `DELETE /aether/player-lessons/{lesson_id}` | idempotently remove lesson content, narration/intent items and intent applications from the active database/WAL, then purge process-local packet copies; a blocked secure checkpoint returns retryable 503 |
 | `GET /aether/creator/models` | model ids detected at the configured MAIN endpoint only (feeds the Creator menu; helper/assist models are excluded; fail-open to `[]`) |
+| `POST /aether/enemies/preview` | deterministic authoring-only preview of an enemy's grounded `enemy-kit/1`; accepts bounded name/tier/role/type/armament/powers/description facts, returns exact moves/tells/counterplay plus explicit no-admission/no-settlement authority |
 | `GET /aether/session/{sid}/creator` | prefill: current Player Card + `player_name`, committed `world` doc (best-effort reverse of the seed ops), `world_seeded`, spec, persona |
 | `POST /aether/session/{sid}/author` | MAIN-LLM complete World/Character authoring (body: mode `world\|player`, doc, world, optional MAIN `model`, optional `offline:1` for an explicit template fill); works session-less from config; resolves explicit pick → session's last MAIN model → `[upstream].model` → MAIN `GET /models`; empty/truncated/invalid/incomplete output receives one full retry, then returns `source:"error"` + `detail` with no `doc` (the form stays untouched) |
 | `GET /aether/presets` · `POST /aether/presets` | list / upsert named creator presets (kind `world\|player`, name, doc) |
@@ -475,6 +476,12 @@ it. Two authoring paths, always available together:
   world + character docs across sessions), and a **📋 Session review tab** that renders the
   committed Player Card + world (via the prefill route's `world`/`player_name`) with
   load-into-form buttons.
+- **Enemy Workshop** (`POST /aether/enemies/preview`) takes bounded authored facts and shows the
+  exact grounded `enemy-kit/1` moves, tells, counters, basis, and fingerprint before the enemy is
+  added to the World draft as an NPC. This is an authoring preview only: it does not mint a reusable
+  blueprint, assign or spawn an enemy, admit runtime mechanics, or settle damage. Current previews
+  expose the shipped single-target Player-HP boundary instead of presenting unsupported effects as
+  executable mechanics.
 
 **Persistence maps onto SHIPPED primitives only** — no new op vocabulary, no new storage families.
 World → `memory_event` (setting/lore/date/quest) + `entity_add`/`set_attribute` (factions/locations/

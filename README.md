@@ -115,6 +115,8 @@ The World and Character Creator supports:
 - custom world and character detail categories;
 - named presets and a final review before creating the Narrator card.
 
+The **Enemy Workshop** turns authored enemy facts into an exact, inspectable preview of grounded moves, danger, tells, and counterplay, then can add that enemy to the World draft as an NPC. The preview is deliberately honest about the current mechanics boundary: it covers single-target Player HP effects and does not spawn, assign, or settle a runtime enemy.
+
 The **Creative Direction** box tells the AI how to write and what kind of result you want. It is sent as a direct instruction to the configured **main story model**, not hidden inside the world's lore.
 
 Creator generation allows **32,768 output tokens by default**, can be configured up to **131,072**, and waits up to 600 seconds. Empty, incomplete, or cut-off JSON is rejected and retried once instead of quietly creating half a world.
