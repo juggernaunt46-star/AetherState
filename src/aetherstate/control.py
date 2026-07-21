@@ -581,7 +581,15 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
     @router.get("/creator")
     async def creator_page():
         """The World Generator + Character Creator window (doc 09). Same-origin, no CORS."""
-        return FileResponse(Path(__file__).parent / "static" / "creator.html", media_type="text/html")
+        return FileResponse(
+            Path(__file__).parent / "static" / "creator.html",
+            media_type="text/html",
+            headers={
+                "Cache-Control": "no-store",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     @router.get("/registry")
     async def registry_view():
@@ -1008,7 +1016,12 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             store.genesis_mark(row["session_id"], "")
         speaker = str(payload.get("speaker", ""))[:80]
         card_role = str(payload.get("card_role", "")).strip().lower()[:32]
-        structured_seed = bool(payload.get("structured_seed")) and card_role == "narrator"
+        structured_seed_requested = bool(payload.get("structured_seed")) \
+            and card_role == "narrator"
+        seed_state = current_state(store, row["active_branch"])
+        structured_seed = structured_seed_requested and (
+            _world_seeded(seed_state) or bool(seed_state.get("player") or {})
+        )
         card_len = len(str(payload.get("card", "")))
         greeting_len = len(str(payload.get("greeting", "")))
         doc = {
@@ -1682,22 +1695,29 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 "specialization": spec,
                 "persona": persona,
                 "player": None,
+                "player_live": None,
+                "effects_live": {},
                 "player_name": "",
                 "world": None,
+                "world_live": None,
                 "world_seeded": False,
             }
         state = current_state(store, row["active_branch"])
         players = state.get("player") or {}
         pkey = next(iter(players), None)
         seeded = _world_seeded(state)
-        pcard = _creator.player_from_state(state) if pkey else None
+        pcard = _creator.player_source_from_state(state) if pkey else None
+        player_live = _creator.player_from_state(state) if pkey else None
         return {
             "session_id": row["session_id"],
             "specialization": spec,
             "persona": persona,
             "player": pcard,
+            "player_live": player_live,
+            "effects_live": state.get("effects") or {},
             "player_name": (state.get("entities", {}).get(pkey, {}) or {}).get("name") or (pkey or ""),
-            "world": _creator.world_from_state(state) if seeded else None,
+            "world": _creator.world_source_from_state(state) if seeded else None,
+            "world_live": _creator.world_from_state(state) if seeded else None,
             "world_seeded": seeded,
         }
 
@@ -1835,6 +1855,40 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             ops = _creator.world_to_ops(world)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
+        row = _session(store, sid)
+        if row:
+            state = current_state(store, row["active_branch"])
+            committed = state.get("creator_world")
+            committed_document = (
+                committed.get("document") if isinstance(committed, dict) else None
+            )
+            submitted_document = next(
+                (op.get("document") for op in ops if op.get("op") == "creator_world_seed"),
+                None,
+            )
+            if isinstance(committed_document, dict):
+                if committed_document == submitted_document:
+                    return {
+                        "applied": 0,
+                        "rejected": [],
+                        "already_committed": True,
+                        "frozen": bool(state.get("frozen")),
+                        "turn": _head(store, row["active_branch"]),
+                        "session_id": row["session_id"],
+                        "ops": len(ops),
+                        "world_id": world["world_id"],
+                    }
+                return JSONResponse({
+                    "error": "Creator world source is immutable after it is committed; "
+                    "generate a new Narrator card and start a fresh chat for a revised world",
+                    "applied": 0,
+                    "rejected": [{
+                        "op": "creator_world_seed",
+                        "reason": "Creator world source is immutable after it is committed",
+                    }],
+                    "session_id": row["session_id"],
+                    "world_id": str((state.get("world_identity") or {}).get("world_id") or ""),
+                }, status_code=409)
         res = _creator_apply(sid, ops)
         if isinstance(res, dict):
             res["ops"] = len(ops)
@@ -1955,6 +2009,68 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             ops = _creator.player_to_ops(player or {}, cfg)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
+        row = _session(store, sid)
+        if row:
+            state = current_state(store, row["active_branch"])
+            players = state.get("player") or {}
+            current_eid = next((eid for eid, value in players.items()
+                                if isinstance(value, dict)), None)
+            new_source = _creator.player_source_document(player or {}, cfg)
+            old_source = _creator.player_source_from_state(state) if current_eid else {}
+            old_canonical = (
+                _creator.player_source_document(old_source, cfg) if old_source else {}
+            )
+            new_eid = _creator.slug(str(new_source.get("name") or ""))
+            if current_eid == new_eid and old_canonical == new_source:
+                return {
+                    "applied": 0,
+                    "rejected": [],
+                    "already_committed": True,
+                    "frozen": bool(state.get("frozen")),
+                    "turn": _head(store, row["active_branch"]),
+                    "session_id": row["session_id"],
+                    "ops": len(ops),
+                }
+            if current_eid == new_eid:
+                live = players[current_eid]
+                seed_op = next((op for op in ops if op.get("op") == "player_seed"), None)
+                if isinstance(seed_op, dict):
+                    card = seed_op.get("card") or {}
+                    live_hp = live.get("hp") or {}
+                    hp = card.get("hp")
+                    if isinstance(hp, dict) and live_hp.get("cur") is not None:
+                        hp["cur"] = max(0, min(int(live_hp["cur"]), int(hp.get("max", 0))))
+                    live_resources = live.get("resources") or {}
+                    for resource_id, spec in (card.get("resources") or {}).items():
+                        current = live_resources.get(resource_id)
+                        if isinstance(spec, dict) and isinstance(current, dict) \
+                                and current.get("cur") is not None:
+                            spec["cur"] = max(
+                                0, min(int(current["cur"]), int(spec.get("max", 0))),
+                            )
+                # Starting gear and Creator lore are seed sets. Re-authoring a sheet may add a
+                # new row, but it must never duplicate rows that the previous source already
+                # granted (even when that item was later spent or lost during play).
+                previous_ops = _creator.player_to_ops(old_canonical, cfg) if old_canonical else []
+                previous_items = {
+                    str(op.get("name") or "").strip().casefold()
+                    for op in previous_ops if op.get("op") == "item_gain"
+                }
+                previous_memories = {
+                    str(op.get("text") or "")
+                    for op in previous_ops if op.get("op") == "memory_event"
+                }
+                ops = [
+                    op for op in ops
+                    if not (
+                        op.get("op") == "item_gain"
+                        and str(op.get("name") or "").strip().casefold() in previous_items
+                    )
+                    and not (
+                        op.get("op") == "memory_event"
+                        and str(op.get("text") or "") in previous_memories
+                    )
+                ]
         res = _creator_apply(sid, ops)
         if isinstance(res, dict):
             res["ops"] = len(ops)
@@ -1975,11 +2091,38 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         seed = payload.get("seed") if isinstance(payload.get("seed"), dict) else payload
         world = seed.get("world") if isinstance(seed.get("world"), dict) else None
         player = seed.get("player") if isinstance(seed.get("player"), dict) else None
-        if world:
-            try:
-                world = _creator.ensure_world_identity(world)
-            except ValueError as exc:
-                return JSONResponse({"error": str(exc)}, status_code=422)
+        requested_world = bool(world and str(world.get("name") or "").strip())
+        requested_player = bool(player)
+        if not requested_world and not requested_player:
+            return JSONResponse({
+                "error": "Narrator card seed carries no World or Character",
+                "world_seeded": False,
+                "player_seeded": False,
+                "complete": False,
+                "already_present": False,
+                "applied": 0,
+            }, status_code=422)
+        try:
+            if requested_world:
+                world, normalized_player = _creator.portable_seed_documents(
+                    world, player if requested_player else None, cfg,
+                )
+                player = normalized_player
+            elif requested_player:
+                player = _creator.deterministic_player(player, cfg)
+        except ValueError as exc:
+            return JSONResponse({
+                "error": str(exc),
+                "world_seeded": False,
+                "player_seeded": False,
+                "complete": False,
+                "already_present": False,
+                "applied": 0,
+            }, status_code=422)
+        expected_world_id = str((world or {}).get("world_id") or "")
+        expected_player_id = (
+            _creator.slug(str((player or {}).get("name") or "")) if requested_player else ""
+        )
         row = _session(store, sid)
         if not row:
             try:  # creator-first: mint the row the chat's first
@@ -1987,8 +2130,8 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             except Exception:
                 return JSONResponse({"error": "unknown session"}, status_code=404)
         state = current_state(store, row["active_branch"])
-        did_world = bool(world and world.get("name")) and not _world_seeded(state)
-        did_player = bool(player) and not (state.get("player") or {})
+        did_world = requested_world and not _world_seeded(state)
+        did_player = requested_player and not (state.get("player") or {})
         ops: list = []
         try:
             if did_world:
@@ -1998,18 +2141,51 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         applied = 0
+        rejected: list[dict] = []
+        post_state = state
         if ops:
             branch = row["active_branch"]
             turn = _next_turn(store, branch)
             res = apply_delta(store, row["session_id"], branch, turn, ops, "user", cfg)
             applied = res.submitted_applied
-        return {
+            post_state = res.state
+            rejected = [
+                {"op": q["op"].get("op"), "reason": q["reason"]}
+                for q in res.quarantined
+            ]
+        actual_world_id = str((post_state.get("world_identity") or {}).get("world_id") or "")
+        actual_players = post_state.get("player") or {}
+        world_seeded = (
+            actual_world_id == expected_world_id and _world_seeded(post_state)
+            if requested_world else _world_seeded(post_state)
+        )
+        player_seeded = (
+            expected_player_id in actual_players
+            if requested_player else bool(actual_players)
+        )
+        complete = (
+            (not requested_world or world_seeded)
+            and (not requested_player or player_seeded)
+        )
+        out = {
             "session_id": row["session_id"],
-            "world_seeded": did_world,
-            "player_seeded": did_player,
+            "world_requested": requested_world,
+            "player_requested": requested_player,
+            "world_seeded": world_seeded,
+            "player_seeded": player_seeded,
+            "complete": complete,
+            "already_present": complete and applied == 0,
             "applied": applied,
-            "world_id": (world or {}).get("world_id", ""),
+            "rejected": rejected,
+            "world_id": actual_world_id,
         }
+        if rejected or (ops and applied == 0) or not complete:
+            out["error"] = (
+                rejected[0]["reason"] if rejected
+                else "Narrator card seed was not admitted completely"
+            )
+            return JSONResponse(out, status_code=409)
+        return out
 
     @router.patch("/session/{sid}/state")
     async def patch_state(sid: str, request: Request):
@@ -2244,14 +2420,14 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
     # SillyTavern card. Read-only; never touches the stream; a `none` session's wire is
     # unaffected (control routes are off the relay).
     def _narrator_sources(sid: str):
-        """(world_doc, player_card) from committed state — fail-open to ({}, None)."""
+        """(world_doc, player_card) from committed state; missing state is never a card."""
         row = _session(store, sid)
         if not row:
-            return {}, None
+            return None, None
         try:
             state = current_state(store, row["active_branch"])
         except Exception:
-            return {}, None
+            return None, None
         try:
             world = _creator.world_from_state(state)
         except Exception:
@@ -2260,6 +2436,16 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         pkey = next(iter(players), None)
         player = _creator.player_from_state(state) if pkey else None
         return world, player
+
+    def _narrator_source_error(sid: str, world) -> JSONResponse | None:
+        if not _session(store, sid):
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        if not isinstance(world, dict) or not str(world.get("name") or "").strip():
+            return JSONResponse({
+                "error": "this session has no committed Creator world; build a new Narrator "
+                "card from the World and Character forms",
+            }, status_code=409)
+        return None
 
     def _card_filename(name: str) -> str:
         keep = "".join(c if (c.isalnum() or c in " -_") else "_" for c in (name or "Narrator"))
@@ -2294,8 +2480,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         world = payload.get("world") if isinstance(payload.get("world"), dict) else {}
         player = payload.get("player") if isinstance(payload.get("player"), dict) else None
         try:
-            world = _creator.deterministic_world(_creator.ensure_world_identity(world))
-            player = _creator.deterministic_player(player, cfg) if player is not None else None
+            world, player = _creator.portable_seed_documents(world, player, cfg)
         except ValueError as exc:
             return JSONResponse({"error": str(exc)}, status_code=422)
         card = _narrator.build_card(world, player)
@@ -2323,6 +2508,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         """Downloadable world Narrator card (PNG with the V2 chara card embedded in a tEXt
         chunk — SillyTavern's import format), built from this session's committed world."""
         world, player = _narrator_sources(sid)
+        problem = _narrator_source_error(sid, world)
+        if problem is not None:
+            return problem
         card = _narrator.build_card(world, player)
         png = _narrator.card_png(card, world)
         fname = _card_filename(card["data"]["name"])
@@ -2336,6 +2524,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
     async def narrator_card_json(sid: str):
         """The V2 chara card JSON for this session's world (inspect / manual import)."""
         world, player = _narrator_sources(sid)
+        problem = _narrator_source_error(sid, world)
+        if problem is not None:
+            return problem
         return _narrator.build_card(world, player)
 
     @router.post("/session/{sid}/narrator-card")
@@ -2344,6 +2535,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         directory, install the PNG there so it appears in SillyTavern's character list. Always
         returns metadata + a download URL; the install is best-effort and fail-open."""
         world, player = _narrator_sources(sid)
+        problem = _narrator_source_error(sid, world)
+        if problem is not None:
+            return problem
         card = _narrator.build_card(world, player)
         png = _narrator.card_png(card, world)
         name = card["data"]["name"]
@@ -2393,9 +2587,11 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             "turn": turn,
             "session_id": row["session_id"],
         }
-        identity_rejection = next((item for item in rejected if item["op"] == "world_identity_set"), None)
-        if identity_rejection is not None:
-            out["error"] = identity_rejection["reason"]
+        if rejected:
+            out["error"] = rejected[0]["reason"]
+            return JSONResponse(out, status_code=409)
+        if ops and res.submitted_applied == 0:
+            out["error"] = "Creator changes were not admitted"
             return JSONResponse(out, status_code=409)
         return out
 

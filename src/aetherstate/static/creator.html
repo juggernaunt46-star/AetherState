@@ -440,7 +440,7 @@ html[data-view="guided"] .expert-only{display:none!important}
 <script>
 const QS = new URLSearchParams(location.search);
 let SID = QS.get("session") || "";
-let REG = null, SPEC = "none", WORLD_CACHE = null, WORLD_ID = "", PRESETS = [], ENEMY_PREVIEW = null;
+let REG = null, SPEC = "none", WORLD_CACHE = null, PLAYER_CACHE = null, WORLD_ID = "", PRESETS = [], ENEMY_PREVIEW = null;
 
 const $ = id => document.getElementById(id);
 const CREATOR_VIEW_KEY="aether_creator_view_v1";
@@ -543,8 +543,11 @@ function removeDraftRow(btn){ const row=btn&&btn.closest?btn.closest(".item"):nu
   if(row){ row.remove(); refreshAllListCounts(); scheduleDraft(); } }
 function clearCreatorDraft(){
   clearTimeout(_draftT); try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
-  WORLD_CACHE=null;
-  location.href=location.pathname+(SID?`?session=${encodeURIComponent(SID)}`:"");
+  WORLD_CACHE=null; PLAYER_CACHE=null;
+  const target=new URL(location.href);
+  if(SID) target.searchParams.set("session",SID); else target.searchParams.delete("session");
+  target.searchParams.set("fresh",String(Date.now()));
+  location.replace(target.toString());
 }
 function restoreDraft(){ try{ const raw=localStorage.getItem(DRAFT_KEY); if(!raw) return false; const d=JSON.parse(raw); if(!d) return false;
   if(d.world) applyWorld(d.world); if(d.player) applyPlayer(normalizePresetPlayer(d.player)); if(d.enemy) applyEnemy(d.enemy);
@@ -1066,7 +1069,10 @@ function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks
         if(def.requires_ability) needBasis.add(def.requires_ability); } }
     for(const [aid,def] of Object.entries(p.abilities||{})){
       if((picked.has(aid)||needBasis.has(aid)) && !haveA.has(aid)) custom.abilities.push(Object.assign({id:aid},def)); } }
-  const resources=Object.assign({hp:{max:+$("c_hp").value||20}},readCustomResources());
+  const hp={max:+$("c_hp").value||20};
+  const cachedHp=PLAYER_CACHE&&((PLAYER_CACHE.resources||{}).hp||PLAYER_CACHE.hp);
+  if(cachedHp&&Number.isFinite(+cachedHp.cur)) hp.cur=Math.max(0,Math.min(+cachedHp.cur,hp.max));
+  const resources=Object.assign({hp},readCustomResources());
   return { name:$("c_name").value.trim(), sex:$("c_sex").value.trim(), pronouns:$("c_pronouns").value.trim(),
   species:$("c_species").value.trim(), appearance:$("c_appearance").value.trim(), concept:$("c_concept").value.trim(), level:+$("c_level").value||1,
   stats:Object.assign({},statVals), skills, abilities:pickedAbilities(),
@@ -1090,7 +1096,7 @@ function applyWorld(w){ if(!w) return; const genreBefore=currentGenre(); WORLD_C
   refreshLimitCounters(document); refreshAllListCounts();
   scheduleDraft(); }
 function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); refreshListCount(hostId); }
-function applyPlayer(p){ if(!p) return;
+function applyPlayer(p){ if(!p) return; PLAYER_CACHE=p;
   $("c_name").value=p.name||$("c_name").value; $("c_sex").value=p.sex||""; $("c_pronouns").value=p.pronouns||"";
   $("c_species").value=p.species||""; $("c_appearance").value=p.appearance||""; $("c_concept").value=p.concept||""; $("c_level").value=p.level||1;
   $("c_notes").value=p.notes||"";
@@ -1180,10 +1186,8 @@ async function renderReview(){
   host.textContent="Loading…";
   try{
     const pre=await api(`/aether/session/${SID}/creator`);
-    const st=await api(`/aether/session/${SID}/state`);
-    const s=st.state||{};
     let h="";
-    const w=pre.world;
+    const w=pre.world_live||pre.world;
     if(w){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:4px 0 8px">🌍 World — ${esc(w.name||"(unnamed)")}${w.genre?` <span style="color:var(--dim)">(${esc(w.genre)})</span>`:""}</h3>`;
       h+=chipRow("calendar",[w.date,w.time,w.tone].filter(Boolean));
       h+=reviewProse("Setting",w.setting)+reviewRows("Factions",w.factions)+reviewRows("Locations",w.locations);
@@ -1201,7 +1205,7 @@ async function renderReview(){
       h+=reviewRows("Loot tables",loot);
       h+=reviewRows("Travel routes",(w.routes||[]).map(r=>({title:`${r.a||r.from||"?"} ↔ ${r.b||r.to||"?"}`,meta:`${r.segments||1} travel segment${r.segments===1?"":"s"}`})));
     } else h+=`<div class="hint">No world seeded in this session yet.</div>`;
-    const p=pre.player;
+    const p=pre.player_live||pre.player;
     if(p){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:16px 0 8px">🧑 Player — ${esc(pre.player_name||p.name||"Player")}${p.level?` · level ${esc(p.level)}`:""}${p.concept?` · ${esc(p.concept)}`:""}</h3>`;
       h+=chipRow("identity",[p.sex,p.pronouns,p.species].filter(Boolean));
       h+=reviewProse("Appearance",p.appearance);
@@ -1223,8 +1227,8 @@ async function renderReview(){
         return `${name} ${r.current??r.cur??r.max??0}/${r.max??0}`;
       }));
     } else h+=`<div class="hint" style="margin-top:12px">No Player Card in this session yet.</div>`;
-    const effs=s.effects&&Object.keys(s.effects).length;
-    if(effs) h+=chipRow("active effects", Object.entries(s.effects).flatMap(([who,m])=>Object.values(m||{}).map(f=>`${who}: ${f.name}`)));
+    const effects=pre.effects_live||{}, effs=Object.keys(effects).length;
+    if(effs) h+=chipRow("active effects", Object.entries(effects).flatMap(([who,m])=>Object.values(m||{}).map(f=>`${who}: ${f.name}`)));
     host.innerHTML=h;
   }catch(e){ host.textContent="Could not load session state: "+e.message; } }
 async function loadCommitted(kind){
@@ -1299,12 +1303,16 @@ async function loadSessions(){
 function sessLabel(){ const sel=$("sessSel"); return sel&&sel.selectedIndex>=0&&sel.value?sel.options[sel.selectedIndex].text.split(" · ")[0]:"session"; }
 async function saveWorld(){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
   try{ const r=await api(`/aether/session/${SID}/world`, {method:"POST", body:JSON.stringify({world:worldDoc()})});
+    if(!r.applied&&!r.already_committed) throw new Error("the World was not admitted");
     if(r.world_id) WORLD_ID=r.world_id;
-    WORLD_CACHE=worldDoc(); toast(`World saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
+    WORLD_CACHE=worldDoc(); toast(r.already_committed?`World already committed to ${sessLabel()} — no changes needed`:
+      `World saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
   }catch(e){ toast("Save failed: "+e.message, "bad"); } }
 async function savePlayer(){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
   try{ const r=await api(`/aether/session/${SID}/player`, {method:"POST", body:JSON.stringify({player:playerDoc()})});
-    toast(`Character saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
+    if(!r.applied&&!r.already_committed) throw new Error("the Character was not admitted");
+    PLAYER_CACHE=playerDoc(); toast(r.already_committed?`Character already committed to ${sessLabel()} — no changes needed`:
+      `Character saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
   }catch(e){ if(e.creatorField) showCreatorValidation(e,"Save blocked: "); else toast("Save failed: "+e.message, "bad"); } }
 
 async function switchRpg(){ try{ await api("/aether/specialization", {method:"POST", body:JSON.stringify({name:"rpg"})});

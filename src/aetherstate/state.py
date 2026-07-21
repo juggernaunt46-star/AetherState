@@ -1158,6 +1158,10 @@ _CREATOR_WORLD_SCALAR_KEYS = frozenset({
 _CREATOR_WORLD_LIST_KEYS = frozenset({
     "factions", "locations", "npcs", "aspects", "extras", "fronts", "routes",
 })
+_CREATOR_PLAYER_SOURCE_KEYS = frozenset({
+    "name", "sex", "pronouns", "species", "appearance", "concept", "level", "stats",
+    "skills", "abilities", "defs", "gear", "extras", "resources",
+})
 
 
 def _creator_world_snapshot(document: object, turn: int) -> dict:
@@ -1214,6 +1218,27 @@ def _creator_world_snapshot(document: object, turn: int) -> dict:
     }
     record["fingerprint"] = content_fingerprint(record)
     return record
+
+
+def _creator_player_source(document: object) -> dict:
+    """Validate the non-authoritative authored Player snapshot carried by player_seed."""
+    if not isinstance(document, dict):
+        raise OpReject("Creator player source document must be an object")
+    if set(document) - _CREATOR_PLAYER_SOURCE_KEYS:
+        raise OpReject("Creator player source document contains unsupported fields")
+    for key in ("name", "sex", "pronouns", "species", "appearance", "concept"):
+        if not isinstance(document.get(key, ""), str):
+            raise OpReject("Creator player source document has a non-text scalar field")
+    if not isinstance(document.get("level", 1), int) \
+            or isinstance(document.get("level", 1), bool):
+        raise OpReject("Creator player source document has an invalid level")
+    for key in ("stats", "skills", "defs", "resources"):
+        if not isinstance(document.get(key, {}), dict):
+            raise OpReject(f"Creator player source document {key} must be an object")
+    for key in ("abilities", "gear", "extras"):
+        if not isinstance(document.get(key, []), list):
+            raise OpReject(f"Creator player source document {key} must be a list")
+    return deepcopy(document)
 
 
 # ================================ validation =======================================
@@ -2933,6 +2958,11 @@ def _apply_player_seed(state: dict, op: dict) -> None:
             for row in card["creator_extras"][:20]
             if isinstance(row, dict) and str(row.get("text") or "").strip()
         ]
+    if "creator_source" in card:
+        # Authoring provenance only: prefill reads this instead of projecting mutable HP,
+        # resources, and inventory back into a new starting seed.  Partial runtime player_seed
+        # ops omit it and therefore cannot rewrite the committed Creator source accidentally.
+        rec["creator_source"] = _creator_player_source(card.get("creator_source"))
     if isinstance(card.get("stats"), dict):
         rec["stats"] = {str(k): _clamp(v, -99, 999) for k, v in card["stats"].items()}
     # Creator commits both ownership tables on every finalized card. Their joint presence is the

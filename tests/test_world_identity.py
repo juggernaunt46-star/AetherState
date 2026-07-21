@@ -149,8 +149,10 @@ async def test_creator_world_conflict_returns_409_without_claiming_submitted_id(
     assert rejected.status_code == 409
     body = rejected.json()
     assert body["applied"] == 0
-    assert body["rejected"][0]["op"] == "world_identity_set"
-    assert "world_id" not in body
+    assert body["rejected"][0]["op"] == "creator_world_seed"
+    assert "immutable" in body["rejected"][0]["reason"].lower()
+    assert body["world_id"] == committed_world_id
+    assert body["world_id"] != submitted_world_id
     committed = (await client.get("/aether/session/world-conflict/creator")).json()["world"]
     assert committed["world_id"] == committed_world_id
 

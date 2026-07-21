@@ -247,12 +247,19 @@ const documentStub = {
   querySelectorAll(selector) { return selector === "#chat .mes_text" ? messageTexts : []; },
 };
 const fetchCalls = [];
+let seedFetchReply = {
+  ok: true,
+  body: { applied: 2, complete: true, world_seeded: true, player_seeded: true },
+};
 async function fetchStub(url, options = {}) {
   fetchCalls.push({ url: String(url), options });
-  const j = String(url).includes("/hud") ? payload
+  const j = String(url).includes("/seed") ? seedFetchReply.body
+    : String(url).includes("/genesis")
+      ? { session_id: "smoke-session", applied: 1, card_len: 20, greeting_len: 8 }
+    : String(url).includes("/hud") ? payload
     : String(url).includes("/aether/status")
       ? { version: "smoke", mode: "relay", extraction: { mode: "off" } } : {};
-  return { ok: true, json: async () => j };
+  return { ok: String(url).includes("/seed") ? seedFetchReply.ok : true, json: async () => j };
 }
 // PARTIAL saved hud on purpose: only open+compact — the per-key default merge must fill the
 // rest (tab, theme, hideTags…). A wholesale-replace regression makes settings.hud.tab
@@ -310,6 +317,13 @@ const ctx = {
   characters: [], characterId: 0,
   substituteParams: () => "Player",
 };
+const slashCommands = new Map();
+ctx.SlashCommandParser = {
+  addCommandObject(command) { slashCommands.set(command.name, command.callback); },
+};
+ctx.SlashCommand = { fromProps(command) { return command; } };
+ctx.SlashCommandArgument = { fromProps(argument) { return argument; } };
+ctx.ARGUMENT_TYPE = { STRING: "string" };
 const toastCalls = [];
 const sandbox = {
   console, document: documentStub, fetch: fetchStub,
@@ -852,10 +866,123 @@ expect(ctx.chatMetadata.aetherstate_chat_id === "source-chat",
 expect(!("aetherstate_parent_sid" in ctx.chatMetadata)
        && !("aetherstate_fork_pos" in ctx.chatMetadata),
        "source chat carries no branch lineage");
-
 const sourceMetadata = { ...ctx.chatMetadata };
+let lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 2 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
+       && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
+       "card seed is verified before automatic genesis");
+expect(JSON.parse(lifecycleCalls[1].options.body).structured_seed === true,
+       "automatic genesis claims structured seed only after verified card admission");
+
+// Reopening an already-seeded source chat is a successful no-op only when the backend confirms
+// that every requested part is present. `applied: 0` by itself is not proof.
+seedFetchReply = {
+  ok: true,
+  body: { applied: 0, complete: true, world_seeded: true, player_seeded: true },
+};
+fetchCalls.length = 0;
+chatChanged();
+await tick(); await tick(); await tick(); await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 2 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
+       && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
+       "idempotent card reopen confirms postconditions before genesis");
+expect(JSON.parse(lifecycleCalls[1].options.body).structured_seed === true,
+       "verified applied-zero reopen remains a structured genesis");
+
+// A shell can appear before SillyTavern attaches data.extensions.aetherstate. The extension must
+// keep waiting for the actual AetherState metadata instead of racing ahead to prose genesis.
+const delayedCard = {
+  name: "Delayed Narrator", description: "Metadata arrives after the character shell.",
+  personality: "steady", scenario: "a delayed load", first_mes: "Opening.", data: {},
+};
+ctx.characters = [delayedCard];
+ctx.chatId = "delayed-card-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+seedFetchReply = {
+  ok: true,
+  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false },
+};
+fetchCalls.length = 0;
+const inertSetTimeout = sandbox.setTimeout;
+let metadataWaits = 0;
+sandbox.setTimeout = (fn, delay) => {
+  if (delay === 250) queueMicrotask(() => {
+    metadataWaits += 1;
+    if (metadataWaits === 2) delayedCard.data.extensions = { aetherstate: {
+      role: "narrator", seed: { world: { name: "Delayed World" } },
+    } };
+    fn();
+  });
+  return 0;
+};
+chatChanged();
+for (let i = 0; i < 12; i++) await tick();
+sandbox.setTimeout = inertSetTimeout;
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(metadataWaits >= 2 && lifecycleCalls.length === 2
+       && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
+       && /\/genesis(?:\?|$)/.test(lifecycleCalls[1].url),
+       "character-shell race waits for AetherState metadata, then seeds before genesis");
+
+// Rejection must stay visible and must not let prose genesis claim a structured admission.
+ctx.characters = [lineageCard];
+ctx.chatId = "rejected-card-chat";
+ctx.chatMetadata = {};
+ctx.chat = [{ is_user: false, mes: "Opening." }];
+seedFetchReply = {
+  ok: true,
+  body: { applied: 0, complete: false, world_seeded: false, player_seeded: false,
+          error: "portable seed was rejected" },
+};
+fetchCalls.length = 0;
+toastCalls.length = 0;
+chatChanged();
+await tick(); await tick(); await tick(); await tick();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 1 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url),
+       "rejected card seed blocks automatic genesis");
+expect(toastCalls.some((toast) => toast.kind === "error"
+       && /card seed/i.test(toast.message) && /Creator/i.test(toast.message)),
+       "rejected card seed gives the player a concise visible recovery action");
+
+// The manual recovery command must repeat the same ordering: retry the card seed first, and
+// only force genesis after verified success.
+const genesisCommand = slashCommands.get("aether-genesis");
+expect(typeof genesisCommand === "function", "manual genesis recovery command registered");
+seedFetchReply = {
+  ok: false,
+  body: { applied: 0, complete: true, world_seeded: true, player_seeded: false,
+          error: "seed endpoint refused the request" },
+};
+fetchCalls.length = 0;
+let commandResult = await genesisCommand();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 1 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
+       && /card seed/i.test(commandResult),
+       "manual genesis reports card rejection without running prose genesis");
+seedFetchReply = {
+  ok: true,
+  body: { applied: 1, complete: true, world_seeded: true, player_seeded: false },
+};
+fetchCalls.length = 0;
+commandResult = await genesisCommand();
+lifecycleCalls = fetchCalls.filter((call) => /\/(?:seed|genesis)(?:\?|$)/.test(call.url));
+expect(lifecycleCalls.length === 2 && /\/seed(?:\?|$)/.test(lifecycleCalls[0].url)
+       && /\/genesis\?force=1$/.test(lifecycleCalls[1].url)
+       && JSON.parse(lifecycleCalls[1].options.body).structured_seed === true,
+       "manual genesis retries and verifies the card seed before forced structured genesis");
+
 ctx.chatId = "branch-chat";
 ctx.chatMetadata = { ...sourceMetadata, main_chat: "source-chat" };
+ctx.chat = [
+  { is_user: false, mes: "Opening." },
+  { is_user: true, mes: "T1" },
+  { is_user: false, mes: "A1" },
+  { is_user: true, mes: "T2" },
+  { is_user: false, mes: "A2" },
+];
 fetchCalls.length = 0;
 chatChanged();
 await tick(); await tick(); await tick(); await tick();

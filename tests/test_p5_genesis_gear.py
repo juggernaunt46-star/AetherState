@@ -398,6 +398,12 @@ async def test_turn0_genesis_endpoint_seeds_before_first_message(client):
 
 
 async def test_structured_narrator_seed_skips_llm_genesis(client, proxy_app):
+    seeded = await client.post("/aether/session/structured-narrator/seed", json={"seed": {
+        "world": {"name": "Cinder Gate"},
+        "player": {"name": "Ash Walker", "concept": "gate warden"},
+    }})
+    assert seeded.status_code == 200 and seeded.json()["complete"] is True
+
     r = await client.post("/aether/session/structured-narrator/genesis", json={
         "card": "THE WORLD — Cinder Gate", "greeting": "An ash-wolf advances.",
         "speaker": "Cinder Gate", "card_role": "narrator", "structured_seed": True,

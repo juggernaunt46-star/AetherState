@@ -181,6 +181,19 @@ async def test_narrator_card_routes_from_committed_world(client):
     assert body["bytes"] > 1000 and body["installed"] == ""   # no dir configured -> download only
 
 
+async def test_session_card_never_claims_success_for_unknown_or_worldless_session(client):
+    unknown = await client.post("/aether/session/missing-card-session/narrator-card")
+    assert unknown.status_code == 404
+    assert unknown.json()["error"] == "unknown session"
+
+    await client.post(
+        "/aether/session/worldless-card/player", json={"player": {"name": "Rook"}},
+    )
+    worldless = await client.post("/aether/session/worldless-card/narrator-card")
+    assert worldless.status_code == 409
+    assert "no committed Creator world" in worldless.json()["error"]
+
+
 async def test_card_route_is_spec_independent_no_stream_leak(client):
     """Under `none` the card still projects the ledger's world (it is off the relay), and
     generating it adds no RPG blocks to the briefing — the wire stays byte-identical."""
@@ -335,16 +348,59 @@ async def test_session_free_card_normalizes_full_docs_and_never_embeds_direction
     assert "notes" not in seed["player"]
 
 
+async def test_form_to_png_to_fresh_seed_to_prefill_is_one_exact_vertical(client):
+    player = {
+        "name": "Rook",
+        "concept": "civic witness",
+        "resources": {"Resolve": {"name": "Resolve", "cur": 3, "max": 7}},
+        "skills": {"Witness Reading": 2},
+        "custom": {"skills": [{
+            "name": "Witness Reading",
+            "keyed_stat": "CUN",
+            "cost": {"Resolve": 2},
+        }]},
+        "gear": ["Audit Knife"],
+    }
+    built = await client.post("/aether/narrator-card", json={
+        "world": _WORLD,
+        "player": player,
+    })
+    assert built.status_code == 200
+    card = _extract_chara(base64.b64decode(built.json()["png_b64"]))
+    seed = card["data"]["extensions"]["aetherstate"]["seed"]
+
+    admitted = await client.post(
+        "/aether/session/png-vertical/seed", json={"seed": seed},
+    )
+    receipt = admitted.json()
+    assert admitted.status_code == 200
+    assert receipt["complete"] and receipt["applied"] > 0
+    assert receipt["world_seeded"] and receipt["player_seeded"]
+
+    prefill = (await client.get("/aether/session/png-vertical/creator")).json()
+    assert prefill["world"]["world_id"] == seed["world"]["world_id"]
+    assert prefill["world"]["name"] == "Gallowmere"
+    assert prefill["player"]["name"] == "Rook"
+    assert prefill["player"]["resources"]["resolve"] == {
+        "cur": 3, "max": 7, "name": "Resolve",
+    }
+    assert prefill["player"]["defs"]["skills"]["witness_reading"]["cost"] == {
+        "resolve": 2,
+    }
+
+
 async def test_seed_route_is_idempotent_and_non_clobbering(client):
     """The extension replays the card seed on chat-open; the route commits a world/player only
     when none is present, so re-opening an established chat never clobbers progress."""
     await client.post("/aether/specialization", json={"name": "rpg"})
-    seed = {"world": _WORLD, "player": {"name": "Rook", "concept": "gravedigger",
+    seed = {"world": dict(_WORLD, world_id="world_44444444444444444444444444444444"),
+            "player": {"name": "Rook", "concept": "gravedigger",
                                         "stats": {"STR": 12, "DEX": 10}}}
     r1 = (await client.post("/aether/session/seed-t/seed", json={"seed": seed})).json()
     assert r1["world_seeded"] and r1["player_seeded"] and r1["applied"] > 0
     r2 = (await client.post("/aether/session/seed-t/seed", json={"seed": seed})).json()
-    assert not r2["world_seeded"] and not r2["player_seeded"] and r2["applied"] == 0
+    assert r2["world_seeded"] and r2["player_seeded"] and r2["applied"] == 0
+    assert r2["complete"] and r2["already_present"]
     pre = (await client.get("/aether/session/seed-t/creator")).json()
     assert pre["world"]["name"] == "Gallowmere" and pre["player_name"] == "Rook"
 

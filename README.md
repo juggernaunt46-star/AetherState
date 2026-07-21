@@ -115,11 +115,21 @@ The World and Character Creator supports:
 - custom world and character detail categories;
 - named presets and a final review before creating the Narrator card.
 
+When you reopen an existing game, the Session tab can load its committed World and Character back
+into the forms. These prefills preserve the original authored setup separately from changing live
+values such as current HP, resources, and runtime NPCs. Saving an unchanged prefill is a safe no-op;
+it does not duplicate starting gear or rewrite the committed World.
+
 The **Enemy Workshop** turns authored enemy facts into an exact, inspectable preview of grounded moves, danger, tells, and counterplay, then can add that enemy to the World draft as an NPC. The preview is deliberately honest about the current mechanics boundary: it covers single-target Player HP effects and does not spawn, assign, or settle a runtime enemy.
 
-The **Creative Direction** box tells the AI how to write and what kind of result you want. It is sent as a direct instruction to the configured **main story model**, not hidden inside the world's lore.
+The **Creative Direction** box tells the AI how to write and what kind of result you want. It is sent as a direct instruction to the configured **main story model**, not hidden inside the world's lore. Directions such as `exactly 2 factions`, `exactly 3 locations`, `exactly 2 NPCs`, or `no fronts` override the richer defaults. Character directions can also request a named custom resource and an ability that spends it; the resource and cost are validated together before anything enters the form.
 
 Creator generation allows **32,768 output tokens by default**, can be configured up to **131,072**, and waits up to 600 seconds. Empty, incomplete, or cut-off JSON is rejected and retried once instead of quietly creating half a world.
+
+Narrator cards are admitted seed-first when a new SillyTavern chat opens. AetherState verifies that
+the exact World and Character carried by the card are both present before genesis continues; a
+rejected, partial, or identity-mismatched seed stops visibly instead of opening an apparently valid
+but unseeded game.
 
 If no main model is configured, deterministic offline templates remain available.
 

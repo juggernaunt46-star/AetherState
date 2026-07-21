@@ -360,6 +360,76 @@ async def test_world_authoring_retries_direction_breaking_front_count(monkeypatc
     assert "requires exactly 3 fronts" in calls[1]["system"].lower()
 
 
+def test_world_validator_honors_explicit_lower_counts_and_no_fronts():
+    world = _complete_world_document()
+    world["factions"] = world["factions"][:2]
+    world["locations"] = world["locations"][:3]
+    world["npcs"] = world["npcs"][:2]
+    world["fronts"] = []
+    world["routes"] = []
+
+    issues = creator._world_validation_issues(world, {
+        "notes": (
+            "Create exactly 2 distinct factions, exactly 3 named locations, exactly 2 notable "
+            "NPCs, and no fronts. Keep the world playable and surprising."
+        )
+    })
+
+    assert issues == []
+
+
+def test_world_validator_keeps_rich_defaults_without_explicit_count_direction():
+    world = _complete_world_document()
+    world["factions"] = world["factions"][:2]
+    world["locations"] = world["locations"][:3]
+    world["npcs"] = world["npcs"][:2]
+    world["fronts"] = []
+    world["routes"] = []
+
+    issues = creator._world_validation_issues(world, {"notes": "Keep the mood restrained."})
+
+    assert "factions need at least 4 complete named rows" in issues
+    assert "locations need at least 5 complete named rows" in issues
+    assert "npcs need at least 4 rows" in issues
+    assert "fronts need at least 2 rows" in issues
+
+
+async def test_world_authoring_accepts_explicit_lower_counts_without_retry(monkeypatch):
+    complete = _complete_world_document()
+    complete["factions"] = complete["factions"][:2]
+    complete["locations"] = complete["locations"][:3]
+    complete["npcs"] = complete["npcs"][:2]
+    complete["fronts"] = []
+    complete["routes"] = []
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(complete), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    notes = (
+        "Create exactly 2 distinct factions, exactly 3 named locations, exactly 2 notable NPCs, "
+        "and no fronts. Keep the world playable and surprising."
+    )
+
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {"notes": notes},
+    )
+
+    assert out["source"] == "llm"
+    assert len(calls) == 1
+    assert len(out["doc"]["factions"]) == 2
+    assert len(out["doc"]["locations"]) == 3
+    assert len(out["doc"]["npcs"]) == 2
+    assert out["doc"]["fronts"] == []
+    assert "richness defaults, not hidden minimums" in calls[0]["system"]
+    assert "Fronts are optional" in calls[0]["system"]
+
+
 async def test_world_authoring_never_applies_empty_truncated_or_dangling_prose(monkeypatch):
     cut = _complete_world_document()
     cut["setting"] = "The harbor survives because the"
@@ -446,6 +516,59 @@ async def test_player_authoring_retries_structurally_incomplete_reply(monkeypatc
     assert all("Keep the character severe and practical." in call["user"] for call in calls)
     assert "CONTROLLING CREATIVE-DIRECTION INSTRUCTIONS" in calls[0]["system"]
     assert "previous response was rejected" in calls[1]["system"].lower()
+
+
+async def test_player_authoring_can_fulfill_requested_custom_resource_and_cost(monkeypatch):
+    authored = _complete_player_document(name="Eira Sol")
+    authored["gear"] = [
+        {"name": "Tuning fork roll", "slot": "waist",
+         "effect": "Identifies a bell's dominant memory-tone when struck."},
+        {"name": "Salt-blue route coat", "slot": "body",
+         "effect": "Keeps its wearer warm and visible during moonlit crossings."},
+        {"name": "Hush-bell pendant", "slot": "neck",
+         "effect": "Carries one silent memory that only Eira can hear."},
+    ]
+    authored["resources"] = {
+        "resonance": {"name": "Resonance", "cur": 6, "max": 6, "color": "#66ccff"},
+    }
+    authored["abilities"] = ["keen_senses", "bell_resonance"]
+    authored["defs"]["abilities"] = [{
+        "id": "bell_resonance", "name": "Bell Resonance", "kind": "active",
+        "mechanic": "surge", "applies_to": "perception", "magnitude": 1,
+        "group": "Bellcraft", "cost": {"resonance": 1}, "cooldown_turns": 1,
+        "effect": "Eira releases a tuned memory-tone to lift one difficult reading.",
+        "desc": "Spend Resonance to strengthen one perception check beyond its usual ceiling.",
+    }]
+
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(authored), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    out = await creator.author_player(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {"notes": (
+            "Fit her closely to Lumenwake Crossing. Give her a complete backstory rooted in "
+            "the orchard-barges and a hopeful personal mystery. Give exactly 3 starting gear "
+            "pieces, each with a complete useful effect. Add one custom resource named "
+            "Resonance with maximum 6 and current 6, plus one custom ability that spends 1 "
+            "Resonance. Keep her capable but not overpowered."
+        )},
+    )
+
+    assert out["source"] == "llm"
+    assert len(calls) == 1
+    assert len(out["doc"]["gear"]) == 3
+    assert out["doc"]["resources"]["resonance"] == {
+        "cur": 6, "max": 6, "name": "Resonance", "color": "#66ccff",
+    }
+    assert out["doc"]["defs"]["abilities"]["bell_resonance"]["cost"] == {
+        "resonance": 1,
+    }
 
 
 def test_world_ops_use_only_shipped_vocab_and_validate():

@@ -61,6 +61,7 @@ _MARKERS = (
     "function rollTruthContent",       # backend-owned target-impact text, no tier inference
     "WHAT YOU DID",                    # current-turn Player impacts in the War Room
     "HUD clarity (2026-07-18)",        # tooltip/discoverability/density pass
+    "card-seed reliability (2026-07-21)", # verified portable seed precedes genesis
     "Consent boundaries",              # explicit boundaries live under Status
 )
 

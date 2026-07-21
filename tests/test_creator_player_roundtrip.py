@@ -179,6 +179,11 @@ def test_long_structured_gear_effect_survives_complete_store_roundtrip():
 
 async def test_committed_narrator_card_seed_preserves_complete_player(client):
     sid = "creator-player-card-roundtrip"
+    world = await client.post(
+        f"/aether/session/{sid}/world",
+        json={"world": {"name": "Roundtrip Reach", "genre": "custom"}},
+    )
+    assert world.status_code == 200 and world.json()["applied"] > 0
     saved = await client.post(
         f"/aether/session/{sid}/player",
         json={"player": _full_player()},

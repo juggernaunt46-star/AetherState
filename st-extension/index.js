@@ -9,7 +9,7 @@
   const MODULE = "aetherstate";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — combat-reference/composer build + world-overlay (2026-07-17) + HUD clarity (2026-07-18)");
+  console.log("[AetherState] Companion loaded — combat-reference/composer build + world-overlay (2026-07-17) + HUD clarity (2026-07-18) + card-seed reliability (2026-07-21)");
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -143,7 +143,7 @@
   // ---- turn-0 genesis (handoff 2026-07-04, REQUIRED): the greeting renders with NO
   // request, so at chat-open we hand the proxy the card ourselves. Fire-and-forget;
   // the proxy's genesis marker makes re-opens no-ops. First-request path = fallback.
-  async function doGenesis(reason, force = false, ifearly = false) {
+  async function doGenesis(reason, force = false, ifearly = false, structuredSeed = false) {
     if (!settings.enabled) return { error: "extension disabled" };
     const sub = (t) => { try { return C().substituteParams(t || ""); } catch (e) { return t || ""; } };
     let ch = null, cx = C();                                // CHAT_CHANGED can fire before the
@@ -162,8 +162,6 @@
     try { const m = (cx.chat || []).find((x) => !x.is_user && x.mes); if (m) greeting = sub(m.mes); } catch (e) {}
     if (!greeting) greeting = sub(ch.first_mes || "");
     if (!card && !greeting) { console.warn("[AetherState] genesis: empty card+greeting"); return { error: "empty card" }; }
-    const aes = ch?.data?.extensions?.aetherstate || ch?.extensions?.aetherstate;
-    const structuredSeed = Boolean(aes?.seed && (aes.seed.world || aes.seed.player));
     const S = sid();
     try {
       const ac = new AbortController();
@@ -183,7 +181,7 @@
   }
   function genesisAtChatOpen() {
     if (isDerivedChat()) return;
-    doGenesis("chat_open").catch(() => {});
+    seedThenGenesis("chat_open").catch(() => {});
   }
   // 2026-07-06: swiping the FIRST message picks a different opening — re-seed so state
   // reflects the greeting the player actually chose. ifearly=1 makes the proxy refuse
@@ -194,7 +192,7 @@
       const chat = C().chat || [];
       const first = chat.findIndex((x) => !x.is_user);
       if (Number(i) !== first || first < 0) return;
-      setTimeout(() => doGenesis("greeting_swipe", true, true).catch(() => {}), 400);
+      setTimeout(() => seedThenGenesis("greeting_swipe", true, true).catch(() => {}), 400);
     } catch (e) {}
   }
 
@@ -204,8 +202,8 @@
   // deterministically, no LLM. This is what removes "you have to re-apply the world to every
   // new chat": import the card, open a chat, and the world + your character are already there.
   // The /seed route is idempotent (skips a world/player already present), so an established
-  // chat is never disturbed. Fire-and-forget, fail-open; runs BEFORE genesis so presence/mood
-  // seeding sees the committed world.
+  // chat is never disturbed. Runs BEFORE genesis so presence/mood seeding sees the committed
+  // world. A rejected portable seed must not be disguised as successful structured genesis.
   function cardSeed() {
     try {
       const cx = C();
@@ -216,28 +214,84 @@
       return seed;
     } catch (e) { return null; }
   }
+  const reportedCardSeedFailures = new Map();
+  function cardSeedFailureReason(data, fallback = "seed admission was not confirmed") {
+    const rejected = Array.isArray(data?.rejected) ? data.rejected : [];
+    const raw = data?.error || data?.detail || data?.message || rejected[0]?.reason || fallback;
+    return String(raw || fallback).replace(/\s+/g, " ").trim().slice(0, 180);
+  }
+  function reportCardSeedFailure(S, reason) {
+    const concise = cardSeedFailureReason(null, reason);
+    if (reportedCardSeedFailures.get(S) === concise) return;
+    reportedCardSeedFailures.set(S, concise);
+    const message = `Card seed failed: ${concise}. Re-export this Narrator from Creator, then run /aether-genesis.`;
+    console.warn("[AetherState] " + message);
+    try {
+      if (globalThis.toastr) toastr.error(message, "AetherState card seed needs recovery");
+    } catch (e) {}
+  }
   async function seedFromCard() {
-    if (!settings.enabled || isDerivedChat()) return;
-    let seed = null, cx = C();
-    for (let i = 0; i < 8 && !seed; i++) {                   // CHAT_CHANGED can fire before the
-      cx = C(); if (cx.characters?.[cx.characterId]) { seed = cardSeed(); break; }
-      await new Promise((r) => setTimeout(r, 250));          // character loads a beat later
+    if (!settings.enabled)
+      return { ok: false, requested: false, structuredSeed: false, error: "extension disabled" };
+    if (isDerivedChat())
+      return { ok: true, requested: false, structuredSeed: false, skipped: "derived chat" };
+
+    let seed = null, metadataReady = false, cx = C();
+    for (let i = 0; i < 8 && !metadataReady; i++) {          // CHAT_CHANGED can fire after the
+      cx = C();                                              // character shell but before its
+      const ch = cx.characters?.[cx.characterId];            // extension metadata is attached.
+      const aes = ch?.data?.extensions?.aetherstate || ch?.extensions?.aetherstate;
+      if (aes) { metadataReady = true; seed = cardSeed(); break; }
+      await new Promise((r) => setTimeout(r, 250));
     }
     if (!seed) seed = cardSeed();
-    if (!seed) return;
+    if (!seed)
+      return { ok: true, requested: false, structuredSeed: false, skipped: "no card seed" };
+
+    const requestedWorld = Boolean(seed.world), requestedPlayer = Boolean(seed.player);
+    const requested = requestedWorld || requestedPlayer;
     const S = sid();
+    let t = null;
     try {
       const ac = new AbortController();
-      const t = setTimeout(() => ac.abort(), 6000);
+      t = setTimeout(() => ac.abort(), 6000);
       const r = await fetch(settings.proxy_url.replace(/\/$/, "") + `/aether/session/${S}/seed`, {
         method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
         body: JSON.stringify({ seed }),
       });
-      clearTimeout(t);
       const d = await r.json().catch(() => ({}));
       console.log(`[AetherState] card-seed sid=${S} ->`, d);
       try { refreshChip(); } catch (e) {}
-    } catch (e) { /* fail-open: genesis + the card prose still seed the session */ }
+      const rejected = Array.isArray(d?.rejected) ? d.rejected : [];
+      const quarantined = Array.isArray(d?.quarantined)
+        ? d.quarantined.length > 0 : Boolean(d?.quarantined);
+      const applied = Number(d?.applied);
+      const postconditions = (!requestedWorld || d?.world_seeded === true)
+        && (!requestedPlayer || d?.player_seeded === true);
+      const verified = r.ok && d?.complete === true && rejected.length === 0 && !quarantined
+        && Number.isFinite(applied) && applied >= 0 && postconditions;
+      if (!verified) {
+        const reason = cardSeedFailureReason(d,
+          !r.ok ? `server returned HTTP ${r.status || "error"}` : "seed admission was not confirmed");
+        reportCardSeedFailure(S, reason);
+        return { ok: false, requested, structuredSeed: false, error: reason, data: d };
+      }
+      reportedCardSeedFailures.delete(S);
+      return { ok: true, requested, structuredSeed: true, applied, data: d };
+    } catch (e) {
+      const reason = e?.name === "AbortError" ? "the seed request timed out" : String(e?.message || e);
+      reportCardSeedFailure(S, reason);
+      return { ok: false, requested, structuredSeed: false, error: reason };
+    } finally {
+      if (t !== null) clearTimeout(t);
+    }
+  }
+  async function seedThenGenesis(reason, force = false, ifearly = false) {
+    const seeded = await seedFromCard();
+    if (!seeded.ok && seeded.requested)
+      return { error: `card seed failed: ${seeded.error || "admission was not confirmed"}`,
+               card_seed: seeded };
+    return doGenesis(reason, force, ifearly, Boolean(seeded.structuredSeed));
   }
 
   // ---- fire-and-forget hints (05 §5): 2 s timeout, silent — proxy never depends on them
@@ -642,7 +696,7 @@
       const identity = ensureChatIdentity();
       turnCounter = 0; stampHeader(); hint("chat_changed"); refreshChip();
       if (!identity.derived) {
-        seedFromCard().catch(() => {}).finally(() => genesisAtChatOpen()); // card seed FIRST,
+        genesisAtChatOpen();                               // verified card seed FIRST,
         //                                           then turn-0 genesis (both proxy-idempotent)
       }
       try { setTimeout(scrubTags, 400); setTimeout(scrubTags, 1400); } catch (e) {}   // hide ledger tags
@@ -2069,7 +2123,8 @@
       cmd("aether-genesis", async () => {
         // explicit user intent -> force=1: re-seeds even if an earlier (pre-fix)
         // attempt marked this session done/skipped with an empty result.
-        const d = await doGenesis("command", true);
+        // A Creator card's structured seed is retried and verified before prose genesis.
+        const d = await seedThenGenesis("command", true);
         if (d && d.session_id)
           return `genesis: card ${d.card_len ?? "?"} ch, greeting ${d.greeting_len ?? "?"} ch, `
                + `speaker ${d.speaker || "?"} — seeded ${d.applied || 0} op(s) into `

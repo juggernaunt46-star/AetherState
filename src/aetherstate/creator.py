@@ -1268,10 +1268,23 @@ def world_to_ops(world: dict) -> list[dict]:
     return ops
 
 
+def player_source_document(player: dict, cfg=None) -> dict:
+    """Return the canonical authored Player document, excluding draft-only directions.
+
+    Runtime Player state is intentionally a moving projection: HP, resource counters, gear,
+    cooldowns, and progression all change during play.  The Creator needs a separate source
+    snapshot so loading a committed character never turns those live counters into a new seed.
+    """
+    source = deepcopy(deterministic_player(player, cfg))
+    source.pop("notes", None)
+    return source
+
+
 def player_to_ops(player: dict, cfg=None) -> list[dict]:
     """Turn a finalized Player Card doc into [entity_add, player_seed, set_attribute...]. Mirrors
     the genesis `seed_player` op shape (privileged; applied with source='user')."""
     p = deterministic_player(player, cfg)
+    source_document = player_source_document(p, cfg)
     name = p["name"]
     card = {"level": p["level"], "concept": p["concept"], "pronouns": p["pronouns"],
             "stats": p["stats"], "skills": merge_baseline_skills(p["skills"]),
@@ -1281,7 +1294,8 @@ def player_to_ops(player: dict, cfg=None) -> list[dict]:
             # Typed authoring metadata for faithful committed-session card regeneration.
             # Extras still become retrieval memories below, but reconstruction never guesses
             # them back from coincidentally similar organic prose.
-            "creator_extras": p.get("extras", [])}
+            "creator_extras": p.get("extras", []),
+            "creator_source": source_document}
     if p["defs"]:
         card["defs"] = p["defs"]
     ops: list[dict] = [{"op": "entity_add", "name": name, "kind": "player"},
@@ -1310,6 +1324,35 @@ def player_to_ops(player: dict, cfg=None) -> list[dict]:
         if ex.get("text"):                      # categories -> retrievable lore about the PC
             ops.append({"op": "memory_event", "text": f"{name} — {ex['label']}: {ex['text']}"})
     return ops                                  # mechanics; the rest commit mechanics-free
+
+
+def portable_seed_documents(world: dict, player: Optional[dict] = None, cfg=None) \
+        -> tuple[dict, Optional[dict]]:
+    """Normalize and jointly validate the exact World + Player carried by a Narrator card.
+
+    World and Player entities share one ledger namespace.  Validating each form separately can
+    produce a downloadable card that will be atomically rejected on import (for example, an NPC
+    named ``Mara Venn`` and a Player named ``Mara-Venn``).  This is the canonical preflight used
+    by both card creation and seed admission.
+    """
+    normalized_world = deterministic_world(ensure_world_identity(world or {}))
+    normalized_player = deterministic_player(player, cfg) if player is not None else None
+    declarations: dict[str, str] = {}
+    ops = world_to_ops(normalized_world)
+    if normalized_player is not None:
+        ops.extend(player_to_ops(normalized_player, cfg))
+    for op in ops:
+        if op.get("op") != "entity_add":
+            continue
+        entity_id = slug(str(op.get("name") or ""))
+        kind = str(op.get("kind") or "")
+        first_kind = declarations.setdefault(entity_id, kind)
+        if entity_id and first_kind != kind:
+            raise ValueError(
+                f"entity namespace collision: '{entity_id}' cannot be both "
+                f"{first_kind} and {kind}"
+            )
+    return normalized_world, normalized_player
 
 
 # ------------------------------------------------------------------ state -> world doc
@@ -1536,6 +1579,30 @@ def player_from_state(state: dict) -> dict:
     return doc
 
 
+def player_source_from_state(state: dict) -> dict:
+    """Return the committed Creator source, falling back safely for legacy checkpoints."""
+    state = state or {}
+    players = state.get("player") or {}
+    player = next((row for row in players.values() if isinstance(row, dict)), None)
+    source = player.get("creator_source") if isinstance(player, dict) else None
+    if isinstance(source, dict):
+        return deepcopy(source)
+    return player_from_state(state)
+
+
+def world_source_from_state(state: dict) -> dict:
+    """Return the immutable authored World source rather than its live runtime overlay."""
+    state = state or {}
+    identity = state.get("world_identity") if isinstance(state.get("world_identity"), dict) else {}
+    committed = state.get("creator_world")
+    source = committed.get("document") if isinstance(committed, dict) else None
+    if isinstance(source, dict) \
+            and committed.get("schema") == "aetherstate-creator-world-snapshot/1" \
+            and committed.get("world_id") == identity.get("world_id"):
+        return deepcopy(source)
+    return world_from_state(state)
+
+
 # ------------------------------------------------------------------ MAIN-LLM Creator authoring
 _WORLD_SYSTEM = (
     "You are a world-building assistant for a tabletop RPG. The player gives you seed "
@@ -1556,12 +1623,15 @@ _WORLD_SYSTEM = (
     "Each npc's `home` names the ONE location they are usually found at — reuse a name from "
     "`locations` verbatim whenever one fits. `loot` gives 2-3 world-flavored drop rows per "
     "threat tier (what a defeated foe of that rank plausibly carries HERE — currency, kit, "
-    "consumables; chance 0..1); keep names concrete and reusable. `fronts` gives 2-4 faction "
+    "consumables; chance 0..1); keep names concrete and reusable. By default, `fronts` gives "
+    "2-4 faction "
     "agenda clocks (PbtA fronts): name the AGENDA (\"The Iron Pact rearms\"), tie it to one "
     "of your `factions`, 4-8 segments, and a consequence — what becomes TRUE in the world "
     "the day it completes. Use `event_duration_turns` only for a genuinely temporary "
     "consequence. Use `spawn_eligibility` only when completion explicitly permits or prevents "
-    "future enemies of that same faction from appearing; otherwise return null. `routes` lists "
+    "future enemies of that same faction from appearing; otherwise return null. Fronts are "
+    "optional: if the player's notes request an exact smaller count or no fronts, honor that "
+    "request and return an empty list for no fronts. `routes` lists "
     "travel times in day-segments (1-4) between "
     "`locations` pairs that are notably far apart or hard to cross; omit adjacent pairs. "
     "`extras` may hold complete labeled lore categories that do not fit another field; use an "
@@ -1569,9 +1639,12 @@ _WORLD_SYSTEM = (
     "`genre` must be one of: " + ", ".join(GENRES) + "; use `custom` for a blend or premise "
     "outside the named presets. `time` must be one of: " + ", ".join(TIMES)
     + ". `setting` should be a substantial, "
-    "vivid paragraph (or more) that captures what makes this world ITSELF. Give 4-6 factions "
+    "vivid paragraph (or more) that captures what makes this world ITSELF. By default, give "
+    "4-6 factions "
     "with names that imply agendas, 5-8 locations, 4-8 npcs with sharp one-line hooks, 5-8 "
-    "aspects (laws of the world: magic, tech, cosmology, taboos). Write every `factions` and "
+    "aspects (laws of the world: magic, tech, cosmology, taboos). These are richness defaults, "
+    "not hidden minimums: exact counts in the player's notes override them, including lower "
+    "counts for factions, locations, npcs, aspects, or fronts. Write every `factions` and "
     "`locations` entry as \"Name — one-line hook\" (an em-dash, then what it wants or hides — "
     "a bare name is a wasted row); COMPLETE the sentence, never trail off. Be evocative and SPECIFIC — "
     "proper nouns, concrete images, no generic fantasy filler. If the player gives `notes`, "
@@ -1592,6 +1665,8 @@ _CHAR_SYSTEM_TMPL = (
     "\"concept\":str,\"level\":int,"
     "\"stats\":{{STAT:int}},\"skills\":{{skill_id:rank}},\"abilities\":[ability_id],"
     "\"gear\":[str OR {{\"name\":str,\"slot\":str,\"effect\":str}}],"
+    "\"resources\":{{\"resource_id\":{{\"name\":str,\"cur\":int,\"max\":int,"
+    "\"color\":\"#rrggbb\"}}}},"
     "\"extras\":[{{\"label\":str,\"text\":str}}],"
     "\"defs\":{{\"skills\":[{{\"id\":str,\"name\":str,\"keyed_stat\":STAT,\"base_mod\":int,"
     "\"max_rank\":int,\"governs\":[str],\"desc\":str,\"requires_ability\":str,\"group\":str,"
@@ -1621,8 +1696,13 @@ _CHAR_SYSTEM_TMPL = (
     "PREFER these dice-shapers over dull flat bonuses; use `mechanic`:`mod` + `passive_mod` only "
     "for a plain humble +1. `applies_to` is a skill id or \"all\"; `magnitude` is the extra dice or "
     "bonus (1-3); actives may set `cost` (whole amounts {cost_min}-{cost_max}, normally 1-5, "
-    "from stamina, mana, HP, or exact custom resource ids declared in the Player seed) and "
-    "`cooldown_turns`; omit `cost` for a free active and never invent a resource id. `group` is a "
+    "from stamina, mana, HP, or exact custom resource ids declared in the Player seed or in "
+    "your `resources` response) and `cooldown_turns`; omit `cost` for a free active. Return "
+    "`resources`:{{}} unless the Player already declared a pool or explicitly requests a named "
+    "custom resource in their notes. For such a request, declare the stable lowercase id, "
+    "visible name, integer current and maximum (1-{cost_max}), and optional #rrggbb color in "
+    "`resources` before using that exact id in any cost. Never invent an unrequested pool. "
+    "`group` is a "
     "free-form CATEGORY that sections the sheet — use talent (passive) / technique (active) / "
     "spell (magic) by default, OR invent a genre-true category and reuse it across related "
     "skills AND abilities (e.g. \"Spells\", \"Cyber-Ware\", \"Disciplines\", \"Hexes\") so the "
@@ -1834,7 +1914,9 @@ def _char_user(seed: dict, world: Optional[dict]) -> str:
     if isinstance(seed.get("hp"), dict):
         declared["hp"] = _resource_row(seed["hp"], default_max=20, minimum_max=1)
     if declared:
-        lines.append("- declared resource pools (costs may use only these ids): " + ", ".join(
+        lines.append("- existing declared resource pools (preserve these exactly; costs may use "
+                     "these ids, plus a named custom pool explicitly requested below only after "
+                     "declaring it in the response's resources object): " + ", ".join(
             f"{rid}={row['cur']}/{row['max']}"
             + (f" ({row['name']})" if row.get("name") else "")
             for rid, row in declared.items()))
@@ -2068,6 +2150,7 @@ def _named_row_complete(value) -> bool:
 
 
 _DIRECTION_NUMBERS = {
+    "zero": 0,
     "one": 1,
     "two": 2,
     "three": 3,
@@ -2274,10 +2357,71 @@ def _custom_definition_issues(custom: object, reg, seed: dict) -> list[str]:
     return issues
 
 
+def _creator_resource_issues(value: object) -> list[str]:
+    """Reject malformed model-authored resource bars before deterministic clamping.
+
+    Creator may now fulfill an explicit Player request for a named custom pool.  These checks
+    ensure a broken proposal never turns negative, fractional, over-cap, or ambiguous resource
+    values into apparently valid mechanics through normalization.
+    """
+    if value is None:
+        return []
+    if not isinstance(value, dict):
+        return ["resources must be an object"]
+    issues: list[str] = []
+    custom_count = 0
+    for raw_id, spec in value.items():
+        rid = _resource_id(raw_id)
+        label = f"resource '{_s(raw_id, 60) or '?'}'"
+        if not rid or not isinstance(spec, dict):
+            issues.append(f"{label} is invalid")
+            continue
+        if rid not in _BUILTIN_RESOURCE_IDS:
+            custom_count += 1
+        maximum = spec.get("max")
+        minimum = 0 if rid in {"stamina", "mana"} else 1
+        if (isinstance(maximum, bool) or not isinstance(maximum, int)
+                or not minimum <= maximum <= 10000):
+            issues.append(f"{label} has an invalid maximum")
+            continue
+        current = spec.get("cur", spec.get("current", maximum))
+        if (isinstance(current, bool) or not isinstance(current, int)
+                or not 0 <= current <= maximum):
+            issues.append(f"{label} has an invalid current value")
+        name = spec.get("name")
+        if name is not None and (
+                not isinstance(name, str) or not name.strip() or len(name.strip()) > 60):
+            issues.append(f"{label} has an invalid name")
+        color = spec.get("color")
+        if color is not None and (
+                not isinstance(color, str) or not _RESOURCE_COLOR_RE.fullmatch(color.strip())):
+            issues.append(f"{label} has an invalid color")
+    if custom_count > _MAX_LIST:
+        issues.append(f"resources exceed the {_MAX_LIST}-row limit")
+    try:
+        _declared_resources(value)
+    except ValueError as exc:
+        issues.append(str(exc))
+    return issues
+
+
 def _exact_direction_count(notes: str, noun: str) -> Optional[int]:
     """Read only unambiguous 'exactly N <noun>' constraints from creative direction."""
+    # Accept the ordinary labels shown in Creator itself ("key locations", "notable NPCs",
+    # "faction fronts", etc.).  Keeping this list noun-specific preserves the deliberately
+    # narrow exact-count grammar while ensuring the visible UI vocabulary is not a trap.
+    qualifiers = {
+        "faction": ("named", "distinct"),
+        "location": ("named", "key", "distinct"),
+        "npc": ("named", "notable", "key", "distinct"),
+        "aspect": ("named", "world", "lore"),
+        "front": ("named", "faction", "world"),
+        "gear": ("named", "starting", "distinct"),
+    }.get(noun, ("named",))
+    qualifier_pattern = "|".join(re.escape(value) for value in qualifiers)
     match = re.search(
-        rf"\bexactly\s+(\d+|{'|'.join(_DIRECTION_NUMBERS)})\s+(?:named\s+)?{noun}s?\b",
+        rf"\bexactly\s+(\d+|{'|'.join(_DIRECTION_NUMBERS)})\s+"
+        rf"(?:(?:{qualifier_pattern})\s+){{0,2}}{noun}s?\b",
         str(notes or ""),
         re.IGNORECASE,
     )
@@ -2287,10 +2431,37 @@ def _exact_direction_count(notes: str, noun: str) -> Optional[int]:
     return int(token) if token.isdigit() else _DIRECTION_NUMBERS[token]
 
 
+def _direction_world_count(notes: str, noun: str) -> Optional[int]:
+    """Return one explicit world-row count without interpreting general creative prose.
+
+    Exact counts work for every supported world collection. Fronts additionally accept a few
+    unambiguous zero-count forms because "no fronts" is the natural Player-facing instruction
+    for a world that does not use agenda clocks.
+    """
+    exact = _exact_direction_count(notes, noun)
+    if exact is not None:
+        return exact
+    if noun != "front":
+        return None
+    text = str(notes or "")
+    no_fronts = (
+        r"\bno\s+(?:named\s+)?fronts?\b",
+        r"\bwithout\s+(?:any\s+)?fronts?\b",
+        r"\b(?:do\s+not|don't)\s+(?:include|create|add|use)\s+(?:any\s+)?fronts?\b",
+        r"\bomit\s+(?:all\s+)?fronts?\b",
+    )
+    return 0 if any(re.search(pattern, text, re.IGNORECASE) for pattern in no_fronts) else None
+
+
 def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str]:
     """Return structural/completeness failures without echoing generated prose."""
     issues: list[str] = []
     seed = seed if isinstance(seed, dict) else {}
+    notes = seed.get("notes", "")
+    requested_counts = {
+        noun: _direction_world_count(notes, noun)
+        for noun in ("faction", "location", "npc", "aspect", "front")
+    }
     issues.extend(_world_entity_namespace_issues(doc))
     allowed_keys = {
         "name", "genre", "setting", "date", "time", "tone", "factions", "locations",
@@ -2331,12 +2502,16 @@ def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str
 
     factions = doc.get("factions")
     locations = doc.get("locations")
-    if not isinstance(factions, list) or len(factions) < 4 or not all(
+    faction_floor = (4 if requested_counts["faction"] is None
+                     else requested_counts["faction"])
+    location_floor = (5 if requested_counts["location"] is None
+                      else requested_counts["location"])
+    if not isinstance(factions, list) or len(factions) < faction_floor or not all(
             _named_row_complete(row) and len(row.strip()) <= 2000 for row in factions):
-        issues.append("factions need at least four complete named rows")
-    if not isinstance(locations, list) or len(locations) < 5 or not all(
+        issues.append(f"factions need at least {faction_floor} complete named rows")
+    if not isinstance(locations, list) or len(locations) < location_floor or not all(
             _named_row_complete(row) and len(row.strip()) <= 2000 for row in locations):
-        issues.append("locations need at least five complete named rows")
+        issues.append(f"locations need at least {location_floor} complete named rows")
     faction_names = {
         _row_head(row) for row in (factions if isinstance(factions, list) else [])
         if _row_head(row)
@@ -2347,8 +2522,9 @@ def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str
     }
 
     npcs = doc.get("npcs")
-    if not isinstance(npcs, list) or len(npcs) < 4:
-        issues.append("npcs need at least four rows")
+    npc_floor = 4 if requested_counts["npc"] is None else requested_counts["npc"]
+    if not isinstance(npcs, list) or len(npcs) < npc_floor:
+        issues.append(f"npcs need at least {npc_floor} rows")
     else:
         for index, npc in enumerate(npcs):
             if not isinstance(npc, dict) or not all(
@@ -2366,10 +2542,11 @@ def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str
                 issues.append(f"npc {index + 1} home is not an authored location")
 
     aspects = doc.get("aspects")
-    if not isinstance(aspects, list) or len(aspects) < 5 or not all(
+    aspect_floor = 5 if requested_counts["aspect"] is None else requested_counts["aspect"]
+    if not isinstance(aspects, list) or len(aspects) < aspect_floor or not all(
             isinstance(row, str) and len(row.strip()) <= _CREATOR_ROW_PROSE_MAX
             and _prose_complete(row, minimum=8) for row in aspects):
-        issues.append("aspects need at least five complete rows")
+        issues.append(f"aspects need at least {aspect_floor} complete rows")
 
     loot = doc.get("loot")
     if not isinstance(loot, dict):
@@ -2399,8 +2576,9 @@ def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str
                 issues.append(f"loot.{tier} needs two valid rows")
 
     fronts = doc.get("fronts")
-    if not isinstance(fronts, list) or len(fronts) < 2:
-        issues.append("fronts need at least two rows")
+    front_floor = 2 if requested_counts["front"] is None else requested_counts["front"]
+    if not isinstance(fronts, list) or len(fronts) < front_floor:
+        issues.append(f"fronts need at least {front_floor} rows")
     else:
         for index, front in enumerate(fronts):
             if not isinstance(front, dict):
@@ -2433,10 +2611,18 @@ def _world_validation_issues(doc: dict, seed: Optional[dict] = None) -> list[str
                         or not 1 <= duration <= 100))
                     or (spawn is not None and not isinstance(spawn, bool))):
                 issues.append(f"front {index + 1} has invalid fields")
-    exact_fronts = _exact_direction_count(seed.get("notes", ""), "front")
-    if exact_fronts is not None and (
-            not isinstance(fronts, list) or len(fronts) != exact_fronts):
-        issues.append(f"creative direction requires exactly {exact_fronts} fronts")
+    collections = {
+        "faction": factions,
+        "location": locations,
+        "npc": npcs,
+        "aspect": aspects,
+        "front": fronts,
+    }
+    for noun, requested in requested_counts.items():
+        rows = collections[noun]
+        if requested is not None and (
+                not isinstance(rows, list) or len(rows) != requested):
+            issues.append(f"creative direction requires exactly {requested} {noun}s")
 
     routes = doc.get("routes")
     if not isinstance(routes, list):
@@ -2472,7 +2658,7 @@ def _player_validation_issues(doc: dict, reg, pack: Optional[dict] = None,
     seed = seed if isinstance(seed, dict) else {}
     allowed_keys = {
         "name", "sex", "pronouns", "species", "appearance", "concept", "level", "stats",
-        "skills", "abilities", "gear", "extras", "defs",
+        "skills", "abilities", "gear", "resources", "extras", "defs",
     }
     if set(doc) - allowed_keys:
         issues.append("character proposal contains fields outside the requested schema")
@@ -2506,8 +2692,15 @@ def _player_validation_issues(doc: dict, reg, pack: Optional[dict] = None,
                     or not int(spec.get("min", 1)) <= value <= int(spec.get("max", 20))):
                 issues.append(f"invalid stat {sid}")
 
+    proposed_resources = doc.get("resources") if isinstance(doc.get("resources"), dict) else {}
+    seed_resources = seed.get("resources") if isinstance(seed.get("resources"), dict) else {}
+    combined_resources = dict(proposed_resources)
+    combined_resources.update(seed_resources)  # typed Player values win over model echoes
+    resource_context = dict(seed)
+    resource_context["resources"] = combined_resources
+    issues.extend(_creator_resource_issues(doc.get("resources")))
     custom = doc.get("defs") if isinstance(doc.get("defs"), dict) else {}
-    issues.extend(_custom_definition_issues(doc.get("defs"), reg, seed))
+    issues.extend(_custom_definition_issues(doc.get("defs"), reg, resource_context))
     custom_skills = {
         slug(_s(row.get("id") or row.get("name"), 40))
         for row in _def_rows(custom.get("skills")) if row.get("id") or row.get("name")
@@ -2582,6 +2775,10 @@ def _player_validation_issues(doc: dict, reg, pack: Optional[dict] = None,
                     "creative direction requires every gear row to have a complete effect"
                 )
                 break
+    requested_gear = _exact_direction_count((seed or {}).get("notes", ""), "gear")
+    if requested_gear is not None and (
+            not isinstance(gear, list) or len(gear) != requested_gear):
+        issues.append(f"creative direction requires exactly {requested_gear} gear entries")
     for requirement in _direction_structured_gear_requirements((seed or {}).get("notes", "")):
         matching = next((
             item for item in (gear if isinstance(gear, list) else [])
@@ -2833,8 +3030,14 @@ async def author_player(get_client, cfg, ep, seed: dict, world: Optional[dict] =
                     merged[k] = seed[k]
             if isinstance(seed.get("stats"), dict):
                 merged.setdefault("stats", {}).update(seed["stats"])
-            if isinstance(seed.get("resources"), dict):       # explicit pools (especially HP)
-                merged["resources"] = seed["resources"]      # are Player-authored canon too
+            model_resources = (parsed.get("resources")
+                               if isinstance(parsed.get("resources"), dict) else {})
+            seed_resources = (seed.get("resources")
+                              if isinstance(seed.get("resources"), dict) else {})
+            if model_resources or seed_resources:
+                merged_resources = dict(model_resources)
+                merged_resources.update(seed_resources)       # typed pools (especially HP)
+                merged["resources"] = merged_resources       # are Player-authored canon too
             if isinstance(seed.get("hp"), dict):              # committed Player Card shape
                 merged["hp"] = seed["hp"]
             if seed.get("level") not in (None, ""):
