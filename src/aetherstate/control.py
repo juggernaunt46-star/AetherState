@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
 import secrets
+import tempfile
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -2416,7 +2418,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             return {"query": q, "hits": []}
 
     # ---- world-specific Narrator card (2026-07-07): make the built world VISIBLE in the
-    # frontend. Projects committed world (creator.world_from_state) + Player Card into a V2
+    # frontend. Projects immutable Creator source + Player Card into a V2
     # SillyTavern card. Read-only; never touches the stream; a `none` session's wire is
     # unaffected (control routes are off the relay).
     def _narrator_sources(sid: str):
@@ -2429,12 +2431,12 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         except Exception:
             return None, None
         try:
-            world = _creator.world_from_state(state)
+            world = _creator.world_source_from_state(state)
         except Exception:
             world = {}
         players = state.get("player") or {}
         pkey = next(iter(players), None)
-        player = _creator.player_from_state(state) if pkey else None
+        player = _creator.player_source_from_state(state) if pkey else None
         return world, player
 
     def _narrator_source_error(sid: str, world) -> JSONResponse | None:
@@ -2447,9 +2449,17 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             }, status_code=409)
         return None
 
-    def _card_filename(name: str) -> str:
+    def _card_fingerprint(card: dict) -> str:
+        aes = (((card or {}).get("data") or {}).get("extensions") or {}).get("aetherstate") or {}
+        return str(aes.get("seed_fingerprint") or "")
+
+    def _card_filename(name: str, card: dict) -> str:
         keep = "".join(c if (c.isalnum() or c in " -_") else "_" for c in (name or "Narrator"))
-        return (keep.strip() or "Narrator")[:48] + ".png"
+        base = (keep.strip() or "Narrator")[:48]
+        fingerprint = _card_fingerprint(card)
+        digest = fingerprint.removeprefix("sha256:")
+        suffix = digest[:16] if len(digest) == 64 and all(c in "0123456789abcdef" for c in digest) else ""
+        return base + (f"--{suffix}" if suffix else "") + ".png"
 
     def _install_card(png: bytes, fname: str):
         """Best-effort install into [specialization].narrator_card_dir (fail-open). Returns
@@ -2457,14 +2467,30 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         target = str(getattr(getattr(cfg, "specialization", None), "narrator_card_dir", "") or "").strip()
         if not target:
             return "", ""
+        temporary: Path | None = None
         try:
             d = Path(target).expanduser()
             if not d.is_dir():
                 return "", "narrator_card_dir is not a directory"
-            (d / fname).write_bytes(png)
-            return str(d / fname), ""
+            destination = d / fname
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=d, prefix=f".{fname}.", suffix=".tmp", delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(png)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, destination)
+            temporary = None
+            return str(destination), ""
         except Exception as exc:
             return "", f"install failed: {type(exc).__name__}"
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     @router.post("/narrator-card")
     async def narrator_card_build(request: Request):
@@ -2486,9 +2512,10 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         card = _narrator.build_card(world, player)
         png = _narrator.card_png(card, world)
         name = card["data"]["name"]
-        fname = _card_filename(name)
+        fname = _card_filename(name, card)
         installed, err = _install_card(png, fname)
-        seed = card["data"]["extensions"]["aetherstate"].get("seed", {})
+        aes = card["data"]["extensions"]["aetherstate"]
+        seed = aes.get("seed", {})
         return {
             "name": name,
             "world": str((world or {}).get("name") or ""),
@@ -2497,6 +2524,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             "installed": installed,
             "error": err,
             "filename": fname,
+            "seed_fingerprint": _card_fingerprint(card),
             "tags": card["data"]["tags"],
             "seeded_world": bool(seed.get("world", {}).get("name")),
             "seeded_player": bool(seed.get("player")),
@@ -2513,7 +2541,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             return problem
         card = _narrator.build_card(world, player)
         png = _narrator.card_png(card, world)
-        fname = _card_filename(card["data"]["name"])
+        fname = _card_filename(card["data"]["name"], card)
         return Response(
             content=png,
             media_type="image/png",
@@ -2541,8 +2569,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         card = _narrator.build_card(world, player)
         png = _narrator.card_png(card, world)
         name = card["data"]["name"]
-        fname = _card_filename(name)
+        fname = _card_filename(name, card)
         installed, err = _install_card(png, fname)
+        seed = card["data"]["extensions"]["aetherstate"].get("seed", {})
         return {
             "name": name,
             "world": str((world or {}).get("name") or ""),
@@ -2550,7 +2579,10 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             "installed": installed,
             "error": err,
             "filename": fname,
+            "seed_fingerprint": _card_fingerprint(card),
             "tags": card["data"]["tags"],
+            "seeded_world": bool(seed.get("world", {}).get("name")),
+            "seeded_player": bool(seed.get("player")),
             "png_b64": base64.b64encode(png).decode("ascii"),
             "download": f"/aether/session/{sid}/narrator-card.png",
         }

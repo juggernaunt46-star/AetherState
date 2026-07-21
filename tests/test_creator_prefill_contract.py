@@ -44,6 +44,13 @@ async def test_creator_page_is_never_served_from_a_stale_browser_cache(client):
     assert "searchParams.set(\"fresh\"" in response.text
     assert "const st=await api(`/aether/session/${SID}/state`)" not in response.text
     assert "pre.effects_live||{}" in response.text
+    assert "r.seed_fingerprint" in response.text
+    assert "File: ${r.filename}" in response.text
+    assert "carries=!!r.seeded_world" in response.text
+    assert "r.seeded_player?\" + character\":\"\"" in response.text
+    assert "r.seeded_player||p.name" not in response.text
+    assert "Next: reload SillyTavern" in response.text
+    assert "avatar hover shows “${r.filename}”" in response.text
 
 
 async def test_world_prefill_separates_authored_source_from_live_projection(
@@ -157,6 +164,68 @@ async def test_player_prefill_resave_preserves_live_hp_and_never_duplicates_gear
     assert state["player"]["rook"]["concept"] == "senior claim runner"
     assert state["player"]["rook"]["hp"] == {"cur": 3, "max": 10}
     assert _owned_quantity(state, "rook", "Audit Knife") == 1
+
+
+async def test_session_narrator_card_uses_authored_source_not_live_projection(
+    client, proxy_app, cfg,
+):
+    sid = "session-card-authored-source"
+    world = await client.post(f"/aether/session/{sid}/world", json={"world": {
+        "name": "Sourcewake",
+        "world_id": "world_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "locations": ["Source Quay"],
+        "npcs": [{
+            "name": "Mara",
+            "role": "harbor guide",
+            "home": "Source Quay",
+        }],
+    }})
+    player = await client.post(f"/aether/session/{sid}/player", json={"player": {
+        "name": "Rook",
+        "resources": {"hp": {"max": 10}},
+        "gear": ["Audit Knife"],
+    }})
+    assert world.status_code == 200 and world.json()["applied"] > 0
+    assert player.status_code == 200 and player.json()["applied"] > 0
+
+    store = proxy_app.state.store
+    row = _session_row(store, sid)
+    branch = row["active_branch"]
+    apply_delta(
+        store,
+        row["session_id"],
+        branch,
+        max(1, _head(store, branch) + 1),
+        [
+            {"op": "entity_add", "name": "Tide Wisp", "kind": "npc"},
+            {"op": "player_seed", "entity": "rook", "card": {
+                "hp": {"cur": 3, "max": 10},
+            }},
+        ],
+        "user",
+        cfg,
+    )
+
+    prefill = (await client.get(f"/aether/session/{sid}/creator")).json()
+    assert prefill["player"]["resources"]["hp"] == {"cur": 10, "max": 10}
+    assert prefill["player_live"]["resources"]["hp"] == {"cur": 3, "max": 10}
+    assert [npc["name"] for npc in prefill["world"]["npcs"]] == ["Mara"]
+    assert sorted(npc["name"] for npc in prefill["world_live"]["npcs"]) == [
+        "Mara",
+        "Tide Wisp",
+    ]
+
+    response = await client.get(f"/aether/session/{sid}/narrator-card.json")
+    assert response.status_code == 200
+    seed = response.json()["data"]["extensions"]["aetherstate"]["seed"]
+    observed = {
+        "hp": seed["player"]["resources"]["hp"],
+        "npcs": sorted(npc["name"] for npc in seed["world"]["npcs"]),
+    }
+    assert observed == {
+        "hp": {"cur": 10, "max": 10},
+        "npcs": ["Mara"],
+    }
 
 
 async def test_session_free_card_rejects_cross_document_entity_collision(client):

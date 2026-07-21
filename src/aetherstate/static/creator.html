@@ -1300,13 +1300,15 @@ async function genNarratorCard(fromSession){
       setCardMsg("Nothing to build yet — give your world a name or setting, then generate."); return; }
     if(dl){ const a=document.createElement("a"); a.href=dl; a.download=r.filename||"Narrator.png";
       document.body.appendChild(a); a.click(); a.remove(); }
-    const nm=r.name||"Narrator", carries=(r.seeded_world||haveForm);
+    const nm=r.name||"Narrator", carries=!!r.seeded_world;
+    const revision=String(r.seed_fingerprint||"").replace(/^sha256:/,"").slice(0,8);
     let msg=`✅ Card “${nm}”`+(r.world?` for ${r.world}`:"")+" is ready — downloaded"+
       (r.installed?" and installed into SillyTavern":"")+".";
-    if(carries) msg+=" It carries your world"+((r.seeded_player||p.name)?" + character":"")+
+    if(r.filename) msg+=` File: ${r.filename}`+(revision?` (revision ${revision})`:"")+".";
+    if(carries) msg+=" It carries your world"+(r.seeded_player?" + character":"")+
       " as a seed, so a NEW chat with this card seeds the ledger automatically — no re-applying.";
     msg+=r.installed
-      ? ` Next: in SillyTavern refresh the character list, open a NEW chat with “${nm}”, and play.`
+      ? ` Next: reload SillyTavern, then open a NEW chat with the revision whose avatar hover shows “${r.filename}”, and play.`
       : " Next: in SillyTavern go Characters → Import, pick the downloaded file, open a new chat, and play.";
     if(r.error) msg+=` (install note: ${r.error})`;
     toast("Narrator card ready ✓ — check your downloads","ok");

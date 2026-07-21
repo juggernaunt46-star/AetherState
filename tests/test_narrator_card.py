@@ -13,6 +13,7 @@ import json
 
 import httpx
 
+from aetherstate import control as control_module
 from aetherstate import creator, narrator, prompts
 from aetherstate.app import create_app
 from aetherstate.config import Config
@@ -92,7 +93,7 @@ def test_build_card_surfaces_the_world():
     assert c["mes_example"] == ""
     assert "AetherState" not in c["description"]
     assert "managed by the AetherState engine" not in c["scenario"]
-    assert c["character_version"] == "aether-world-1.2"
+    assert c["character_version"] == "aether-world-1.3"
 
 
 def test_narrator_envelope_defines_private_input_and_visible_output_boundaries():
@@ -174,11 +175,15 @@ async def test_narrator_card_routes_from_committed_world(client):
     assert p.status_code == 200 and p.headers["content-type"] == "image/png"
     assert p.content[:8] == b"\x89PNG\r\n\x1a\n"
     assert "Gallowmere" in p.headers.get("content-disposition", "")
+    assert "Gallowmere--" in p.headers.get("content-disposition", "")
 
     post = await client.post("/aether/session/narr-t/narrator-card")
     body = post.json()
     assert post.status_code == 200 and body["world"] == "Gallowmere"
     assert body["bytes"] > 1000 and body["installed"] == ""   # no dir configured -> download only
+    assert body["filename"].startswith("Gallowmere--")
+    assert body["seed_fingerprint"].startswith("sha256:")
+    assert body["seeded_world"] is True and body["seeded_player"] is False
 
 
 async def test_session_card_never_claims_success_for_unknown_or_worldless_session(client):
@@ -229,6 +234,72 @@ async def test_install_writes_png_when_dir_configured(tmp_path):
         await upstream.aclose()
 
 
+async def test_same_named_card_sources_install_as_distinct_atomic_revisions(
+    tmp_path, monkeypatch,
+):
+    chars = tmp_path / "characters"
+    chars.mkdir()
+    cfg = Config()
+    cfg.server.data_dir = str(tmp_path)
+    cfg.specialization.narrator_card_dir = str(chars)
+    mock = MockUpstream()
+    transport = httpx.ASGITransport(app=mock)
+    upstream = httpx.AsyncClient(transport=transport, base_url="http://mock-upstream")
+    app = create_app(cfg, client_factory=lambda: upstream, store=Store(":memory:"))
+    first_payload = {
+        "world": dict(_WORLD, world_id="world_11111111111111111111111111111111"),
+        "player": {"name": "Rook", "resources": {"Resolve": {"cur": 3, "max": 7}}},
+    }
+    second_payload = {
+        "world": dict(_WORLD, world_id="world_11111111111111111111111111111111"),
+        "player": {"name": "Rook", "resources": {"Resolve": {"cur": 6, "max": 7}}},
+    }
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://proxy",
+        ) as c:
+            first = (await c.post("/aether/narrator-card", json=first_payload)).json()
+            second = (await c.post("/aether/narrator-card", json=second_payload)).json()
+            repeat = (await c.post("/aether/narrator-card", json=first_payload)).json()
+
+            assert first["filename"] == repeat["filename"]
+            assert first["seed_fingerprint"] == repeat["seed_fingerprint"]
+            assert first["filename"] != second["filename"]
+            assert first["seed_fingerprint"] != second["seed_fingerprint"]
+            assert first["filename"].startswith("Gallowmere--")
+            assert first["filename"].endswith(".png")
+            for response in (first, second, repeat):
+                revision = response["filename"].removesuffix(".png").rsplit("--", 1)[1]
+                response_revision = response["seed_fingerprint"].removeprefix("sha256:")[:16]
+                embedded = _extract_chara(base64.b64decode(response["png_b64"]))
+                embedded_fingerprint = embedded["data"]["extensions"]["aetherstate"][
+                    "seed_fingerprint"
+                ]
+                embedded_revision = embedded_fingerprint.removeprefix("sha256:")[:16]
+                assert revision == response_revision == embedded_revision
+            first_path = chars / first["filename"]
+            second_path = chars / second["filename"]
+            assert first_path.read_bytes() == base64.b64decode(first["png_b64"])
+            assert second_path.read_bytes() == base64.b64decode(second["png_b64"])
+            assert not list(chars.glob("*.tmp")) and not list(chars.glob(".*.tmp"))
+
+            original = first_path.read_bytes()
+
+            def fail_replace(_source, _destination):
+                raise OSError("simulated replace failure")
+
+            monkeypatch.setattr(control_module.os, "replace", fail_replace)
+            failed = (await c.post("/aether/narrator-card", json=first_payload)).json()
+            assert failed["installed"] == ""
+            assert failed["error"] == "install failed: OSError"
+            assert base64.b64decode(failed["png_b64"]) == original
+            assert first_path.read_bytes() == original
+            assert not list(chars.glob("*.tmp")) and not list(chars.glob(".*.tmp"))
+    finally:
+        await app.state.jobs.stop()
+        await upstream.aclose()
+
+
 # ------------------------------ card carries a seed (2026-07-08) -------------------
 # The card is the CARRIER: it embeds the whole world + Player Card so a fresh chat rebuilds the
 # ledger with no LLM (the ST extension replays the seed through /aether/session/{sid}/seed). This
@@ -238,9 +309,32 @@ def test_build_card_embeds_world_and_player_seed():
                                      "stats": {"STR": 12}})["data"]
     aes = c["extensions"]["aetherstate"]
     assert aes["min_proxy"] == "1.6.0" and aes["seed_version"]
+    assert c["character_version"] == "aether-world-1.3"
     seed = aes["seed"]
     assert seed["world"]["name"] == "Gallowmere" and seed["world"]["factions"]  # whole world doc
     assert seed["player"]["name"] == "Rook"                                     # + Player Card
+    assert aes["seed_fingerprint_version"] == "aether-seed-fingerprint-1"
+    assert aes["seed_fingerprint"] == narrator.seed_fingerprint(seed)
+
+
+def test_seed_fingerprint_is_canonical_source_identity_not_private_direction():
+    first = {"world": {"name": "Samewake", "locations": ["North Quay"]},
+             "player": {"name": "Rook", "resources": {"focus": {"cur": 2, "max": 4}}}}
+    reordered = {"player": {"resources": {"focus": {"max": 4, "cur": 2}}, "name": "Rook"},
+                 "world": {"locations": ["North Quay"], "name": "Samewake"}}
+    changed = {"world": {"name": "Samewake", "locations": ["South Quay"]},
+               "player": first["player"]}
+    assert narrator.seed_fingerprint(first) == narrator.seed_fingerprint(reordered)
+    assert narrator.seed_fingerprint(first) != narrator.seed_fingerprint(changed)
+
+    with_direction = narrator.build_card(
+        {"name": "Samewake", "locations": ["North Quay"], "notes": "private world direction"},
+        {"name": "Rook", "notes": "private character direction"},
+    )["data"]["extensions"]["aetherstate"]
+    without_direction = narrator.build_card(
+        {"name": "Samewake", "locations": ["North Quay"]}, {"name": "Rook"},
+    )["data"]["extensions"]["aetherstate"]
+    assert with_direction["seed_fingerprint"] == without_direction["seed_fingerprint"]
 
 
 def test_card_seed_roundtrips_committed_hp_custom_resource_and_cost():
