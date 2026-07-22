@@ -217,6 +217,31 @@ def test_creator_blank_active_cost_means_none_instead_of_stamina_fallback():
     assert "cost" not in p["defs"]["abilities"]["cinder_burst"]
 
 
+def test_nonmagical_basis_and_zero_rank_spellcraft_do_not_materialize_mana():
+    p = creator.deterministic_player({
+        "skills": {"spellcraft": 0},
+        "custom": {"abilities": [{
+            "name": "Signal Training",
+            "kind": "basis",
+            "mechanic": "basis",
+            "effect": "Provides the training needed to compare damaged signals.",
+        }]},
+    })
+
+    assert "signal_training" in p["abilities"]
+    assert "mana" not in p["resources"]
+
+
+def test_ranked_arcane_skill_still_materializes_mana_and_explicit_mana_still_wins():
+    ranked = creator.deterministic_player({"skills": {"spellcraft": 1}})
+    explicit = creator.deterministic_player({
+        "resources": {"mana": {"name": "Mana", "cur": 4, "max": 6}},
+    })
+
+    assert ranked["resources"]["mana"]["max"] == 10
+    assert explicit["resources"]["mana"] == {"name": "Mana", "cur": 4, "max": 6}
+
+
 @pytest.mark.parametrize(("doc", "message"), [
     ({
         "resources": {"Focus": {"name": "Focus", "max": 4}},

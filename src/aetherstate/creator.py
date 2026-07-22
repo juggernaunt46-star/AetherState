@@ -914,20 +914,21 @@ def deterministic_player(doc: dict, cfg=None) -> dict:
     hp = _resource_row(hp_doc, default_max=20, minimum_max=1) if hp_doc is not None else \
         declared_resources.get("hp", _resource_row({}, default_max=20, minimum_max=1))
     # RPG-5 (doc 10 §6): pools. Stamina is universal; mana materializes only when the sheet
-    # is magic-shaped (a basis ability, a gated skill, or a def that spends mana) — a
-    # low-magic character never shows a Mana bar. All Console-editable afterwards.
+    # actually uses Arcane Gift, a ranked Arcane-Gift-gated skill, or a def that spends mana.
+    # A nonmagical basis ability and a zero-rank gated skill must not create a Mana bar.
     resources: dict = {"hp": hp}
     stamina = declared_resources.get(
         "stamina", _resource_row({}, default_max=12, minimum_max=0),
     )
     if stamina["max"]:
         resources["stamina"] = stamina
-    magicish = any((a or {}).get("kind") == "basis" for a in def_abils.values()) \
+    magicish = "arcane_gift" in abilities \
         or any(isinstance(sk, dict) and "mana" in (sk.get("cost") or {})
                for sk in def_skills.values()) \
         or any(isinstance(ab, dict) and "mana" in (ab.get("cost") or {})
                for ab in def_abils.values()) \
-        or any((reg.skills.get(s) or {}).get("requires_ability") for s in skills)
+        or any(rank > 0 and (reg.skills.get(s) or {}).get("requires_ability") == "arcane_gift"
+               for s, rank in skills.items())
     mana = declared_resources.get(
         "mana", _resource_row({}, default_max=10 if magicish else 0, minimum_max=0),
     )
