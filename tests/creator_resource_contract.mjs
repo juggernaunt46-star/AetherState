@@ -1020,6 +1020,7 @@ for (const required of [
   'id="w_quest" maxlength="8000" data-limit="8000"',
   'id="c_appearance" maxlength="4000" data-limit="4000"',
   'id="c_notes" maxlength="32768" data-limit="32768"',
+  'placeholder="item name" maxlength="60"',
   'id="w_fronts"', 'id="w_loot_standard"', 'id="w_routes"',
   'data-field="governs"', 'data-field="desc"', 'data-field="effect"',
   "Custom world lore", "Faction fronts", "Starting gear",

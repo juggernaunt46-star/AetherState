@@ -794,7 +794,7 @@ function addGearRow(g){ if(!mayAddRow("c_gear_rows",g==null)) return; g=g||{}; c
   const slot = (typeof g==="object" && g) ? (g.slot||"") : "";
   const eff  = (typeof g==="object" && g) ? (g.effect||g.aura||g.prose||"") : "";
   const opts = GEAR_SLOTS_UI.map(([v,l])=>`<option value="${v}" ${slot===v?'selected':''}>${l}</option>`).join("");
-  d.innerHTML=`<input placeholder="item name" maxlength="80" value="${attrEsc(name)}" style="flex:1;min-width:110px">
+  d.innerHTML=`<input placeholder="item name" maxlength="60" value="${attrEsc(name)}" style="flex:1;min-width:110px">
     <select title="which slot it occupies — 'auto' lets the engine guess" style="flex:0 0 92px">${opts}</select>
     ${limitedControl(`<textarea rows="2" maxlength="4000" data-limit="4000" placeholder="what it does — prose/glamour/lore (optional)">${esc(eff)}</textarea>`,4000)}
     <button class="mini x" onclick="removeDraftRow(this)">✕</button>`;
