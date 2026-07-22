@@ -27,12 +27,14 @@ then defaults. `Config.source` records which loaded.
 **Local play diagnostics.** Normal `Start-AetherState.bat` runs append to
 `aetherstate-data/turn-trace.jsonl`; the active file
 rotates to `.1`, `.2`, and `.3` at the configured bound, so evidence survives restarts without
-unbounded growth. Each stamped turn records exact session/branch identity, journaled mechanics,
-post-response state, branch lineage, the exact AetherState-owned turn/directive blocks sent to the
-narrator, and model response status/byte hash plus header, first-chunk, and total latency. The
-trace does **not** record Authorization headers, API keys, configured endpoints, the full chat
-request, the Player prose following the directive prefix, or raw model reply prose. It does contain
-private world/state and narrator-directive data; treat the whole `aetherstate-data` folder as private.
+unbounded growth. Each stamped turn records bounded, content-free receipts: exact
+session/branch/turn identity; final narrator-packet roles, kinds, sizes, SHA-256 identities,
+request-field names, and sentinel state; mechanics/journal and post-response state manifests;
+branch lineage; and model response status/byte hash plus header, first-chunk, and total latency.
+Normalized messages, wire bodies, content, analysis/reasoning, provider-metadata prose, and raw
+state or journal payloads stay memory-only. The persistence gate accepts only bounded identifiers,
+roles, enums, counts, timings, and cryptographic receipts. Treat the whole `aetherstate-data`
+folder as private because identifiers and mechanics still describe local play.
 The authoritative replay ledger remains `aetherstate.db`; the JSONL is the readable, time-ordered
 diagnostic companion.
 

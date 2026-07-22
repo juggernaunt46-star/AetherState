@@ -47,6 +47,32 @@ def _world(cfg):
     return store, sid, bid
 
 
+def _finish_comparison_world(cfg):
+    """Neutral fixture with one audit skill and one present person."""
+    store = Store(":memory:")
+    sid, bid = store.create_session(external_id="p16-finish-comparison")
+    apply_delta(store, sid, bid, 0, [
+        {"op": "entity_add", "name": "Fixture Auditor", "kind": "player"},
+        {"op": "entity_add", "name": "Fixture Clerk", "kind": "npc"},
+        {"op": "presence", "entity": "Fixture Clerk", "present": True},
+        {"op": "player_seed", "entity": "Fixture Auditor", "card": {
+            "stats": {"INT": 12},
+            "skills": {"record_audit": 3},
+            "abilities": [],
+            "defs": {"skills": {"record_audit": {
+                "name": "Record Audit",
+                "keyed_stat": "INT",
+                "base_mod": 1,
+                "governs": [
+                    "cross-reference", "verify", "trace", "investigate", "compare",
+                    "authenticate",
+                ],
+            }}},
+        }},
+    ], "genesis", cfg)
+    return store, sid, bid
+
+
 def test_declared_kill_with_no_basis_is_a_routed_non_move():
     cfg = _rpg()
     store, sid, bid = _world(cfg)
@@ -59,6 +85,74 @@ def test_declared_kill_with_no_basis_is_a_routed_non_move():
     assert frame["target_entity_id"] == "sentry"
     assert not any(o["op"] in ("effect_add", "award_exp", "presence") for o in res.rule_ops)
     assert any("non-move" in n for n in res.notices)               # visible to the player too
+
+
+def test_finish_comparison_clause_cannot_be_rewritten_as_a_kill_attempt():
+    cfg = _rpg()
+    store, _sid, bid = _finish_comparison_world(cfg)
+    st = current_state(store, bid)
+    text = (
+        "Fixture Auditor takes the record-audit ledger from its trinket slot, cross-references "
+        "the sample entries against the collected records, and asks Fixture Clerk to leave the "
+        "test object untouched until Fixture Auditor finishes the comparison."
+    )
+
+    res = tier0.run(
+        {"messages": [{"role": "user", "content": text}]},
+        "new_turn", False, st, cfg, _Rig(5),
+    )
+
+    frames = [
+        op["frame"] for op in res.rule_ops if op.get("op") == "semantic_frame_commit"
+    ]
+    assert [(frame["capability_id"], frame["action_class"]) for frame in frames] == [
+        ("record_audit", "communication"),
+    ]
+    assert [op["skill"] for op in res.rule_ops if op.get("op") == "check"] == [
+        "record_audit",
+    ]
+    assert res.kill_note == ""
+
+
+def test_actionlex_kill_false_friends_never_mint_a_kill_frame():
+    cfg = _rpg()
+    store, _sid, bid = _world(cfg)
+    st = current_state(store, bid)
+    for text in (
+        "I finish the comparison.",
+        "I kill the process.",
+        "I execute the command.",
+        "I finish off the report.",
+    ):
+        res = tier0.run(
+            {"messages": [{"role": "user", "content": text}]},
+            "new_turn", False, st, cfg, _Rig(5),
+        )
+
+        frames = [
+            op["frame"] for op in res.rule_ops if op.get("op") == "semantic_frame_commit"
+        ]
+        assert not any(
+            frame["action_class"] in {"kill_attempt", "grand_kill_attempt"}
+            for frame in frames
+        ), text
+        assert res.kill_note == "", text
+
+
+def test_finish_off_a_present_person_remains_an_explicit_kill_attempt():
+    cfg = _rpg()
+    store, _sid, bid = _world(cfg)
+    res = tier0.run(
+        {"messages": [{"role": "user", "content": "I finish off the Sentry."}]},
+        "new_turn", False, current_state(store, bid), cfg, _Rig(5),
+    )
+
+    frame = next(
+        op["frame"] for op in res.rule_ops if op.get("op") == "semantic_frame_commit"
+    )
+    assert (frame["action_class"], frame["target_entity_id"]) == (
+        "kill_attempt", "sentry",
+    )
 
 
 def test_stealth_kill_success_slays_awards_xp_and_removes_from_scene():

@@ -53,6 +53,12 @@ from .state import (_norm_loc, apply_delta, assign_damage_effect_ids, battle_ops
                     resolve_entity_ref, world_ops)
 from .stamps import Stamp
 from .store import Store
+from .turn_trace import (
+    canonical_sha256 as _trace_json_sha256,
+    emit_turn_trace,
+    safe_token as _trace_safe_token,
+    text_receipt as _trace_text_receipt,
+)
 from .turn_lifecycle import (
     EMPTY_PREFIX_HASH,
     EnvelopeArtifact,
@@ -642,15 +648,33 @@ def _reasoning_controls_receipt(doc: dict) -> dict:
     return {**payload, "fingerprint": content_hash(canonical)}
 
 
+_TRACE_ROLES = frozenset({"system", "user", "assistant", "tool", "developer"})
+
+
+def _trace_role(value: object) -> str:
+    role = str(value or "").lower()
+    return role if role in _TRACE_ROLES else "other"
+
+
+def _trace_assign_token(row: dict, field: str, value: object) -> None:
+    token = _trace_safe_token(value)
+    if token is not None:
+        row[field] = token
+    elif value:
+        row[f"{field}_receipt"] = _trace_text_receipt(value)
+    else:
+        row[field] = ""
+
+
 def _packet_manifest(doc: dict) -> dict:
     """Content-free shape of the exact narrator request for local turn tracing."""
     rows = []
     for index, message in enumerate(doc.get("messages") or []):
         if not isinstance(message, dict):
             rows.append({"index": index, "role": "invalid", "kind": "invalid",
-                         "chars": 0, "hash": ""})
+                         "chars": 0, "sha256": ""})
             continue
-        role = str(message.get("role") or "")
+        role = _trace_role(message.get("role"))
         text = _message_text(message.get("content"))
         if text.startswith("[AETHERSTATE NARRATOR CONTRACT "):
             kind = "narrator_contract"
@@ -666,17 +690,31 @@ def _packet_manifest(doc: dict) -> dict:
             kind = f"history_{role}"
         else:
             kind = "other"
-        rows.append({"index": index, "role": role, "kind": kind, "chars": len(text),
-                     "hash": content_hash(text) if text else ""})
-    return {
-        "model": str(doc.get("model") or ""),
+        rows.append({
+            "index": index,
+            "role": role,
+            "kind": kind,
+            "chars": len(text),
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest() if text else "",
+        })
+    raw_fields = sorted(str(key) for key in doc if key != "messages")
+    manifest = {
         "stream": bool(doc.get("stream")),
-        "request_fields": sorted(str(key) for key in doc if key != "messages"),
+        "request_fields": [name for name in raw_fields if _trace_safe_token(name) is not None],
+        "request_fields_sha256": _trace_json_sha256(raw_fields),
         "reasoning_controls": _reasoning_controls_receipt(doc),
         "messages": rows,
         "sentinel_present": "<<AETHER:" in json.dumps(doc.get("messages") or [],
                                                         ensure_ascii=False),
     }
+    model = _trace_safe_token(doc.get("model"))
+    if model is not None:
+        manifest["model"] = model
+    elif doc.get("model"):
+        manifest["model_receipt"] = _trace_text_receipt(doc.get("model"))
+    else:
+        manifest["model"] = ""
+    return manifest
 
 
 def _diagnostic_narrator_packet(
@@ -684,24 +722,27 @@ def _diagnostic_narrator_packet(
     *,
     redacted_texts: tuple[str, ...] = (),
 ) -> dict:
-    """Return only the exact AetherState-owned blocks sent to the narrator.
+    """Return content-free receipts for the exact AetherState-owned narrator blocks.
 
-    The full request contains chat history and the newest Player prose.  Those bytes are not
-    needed to diagnose semantic transfer and must not enter the diagnostic file.  The turn packet
-    and the prefix attached ahead of the newest message are engine-owned and end at explicit
-    sentinels, so they can be retained without retaining the Player message that follows.
+    Request prose stays in memory.  Positions, roles, kinds, lengths, and SHA-256 identities are
+    enough to prove which blocks were sent without making the trace a second prompt store.
     """
-    redactions = [
-        {
+    redactions: list[dict] = []
+
+    def _remember_private_component(text: str) -> None:
+        if not text:
+            return
+        receipt = {
             "chars": len(text),
             "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-            "marker": f"[LOCAL RESPONSE REDACTED sha256:{hashlib.sha256(text.encode('utf-8')).hexdigest()}]",
         }
-        for text in redacted_texts
-        if text
-    ]
+        if receipt not in redactions:
+            redactions.append(receipt)
 
-    def _redact_player_lessons(text: str) -> str:
+    for private_text in redacted_texts:
+        _remember_private_component(private_text)
+
+    def _remember_player_lessons(text: str) -> None:
         header = f"[PLAYER LESSONS {compose.PLAYER_LESSONS_VERSION} "
         cursor = 0
         while True:
@@ -716,25 +757,22 @@ def _diagnostic_narrator_packet(
             ]
             end = min(boundaries) if boundaries else len(text)
             private_component = text[start:end]
-            digest = hashlib.sha256(private_component.encode("utf-8")).hexdigest()
-            receipt = {
-                "chars": len(private_component),
-                "sha256": digest,
-                "marker": f"[PLAYER LESSONS REDACTED sha256:{digest}]",
-            }
-            if not any(
-                row["chars"] == receipt["chars"] and row["sha256"] == receipt["sha256"]
-                for row in redactions
-            ):
-                redactions.append(receipt)
-            text = text[:start] + receipt["marker"] + text[end:]
-            cursor = start + len(receipt["marker"])
-        return text
+            _remember_private_component(private_component)
+            cursor = end
 
-    def _redact(text: str) -> str:
-        for raw, receipt in zip((value for value in redacted_texts if value), redactions):
-            text = text.replace(raw, receipt["marker"])
-        return _redact_player_lessons(text)
+    def _append_block(
+        blocks: list[dict], *, message_index: int, part_index: Optional[int],
+        role: str, kind: str, text: str,
+    ) -> None:
+        _remember_player_lessons(text)
+        blocks.append({
+            "message_index": message_index,
+            "part_index": part_index,
+            "role": role,
+            "kind": kind,
+            "chars": len(text),
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        })
 
     blocks: list[dict] = []
     messages = doc.get("messages") if isinstance(doc, dict) else None
@@ -760,13 +798,14 @@ def _diagnostic_narrator_packet(
                 end = text.find(compose.TURN_PACKET_END, start)
                 if end >= 0:
                     end += len(compose.TURN_PACKET_END)
-                    blocks.append({
-                        "message_index": message_index,
-                        "part_index": part_index,
-                        "role": str(message.get("role") or ""),
-                        "kind": "turn_packet",
-                        "text": _redact(text[start:end]),
-                    })
+                    _append_block(
+                        blocks,
+                        message_index=message_index,
+                        part_index=part_index,
+                        role=_trace_role(message.get("role")),
+                        kind="turn_packet",
+                        text=text[start:end],
+                    )
             if not (text.startswith("[AETHER P0]\n") or text.startswith("[AETHER P1]\n")):
                 continue
             markers = (
@@ -783,21 +822,237 @@ def _diagnostic_narrator_packet(
                 end += 2
             elif text[end:end + 1] == "\n":
                 end += 1
-            blocks.append({
-                "message_index": message_index,
-                "part_index": part_index,
-                "role": str(message.get("role") or ""),
-                "kind": "current_directive",
-                "text": _redact(text[:end]),
-            })
+            _append_block(
+                blocks,
+                message_index=message_index,
+                part_index=part_index,
+                role=_trace_role(message.get("role")),
+                kind="current_directive",
+                text=text[:end],
+            )
     canonical = json.dumps(blocks, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return {
         "narrator_blocks": blocks,
         "narrator_blocks_hash": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
-        "narrator_redactions": [
-            {"chars": row["chars"], "sha256": row["sha256"]} for row in redactions
-        ],
+        "narrator_redactions": redactions,
     }
+
+
+def _trace_scalar_fields(value: object, fields: tuple[str, ...]) -> dict:
+    """Project fixed content-free scalars; hash unexpected authored strings."""
+    row = value if isinstance(value, dict) else {}
+    projected: dict = {}
+    for field in fields:
+        item = row.get(field)
+        if item is None or isinstance(item, (bool, int, float)):
+            projected[field] = item
+        elif isinstance(item, str):
+            safe = _trace_safe_token(item)
+            if safe is not None:
+                projected[field] = safe
+            else:
+                projected[f"{field}_receipt"] = _trace_text_receipt(item)
+    return projected
+
+
+def _trace_token_list(value: object) -> dict:
+    rows = list(value) if isinstance(value, (list, tuple)) else []
+    safe = [item for item in rows if _trace_safe_token(item) is not None]
+    return {
+        "values": safe,
+        "count": len(rows),
+        "sha256": _trace_json_sha256(rows),
+    }
+
+
+def _trace_semantic_frame(row: object) -> Optional[dict]:
+    if not isinstance(row, dict) or not isinstance(row.get("frame"), dict):
+        return None
+    frame = row["frame"]
+    out = {"turn": row.get("turn")}
+    out.update(_trace_scalar_fields(frame, (
+        "schema", "frame_id", "actor_id", "capability_id", "action_class",
+        "target_entity_id", "linguistic_possessor_id", "possessed_object_instance_id",
+        "possessed_object_owner_id", "target_locus", "target_locus_owner_id", "polarity",
+        "modality", "time_scope", "meaning_ref", "fabric_fingerprint",
+        "meaning_binding_ref", "event_node_id", "fingerprint", "declared_modifier",
+    )))
+    context = frame.get("context_frame")
+    out["context"] = _trace_scalar_fields(context, (
+        "schema", "frame_id", "source_id", "source_fingerprint", "span_start", "span_end",
+        "polarity", "modality", "time_scope", "quoted",
+    ))
+    for field in ("ambiguity", "invoked_capability_ids", "world_alignment_refs"):
+        out[field] = _trace_token_list(frame.get(field))
+    return out
+
+
+def _trace_semantic_meaning(row: object) -> Optional[dict]:
+    if not isinstance(row, dict) or not isinstance(row.get("meaning"), dict):
+        return None
+    meaning = row["meaning"]
+    matches = meaning.get("matches") if isinstance(meaning.get("matches"), list) else []
+    out = {"turn": row.get("turn")}
+    out.update(_trace_scalar_fields(meaning, (
+        "schema", "source_fingerprint", "fabric_fingerprint", "fingerprint",
+    )))
+    out["matches"] = [
+        _trace_scalar_fields(match, (
+            "lex_id", "concept_id", "start", "end", "entry_fingerprint",
+        ))
+        for match in matches if isinstance(match, dict)
+    ]
+    out["matches_count"] = len(matches)
+    out["matches_sha256"] = _trace_json_sha256(matches)
+    out["genre_ids"] = _trace_token_list(meaning.get("genre_ids"))
+    unresolved = meaning.get("unresolved") if isinstance(meaning.get("unresolved"), list) else []
+    out["unresolved_count"] = len(unresolved)
+    out["unresolved_sha256"] = _trace_json_sha256(unresolved)
+    return out
+
+
+def _trace_semantic_binding(row: object) -> Optional[dict]:
+    if not isinstance(row, dict) or not isinstance(row.get("binding"), dict):
+        return None
+    binding = row["binding"]
+    out = {"turn": row.get("turn")}
+    out.update(_trace_scalar_fields(binding, (
+        "schema", "binding_id", "event_node_id", "meaning_ref", "source_fingerprint",
+        "request_disposition", "mechanic_disposition", "constraint_integrity", "fingerprint",
+    )))
+    return out
+
+
+def _trace_world_alignment(row: object) -> Optional[dict]:
+    if not isinstance(row, dict) or not isinstance(row.get("alignment"), dict):
+        return None
+    alignment = row["alignment"]
+    out = {"turn": row.get("turn")}
+    out.update(_trace_scalar_fields(alignment, (
+        "schema", "role", "predicate_id", "recognition_ref", "recognized_value_ref",
+        "world_snapshot_ref", "time_scope", "cardinality", "selection", "status",
+        "positive_authority_value", "fingerprint",
+    )))
+    out["candidate_ids"] = _trace_token_list(alignment.get("candidate_ids"))
+    out["resolved_ids"] = _trace_token_list(alignment.get("resolved_ids"))
+    return out
+
+
+def _trace_mechanic_settlement(row: object) -> Optional[dict]:
+    if not isinstance(row, dict) or not isinstance(row.get("receipt"), dict):
+        return None
+    receipt = row["receipt"]
+    out = {"turn": row.get("turn")}
+    out.update(_trace_scalar_fields(receipt, (
+        "schema", "settlement_ref", "contract_id", "frame_ref", "meaning_ref",
+        "requirement_fingerprint", "accepted_group_fingerprint", "receipt_fingerprint",
+        "outcome", "outcome_quality",
+    )))
+    changes = receipt.get("applied_changes")
+    out["applied_change_count"] = len(changes) if isinstance(changes, list) else 0
+    out["applied_changes_sha256"] = _trace_json_sha256(
+        changes if isinstance(changes, list) else []
+    )
+    return out
+
+
+_TRACE_STATE_COLLECTIONS = (
+    "entities", "chars", "attributes", "clothing", "poses", "contacts", "consent",
+    "relationships", "facts", "beliefs", "epistemic_history", "claims", "propositions",
+    "memories", "rolls", "player", "items", "gear", "inventory", "effects", "quests",
+    "affinity", "factions", "world", "world_identity", "creator_world", "world_events",
+    "world_overlay", "semantic_meanings", "semantic_bindings", "semantic_world_alignments",
+    "semantic_frames", "mechanic_settlements",
+)
+
+
+def _trace_current_rows(
+    state: dict, key: str, turn: int, projector,
+) -> list[dict]:
+    rows = state.get(key) if isinstance(state.get(key), list) else []
+    projected = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("turn") != turn:
+            continue
+        item = projector(row)
+        if item is not None:
+            projected.append(item)
+    return projected
+
+
+def _state_trace_manifest(state: object, turn: int) -> dict:
+    """Bounded content-free projection of current post-response state."""
+    state = state if isinstance(state, dict) else {}
+    raw_fields = sorted(str(key) for key in state)
+    manifest = {
+        "schema": "aetherstate-turn-state-manifest/1",
+        "state_schema": _trace_safe_token(state.get("schema")) or "unknown",
+        "meta_turn": int(turn),
+        "frozen": bool(state.get("frozen")),
+        "state_fields": [
+            field for field in raw_fields
+            if field in set(_TRACE_STATE_COLLECTIONS) | {"schema", "scene", "clock", "meta", "frozen"}
+        ],
+        "state_field_count": len(raw_fields),
+        "state_fields_sha256": _trace_json_sha256(raw_fields),
+        "collection_counts": {
+            key: len(state[key])
+            for key in _TRACE_STATE_COLLECTIONS
+            if isinstance(state.get(key), (dict, list))
+        },
+        "scene_fields": sorted(
+            key for key in (state.get("scene") or {})
+            if _trace_safe_token(key) is not None
+        ) if isinstance(state.get("scene"), dict) else [],
+        "clock_fields": sorted(
+            key for key in (state.get("clock") or {})
+            if _trace_safe_token(key) is not None
+        ) if isinstance(state.get("clock"), dict) else [],
+    }
+    manifest["semantic_meanings"] = _trace_current_rows(
+        state, "semantic_meanings", turn, _trace_semantic_meaning,
+    )
+    manifest["semantic_bindings"] = _trace_current_rows(
+        state, "semantic_bindings", turn, _trace_semantic_binding,
+    )
+    manifest["semantic_world_alignments"] = _trace_current_rows(
+        state, "semantic_world_alignments", turn, _trace_world_alignment,
+    )
+    manifest["semantic_frames"] = _trace_current_rows(
+        state, "semantic_frames", turn, _trace_semantic_frame,
+    )
+    manifest["mechanic_settlements"] = _trace_current_rows(
+        state, "mechanic_settlements", turn, _trace_mechanic_settlement,
+    )
+    return manifest
+
+
+def _journal_trace_manifest(rows: object) -> list[dict]:
+    """Project exact journal identities and op-family receipts without copying op payloads."""
+    manifests: list[dict] = []
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        ops = row.get("ops") if isinstance(row.get("ops"), list) else []
+        raw_types = [
+            str(op.get("op") or "") for op in ops if isinstance(op, dict)
+        ]
+        source = _trace_safe_token(row.get("source"))
+        manifest = {
+            "id": row.get("id") if isinstance(row.get("id"), int) else None,
+            "turn_lo": row.get("turn_lo") if isinstance(row.get("turn_lo"), int) else None,
+            "turn_hi": row.get("turn_hi") if isinstance(row.get("turn_hi"), int) else None,
+            "op_count": len(ops),
+            "op_types": sorted({kind for kind in raw_types if _trace_safe_token(kind) is not None}),
+            "op_types_sha256": _trace_json_sha256(raw_types),
+            "ops_sha256": _trace_json_sha256(ops),
+        }
+        if source is not None:
+            manifest["source"] = source
+        elif row.get("source"):
+            manifest["source_receipt"] = _trace_text_receipt(row.get("source"))
+        manifests.append(manifest)
+    return manifests
 
 
 def _narrator_reasoning_hard_off_required(cfg, stamp: Optional[Stamp]) -> bool:
@@ -2051,13 +2306,19 @@ class Pipeline:
         narrator_request = request_stamp is not None and request_stamp.card_role == "narrator"
         if getattr(self.cfg.server, "turn_trace", False):
             trace_stamp = request_stamp
-            log.info("TURN_TRACE %s", json.dumps({
+            request_trace = {
                 "event": "request", "ts": time.time(), "session": res.session_id,
                 "branch": res.branch_id, "turn": res.turn_index,
                 "class": res.klass.value, "duplicate": res.duplicate,
-                "speaker": (trace_stamp.speaker if trace_stamp else None),
-                "card_role": (trace_stamp.card_role if trace_stamp else None),
-            }, separators=(",", ":"), ensure_ascii=False))
+                "card_role": (
+                    trace_stamp.card_role
+                    if trace_stamp and trace_stamp.card_role in {"narrator", "character"}
+                    else ("other" if trace_stamp and trace_stamp.card_role else None)
+                ),
+            }
+            if trace_stamp and trace_stamp.speaker:
+                request_trace["speaker_receipt"] = _trace_text_receipt(trace_stamp.speaker)
+            emit_turn_trace(log, request_trace)
         if self.store.session_mode(res.session_id) == "passthrough":
             return body, None                 # 05 SS7: per-session kill-switch — byte-exact
         body_key = hashlib.blake2b(body, digest_size=16).hexdigest()
@@ -2429,24 +2690,28 @@ class Pipeline:
                 while len(self._last_docs) > promptcache.LAST_DOCS_MAX:
                     self._last_docs.popitem(last=False)
         if getattr(self.cfg.server, "turn_trace", False):
-            log.info("TURN_TRACE %s", json.dumps({
+            response_provenance = {"source": "upstream"}
+            if local_response is not None:
+                response_provenance = {
+                    "source": "local",
+                    "chars": len(local_response.story),
+                    "sha256": hashlib.sha256(
+                        local_response.story.encode("utf-8")
+                    ).hexdigest(),
+                }
+                _trace_assign_token(
+                    response_provenance, "kind", local_response.provenance,
+                )
+            emit_turn_trace(log, {
                 "event": "packet", "ts": time.time(), "session": res.session_id,
                 "branch": res.branch_id, "turn": res.turn_index,
-                "response_provenance": (
-                    {
-                        "source": "local",
-                        "kind": local_response.provenance,
-                        "chars": len(local_response.story),
-                        "hash": content_hash(local_response.story),
-                    }
-                    if local_response is not None else {"source": "upstream"}
-                ),
+                "response_provenance": response_provenance,
                 **_packet_manifest(doc),
                 **_diagnostic_narrator_packet(
                     doc,
                     redacted_texts=(local_response.story,) if local_response is not None else (),
                 ),
-            }, separators=(",", ":"), ensure_ascii=False))
+            })
         narration_guard = None
         response_stamp = res.stamp or stamp
         spec = getattr(self.cfg, "specialization", None)
@@ -2951,7 +3216,7 @@ class Pipeline:
         content_type: str = "",
         error_type: str = "",
     ) -> None:
-        """Persist a content-free response receipt plus authoritative post-response evidence.
+        """Persist a content-free response receipt plus bounded post-response manifests.
 
         This deliberately accepts no request headers, authorization, endpoint, raw request, or
         raw response argument.  Model output is represented only by byte count and SHA-256.
@@ -2985,34 +3250,47 @@ class Pipeline:
             def _ms(value: float | None) -> float | None:
                 return None if value is None else round(max(0.0, float(value)), 3)
 
-            log.info("TURN_TRACE %s", json.dumps({
+            response_receipt = {
+                "status": int(status),
+                "bytes": max(0, int(byte_count)),
+                "narration_guard_replaced": guard_replaced,
+                "narration_guard_reason_codes": guard_reason_codes,
+            }
+            _trace_assign_token(response_receipt, "source", source)
+            _trace_assign_token(
+                response_receipt,
+                "content_type",
+                str(content_type).split(";", 1)[0].strip().lower(),
+            )
+            digest = str(content_sha256).lower()
+            if re.fullmatch(r"[0-9a-f]{64}", digest):
+                response_receipt["sha256"] = digest
+            elif digest:
+                response_receipt["sha256_receipt"] = _trace_text_receipt(digest)
+            else:
+                response_receipt["sha256"] = ""
+            _trace_assign_token(response_receipt, "error_type", error_type)
+
+            response_trace = {
                 "event": "response",
                 "ts": time.time(),
                 "session": ctx.session_id,
                 "branch": ctx.branch_id,
                 "turn": ctx.turn_index,
                 "class": ctx.klass,
-                "model": ctx.request_model,
-                "response": {
-                    "source": str(source)[:24],
-                    "status": int(status),
-                    "content_type": str(content_type).split(";", 1)[0][:80],
-                    "bytes": max(0, int(byte_count)),
-                    "sha256": str(content_sha256)[:64],
-                    "error_type": str(error_type)[:80],
-                    "narration_guard_replaced": guard_replaced,
-                    "narration_guard_reason_codes": guard_reason_codes,
-                },
+                "response": response_receipt,
                 "latency_ms": {
                     "headers": _ms(headers_ms),
                     "first_chunk": _ms(first_chunk_ms),
                     "total": _ms(total_ms),
                 },
                 "lineage": evidence["lineage"],
-                "journal": evidence["journal"],
+                "journal_manifest": _journal_trace_manifest(evidence["journal"]),
                 "state_hash": hashlib.sha256(canonical_state.encode("utf-8")).hexdigest(),
-                "state": state,
-            }, separators=(",", ":"), ensure_ascii=False))
+                "state_manifest": _state_trace_manifest(state, ctx.turn_index),
+            }
+            _trace_assign_token(response_trace, "model", ctx.request_model)
+            emit_turn_trace(log, response_trace)
         except Exception as exc:
             log.warning("response trace failed open: %s", type(exc).__name__)
 

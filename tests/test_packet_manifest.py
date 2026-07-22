@@ -84,7 +84,7 @@ def test_packet_manifest_maps_shape_without_logging_prompt_text():
     assert manifest["request_fields"] == ["model", "stream", "temperature"]
     assert manifest["sentinel_present"] is False
     assert "private" not in str(manifest)
-    assert all(len(row["hash"]) == 16 for row in manifest["messages"])
+    assert all(len(row["sha256"]) == 64 for row in manifest["messages"])
 
 
 def test_packet_manifest_detects_transport_sentinel_leak():

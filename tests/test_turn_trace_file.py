@@ -16,7 +16,9 @@ from aetherstate.pipeline import (
     _diagnostic_narrator_packet,
 )
 from aetherstate.session_engine import SessionEngine
+from aetherstate.state import _trace_op, apply_delta
 from aetherstate.store import Store
+from aetherstate.turn_trace import TURN_TRACE_SCHEMA, emit_turn_trace
 
 
 def test_cli_attaches_trace_after_uvicorn_reconfigures_logging(
@@ -99,6 +101,21 @@ def test_turn_trace_file_contains_only_json_payloads(tmp_path) -> None:
     ]
 
 
+def test_content_free_trace_gate_drops_authored_strings_before_logging(caplog) -> None:
+    logger = logging.getLogger("aetherstate.pipeline")
+
+    with caplog.at_level(logging.INFO, logger="aetherstate.pipeline"):
+        emitted = emit_turn_trace(logger, {
+            "event": "request",
+            "unsafe": "Private authored trace prose 7F12",
+        })
+
+    assert emitted is False
+    assert not any(record.getMessage().startswith("TURN_TRACE ") for record in caplog.records)
+    assert "Private authored trace prose 7F12" not in caplog.text
+    assert "turn trace dropped unsafe payload" in caplog.text
+
+
 def test_turn_trace_fsyncs_each_record_before_handler_close(
         tmp_path, monkeypatch) -> None:
     parent = logging.getLogger("aetherstate")
@@ -171,7 +188,7 @@ def test_turn_trace_rotates_instead_of_growing_without_bound(tmp_path) -> None:
     assert all(path.stat().st_size <= 180 for path in tmp_path.glob("turn-trace.jsonl*"))
 
 
-def test_narrator_diagnostic_keeps_engine_blocks_but_not_player_prose() -> None:
+def test_narrator_diagnostic_keeps_content_free_block_receipts() -> None:
     packet = (
         compose.TURN_PACKET_START
         + "\n[DIRECTIVE] Settle exactly one recorded strike.\n"
@@ -195,7 +212,13 @@ def test_narrator_diagnostic_keeps_engine_blocks_but_not_player_prose() -> None:
     assert [row["kind"] for row in evidence["narrator_blocks"]] == [
         "turn_packet", "current_directive",
     ]
-    assert "Settle exactly one recorded strike" in serialized
+    assert all(set(row) == {
+        "message_index", "part_index", "role", "kind", "chars", "sha256",
+    } for row in evidence["narrator_blocks"])
+    assert all(row["chars"] > 0 and len(row["sha256"]) == 64
+               for row in evidence["narrator_blocks"])
+    assert "Settle exactly one recorded strike" not in serialized
+    assert "The strike is already settled" not in serialized
     assert "private-player-prose-must-not-be-retained" not in serialized
 
 
@@ -214,7 +237,7 @@ def test_narrator_diagnostic_redacts_a_code_generated_local_response() -> None:
     serialized = json.dumps(evidence, ensure_ascii=False)
 
     assert local_story not in serialized
-    assert "LOCAL RESPONSE REDACTED" in serialized
+    assert "LOCAL RESPONSE REDACTED" not in serialized
     assert evidence["narrator_redactions"] == [{
         "chars": len(local_story),
         "sha256": hashlib.sha256(local_story.encode("utf-8")).hexdigest(),
@@ -251,14 +274,13 @@ def test_narrator_diagnostic_redacts_rendered_player_lessons_component() -> None
     ]
     assert leaked == []
     component_sha256 = hashlib.sha256(rendered_lessons.encode("utf-8")).hexdigest()
-    assert f"[PLAYER LESSONS REDACTED sha256:{component_sha256}]" in serialized
     assert {
         "chars": len(rendered_lessons),
         "sha256": component_sha256,
     } in evidence["narrator_redactions"]
 
 
-def test_response_trace_has_lineage_journal_state_and_no_credentials(caplog) -> None:
+def test_response_trace_has_content_free_lineage_journal_and_state_manifests(caplog) -> None:
     cfg = Config()
     cfg.server.turn_trace = True
     cfg.upstream.api_key = "sk-private-credential"
@@ -268,7 +290,7 @@ def test_response_trace_has_lineage_journal_state_and_no_credentials(caplog) -> 
         branch_id,
         4,
         4,
-        [{"op": "scene_set", "location": "vault"}],
+        [{"op": "scene_set", "location": "Private Vault Prose 91D7B3"}],
         "rule",
     )
     pipeline = Pipeline(store, SessionEngine(store, cfg.session), cfg)
@@ -300,17 +322,66 @@ def test_response_trace_has_lineage_journal_state_and_no_credentials(caplog) -> 
     payload = json.loads(message.removeprefix("TURN_TRACE "))
     serialized = json.dumps(payload)
 
+    assert payload["trace_schema"] == TURN_TRACE_SCHEMA
     assert payload["event"] == "response"
     assert payload["session"] == session_id
     assert payload["branch"] == branch_id
     assert payload["lineage"]["branch_id"] == branch_id
-    assert payload["journal"][0]["ops"] == [{"op": "scene_set", "location": "vault"}]
-    assert payload["state"]["scene"]["location_id"] == "vault"
+    assert payload["journal_manifest"][0]["op_count"] == 1
+    assert payload["journal_manifest"][0]["op_types"] == ["scene_set"]
+    assert len(payload["journal_manifest"][0]["ops_sha256"]) == 64
+    assert payload["state_manifest"]["schema"] == "aetherstate-turn-state-manifest/1"
+    assert payload["state_manifest"]["meta_turn"] == 4
+    assert "journal" not in payload
+    assert "state" not in payload
     assert payload["latency_ms"] == {"headers": 12.25, "first_chunk": 24.5, "total": 40.75}
     assert payload["response"]["narration_guard_replaced"] is False
     assert payload["response"]["narration_guard_reason_codes"] == []
     assert "sk-private-credential" not in serialized
     assert "authorization" not in serialized.lower()
+    assert "Private Vault Prose 91D7B3" not in serialized
+    assert "Private Vault Prose 91D7B3" not in caplog.text
+
+
+def test_apply_trace_manifests_free_text_and_nested_payloads(caplog) -> None:
+    cfg = Config()
+    cfg.server.turn_trace = True
+    store = Store(":memory:")
+    session_id, branch_id = store.create_session(external_id="apply-trace-private")
+    private_name = "Private Character Name 41F0"
+    private_reason = "Private authored reason 2A76"
+    op = {
+        "op": "entity_add",
+        "name": private_name,
+        "kind": "character",
+        "reason": private_reason,
+        "_strike": {"story": "Private nested strike prose 6CC9"},
+    }
+
+    with caplog.at_level(logging.INFO, logger="aetherstate.state"):
+        apply_delta(store, session_id, branch_id, 1, [op], "rule", cfg)
+
+    message = next(
+        record.getMessage() for record in caplog.records
+        if record.getMessage().startswith("TURN_TRACE ")
+    )
+    payload = json.loads(message.removeprefix("TURN_TRACE "))
+    serialized = json.dumps(payload, ensure_ascii=False)
+    traced = payload["proposed"][0]
+
+    assert traced == _trace_op(op)
+    assert traced["op"] == "entity_add"
+    assert traced["name_receipt"]["chars"] == len(private_name)
+    assert traced["reason_receipt"]["chars"] == len(private_reason)
+    assert len(traced["payload_sha256"]) == 64
+    assert traced["field_count"] == len(op)
+    assert len(traced["fields_sha256"]) == 64
+    assert private_name not in serialized
+    assert private_reason not in serialized
+    assert "Private nested strike prose 6CC9" not in serialized
+    assert private_name not in caplog.text
+    assert private_reason not in caplog.text
+    assert "Private nested strike prose 6CC9" not in caplog.text
 
 
 def test_response_trace_records_content_free_narration_guard_replacement(caplog) -> None:

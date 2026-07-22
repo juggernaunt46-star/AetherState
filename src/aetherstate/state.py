@@ -45,6 +45,7 @@ from .worldlex_assignment import (AssignmentError, materialize_assignment,
                                   validate_assignment)
 from .worldlex_store import WorldLexError
 from .world_events import project_world_overlay, validate_world_event_record
+from .turn_trace import canonical_sha256, emit_turn_trace, safe_token, text_receipt
 
 log = logging.getLogger("aetherstate.state")
 
@@ -5924,14 +5925,49 @@ def assign_damage_effect_ids(ops: list[dict], branch_id: str, turn: int, owner: 
     return out
 
 
-_TRACE_OP_KEYS = ("op", "char", "target", "name", "entity", "faction", "delta", "_delta",
-                  "_effect_id", "_effect_owner", "_strike", "_opposition", "reason")
+_TRACE_OP_ID_KEYS = (
+    ("char", "char"),
+    ("target", "target"),
+    ("entity", "entity"),
+    ("faction", "faction"),
+    ("_effect_id", "effect_id"),
+    ("_effect_owner", "effect_owner"),
+)
+_TRACE_OP_NUMBER_KEYS = (("delta", "delta"), ("_delta", "internal_delta"))
 
 
 def _trace_op(op: Any) -> dict:
     if not isinstance(op, dict):
-        return {"op": type(op).__name__}
-    return {key: op[key] for key in _TRACE_OP_KEYS if key in op}
+        return {
+            "op": "invalid",
+            "value_type_receipt": text_receipt(type(op).__name__),
+        }
+    fields = sorted(str(key) for key in op)
+    kind = safe_token(op.get("op"))
+    out = {
+        "op": kind or "other",
+        "field_count": len(fields),
+        "fields_sha256": canonical_sha256(fields),
+        "payload_sha256": canonical_sha256(op),
+    }
+    if kind is None and op.get("op"):
+        out["op_receipt"] = text_receipt(op.get("op"))
+    for source_key, trace_key in _TRACE_OP_ID_KEYS:
+        if source_key not in op or op[source_key] is None:
+            continue
+        value = safe_token(op[source_key])
+        if value is not None:
+            out[trace_key] = value
+        else:
+            out[f"{trace_key}_receipt"] = text_receipt(op[source_key])
+    for source_key, trace_key in _TRACE_OP_NUMBER_KEYS:
+        value = op.get(source_key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[trace_key] = value
+    for key in ("name", "reason"):
+        if isinstance(op.get(key), str) and op[key]:
+            out[f"{key}_receipt"] = text_receipt(op[key])
+    return out
 
 
 _SCENE_MOVEMENT_SOURCES = frozenset({"user", "rule"})
@@ -9260,19 +9296,35 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
                            or {}).get("hp") or {})
                 else:
                     continue
-                damage_after.append({"effect_id": op.get("_effect_id"),
-                                     "family": op.get("op"), "target": _damage_target(op),
-                                     "cur": hp.get("cur"), "max": hp.get("max")})
-            log.info("TURN_TRACE %s", json.dumps({
+                damage = {
+                    "cur": hp.get("cur"),
+                    "max": hp.get("max"),
+                }
+                for key, value in (
+                    ("effect_id", op.get("_effect_id")),
+                    ("family", op.get("op")),
+                    ("target", _damage_target(op)),
+                ):
+                    if value is None:
+                        damage[key] = None
+                    elif safe_token(value) is not None:
+                        damage[key] = value
+                    else:
+                        damage[f"{key}_receipt"] = text_receipt(value)
+                damage_after.append(damage)
+            emit_turn_trace(log, {
                 "event": "apply", "session": session_id, "branch": branch_id,
                 "turn": turn, "turn_lo": turn_lo, "source": source,
                 "proposed": [_trace_op(op) for op in ops],
                 "applied": [_trace_op(op) for op in res.applied],
                 "duplicates": [_trace_op(op) for op in res.duplicates],
-                "rejected": [{"op": _trace_op(q.get("op")), "reason": q.get("reason")}
+                "rejected": [{
+                    "op": _trace_op(q.get("op")),
+                    "reason_receipt": text_receipt(q.get("reason")),
+                }
                              for q in res.quarantined],
                 "damage_after": damage_after,
-            }, separators=(",", ":"), ensure_ascii=False))
+            })
         except Exception:
             pass
     return res

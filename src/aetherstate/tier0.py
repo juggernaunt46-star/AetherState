@@ -1827,7 +1827,7 @@ def _frame_action_class(
                 reason="current_input_conflict",
             )
         return "grand_kill_attempt"
-    if _KILL_VERBS.search(clause_text):
+    if _performed_kill_verb_matches(clause_text):
         for preference in action_preferences:
             _set_intent_application(
                 preference,
@@ -2404,7 +2404,7 @@ def _ground_action_frame(frame: ActionFrame, text: str, state: dict,
         if frame.action_class in ("kill_attempt", "grand_kill_attempt"):
             action_spans = [
                 (match.start(), match.end(), True)
-                for match in (*list(_KILL_VERBS.finditer(detector)),
+                for match in (*_performed_kill_verb_matches(detector),
                               *list(_GRAND.finditer(detector)))
                 if frame.start <= match.start() and match.end() <= frame.end
             ]
@@ -3390,7 +3390,7 @@ def _composed_maneuver_detection_view(
         return detector
     # Lethal declarations own a separate settlement contract and cannot hitchhike on this bounded
     # weapon/capability composition rule.
-    if _KILL_VERBS.search(event_tail) or _GRAND.search(event_tail):
+    if _performed_kill_verb_matches(event_tail) or _GRAND.search(event_tail):
         return detector
     harmful = _merged_overlap_spans([
         (start, end)
@@ -3713,7 +3713,7 @@ def _append_kill_attempt_frame(turn: SemanticTurn, text: str, state: dict,
     detector = detection_text if detection_text is not None and len(detection_text) == len(text) \
         else _action_text(text)
     matches = [
-        *list(_KILL_VERBS.finditer(detector or "")),
+        *_performed_kill_verb_matches(detector or ""),
         *list(_GRAND.finditer(detector or "")),
     ]
     if not matches:
@@ -6460,7 +6460,7 @@ def _group_skill_check_settlements(
 # constraint on fact (pillars 4-5).
 _KILL_VERBS = re.compile(
     r"\b(kill|kills|slay|slays|murder|murders|assassinate|assassinates|execute|executes|"
-    r"behead|beheads|decapitate|finish(?:es)?|dispatch(?:es)?|silence|silences|strangle|"
+    r"behead|beheads|decapitate|finish(?:es)?\s+off|dispatch(?:es)?|silence|silences|strangle|"
     r"strangles|throttle|throttles|slit|slits|gut|guts)\b", re.IGNORECASE)
 _KILL_STEALTH = ("stealth", "sneak", "shadow", "assassin", "infiltrat", "subterfuge", "guile",
                  "prowl", "stalk", "ambush", "backstab")
@@ -6473,6 +6473,31 @@ STEALTH_KILL_XP = 40                    # curated (doc 10 XP scale); a named/tra
 GRAND_KILL_XP = 60
 
 
+def _kill_false_friend_spans(text: str) -> tuple[tuple[int, int], ...] | None:
+    try:
+        return load_default_semantic_fabric().false_friend_spans(
+            "action.kill_attempt", text,
+        )
+    except (OSError, SemanticFabricError, ValueError):
+        # ActionLex owns these exclusions. A missing sealed corpus must make the legacy fallback
+        # abstain instead of resurrecting a phrase recognition already knows is nonlethal.
+        return None
+
+
+def _performed_kill_verb_matches(text: str) -> list[re.Match[str]]:
+    source = text or ""
+    false_friends = _kill_false_friend_spans(source)
+    if false_friends is None:
+        return []
+    return [
+        match for match in _KILL_VERBS.finditer(source)
+        if not any(
+            false_start <= match.start() and match.end() <= false_end
+            for false_start, false_end in false_friends
+        )
+    ]
+
+
 def _kill_intent(res: Tier0Result, state: dict, cfg, user_text: str,
                  frame: ActionFrame | None = None, semantic_ref: str = "") -> None:
     """Gate and resolve one lethal declaration from its frozen semantic interpretation."""
@@ -6482,7 +6507,8 @@ def _kill_intent(res: Tier0Result, state: dict, cfg, user_text: str,
         if frame.action_class not in ("kill_attempt", "grand_kill_attempt") \
                 or not frame.mechanically_actionable:
             return
-    elif not _KILL_VERBS.search(user_text or "") and not _GRAND.search(user_text or ""):
+    elif not _performed_kill_verb_matches(user_text or "") \
+            and not _GRAND.search(user_text or ""):
         return
     peid, _player = _player_card(state)
     if not peid:

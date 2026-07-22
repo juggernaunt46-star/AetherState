@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import json
 import logging
 from types import SimpleNamespace
@@ -284,7 +285,7 @@ async def test_local_first_intent_is_exact_for_nonstream_and_same_turn_streamed_
             "source": "local",
             "kind": compose.DETERMINISTIC_FIRST_INTENT_VERSION,
             "chars": len(normal_story),
-            "hash": content_hash(normal_story),
+            "sha256": hashlib.sha256(normal_story.encode("utf-8")).hexdigest(),
         }
         assert normal_story not in json.dumps(payload, ensure_ascii=False)
 
