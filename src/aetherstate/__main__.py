@@ -45,7 +45,19 @@ def _configure_turn_trace_file(
 ):
     """Append structured TURN_TRACE payloads to a bounded local JSONL history."""
     import logging
+    import os
     from logging.handlers import RotatingFileHandler
+
+    class _DurableRotatingFileHandler(RotatingFileHandler):
+        def flush(self) -> None:
+            super().flush()
+            stream = self.stream
+            if stream is None or stream.closed:
+                return
+            try:
+                os.fsync(stream.fileno())
+            except (OSError, ValueError):
+                pass
 
     class _TurnTraceOnly(logging.Filter):
         def filter(self, record: logging.LogRecord) -> bool:
@@ -58,7 +70,7 @@ def _configure_turn_trace_file(
         def format(self, record: logging.LogRecord) -> str:
             return record.getMessage().removeprefix("TURN_TRACE ")
 
-    handler = RotatingFileHandler(
+    handler = _DurableRotatingFileHandler(
         Path(data_dir) / "turn-trace.jsonl",
         maxBytes=max(1, int(max_bytes)),
         backupCount=max(1, int(backup_count)),

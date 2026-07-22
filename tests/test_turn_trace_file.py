@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import sys
 from types import SimpleNamespace
 
@@ -96,6 +97,34 @@ def test_turn_trace_file_contains_only_json_payloads(tmp_path) -> None:
     assert [json.loads(line) for line in lines] == [
         {"turn": 3, "applied": ["damage"]}
     ]
+
+
+def test_turn_trace_fsyncs_each_record_before_handler_close(
+        tmp_path, monkeypatch) -> None:
+    parent = logging.getLogger("aetherstate")
+    logger = logging.getLogger("aetherstate.pipeline")
+    prior_level = logger.level
+    fsynced_fds: list[int] = []
+    real_fsync = os.fsync
+
+    def tracked_fsync(fd: int) -> None:
+        fsynced_fds.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", tracked_fsync)
+    handler = _configure_turn_trace_file(tmp_path)
+    try:
+        logger.setLevel(logging.INFO)
+        stream_fd = handler.stream.fileno()
+        logger.info("TURN_TRACE %s", json.dumps({"event": "request", "turn": 4}))
+
+        assert fsynced_fds == [stream_fd]
+        line = (tmp_path / "turn-trace.jsonl").read_text(encoding="utf-8")
+        assert json.loads(line) == {"event": "request", "turn": 4}
+    finally:
+        logger.setLevel(prior_level)
+        parent.removeHandler(handler)
+        handler.close()
 
 
 def test_turn_trace_appends_across_process_sessions(tmp_path) -> None:
@@ -332,3 +361,51 @@ def test_response_trace_records_content_free_narration_guard_replacement(caplog)
     ]
     assert rejected_candidate not in serialized
     assert rejected_candidate not in caplog.text
+
+
+def test_response_trace_preserves_fixed_guard_failures_without_candidate_text(caplog) -> None:
+    cfg = Config()
+    cfg.server.turn_trace = True
+    store = Store(":memory:")
+    session_id, branch_id = store.create_session(external_id="guard-reason-projection")
+    pipeline = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    private_candidate = "The candidate story contains private narration that must not escape."
+    fixed_reasons = (
+        "guard_basis_invalid",
+        "guard_state_changed",
+        "guard_input_invalid",
+        "mechanical_authority_unavailable",
+        "guard_evaluation_unavailable",
+    )
+    ctx = PostContext(
+        session_id,
+        branch_id,
+        1,
+        "new_turn",
+        request_model="diagnostic-model",
+        narration_guard_reasons=(*fixed_reasons, private_candidate),
+    )
+
+    with caplog.at_level(logging.INFO, logger="aetherstate.pipeline"):
+        pipeline.record_response_trace(
+            ctx,
+            source="upstream",
+            status=200,
+            headers_ms=10.0,
+            first_chunk_ms=20.0,
+            total_ms=30.0,
+            byte_count=80,
+            content_sha256="c" * 64,
+            content_type="text/event-stream",
+        )
+
+    message = next(
+        record.getMessage() for record in caplog.records
+        if record.getMessage().startswith("TURN_TRACE ")
+    )
+    payload = json.loads(message.removeprefix("TURN_TRACE "))
+    serialized = json.dumps(payload, sort_keys=True)
+
+    assert payload["response"]["narration_guard_reason_codes"] == list(fixed_reasons)
+    assert private_candidate not in serialized
+    assert private_candidate not in caplog.text

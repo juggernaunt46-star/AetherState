@@ -1279,3 +1279,72 @@ def test_root_v_frame_admits_worldlex_enemy_and_replays_exactly_after_reopen(tmp
         assert current_state(reopened, branch) == exact
     finally:
         reopened.close()
+
+
+def test_nominal_trap_recognition_does_not_block_the_perception_check():
+    state = _state()
+    player = state["player"]["sava_orr"]
+    player["skills"]["perception"] = 3
+    player["defs"]["skills"]["perception"] = {
+        "name": "Perception",
+        "keyed_stat": "CUN",
+        "governs": ["examine"],
+    }
+    source = "Using Perception, I examine the door for a trap or tampering."
+
+    result = _run(source, state)
+    frame, fingerprint = _committed_frame(result, source)
+
+    assert result.semantic_turn is not None
+    assert result.semantic_turn.compiled_meaning is not None
+    assert {"action.inspect", "action.restrain"} <= {
+        match.concept_id
+        for match in result.semantic_turn.compiled_meaning.for_lex("action")
+    }
+    assert frame["capability_id"] == "perception"
+    assert frame["action_class"] == "inspection"
+    assert frame["ambiguity"] == []
+    binding = _ops(result, "semantic_binding_commit")[0]["binding"]
+    assert binding["mechanic_disposition"] == "candidate"
+    checks = _ops(result, "check")
+    assert len(checks) == 1
+    assert checks[0]["_semantic_frame_ref"] == fingerprint
+    assert checks[0].get("_semantic_abstain") is not True
+
+
+def test_literal_trap_predicate_remains_a_restraint_action():
+    state = _state(IVEN)
+    player = state["player"]["sava_orr"]
+    player["skills"]["brawl"] = 3
+    player["defs"]["skills"]["brawl"] = {
+        "name": "Brawl",
+        "keyed_stat": "STR",
+        "governs": ["trap"],
+    }
+    source = "Using Brawl, I trap Iven with a trap."
+
+    result = _run(source, state)
+    frame, fingerprint = _committed_frame(result, source)
+
+    assert frame["capability_id"] == "brawl"
+    assert frame["action_class"] == "restraint"
+    assert frame["target_entity_id"] == "toll_marshal_iven"
+    assert frame["ambiguity"] == []
+    binding = _ops(result, "semantic_binding_commit")[0]["binding"]
+    assert binding["mechanic_disposition"] == "candidate"
+    assert len([
+        match
+        for match in result.semantic_turn.compiled_meaning.for_lex("action")
+        if match.concept_id == "action.restrain"
+    ]) == 2
+    action_role = next(
+        row for row in binding["role_evidence"] if row["role"] == "action"
+    )
+    predicate_start = source.index("trap")
+    assert [
+        (row["start"], row["end"]) for row in action_role["evidence_refs"]
+    ] == [(predicate_start, predicate_start + len("trap"))]
+    checks = _ops(result, "check")
+    assert len(checks) == 1
+    assert checks[0]["_semantic_frame_ref"] == fingerprint
+    assert checks[0].get("_semantic_abstain") is not True

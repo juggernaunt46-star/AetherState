@@ -1697,3 +1697,56 @@ def test_additive_actions_remain_two_independent_occurrences():
     assert [(frames[key]["target_entity_id"], frames[key]["polarity"])
             for key in ("burn", "praise")] == [("ana", "positive"), ("bo", "positive")]
     assert len(_settlements(result)) == 2
+
+
+def test_actionlex_noun_mention_is_not_a_performed_occurrence_action():
+    state = _state()
+    player = state["player"]["mage"]
+    player["skills"]["perception"] = 3
+    player["defs"]["skills"]["perception"] = {
+        "name": "Perception",
+        "keyed_stat": "INT",
+        "governs": ["examine"],
+    }
+    text = "Using Perception, I examine the door for a trap or tampering."
+
+    result = _run_in_state(text, state)
+
+    assert result.semantic_turn is not None
+    assert result.semantic_turn.compiled_meaning is not None
+    assert {"action.inspect", "action.restrain"} <= {
+        match.concept_id
+        for match in result.semantic_turn.compiled_meaning.for_lex("action")
+    }
+    node = next(
+        occurrence
+        for occurrence in result.semantic_turn.occurrence_graph["occurrences"]
+        if any(row["identity"] == "perception" for row in occurrence["capabilities"])
+    )
+    assert {row["identity"] for row in node["actions"]} == {"inspection"}
+    assert "occurrence.multiple_actions" not in node["unresolved_reasons"]
+
+
+def test_coordinated_trap_predicate_remains_a_second_occurrence_action():
+    state = _state()
+    player = state["player"]["mage"]
+    player["skills"]["fieldcraft"] = 3
+    player["defs"]["skills"]["fieldcraft"] = {
+        "name": "Fieldcraft",
+        "keyed_stat": "INT",
+        "governs": ["examine", "trap"],
+    }
+    text = "Using Fieldcraft, I examine the door and trap Ana."
+
+    result = _run_in_state(text, state)
+
+    node = next(
+        occurrence
+        for occurrence in result.semantic_turn.occurrence_graph["occurrences"]
+        if any(row["identity"] == "fieldcraft" for row in occurrence["capabilities"])
+    )
+    assert {row["identity"] for row in node["actions"]} == {
+        "inspection",
+        "restraint",
+    }
+    assert "occurrence.multiple_actions" in node["unresolved_reasons"]

@@ -663,6 +663,28 @@ async def test_world_authoring_retries_provider_length_stop_as_a_fresh_document(
     assert "Start over" in calls[1]["system"]
 
 
+async def test_world_authoring_does_not_retry_permanent_provider_rejection(monkeypatch):
+    calls = 0
+
+    async def fake_chat(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise creator._CreatorCallError("main model rejected the request (HTTP 402)")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {},
+    )
+
+    assert calls == 1
+    assert out["source"] == "error"
+    assert "provider access" in out["detail"].lower()
+    assert "try the ai fill again" not in out["detail"].lower()
+
+
 def test_creator_json_parser_rejects_partial_repair_and_trailing_text():
     with pytest.raises(ValueError, match="invalid or truncated JSON"):
         creator._strict_creator_json_object('{"name":"half"')

@@ -71,6 +71,11 @@ _DEFAULT_PLAYERLEX_SERVICE = object()
 _DEFAULT_PLAYER_LESSONS_SERVICE = object()
 
 _NARRATION_GUARD_TRACE_REASON_CODES = frozenset({
+    "guard_basis_invalid",
+    "guard_state_changed",
+    "guard_input_invalid",
+    "mechanical_authority_unavailable",
+    "guard_evaluation_unavailable",
     "roll_outcome_conflict",
     "unsettled_combatant_impact",
     "unsettled_combatant_defeat",

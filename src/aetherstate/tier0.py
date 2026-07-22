@@ -1157,6 +1157,16 @@ _EVENT_SEPARATOR_RE = re.compile(
     r"(?:,\s*)?\band\s+(?=(?:i|we)\b)",
     re.IGNORECASE,
 )
+_ACTION_NOMINAL_PREFIX_RE = re.compile(
+    r"(?:"
+    r"\b(?:a|an|the|this|that|these|those|my|your|his|her|its|our|their|"
+    r"some|any|another|each|every|no)|"
+    r"\b(?:for|of|about|with|against|near|around|under|over|inside|outside|"
+    r"beside|behind|during)|"
+    r"\b[a-z0-9][a-z0-9'-]*(?:'|\u2019)s"
+    r")\s+(?:(?!(?:and|then|but|or|to|i|we)\b)[a-z0-9][a-z0-9'-]*\s+){0,3}$",
+    re.IGNORECASE,
+)
 _CONTENT_MARKER_CONCEPTS = {
     "scene.cognition.content_clause",
     "scene.discourse.reported_content",
@@ -1181,6 +1191,33 @@ def _visible_meaning_matches(
         match for match in _meaning_matches(meaning, lex_id, start, end)
         if detection_text[match.start:match.end].strip()
     )
+
+
+def _predicate_action_matches(
+    meaning: CompiledMeaning | None,
+    start: int,
+    end: int,
+    detection_text: str,
+) -> tuple:
+    """Return ActionLex rows that are predicates in source, not recognized noun mentions.
+
+    ActionLex intentionally recognizes broad vocabulary. Contextual projection is the boundary
+    that decides whether a recognized surface can anchor an attempted action. Determiners,
+    possessives, and noun-selecting prepositions keep the recognition receipt while preventing a
+    nominal mention such as ``examine the door for a trap`` from becoming a restraint action.
+    """
+    projected = []
+    for match in _visible_meaning_matches(
+            meaning, "action", start, end, detection_text):
+        prefix = _clause_prefix(detection_text, match.start)
+        if _ACTION_NOMINAL_PREFIX_RE.search(prefix):
+            continue
+        classes = action_classes_for_matches((match,))
+        if "weapon_attack" in classes and not _performed_attack_span(
+                detection_text, match.start, match.end):
+            continue
+        projected.append(match)
+    return tuple(projected)
 
 
 def _trim_event_span(text: str, start: int, end: int) -> tuple[int, int]:
@@ -1461,12 +1498,9 @@ def _partition_semantic_turn_by_occurrence(
                 "construction_action",
             ))
     if turn.compiled_meaning is not None:
-        for match in _visible_meaning_matches(
-                turn.compiled_meaning, "action", 0, len(text), detection_text):
+        for match in _predicate_action_matches(
+                turn.compiled_meaning, 0, len(text), detection_text):
             action_classes = action_classes_for_matches((match,))
-            if "weapon_attack" in action_classes and not _performed_attack_span(
-                    detection_text, match.start, match.end):
-                continue
             for action_class in sorted(action_classes):
                 anchors.append(OccurrenceAnchor(
                     "action", str(action_class), match.start, match.end,
@@ -1808,14 +1842,10 @@ def _frame_action_class(
         and frame.start <= candidate.start and candidate.end <= frame.end
     }
     recognized_matches = tuple(
-        match for match in _visible_meaning_matches(
-            meaning, "action", frame.start, frame.end, text,
+        match for match in _predicate_action_matches(
+            meaning, frame.start, frame.end, text,
         )
         if not _WITHOUT_ACTION_PREFIX_RE.search(_clause_prefix(text, match.start))
-        and (
-            "weapon_attack" not in action_classes_for_matches((match,))
-            or _performed_attack_span(text, match.start, match.end)
-        )
     )
     recognized = set(action_classes_for_matches(recognized_matches))
     supported = authored | recognized
@@ -1832,14 +1862,19 @@ def _frame_action_class(
             )
         return "weapon_attack"
     if len(supported) == 1:
+        resolved = next(iter(supported))
         for preference in action_preferences:
             _set_intent_application(
                 preference,
                 frame=frame,
                 applied=False,
-                reason="input_unambiguous",
+                reason=(
+                    "input_unambiguous"
+                    if preference.get("preferred_value") == resolved
+                    else "current_input_conflict"
+                ),
             )
-        return next(iter(supported))
+        return resolved
     if len(supported) > 1:
         if len(action_preferences) == 1:
             preference = action_preferences[0]
@@ -2711,8 +2746,8 @@ def _action_evidence_matches(
 ) -> tuple:
     """Return only code-adapted ActionLex rows that support the selected action topology."""
     supported = []
-    for match in _visible_meaning_matches(
-            meaning, "action", frame.start, frame.end, detection_text):
+    for match in _predicate_action_matches(
+            meaning, frame.start, frame.end, detection_text):
         classes = action_classes_for_matches((match,))
         if frame.action_class in classes:
             supported.append(match)

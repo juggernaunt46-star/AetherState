@@ -2905,9 +2905,23 @@ async def _complete_creator_object(
                 last_issue = "; ".join(issues[:8])
                 continue
             return parsed, ""
-        except (_CreatorCallError, ValueError) as exc:
+        except _CreatorCallError as exc:
+            last_issue = str(exc)
+            break
+        except ValueError as exc:
             last_issue = str(exc)
     return None, last_issue
+
+
+def _creator_failure_detail(kind: str, issue: str) -> str:
+    if str(issue).startswith("main model rejected the request (HTTP "):
+        next_step = "Resolve provider access for the configured main model before authoring again."
+    else:
+        next_step = "Try the AI fill again."
+    return (
+        f"The main model did not return a complete {kind} ({issue}); "
+        f"nothing was loaded. {next_step}"
+    )
 
 
 def _row_head(row) -> str:
@@ -3033,13 +3047,10 @@ async def author_world(get_client, cfg, ep, seed: dict) -> dict:
             prepare=lambda doc: _prepare_world_proposal(doc, seed),
         )
         if parsed is None:
-            log.warning("World Creator rejected two incomplete main-model proposals")
+            log.warning("World Creator could not obtain a complete main-model proposal")
             return {
                 "source": "error",
-                "detail": (
-                    f"The main model did not return a complete world ({issue}); "
-                    "nothing was loaded. Try the AI fill again."
-                ),
+                "detail": _creator_failure_detail("world", issue),
             }
         if isinstance(parsed, dict):
             merged = {**seed, **{k: v for k, v in parsed.items() if v not in (None, "", [])}}
@@ -3083,13 +3094,10 @@ async def author_player(get_client, cfg, ep, seed: dict, world: Optional[dict] =
             validator=lambda doc: _player_validation_issues(doc, reg, pack, seed),
         )
         if parsed is None:
-            log.warning("Character Creator rejected two incomplete main-model proposals")
+            log.warning("Character Creator could not obtain a complete main-model proposal")
             return {
                 "source": "error",
-                "detail": (
-                    f"The main model did not return a complete character ({issue}); "
-                    "nothing was loaded. Try the AI fill again."
-                ),
+                "detail": _creator_failure_detail("character", issue),
             }
         if isinstance(parsed, dict):
             merged = dict(parsed)
