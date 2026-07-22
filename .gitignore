@@ -21,6 +21,8 @@ secrets.*
 /config.local.toml
 /*.local.toml
 /aetherstate-data/
+/.aetherstate-play-stack.json
+/.aetherstate-live-test-stack.json
 /.local/
 /local-data/
 

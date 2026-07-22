@@ -146,6 +146,12 @@ Grouped by plane and role. Full detail per module in `01-module-reference.md`.
 | `status.py` | `/aether/status` health + extraction view. |
 | `static/console.html` | The built-in web dashboard (served at `/aether/console`). |
 
+### Local launch control
+| Module | Role |
+|---|---|
+| `playstack.py` | Windows-only owned-process controller for NLI, AetherState, and SillyTavern; resolves public or legacy layouts, verifies listener identity/readiness, confines child environments, and records exact stop state. |
+| `process_tee.py` | Starts one controller-owned service and tees merged output to a bounded local diagnostic log. |
+
 ### Non-Python
 | Path | Role |
 |---|---|

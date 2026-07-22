@@ -51,6 +51,27 @@ Then:
 
 The backend-only launcher is <code>Start-AetherState.bat</code>. The extension-only fallback is <code>Install-ST-Extension.bat</code>.
 
+### Start the complete Windows play stack
+
+The optional play-stack controller starts and owns the local NLI helper, AetherState, and
+SillyTavern together, verifies all three services, installs the current companion extension, and
+prints the matching stop command:
+
+~~~powershell
+.\.venv\Scripts\python.exe -m aetherstate.playstack start
+~~~
+
+Run <code>nli-shim\setup-nli.bat</code> once first to create the NLI environment, then stop its
+standalone server before starting the combined stack. The controller discovers the checkout-local
+<code>nli-shim</code> and common SillyTavern locations. For an unusual install, pass
+<code>--sillytavern-root "D:\path\to\SillyTavern"</code>; explicit
+<code>--project-root</code> and <code>--nli-root</code> overrides are also available.
+
+Parent provider, cloud, and Git credentials are not forwarded to NLI or SillyTavern. Only
+AetherState-prefixed configuration and network transport settings can reach the AetherState proxy,
+where provider transport occurs. A newly seeded isolated profile reads its model name from
+Console-managed configuration or <code>--model</code>; it does not assume a provider-specific model.
+
 ## Install on Linux
 
 Install Python 3.10+ with <code>venv</code>, then run:

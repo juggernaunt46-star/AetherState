@@ -30,6 +30,23 @@ python -m pytest -q
 python -m ruff check src tests tools nli-shim
 ```
 
+### Windows complete-stack smoke
+
+From a normal public checkout, after both Python environments and SillyTavern are installed:
+
+```powershell
+.\.venv\Scripts\python.exe -m aetherstate.playstack start --no-browser
+.\.venv\Scripts\python.exe -m aetherstate.playstack status
+.\.venv\Scripts\python.exe -m aetherstate.playstack stop
+```
+
+Use <code>--sillytavern-root</code>, <code>--nli-root</code>, or <code>--project-root</code> only when
+automatic discovery cannot identify that component. A smoke is invalid if the imported
+<code>aetherstate</code> does not resolve inside the checkout, any requested port was already owned,
+or the final stop leaves an owned listener behind. The controller may pass AetherState-prefixed and
+network transport configuration to the proxy, but NLI and SillyTavern must receive only the safe
+runtime allowlist plus their controller-owned settings.
+
 ---
 
 ## 1. Add or change a tracked state field / op kind
