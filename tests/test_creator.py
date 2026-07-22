@@ -813,6 +813,122 @@ async def test_player_authoring_can_fulfill_requested_custom_resource_and_cost(m
     }
 
 
+async def test_player_authoring_retries_magic_that_creative_direction_forbids(monkeypatch):
+    magic = _complete_player_document(name="Mara Fen")
+    magic["skills"]["spellcraft"] = 2
+    magic["abilities"].append("arcane_gift")
+    magic["resources"] = {
+        "mana": {"name": "Mana", "cur": 10, "max": 10},
+    }
+    grounded = _complete_player_document(name="Mara Fen")
+    replies = [magic, grounded]
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(replies.pop(0)), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    out = await creator.author_player(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {
+            "notes": "Keep this grounded in practical field science. Do not add magic, prophecy, or destiny.",
+            "resources": {
+                "focus_charges": {
+                    "name": "Focus Charges", "cur": 6, "max": 10,
+                },
+            },
+            "skills": {"signal_audit": 3},
+            "custom": {
+                "skills": [{
+                    "id": "signal_audit",
+                    "name": "Signal Audit",
+                    "keyed_stat": "CUN",
+                    "base_mod": 1,
+                    "max_rank": 5,
+                    "governs": ["recognize", "compare", "trace"],
+                    "desc": "Compares signals without deciding ownership or truth.",
+                    "group": "Field Science",
+                    "cost": {"focus_charges": 1},
+                }],
+                "abilities": [],
+            },
+        },
+    )
+
+    assert out["source"] == "llm"
+    assert len(calls) == 2
+    assert "creative direction forbids magic mechanics" in calls[1]["system"]
+    assert out["doc"]["skills"].get("spellcraft", 0) == 0
+    assert "arcane_gift" not in out["doc"]["abilities"]
+    assert "mana" not in out["doc"]["resources"]
+    assert out["doc"]["resources"]["focus_charges"]["cur"] == 6
+    assert out["doc"]["defs"]["skills"]["signal_audit"]["cost"] == {
+        "focus_charges": 1,
+    }
+
+
+async def test_player_authoring_keeps_typed_magic_when_direction_only_forbids_additions(
+        monkeypatch):
+    magic = _complete_player_document(name="Mara Fen")
+    magic["skills"]["spellcraft"] = 2
+    magic["abilities"].append("arcane_gift")
+    magic["resources"] = {
+        "mana": {"name": "Mana", "cur": 6, "max": 6},
+    }
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(magic), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    out = await creator.author_player(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {
+            "notes": "Do not add magic beyond the filled mechanics.",
+            "skills": {"spellcraft": 2},
+            "abilities": ["arcane_gift"],
+            "resources": {"mana": {"name": "Mana", "cur": 6, "max": 6}},
+        },
+    )
+
+    assert out["source"] == "llm"
+    assert len(calls) == 1
+    assert out["doc"]["skills"]["spellcraft"] == 2
+    assert "arcane_gift" in out["doc"]["abilities"]
+    assert out["doc"]["resources"]["mana"]["max"] == 6
+
+
+def test_player_validation_rejects_new_mana_cost_when_direction_forbids_magic():
+    doc = _complete_player_document(name="Mara Fen")
+    doc["abilities"].append("signal_surge")
+    doc["defs"]["abilities"] = [{
+        "id": "signal_surge",
+        "name": "Signal Surge",
+        "kind": "active",
+        "mechanic": "surge",
+        "applies_to": "perception",
+        "magnitude": 1,
+        "cost": {"mana": 1},
+        "cooldown_turns": 1,
+        "effect": "Strengthens one difficult signal reading beyond its normal ceiling.",
+        "desc": "A concentrated burst used to amplify one uncertain reading.",
+    }]
+
+    issues = creator._player_validation_issues(
+        doc,
+        creator.registry.load(Config()),
+        seed={"notes": "Build a practical technician with no magic."},
+    )
+
+    assert "creative direction forbids magic mechanics" in issues
+
+
 def test_world_ops_use_only_shipped_vocab_and_validate():
     ops = creator.world_to_ops({"genre": "high_fantasy", "name": "Aldering"})
     assert ops and all(validate_op(o) is not None for o in ops)

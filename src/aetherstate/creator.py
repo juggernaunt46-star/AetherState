@@ -2434,6 +2434,18 @@ def _exact_direction_count(notes: str, noun: str) -> Optional[int]:
     return int(token) if token.isdigit() else _DIRECTION_NUMBERS[token]
 
 
+def _direction_forbids_magic(notes: str) -> bool:
+    """Recognize only explicit Player instructions that exclude magic from the sheet."""
+    text = str(notes or "")
+    patterns = (
+        r"\bno\s+(?:new\s+|any\s+)?magic\b",
+        r"\bwithout\s+(?:any\s+)?magic\b",
+        r"\b(?:do\s+not|don't)\s+(?:add|include|use|invent)\s+(?:any\s+)?magic\b",
+        r"\bexclude\s+(?:all\s+|any\s+)?magic\b",
+    )
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
 def _direction_world_count(notes: str, noun: str) -> Optional[int]:
     """Return one explicit world-row count without interpreting general creative prose.
 
@@ -2803,6 +2815,52 @@ def _player_validation_issues(doc: dict, reg, pack: Optional[dict] = None,
         if any(not isinstance(ability, str) or len(ability.strip()) > 40
                or slug(str(ability)) not in known for ability in abilities):
             issues.append("abilities contain an invalid id")
+
+    if _direction_forbids_magic(seed.get("notes", "")):
+        ranked_skills = {
+            slug(str(skill_id))
+            for skill_id, rank in (skills.items() if isinstance(skills, dict) else ())
+            if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0
+        }
+        seed_ranked_skills = {
+            slug(str(skill_id))
+            for skill_id, rank in (
+                seed.get("skills", {}).items()
+                if isinstance(seed.get("skills"), dict) else ()
+            )
+            if isinstance(rank, int) and not isinstance(rank, bool) and rank > 0
+        }
+        selected_abilities = {
+            slug(str(ability)) for ability in abilities if isinstance(ability, str)
+        } if isinstance(abilities, list) else set()
+        seed_abilities = {
+            slug(str(ability)) for ability in _lst(seed.get("abilities"))
+            if isinstance(ability, str)
+        }
+        proposed_resource_ids = {
+            slug(str(resource_id)) for resource_id in proposed_resources
+        }
+        seed_resource_ids = {
+            slug(str(resource_id)) for resource_id in seed_resources
+        }
+
+        def mana_cost_defs(value) -> set[str]:
+            value = value if isinstance(value, dict) else {}
+            return {
+                slug(_s(row.get("id") or row.get("name"), 40))
+                for kind in ("skills", "abilities")
+                for row in _def_rows(value.get(kind))
+                if isinstance(row.get("cost"), dict)
+                and any(slug(str(resource_id)) == "mana" for resource_id in row["cost"])
+            }
+
+        seed_custom = seed.get("custom") if isinstance(seed.get("custom"), dict) else \
+            (seed.get("defs") if isinstance(seed.get("defs"), dict) else {})
+        if ("spellcraft" in ranked_skills - seed_ranked_skills
+                or "arcane_gift" in selected_abilities - seed_abilities
+                or "mana" in proposed_resource_ids - seed_resource_ids
+                or mana_cost_defs(custom) - mana_cost_defs(seed_custom)):
+            issues.append("creative direction forbids magic mechanics")
 
     gear = doc.get("gear")
     if not isinstance(gear, list) or len(gear) < 2:
