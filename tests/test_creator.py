@@ -316,7 +316,7 @@ def test_deterministic_creator_docs_preserve_instruction_notes_without_runtime_p
     assert all("never comic relief" not in str(op) for op in creator.player_to_ops(player))
 
 
-async def test_world_authoring_retries_direction_breaking_front_count(monkeypatch):
+async def test_world_authoring_retries_direction_breaking_front_count(monkeypatch, caplog):
     direction_breaking = _complete_world_document()  # structurally complete, but only two fronts
     complete = _complete_world_document()
     complete["fronts"].append({
@@ -336,15 +336,16 @@ async def test_world_authoring_retries_direction_breaking_front_count(monkeypatc
 
     monkeypatch.setattr(creator, "_creator_chat", fake_chat)
     cfg = Config()
-    out = await creator.author_world(
-        None,
-        cfg,
-        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
-        {"notes": (
-            "Use exactly three named fronts. Give at least one a duration and at least one "
-            "a spawn eligibility effect."
-        )},
-    )
+    with caplog.at_level("INFO", logger="aetherstate.creator"):
+        out = await creator.author_world(
+            None,
+            cfg,
+            SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+            {"notes": (
+                "Use exactly three named fronts. Give at least one a duration and at least one "
+                "a spawn eligibility effect."
+            )},
+        )
 
     assert out["source"] == "llm"
     assert len(out["doc"]["fronts"]) == 3
@@ -358,6 +359,10 @@ async def test_world_authoring_retries_direction_breaking_front_count(monkeypatc
     assert "CONTROLLING CREATIVE-DIRECTION INSTRUCTIONS" in calls[0]["system"]
     assert "previous response was rejected" in calls[1]["system"].lower()
     assert "requires exactly 3 fronts" in calls[1]["system"].lower()
+    assert "Creator completion attempt 1/2 rejected (document_validation); retrying" in caplog.text
+    assert "Creator completion attempt 2/2 accepted" in caplog.text
+    assert "Lantern Mesh" not in caplog.text
+    assert "Rust Union" not in caplog.text
 
 
 async def test_world_authoring_quarantines_invalid_optional_model_only_front(monkeypatch):

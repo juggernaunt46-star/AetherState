@@ -2868,9 +2868,16 @@ async def _complete_creator_object(
         prepare=None) -> tuple[Optional[dict], str]:
     """Request, strictly parse, prepare, and validate a whole document with one clean restart."""
     max_tokens, timeout_s, validation_retries = _creator_limits(cfg)
+    total_attempts = validation_retries + 1
     last_issue = "the main model did not return a complete document"
     attempt_system = system
-    for attempt in range(validation_retries + 1):
+    for attempt in range(total_attempts):
+        attempt_number = attempt + 1
+        log.info(
+            "Creator completion attempt %d/%d started",
+            attempt_number,
+            total_attempts,
+        )
         if attempt:
             attempt_system = (
                 system
@@ -2893,9 +2900,21 @@ async def _complete_creator_object(
             )
             if reply.finish_reason in {"length", "max_tokens", "content_filter"}:
                 last_issue = f"the provider stopped with finish_reason={reply.finish_reason}"
+                log.warning(
+                    "Creator completion attempt %d/%d rejected (provider_stop); %s",
+                    attempt_number,
+                    total_attempts,
+                    "retrying" if attempt_number < total_attempts else "exhausted",
+                )
                 continue
             if reply.finish_reason and reply.finish_reason not in {"stop", "end_turn", "eos"}:
                 last_issue = "the provider did not report a complete response"
+                log.warning(
+                    "Creator completion attempt %d/%d rejected (provider_incomplete); %s",
+                    attempt_number,
+                    total_attempts,
+                    "retrying" if attempt_number < total_attempts else "exhausted",
+                )
                 continue
             parsed = _strict_creator_json_object(reply.content)
             if prepare is not None:
@@ -2903,13 +2922,35 @@ async def _complete_creator_object(
             issues = validator(parsed)
             if issues:
                 last_issue = "; ".join(issues[:8])
+                log.warning(
+                    "Creator completion attempt %d/%d rejected (document_validation); %s",
+                    attempt_number,
+                    total_attempts,
+                    "retrying" if attempt_number < total_attempts else "exhausted",
+                )
                 continue
+            log.info(
+                "Creator completion attempt %d/%d accepted",
+                attempt_number,
+                total_attempts,
+            )
             return parsed, ""
         except _CreatorCallError as exc:
             last_issue = str(exc)
+            log.warning(
+                "Creator completion attempt %d/%d rejected (provider_error); exhausted",
+                attempt_number,
+                total_attempts,
+            )
             break
         except ValueError as exc:
             last_issue = str(exc)
+            log.warning(
+                "Creator completion attempt %d/%d rejected (response_parse); %s",
+                attempt_number,
+                total_attempts,
+                "retrying" if attempt_number < total_attempts else "exhausted",
+            )
     return None, last_issue
 
 
