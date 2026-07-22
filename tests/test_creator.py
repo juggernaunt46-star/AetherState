@@ -564,6 +564,40 @@ def test_world_validator_honors_explicit_lower_counts_and_no_fronts():
     assert issues == []
 
 
+def test_world_validator_honors_creator_front_helper_instructions():
+    three_fronts = _complete_world_document()
+    three_fronts["fronts"].append({
+        "name": "The Lantern Mesh opens the archive",
+        "faction": "Lantern Mesh",
+        "segments": 5,
+        "pace": 1,
+        "consequence": "Escaped constructs gain sanctuary and openly patrol Saint Voltage.",
+        "event_duration_turns": None,
+        "spawn_eligibility": None,
+    })
+    exact_three = (
+        "Create exactly 3 faction fronts. Each front must name a specific agenda, use the exact "
+        "name of an existing faction, use 4–8 segments and pace 1–3, and give one complete, concrete "
+        "consequence that becomes true when it completes. Add a duration only when that consequence "
+        "is temporary. Change future faction eligibility only when completion should allow or block "
+        "future enemies from that same faction; otherwise leave it unchanged."
+    )
+
+    assert creator._direction_world_count(exact_three, "front") == 3
+    assert creator._direction_world_count(exact_three, "faction") is None
+    assert creator._world_validation_issues(three_fronts, {"notes": exact_three}) == []
+    assert "creative direction requires exactly 3 fronts" in creator._world_validation_issues(
+        _complete_world_document(), {"notes": exact_three},
+    )
+
+    no_fronts = _complete_world_document()
+    no_fronts["fronts"] = []
+    assert creator._direction_world_count("Do not create any fronts.", "front") == 0
+    assert creator._world_validation_issues(
+        no_fronts, {"notes": "Do not create any fronts."},
+    ) == []
+
+
 def test_world_validator_keeps_rich_defaults_without_explicit_count_direction():
     world = _complete_world_document()
     world["factions"] = world["factions"][:2]
@@ -923,6 +957,16 @@ async def test_creator_page_served(client):
     assert "function canonicalPlayerDocument" in r.text
     assert "return canonicalPlayerDocument({" in r.text
     assert 'id="w_ai_retry"' in r.text and 'id="c_ai_retry"' in r.text
+    assert 'id="w_front_request_count"' in r.text
+    assert 'id="w_front_instruction_preview"' in r.text
+    assert 'id="w_front_instruction_append"' in r.text
+    assert "function frontInstructionText(count)" in r.text
+    assert "function frontInstructionCountFromNotes(notes)" in r.text
+    assert "function refreshFrontInstructionGuide()" in r.text
+    assert "function hydrateFrontInstructionGuide(notes)" in r.text
+    assert "function appendFrontInstruction()" in r.text
+    assert "each front's agenda" in r.text
+    assert "Avoid:</b> JSON, current clock progress" in r.text
 
 
 async def test_world_and_player_routes_persist(client):

@@ -2419,9 +2419,12 @@ def _exact_direction_count(notes: str, noun: str) -> Optional[int]:
         "gear": ("named", "starting", "distinct"),
     }.get(noun, ("named",))
     qualifier_pattern = "|".join(re.escape(value) for value in qualifiers)
+    # "Exactly 3 faction fronts" constrains fronts, not the number of factions. Keep the
+    # ordinary faction-count grammar, but do not stop at the qualifier inside that front phrase.
+    noun_tail = r"(?!\s+fronts?\b)" if noun == "faction" else ""
     match = re.search(
         rf"\bexactly\s+(\d+|{'|'.join(_DIRECTION_NUMBERS)})\s+"
-        rf"(?:(?:{qualifier_pattern})\s+){{0,2}}{noun}s?\b",
+        rf"(?:(?:{qualifier_pattern})\s+){{0,2}}{noun}s?\b{noun_tail}",
         str(notes or ""),
         re.IGNORECASE,
     )

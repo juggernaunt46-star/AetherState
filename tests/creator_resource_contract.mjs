@@ -275,6 +275,79 @@ assert.deepEqual(JSON.parse(JSON.stringify(sandbox.readFronts())), [{
   spawn_eligibility: false,
 }], "front editors must preserve duration and an explicit false spawn rule");
 
+const frontGuideCount = field("1");
+frontGuideCount.options = Array.from({ length: 9 }, (_, value) => ({ value: String(value), disabled: false }));
+const frontGuidePreview = field("");
+const frontGuideNotes = field("Keep the solar archive theme.\nPreserve this exact player line.");
+const frontGuideSandbox = {
+  existingFrontCount: 2,
+  scheduled: 0,
+  toasts: [],
+  readFronts() { return Array.from({ length: frontGuideSandbox.existingFrontCount }, () => ({ name: "Named front" })); },
+  scheduleDraft() { frontGuideSandbox.scheduled += 1; },
+  refreshLimitCounter() {},
+  toast(message, kind) { frontGuideSandbox.toasts.push({ message, kind }); },
+};
+frontGuideSandbox.$ = (id) => ({
+  w_front_request_count: frontGuideCount,
+  w_front_instruction_preview: frontGuidePreview,
+  w_notes: frontGuideNotes,
+}[id] || null);
+vm.createContext(frontGuideSandbox);
+vm.runInContext([
+  "frontInstructionText", "frontInstructionBlock", "frontInstructionCountFromNotes",
+  "refreshFrontInstructionGuide", "hydrateFrontInstructionGuide", "appendFrontInstruction",
+].map(extractFunction).join("\n"), frontGuideSandbox, { filename: "creator-front-guide-contract.js" });
+
+const expectedFrontInstruction = "Create exactly 3 faction fronts. Each front must name a specific agenda, use the exact name of an existing faction, use 4–8 segments and pace 1–3, and give one complete, concrete consequence that becomes true when it completes. Add a duration only when that consequence is temporary. Change future faction eligibility only when completion should allow or block future enemies from that same faction; otherwise leave it unchanged.";
+assert.equal(frontGuideSandbox.frontInstructionText(3), expectedFrontInstruction);
+frontGuideSandbox.refreshFrontInstructionGuide();
+assert.equal(frontGuideCount.value, "2", "a request below the named-front count must clamp upward");
+assert.deepEqual(frontGuideCount.options.map((option) => option.disabled), [
+  true, true, false, false, false, false, false, false, false,
+], "front-count targets below existing named rows must be disabled");
+frontGuideSandbox.existingFrontCount = 0;
+frontGuideCount.value = "0";
+frontGuideSandbox.refreshFrontInstructionGuide();
+assert.equal(frontGuidePreview.textContent, "Do not create any fronts.");
+
+const authoredNotes = frontGuideNotes.value;
+frontGuideCount.value = "3";
+frontGuideSandbox.appendFrontInstruction();
+const firstGuidedNotes = frontGuideNotes.value;
+assert.ok(firstGuidedNotes.startsWith(`${authoredNotes}\n\n[AetherState Creator: faction-front instruction]\n`));
+assert.match(firstGuidedNotes, /Create exactly 3 faction fronts\./);
+assert.equal(frontGuideSandbox.scheduled, 1, "inserting guidance must autosave the draft");
+frontGuideSandbox.appendFrontInstruction();
+assert.equal(frontGuideNotes.value, firstGuidedNotes, "reapplying the same helper block must be idempotent");
+const authoredSuffix = "\nPlayer-authored suffix after the helper block.";
+frontGuideNotes.value += authoredSuffix;
+frontGuideCount.value = "4";
+frontGuideSandbox.appendFrontInstruction();
+assert.ok(frontGuideNotes.value.startsWith(authoredNotes), "player-authored notes must remain byte-for-byte intact");
+assert.ok(frontGuideNotes.value.endsWith(authoredSuffix), "player-authored notes after the helper block must remain byte-for-byte intact");
+assert.equal((frontGuideNotes.value.match(/\[AetherState Creator: faction-front instruction\]/g) || []).length, 1);
+assert.match(frontGuideNotes.value, /Create exactly 4 faction fronts\./);
+assert.equal(frontGuideSandbox.scheduled, 3, "replacing guidance must also autosave");
+
+const zeroReloadNotes = `Player zero-front prefix.\n\n${frontGuideSandbox.frontInstructionBlock(0)}\nPlayer zero-front suffix.`;
+frontGuideSandbox.existingFrontCount = 0;
+frontGuideCount.value = "3";
+frontGuideNotes.value = zeroReloadNotes;
+frontGuideSandbox.hydrateFrontInstructionGuide(frontGuideNotes.value);
+assert.equal(frontGuideCount.value, "0", "a restored zero-front helper block must restore its selector");
+assert.equal(frontGuidePreview.textContent, "Do not create any fronts.");
+assert.equal(frontGuideNotes.value, zeroReloadNotes, "zero-front hydration must not rewrite player notes");
+
+const fourReloadNotes = `Player four-front prefix.\n\n${frontGuideSandbox.frontInstructionBlock(4)}\nPlayer four-front suffix.`;
+frontGuideSandbox.existingFrontCount = 4;
+frontGuideCount.value = "0";
+frontGuideNotes.value = fourReloadNotes;
+frontGuideSandbox.hydrateFrontInstructionGuide(frontGuideNotes.value);
+assert.equal(frontGuideCount.value, "4", "a restored four-front helper block must restore its selector");
+assert.equal(frontGuidePreview.textContent, frontGuideSandbox.frontInstructionText(4));
+assert.equal(frontGuideNotes.value, fourReloadNotes, "four-front hydration must not rewrite player notes");
+
 sandbox.lootRows.standard = [dataRow({
   name: "Sealed Lamp Oil", chance: 0.35, qty_min: 1, qty_max: 2,
 })];
@@ -1025,7 +1098,7 @@ for (const required of [
   'data-field="governs"', 'data-field="desc"', 'data-field="effect"',
   "Custom world lore", "Faction fronts", "Starting gear",
   "loot:readLoot(), fronts:readFronts(), routes:readRoutes()",
-  "fillFronts(w.fronts); fillLoot(w.loot); fillRoutes(w.routes);",
+  "fillFronts(w.fronts); fillLoot(w.loot); fillRoutes(w.routes); hydrateFrontInstructionGuide($(\"w_notes\").value);",
   "ordinaryRows:20,gearRows:32,frontRows:8,routeRows:24",
   "lootRows:12,direction:32768,longProse:8000,rowProse:4000,namedRow:2000",
   'id="w_ai_status" role="status" aria-live="polite"',

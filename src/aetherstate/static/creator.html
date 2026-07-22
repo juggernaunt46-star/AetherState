@@ -230,6 +230,14 @@ html[data-view="guided"] .expert-only{display:none!important}
       <div class="world-structures">
         <details open>
           <summary>Faction fronts <span class="limit-counter" data-row-count-for="w_fronts"></span></summary>
+          <div class="review-block">
+            <div class="row c2" style="margin-bottom:7px">
+              <div><label>Fronts to ask the AI for</label><select id="w_front_request_count" onchange="refreshFrontInstructionGuide()"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option></select></div>
+              <div style="display:flex;align-items:flex-end"><button class="mini" id="w_front_instruction_append" type="button" onclick="appendFrontInstruction()">Add safe instruction to AI guidance</button></div>
+            </div>
+            <div class="hint" style="margin:0 0 6px"><b>Include:</b> a count, each front's agenda, urgency, and the consequence that becomes true. <b>Avoid:</b> JSON, current clock progress, or saying the consequence already happened; code owns advancement and completion.</div>
+            <div id="w_front_instruction_preview" class="hint" style="margin:0;white-space:pre-wrap" aria-live="polite">Create exactly 3 faction fronts. Each front must name a specific agenda, use the exact name of an existing faction, use 4–8 segments and pace 1–3, and give one complete, concrete consequence that becomes true when it completes. Add a duration only when that consequence is temporary. Change future faction eligibility only when completion should allow or block future enemies from that same faction; otherwise leave it unchanged.</div>
+          </div>
           <div id="w_fronts" class="list"></div>
           <button class="mini" onclick="addFront()">+ front</button>
         </details>
@@ -563,7 +571,7 @@ function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({world
   const c=$("draftChip"); if(c) c.style.display=""; }catch(e){} }
 function scheduleDraft(){ clearTimeout(_draftT); _draftT=setTimeout(saveDraft, 600); }
 function removeDraftRow(btn){ const row=btn&&btn.closest?btn.closest(".item"):null;
-  if(row){ row.remove(); refreshAllListCounts(); refreshCustomDefinitionSummary(); scheduleDraft(); } }
+  if(row){ row.remove(); refreshAllListCounts(); refreshCustomDefinitionSummary(); refreshFrontInstructionGuide(); scheduleDraft(); } }
 function clearCreatorDraft(){
   clearTimeout(_draftT); try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
   WORLD_CACHE=null; PLAYER_CACHE=null;
@@ -608,6 +616,7 @@ function _autoTitle(scope){ scope.querySelectorAll("input:not([title])").forEach
 function dualLabel(guided,expert){return `<span class="guided-only">${guided}</span><span class="expert-only">${expert}</span>`}
 document.addEventListener("input", e=>{ const t=e.target;
   if(t && t.tagName==="INPUT" && t.dataset.autotitle==="1") t.title=t.value;
+  if(t && t.closest && t.closest(".front-row")) refreshFrontInstructionGuide();
   refreshLimitCounter(t); }, true);
 function addLine(hostId, val){
   if(!mayAddRow(hostId,val==null)) return;
@@ -735,7 +744,7 @@ function addFront(front){ if(!mayAddRow("w_fronts",front==null)) return; const f
     <div><label>${dualLabel("Can this faction appear afterward?","Future faction eligibility")}</label><select data-field="spawn_eligibility" title="Choose whether completing this threat allows or blocks its faction from appearing later."><option value="" ${typeof spawn!=="boolean"?'selected':''}>leave unchanged</option><option value="true" ${spawn===true?'selected':''}>allow after completion</option><option value="false" ${spawn===false?'selected':''}>block after completion</option></select></div></div>
     <label>Consequence</label>${limitedControl(`<textarea data-field="consequence" rows="2" maxlength="4000" data-limit="4000" placeholder="What becomes true when this clock completes">${esc(f.consequence||'')}</textarea>`,4000)}
     <div class="row-tools"><button class="mini x" onclick="removeDraftRow(this)">✕ remove front</button></div>`;
-  $("w_fronts").appendChild(d); refreshLimitCounters(d); refreshListCount("w_fronts");
+  $("w_fronts").appendChild(d); refreshLimitCounters(d); refreshListCount("w_fronts"); refreshFrontInstructionGuide();
 }
 function readFronts(){ return [...$("w_fronts").querySelectorAll(".front-row")].map(it=>{
   const get=k=>(it.querySelector(`[data-field="${k}"]`)||{}).value??"";
@@ -746,7 +755,38 @@ function readFronts(){ return [...$("w_fronts").querySelectorAll(".front-row")].
   const spawn=String(get("spawn_eligibility")); if(spawn==="true"||spawn==="false") row.spawn_eligibility=spawn==="true";
   return row;
 }).filter(Boolean); }
-function fillFronts(rows){ $("w_fronts").innerHTML=""; (rows||[]).forEach(addFront); refreshListCount("w_fronts"); }
+function fillFronts(rows){ $("w_fronts").innerHTML=""; (rows||[]).forEach(addFront); refreshListCount("w_fronts"); refreshFrontInstructionGuide(); }
+function frontInstructionText(count){ const parsed=Number(count);
+  const safe=Number.isFinite(parsed)?Math.max(0,Math.min(8,Math.trunc(parsed))):3;
+  if(safe===0) return "Do not create any fronts.";
+  return `Create exactly ${safe} faction front${safe===1?"":"s"}. Each front must name a specific agenda, use the exact name of an existing faction, use 4–8 segments and pace 1–3, and give one complete, concrete consequence that becomes true when it completes. Add a duration only when that consequence is temporary. Change future faction eligibility only when completion should allow or block future enemies from that same faction; otherwise leave it unchanged.`;
+}
+function frontInstructionBlock(count){ return `[AetherState Creator: faction-front instruction]\n${frontInstructionText(count)}\n[/AetherState Creator: faction-front instruction]`; }
+function frontInstructionCountFromNotes(notes){ const current=String(notes||"");
+  const start="[AetherState Creator: faction-front instruction]", end="[/AetherState Creator: faction-front instruction]";
+  const from=current.indexOf(start), through=from<0?-1:current.indexOf(end,from+start.length);
+  if(from<0||through<0) return null; const body=current.slice(from+start.length,through).trim();
+  if(body==="Do not create any fronts.") return 0;
+  const match=body.match(/^Create exactly ([1-8]) faction fronts?\./); return match?Number(match[1]):null;
+}
+function refreshFrontInstructionGuide(){ const select=$("w_front_request_count"), preview=$("w_front_instruction_preview");
+  if(!select||!preview) return; const existing=Math.max(0,Math.min(8,readFronts().length));
+  [...select.options].forEach(option=>{ option.disabled=Number(option.value)<existing; });
+  const parsed=Number(select.value); let requested=Number.isFinite(parsed)?Math.trunc(parsed):3;
+  requested=Math.max(existing,Math.max(0,Math.min(8,requested))); select.value=String(requested);
+  preview.textContent=frontInstructionText(requested);
+}
+function hydrateFrontInstructionGuide(notes){ const select=$("w_front_request_count"), count=frontInstructionCountFromNotes(notes);
+  if(!select||count==null) return; select.value=String(count); refreshFrontInstructionGuide();
+}
+function appendFrontInstruction(){ refreshFrontInstructionGuide(); const select=$("w_front_request_count"), notes=$("w_notes");
+  if(!select||!notes) return; const block=frontInstructionBlock(select.value), current=String(notes.value||"");
+  const start="[AetherState Creator: faction-front instruction]", end="[/AetherState Creator: faction-front instruction]";
+  const from=current.indexOf(start), through=from<0?-1:current.indexOf(end,from+start.length);
+  if(from>=0&&through>=0) notes.value=current.slice(0,from)+block+current.slice(through+end.length);
+  else { const separator=!current?"":(current.endsWith("\n\n")?"":(current.endsWith("\n")?"\n":"\n\n")); notes.value=current+separator+block; }
+  refreshLimitCounter(notes); scheduleDraft(); toast("Front instruction added to AI guidance.","ok");
+}
 
 const LOOT_TIERS=["minion","standard","elite","boss"];
 function addLootRow(tier,entry){ tier=String(tier||"").toLowerCase(); const hostId=`w_loot_${tier}`;
@@ -1177,7 +1217,7 @@ function applyWorld(w){ if(!w) return; WORLD_FORM_EPOCH+=1; const genreBefore=cu
   $("w_npcs").innerHTML=""; (w.npcs||[]).forEach(addNpc);
   $("w_scene").value=w.opening_scene||""; $("w_quest").value=w.opening_quest||"";
   fillExtras("w_extras", Array.isArray(w.extras)?w.extras:[]);
-  fillFronts(w.fronts); fillLoot(w.loot); fillRoutes(w.routes);
+  fillFronts(w.fronts); fillLoot(w.loot); fillRoutes(w.routes); hydrateFrontInstructionGuide($("w_notes").value);
   refreshLimitCounters(document); refreshAllListCounts();
   scheduleDraft(); }
 function fillList(hostId, arr){ $(hostId).innerHTML=""; (arr||[]).forEach(v=>addLine(hostId,v)); refreshListCount(hostId); }
