@@ -50,6 +50,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     output = parse_args().output
+    routes = capture_routes()
+    if not routes:
+        raise ValueError("route capture found no APIRoute entries")
+    if not any(route["methods"] for route in routes):
+        raise ValueError("route capture retained no path/method obligations")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(
@@ -59,7 +64,7 @@ def main() -> int:
                     "version": BASELINE_VERSION,
                     "commit": BASELINE_COMMIT,
                 },
-                "routes": capture_routes(),
+                "routes": routes,
             },
             indent=2,
         )
