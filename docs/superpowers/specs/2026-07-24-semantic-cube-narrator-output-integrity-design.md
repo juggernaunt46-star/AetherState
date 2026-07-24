@@ -163,8 +163,24 @@ Every repair requires:
 - focused tests for the owning component;
 - the relevant broader regression cohort at the boundary milestone.
 
-The full suite is not required after every small repair. Run it at the final integrity gate or when a
-repair changes a foundation broad enough to justify it.
+Verification must remain proportional:
+
+- use focused causal tests during the repair loop;
+- run the affected boundary, lifecycle, and Cube cohorts at each substage exit;
+- reuse same-commit evidence when its source, configuration, and prerequisites remain unchanged;
+- when later evidence invalidates one prerequisite, revoke and rerun only dependent passes;
+- run independent CI and operating-system lanes in parallel where possible;
+- run one full suite at the Semantic Cube terminal gate, which is Stage 2 of the unified hardening
+  plan, not after every repair.
+
+Every implementation-plan gate must declare an expected elapsed-time budget based on current measured
+test timings. If a planned or running gate would exceed that budget, stop with
+`TEST_BUDGET_HOLD`. Optimize or repartition the gate and preserve its proof obligation instead of
+silently entering a four-hour testing cycle or weakening final verification. Any gate planned beyond
+90 minutes of local serial verification requires Bean's explicit approval.
+
+The final integrity proof is non-negotiable. Time budgeting controls how evidence is obtained, not
+whether required evidence may be skipped.
 
 ## Playtest role
 
@@ -177,6 +193,8 @@ Automated synthetic checks are the main workload. Disposable playtests have thre
 Use the smallest focused scenario that distinguishes the competing causes. A foundational finding
 stops the live run; preserve the reproduction, repair and verify the owner, then restart with fresh
 synthetic state. Do not continue through contaminated evidence merely to accumulate turns.
+Do not impose a blind turn quota; stop when the required claim is decided and further turns add no
+material evidence.
 
 ## Status definitions
 
