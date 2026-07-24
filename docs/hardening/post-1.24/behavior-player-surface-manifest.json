@@ -114,13 +114,19 @@
       "id": "install.linux",
       "preservation": "required",
       "default_reachability": "direct",
-      "proofs": [{"kind": "workflow", "gate": "installer-linux"}]
+      "proofs": [
+        {"kind": "workflow", "gate": "installer-linux"},
+        {"kind": "pytest", "selector": "tests/test_installer_contracts.py::test_explicit_install_only_contract"}
+      ]
     },
     {
       "id": "install.windows",
       "preservation": "required",
       "default_reachability": "direct",
-      "proofs": [{"kind": "workflow", "gate": "installer-windows"}]
+      "proofs": [
+        {"kind": "workflow", "gate": "installer-windows"},
+        {"kind": "pytest", "selector": "tests/test_installer_contracts.py::test_explicit_install_only_contract"}
+      ]
     },
     {
       "id": "launch.linux",
