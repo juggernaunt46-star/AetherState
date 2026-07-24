@@ -209,6 +209,30 @@ def _rows(
     return [dict(zip(columns, row)) for row in db.execute(pragma).fetchall()]
 
 
+def _canonical_fingerprint(payload: dict[str, Any]) -> str:
+    canonical = {
+        "objects": payload["objects"],
+        "tables": payload["tables"],
+    }
+    encoded = json.dumps(
+        canonical,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def _sql_projection(payload: dict[str, Any]) -> str:
+    rows = [
+        row["sql"]
+        for kind in ("table", "index", "trigger", "view")
+        for row in payload["objects"]
+        if row["type"] == kind
+    ]
+    return ";\n".join(rows) + ";\n"
+
+
 def _capture_connection(db: sqlite3.Connection) -> dict[str, Any]:
     object_rows = db.execute(
         """
@@ -294,14 +318,8 @@ def _capture_connection(db: sqlite3.Connection) -> dict[str, Any]:
         )
 
     canonical = {"objects": objects, "tables": tables}
-    encoded = json.dumps(
-        canonical,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
     return {
-        "fingerprint": f"sha256:{hashlib.sha256(encoded).hexdigest()}",
+        "fingerprint": _canonical_fingerprint(canonical),
         "diagnostics": {"sqlite_version": sqlite3.sqlite_version},
         **canonical,
     }
@@ -426,14 +444,10 @@ def _write_captures(
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        sql_rows = [
-            row["sql"]
-            for kind in ("table", "index", "trigger", "view")
-            for row in payload["objects"]
-            if row["type"] == kind
-        ]
-        sql = ";\n".join(sql_rows) + ";\n"
-        (output_dir / f"{shape}.schema.sql").write_text(sql, encoding="utf-8")
+        (output_dir / f"{shape}.schema.sql").write_text(
+            _sql_projection(payload),
+            encoding="utf-8",
+        )
 
 
 def _check_captures(
@@ -441,10 +455,29 @@ def _check_captures(
     captures: dict[str, dict[str, Any]],
 ) -> None:
     compared = {}
+    expected_baseline_id = None
     for shape in SHAPES:
         expected = json.loads(
             (check_dir / f"{shape}.schema.json").read_text(encoding="utf-8")
         )
+        _validate_contract(expected)
+        if expected["shape"] != shape:
+            raise ValueError(f"{shape} fixture has the wrong shape identity")
+        if expected_baseline_id is None:
+            expected_baseline_id = expected["baseline_id"]
+        elif expected["baseline_id"] != expected_baseline_id:
+            raise ValueError("Expected fixtures name different baselines")
+        computed_fingerprint = _canonical_fingerprint(expected)
+        if expected["fingerprint"] != computed_fingerprint:
+            raise ValueError(
+                f"{shape} fixture fingerprint does not match canonical content"
+            )
+        expected_sql = _sql_projection(expected)
+        stored_sql = (check_dir / f"{shape}.schema.sql").read_text(encoding="utf-8")
+        if stored_sql != expected_sql:
+            raise ValueError(
+                f"{shape} sibling SQL projection does not match canonical JSON DDL"
+            )
         expected_fingerprint = expected["fingerprint"]
         actual_fingerprint = captures[shape]["fingerprint"]
         if actual_fingerprint != expected_fingerprint:
