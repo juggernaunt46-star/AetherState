@@ -17,6 +17,20 @@ COMPLETION = "Install-only verification complete."
 STARTING = "Starting AetherState setup and Console..."
 
 
+def _cleanup_fake_root(fake_root: Path, tmp_path: Path) -> None:
+    resolved_tmp = tmp_path.resolve()
+    resolved_fake = fake_root.resolve()
+    if resolved_fake == resolved_tmp:
+        raise AssertionError("fake root must be a child of pytest tmp_path")
+    try:
+        resolved_fake.relative_to(resolved_tmp)
+    except ValueError as error:
+        raise AssertionError("fake root escaped pytest tmp_path") from error
+    if resolved_fake.exists():
+        shutil.rmtree(resolved_fake)
+    assert not resolved_fake.exists()
+
+
 def _server_processes() -> set[tuple[int, str]]:
     if sys.platform != "win32":
         result = subprocess.run(
@@ -63,6 +77,21 @@ def _assert_installed(fake_root: Path, output: str, before: set[tuple[int, str]]
     assert _server_processes() == before
 
 
+def test_fake_root_cleanup_is_scoped_and_runs_during_failure(tmp_path: Path) -> None:
+    fake_root = tmp_path / "Failure Fake SillyTavern"
+    fake_root.mkdir()
+
+    with pytest.raises(RuntimeError, match="synthetic failure"):
+        try:
+            raise RuntimeError("synthetic failure")
+        finally:
+            _cleanup_fake_root(fake_root, tmp_path)
+
+    assert not fake_root.exists()
+    with pytest.raises(AssertionError, match="escaped"):
+        _cleanup_fake_root(tmp_path.parent / "not-owned", tmp_path)
+
+
 @pytest.mark.parametrize("platform_name", ["win32", "linux"])
 def test_explicit_install_only_contract(
     platform_name: str,
@@ -100,8 +129,7 @@ def test_explicit_install_only_contract(
         assert result.returncode == 0, result.stdout + result.stderr
         _assert_installed(fake_root, result.stdout + result.stderr, before)
     finally:
-        shutil.rmtree(fake_root, ignore_errors=True)
-    assert not fake_root.exists()
+        _cleanup_fake_root(fake_root, tmp_path)
 
 
 def test_install_only_discovers_sillytavern_dir_from_environment(tmp_path: Path) -> None:
@@ -135,5 +163,4 @@ def test_install_only_discovers_sillytavern_dir_from_environment(tmp_path: Path)
         assert result.returncode == 0, result.stdout + result.stderr
         _assert_installed(fake_root, result.stdout + result.stderr, before)
     finally:
-        shutil.rmtree(fake_root, ignore_errors=True)
-    assert not fake_root.exists()
+        _cleanup_fake_root(fake_root, tmp_path)

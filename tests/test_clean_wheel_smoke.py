@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
+import signal
+import subprocess
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -144,3 +149,408 @@ def test_wheel_directory_selection_requires_exactly_one_wheel(tmp_path: Path) ->
     with pytest.raises(smoke.SmokeFailure) as caught:
         smoke.select_wheel(tmp_path)
     assert caught.value.code == "wheel_count"
+
+
+def test_run_logged_uses_bounded_capture_and_stable_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append({"command": command, **kwargs})
+        kwargs["stdout"].write(b"old\n" * 300 + b"terminal failure\n")
+        return types.SimpleNamespace(returncode=7)
+
+    monkeypatch.setattr(smoke.subprocess, "run", fake_run)
+    log_path = tmp_path / "command.log"
+    with pytest.raises(smoke.SmokeFailure) as caught:
+        smoke._run_logged(
+            ["python", "-m", "pip", "check"],
+            cwd=tmp_path,
+            env={"SAFE": "yes"},
+            log_path=log_path,
+        )
+
+    assert caught.value.code == "command_failed"
+    assert "terminal failure" in caught.value.detail
+    assert len(caught.value.detail) <= smoke.FAILURE_TAIL_CHARS + 20
+    assert calls[0]["command"] == ["python", "-m", "pip", "check"]
+    assert calls[0]["cwd"] == tmp_path
+    assert calls[0]["env"] == {"SAFE": "yes"}
+    assert calls[0]["stdin"] is subprocess.DEVNULL
+    assert calls[0]["stderr"] is subprocess.STDOUT
+    assert calls[0]["check"] is False
+
+
+def _fake_orchestration_runner(records: list[dict[str, object]]):
+    def fake_run(command, *, cwd, env, log_path):
+        command = [str(part) for part in command]
+        records.append(
+            {
+                "command": command,
+                "cwd": Path(cwd),
+                "env": dict(env),
+                "log_path": Path(log_path),
+            }
+        )
+        if command[1:3] == ["-m", "venv"]:
+            executable = Path(command[3]) / (
+                Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+            )
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"")
+        if command[1:3] == ["-m", "build"]:
+            dist_dir = Path(command[command.index("--outdir") + 1])
+            (dist_dir / "aetherstate-1.24.0-py3-none-any.whl").write_bytes(b"wheel")
+            (dist_dir / "aetherstate-1.24.0.tar.gz").write_bytes(b"sdist")
+
+    return fake_run
+
+
+def _record_real_containment(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, Path]]:
+    checked: list[tuple[Path, Path]] = []
+    real = smoke.require_within_temp_root
+
+    def wrapper(root: Path, *paths: Path) -> None:
+        real(root, *paths)
+        checked.extend((root.resolve(), path.resolve()) for path in paths)
+
+    monkeypatch.setattr(smoke, "require_within_temp_root", wrapper)
+    return checked
+
+
+def test_build_source_orchestration_isolated_ordered_sanitized_and_cleaned(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    monkeypatch.setenv("AETHERSTATE_UPSTREAM__API_KEY", "secret")
+    monkeypatch.setenv("PYTHONPATH", "poison")
+    monkeypatch.setenv("VIRTUAL_ENV", "poison")
+    records: list[dict[str, object]] = []
+    monkeypatch.setattr(smoke, "_run_logged", _fake_orchestration_runner(records))
+    checked = _record_real_containment(monkeypatch)
+
+    smoke._build_source(source)
+
+    commands = [record["command"] for record in records]
+    assert [command[1:3] for command in commands] == [
+        ["-m", "venv"],
+        ["-m", "pip"],
+        ["-m", "build"],
+        ["-m", "venv"],
+        ["-m", "pip"],
+        ["-m", "pip"],
+        [str(Path(__file__).resolve().parents[1] / "tools" / "smoke_clean_wheel.py"), "--installed-smoke"],
+    ]
+    assert commands[1][-2:] == ["install", "build"]
+    assert commands[2][-1] == str(source.resolve())
+    assert commands[4][-3:-1] == ["pip", "install"]
+    assert commands[5][-2:] == ["pip", "check"]
+    build_env = Path(commands[0][3])
+    wheel_env = Path(commands[3][3])
+    assert build_env.name == "build-env"
+    assert wheel_env.name == "wheel-env"
+    assert build_env != wheel_env
+    executable = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+    assert commands[1][0] == str(build_env / executable)
+    assert commands[4][0] == str(wheel_env / executable)
+    assert commands[6][0] == str(wheel_env / executable)
+    assert all(
+        "PYTHONPATH" not in record["env"]
+        and "VIRTUAL_ENV" not in record["env"]
+        and not any(key.startswith("AETHERSTATE_") for key in record["env"])
+        for record in records
+    )
+    temp_root = Path(records[0]["cwd"])
+    expected_names = {
+        "build-env",
+        "wheel-env",
+        "dist",
+        "create-build-env.log",
+        "install-build.log",
+        "build.log",
+        "create-wheel-env.log",
+        "install-wheel.log",
+        "pip-check.log",
+        "installed-smoke.log",
+    }
+    assert expected_names <= {path.name for _root, path in checked}
+    assert all(root == temp_root and path.is_relative_to(root) for root, path in checked)
+    assert not temp_root.exists()
+
+
+def test_wheel_dir_orchestration_creates_only_wheel_environment_and_cleans_up(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    wheel = artifact_dir / "aetherstate-1.24.0-py3-none-any.whl"
+    wheel.write_bytes(b"wheel")
+    records: list[dict[str, object]] = []
+    monkeypatch.setattr(smoke, "_run_logged", _fake_orchestration_runner(records))
+    checked = _record_real_containment(monkeypatch)
+
+    smoke._wheel_dir(artifact_dir)
+
+    commands = [record["command"] for record in records]
+    assert [command[1:3] for command in commands] == [
+        ["-m", "venv"],
+        ["-m", "pip"],
+        ["-m", "pip"],
+        [str(Path(__file__).resolve().parents[1] / "tools" / "smoke_clean_wheel.py"), "--installed-smoke"],
+    ]
+    assert commands[1][-1] == str(wheel)
+    assert commands[2][-2:] == ["pip", "check"]
+    assert all("build-env" not in " ".join(command) for command in commands)
+    temp_root = Path(records[0]["cwd"])
+    assert {
+        "wheel-env",
+        "create-wheel-env.log",
+        "install-wheel.log",
+        "pip-check.log",
+        "installed-smoke.log",
+    } <= {path.name for _root, path in checked}
+    assert not temp_root.exists()
+
+
+def test_process_group_options_cover_windows_and_posix() -> None:
+    windows = smoke._process_group_options("nt")
+    posix = smoke._process_group_options("posix")
+
+    assert windows == {
+        "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200),
+        "start_new_session": False,
+    }
+    assert posix == {"creationflags": 0, "start_new_session": True}
+
+
+def test_installed_distribution_requires_venv_noneditable_matching_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    environment = tmp_path / "wheel-env"
+    module_path = environment / "Lib" / "site-packages" / "aetherstate" / "__init__.py"
+    module_path.parent.mkdir(parents=True)
+    module_path.write_bytes(b"")
+    module = types.SimpleNamespace(__file__=str(module_path), __version__="1.24.0")
+    distribution = types.SimpleNamespace(
+        version="1.24.0",
+        read_text=lambda name: json.dumps({"archive_info": {}}) if name == "direct_url.json" else None,
+    )
+    monkeypatch.setitem(sys.modules, "aetherstate", module)
+    monkeypatch.setattr(smoke.sys, "prefix", str(environment))
+    monkeypatch.setattr(smoke.importlib.metadata, "distribution", lambda name: distribution)
+
+    assert smoke._installed_distribution() == ("1.24.0", module_path.resolve())
+
+    distribution.read_text = lambda name: json.dumps({"dir_info": {"editable": True}})
+    with pytest.raises(smoke.SmokeFailure) as caught:
+        smoke._installed_distribution()
+    assert caught.value.code == "editable_install"
+
+
+def test_poll_status_uses_exact_endpoint_and_fails_immediately_on_child_exit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    requested: list[tuple[str, float]] = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self) -> bytes:
+            return b'{"name":"aetherstate"}'
+
+    monkeypatch.setattr(
+        smoke.urllib.request,
+        "urlopen",
+        lambda url, timeout: requested.append((url, timeout)) or Response(),
+    )
+    process = types.SimpleNamespace(poll=lambda: None)
+    assert smoke._poll_status(process, 43210, tmp_path / "server.log") == {"name": "aetherstate"}
+    assert requested == [("http://127.0.0.1:43210/aether/status", 1.0)]
+
+    exited = types.SimpleNamespace(poll=lambda: 23)
+    with pytest.raises(smoke.SmokeFailure) as caught:
+        smoke._poll_status(exited, 43210, tmp_path / "server.log")
+    assert caught.value.code == "server_exited"
+    assert "exit=23" in caught.value.detail
+
+
+def test_shutdown_requests_graceful_then_terminate_and_kill_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+
+    class Process:
+        pid = 9876
+
+        def poll(self):
+            return None
+
+        def send_signal(self, value):
+            events.append(("signal", value))
+
+        def wait(self, timeout):
+            events.append(("wait", timeout))
+            if len([event for event in events if event[0] == "wait"]) < 3:
+                raise subprocess.TimeoutExpired("server", timeout)
+            return 0
+
+        def terminate(self):
+            events.append(("terminate",))
+
+        def kill(self):
+            events.append(("kill",))
+
+    if os.name != "nt":
+        monkeypatch.setattr(smoke.os, "killpg", lambda pid, value: events.append(("killpg", pid, value)))
+    smoke._shutdown(Process())
+
+    if os.name == "nt":
+        assert events[0] == ("signal", signal.CTRL_BREAK_EVENT)
+    else:
+        assert events[0] == ("killpg", 9876, signal.SIGINT)
+    assert events[1:] == [
+        ("wait", smoke.SHUTDOWN_TIMEOUT_SECONDS),
+        ("terminate",),
+        ("wait", 5),
+        ("kill",),
+        ("wait", 5),
+    ]
+
+
+def _install_smoke_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    create_database: bool,
+    create_config: bool = False,
+):
+    state: dict[str, object] = {"shutdown": [], "ports": [], "processes": []}
+    monkeypatch.setattr(smoke, "_installed_distribution", lambda: ("1.24.0", Path("installed")))
+    monkeypatch.setattr(smoke, "_free_loopback_port", lambda: 45678)
+
+    class Process:
+        def __init__(self, command, **kwargs):
+            self.command = command
+            self.kwargs = kwargs
+            state["processes"].append(self)
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(smoke.subprocess, "Popen", Process)
+
+    def poll(process, port, log_path):
+        data_dir = Path(process.kwargs["env"]["AETHERSTATE_SERVER__DATA_DIR"])
+        if create_database:
+            data_dir.mkdir(parents=True)
+            (data_dir / "aetherstate.db").write_bytes(b"db")
+        if create_config:
+            Path(process.command[process.command.index("--config") + 1]).write_text("changed")
+        return _valid_status("1.24.0", data_dir)
+
+    monkeypatch.setattr(smoke, "_poll_status", poll)
+    monkeypatch.setattr(smoke, "_shutdown", lambda process: state["shutdown"].append(process))
+    monkeypatch.setattr(smoke, "_prove_port_released", lambda port: state["ports"].append(port))
+    return state
+
+
+def test_installed_smoke_proves_exact_process_status_artifacts_port_and_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AETHERSTATE_UPSTREAM__API_KEY", "secret")
+    monkeypatch.setenv("PYTHONPATH", "poison")
+    state = _install_smoke_fakes(monkeypatch, create_database=True)
+    checked = _record_real_containment(monkeypatch)
+
+    smoke._installed_smoke()
+
+    process = state["processes"][0]
+    command = process.command
+    assert command[:4] == [sys.executable, "-I", "-m", "aetherstate"]
+    assert command[command.index("--config-read-only")] == "--config-read-only"
+    assert command[-4:] == ["--host", "127.0.0.1", "--port", "45678"]
+    env = process.kwargs["env"]
+    assert {key for key in env if key.startswith("AETHERSTATE_")} == {
+        "AETHERSTATE_SERVER__DATA_DIR"
+    }
+    assert "PYTHONPATH" not in env
+    assert process.kwargs["creationflags"] == smoke._process_group_options(os.name)["creationflags"]
+    assert process.kwargs["start_new_session"] == smoke._process_group_options(os.name)["start_new_session"]
+    temp_root = Path(process.kwargs["cwd"])
+    assert {"config.toml", "data", "server.log"} <= {path.name for _root, path in checked}
+    assert state["shutdown"] == [process]
+    assert state["ports"] == [45678]
+    assert not temp_root.exists()
+
+
+@pytest.mark.parametrize(
+    ("create_database", "create_config", "code"),
+    [(False, False, "database_missing"), (True, True, "config_written")],
+)
+def test_installed_smoke_failure_still_shuts_down_and_cleans_scoped_root(
+    monkeypatch: pytest.MonkeyPatch,
+    create_database: bool,
+    create_config: bool,
+    code: str,
+) -> None:
+    state = _install_smoke_fakes(
+        monkeypatch,
+        create_database=create_database,
+        create_config=create_config,
+    )
+
+    with pytest.raises(smoke.SmokeFailure) as caught:
+        smoke._installed_smoke()
+
+    process = state["processes"][0]
+    assert caught.value.code == code
+    assert state["shutdown"] == [process]
+    assert state["ports"] == [45678]
+    assert not Path(process.kwargs["cwd"]).exists()
+
+
+def test_free_selected_port_is_proven_released() -> None:
+    smoke._prove_port_released(smoke._free_loopback_port())
+
+
+def test_port_release_failure_is_bounded_with_socket_and_time_seams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    moments = iter([0.0, 0.0, 11.0])
+    sleeps: list[float] = []
+
+    class BusySocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def setsockopt(self, *_args):
+            return None
+
+        def bind(self, _address):
+            raise OSError("still busy")
+
+    monkeypatch.setattr(smoke.time, "monotonic", lambda: next(moments))
+    monkeypatch.setattr(smoke.time, "sleep", lambda value: sleeps.append(value))
+    monkeypatch.setattr(smoke.socket, "socket", lambda *_args: BusySocket())
+
+    with pytest.raises(smoke.SmokeFailure) as caught:
+        smoke._prove_port_released(45678)
+
+    assert caught.value.code == "port_not_released"
+    assert "still busy" in caught.value.detail
+    assert sleeps == [0.1]

@@ -191,29 +191,41 @@ def _install_and_smoke_wheel(
     temp_root: Path,
     env: Mapping[str, str],
 ) -> None:
+    create_log = temp_root / "create-wheel-env.log"
+    install_log = temp_root / "install-wheel.log"
+    check_log = temp_root / "pip-check.log"
+    smoke_log = temp_root / "installed-smoke.log"
+    require_within_temp_root(
+        temp_root,
+        wheel_env,
+        create_log,
+        install_log,
+        check_log,
+        smoke_log,
+    )
     wheel_python = _create_venv(
         wheel_env,
         temp_root=temp_root,
         env=env,
-        log_path=temp_root / "create-wheel-env.log",
+        log_path=create_log,
     )
     _run_logged(
         [wheel_python, "-m", "pip", "install", wheel],
         cwd=temp_root,
         env=env,
-        log_path=temp_root / "install-wheel.log",
+        log_path=install_log,
     )
     _run_logged(
         [wheel_python, "-m", "pip", "check"],
         cwd=temp_root,
         env=env,
-        log_path=temp_root / "pip-check.log",
+        log_path=check_log,
     )
     _run_logged(
         [wheel_python, Path(__file__).resolve(), "--installed-smoke"],
         cwd=temp_root,
         env=env,
-        log_path=temp_root / "installed-smoke.log",
+        log_path=smoke_log,
     )
 
 
@@ -227,25 +239,36 @@ def _build_source(source: Path) -> None:
         build_env = temp_root / "build-env"
         wheel_env = temp_root / "wheel-env"
         dist_dir = temp_root / "dist"
-        require_within_temp_root(temp_root, build_env, wheel_env, dist_dir)
+        create_log = temp_root / "create-build-env.log"
+        install_log = temp_root / "install-build.log"
+        build_log = temp_root / "build.log"
+        require_within_temp_root(
+            temp_root,
+            build_env,
+            wheel_env,
+            dist_dir,
+            create_log,
+            install_log,
+            build_log,
+        )
         dist_dir.mkdir()
         build_python = _create_venv(
             build_env,
             temp_root=temp_root,
             env=env,
-            log_path=temp_root / "create-build-env.log",
+            log_path=create_log,
         )
         _run_logged(
             [build_python, "-m", "pip", "install", "build"],
             cwd=temp_root,
             env=env,
-            log_path=temp_root / "install-build.log",
+            log_path=install_log,
         )
         _run_logged(
             [build_python, "-m", "build", "--outdir", dist_dir, source],
             cwd=temp_root,
             env=env,
-            log_path=temp_root / "build.log",
+            log_path=build_log,
         )
         wheel, _sdist = select_built_artifacts(dist_dir)
         _install_and_smoke_wheel(
@@ -306,6 +329,15 @@ def _free_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
         listener.bind(("127.0.0.1", 0))
         return int(listener.getsockname()[1])
+
+
+def _process_group_options(platform_name: str) -> dict[str, int | bool]:
+    if platform_name == "nt":
+        return {
+            "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200),
+            "start_new_session": False,
+        }
+    return {"creationflags": 0, "start_new_session": True}
 
 
 def _poll_status(process: subprocess.Popen[bytes], port: int, log_path: Path) -> object:
@@ -382,6 +414,7 @@ def _installed_smoke() -> None:
         config_path = temp_root / "config.toml"
         data_dir = temp_root / "data"
         log_path = temp_root / "server.log"
+        require_within_temp_root(temp_root, config_path, data_dir, log_path)
         port = _free_loopback_port()
         env = sanitized_environment(data_dir=data_dir)
         command = [
@@ -397,7 +430,7 @@ def _installed_smoke() -> None:
             "--port",
             str(port),
         ]
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        process_options = _process_group_options(os.name)
         with log_path.open("wb") as log:
             process = subprocess.Popen(
                 command,
@@ -406,8 +439,7 @@ def _installed_smoke() -> None:
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                creationflags=creationflags,
-                start_new_session=os.name != "nt",
+                **process_options,
             )
         try:
             status = _poll_status(process, port, log_path)
@@ -417,8 +449,10 @@ def _installed_smoke() -> None:
             if config_path.exists() or config_path.with_suffix(".toml.bak").exists():
                 _fail("config_written")
         finally:
-            _shutdown(process)
-        _prove_port_released(port)
+            try:
+                _shutdown(process)
+            finally:
+                _prove_port_released(port)
     if raw_temp_path is None or raw_temp_path.exists():
         _fail("temp_cleanup")
     print("PASS clean-wheel installed-smoke")
