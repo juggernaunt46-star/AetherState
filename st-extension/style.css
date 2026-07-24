@@ -370,6 +370,32 @@
 .aes-knowledge-stance.rumor,.aes-knowledge-status.scheduled { color:var(--acc2); border-color:var(--acc2); }
 .aes-knowledge-status.history { color:var(--dim); }
 
+/* First-class Chat: one compact continuity stack, never an RPG sheet. */
+.mode-chat #aes_hud_edit { display:none; }
+.mode-chat .aes-hud-title { color:var(--acc); }
+.aes-chat-compact,.aes-chat-continuity { display:grid; gap:7px; }
+.aes-chat-mini,.aes-chat-section { padding:7px; border:1px solid var(--line);
+  border-radius:8px; background:var(--panel); }
+.aes-chat-mini { display:grid; gap:2px; }
+.aes-chat-mini b,.aes-chat-section h3 { color:var(--ink); }
+.aes-chat-mini span,.aes-chat-setting,.aes-chat-summary { color:var(--dim);
+  font-size:11px; line-height:1.4; }
+.aes-chat-section h3 { margin:0 0 6px; font-size:11px; letter-spacing:.65px;
+  text-transform:uppercase; }
+.aes-chat-list { display:grid; gap:4px; }
+.aes-chat-row,.aes-chat-cause { display:grid; gap:2px; padding:5px 6px;
+  border-left:3px solid var(--line); border-radius:5px; background:var(--bg);
+  font-size:10.5px; line-height:1.35; overflow-wrap:anywhere; }
+.aes-chat-row b,.aes-chat-cause b { color:var(--ink); }
+.aes-chat-row span,.aes-chat-cause span,.aes-chat-row small,.aes-chat-cause small {
+  color:var(--dim); }
+.aes-chat-cause { border-left-color:var(--acc); }
+.aes-chat-cause small,.aes-chat-row small { font-size:9.5px; }
+.aes-chat-empty { color:var(--dim); font-size:10.5px; font-style:italic; }
+.aes-chat-paused { display:grid; gap:3px; padding:10px; border:1px dashed var(--line);
+  border-radius:8px; background:var(--panel); color:var(--dim); font-size:11px; }
+.aes-chat-paused b { color:var(--warn); }
+
 /* 2026-07-09: the compact strip labels itself — a minimized HUD must never read as broken */
 .aes-expand { display:block; width:100%; margin-top:6px; padding:3px 8px; cursor:pointer;
   background:var(--panel); color:var(--acc); border:1px dashed var(--line); border-radius:7px;

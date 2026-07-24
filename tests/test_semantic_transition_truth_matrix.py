@@ -40,6 +40,7 @@ EXPECTED_POLICY_FAMILIES = {
         {"world_identity_set", "capability_assign"}
     ),
     "creator_lore_authoring": frozenset({"creator_world_seed"}),
+    "character_core_authoring": frozenset({"chat_core_seed"}),
     "world_event_authoring": frozenset({"world_event_admit"}),
     "claim_evidence": frozenset({"claim_record"}),
     "scene_identity_placement": frozenset(
@@ -135,6 +136,7 @@ EXPECTED_SILENT_OPS = frozenset(
         "semantic_world_alignment_commit",
         "semantic_frame_commit",
         "clock_tick",
+        "chat_core_seed",
         "creator_world_seed",
         "stagnation",
     }
@@ -287,20 +289,20 @@ def _assert_one_exact_transition(pre_state: dict, op: dict, expected_paths: set[
     return projection, transition, post_state
 
 
-def test_oracle_inventory_itself_is_82_unique_ops_with_no_family_overlap():
-    assert len(EXPECTED_REDUCER_OPS) == 82
+def test_oracle_inventory_itself_is_83_unique_ops_with_no_family_overlap():
+    assert len(EXPECTED_REDUCER_OPS) == 83
     families = list(EXPECTED_POLICY_FAMILIES.values())
     for index, family in enumerate(families):
         assert not any(family & later for later in families[index + 1 :])
-    assert len(EXPECTED_SILENT_OPS) == 7
+    assert len(EXPECTED_SILENT_OPS) == 8
     assert EXPECTED_SILENT_OPS <= EXPECTED_REDUCER_OPS
 
 
-def test_transition_policy_registry_welds_exactly_to_the_live_81_op_reducer():
+def test_transition_policy_registry_welds_exactly_to_the_live_83_op_reducer():
     target = _target()
     policies = target.TRANSITION_POLICIES
 
-    assert len(_SPEC) == 82
+    assert len(_SPEC) == 83
     assert frozenset(_SPEC) == EXPECTED_REDUCER_OPS
     assert frozenset(policies) == EXPECTED_REDUCER_OPS
     assert frozenset(target.SILENT_OPS) == EXPECTED_SILENT_OPS
@@ -326,7 +328,7 @@ def test_transition_policy_registry_welds_exactly_to_the_live_81_op_reducer():
             assert isinstance(subject_fields, (list, tuple, set, frozenset))
 
 
-def test_only_the_six_explicit_internal_ops_may_omit_narrator_claims():
+def test_only_the_eight_explicit_internal_ops_may_omit_narrator_claims():
     target = _target()
     policies = target.TRANSITION_POLICIES
     internal = {

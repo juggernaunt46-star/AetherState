@@ -121,6 +121,414 @@ _FORBIDDEN_CLAIM_FEATURE_KEYS = frozenset(
     }
 )
 
+_CHAT_SOCIAL_PERSON = (
+    r"(?-i:[A-Z])[A-Za-z'-]*"
+    r"(?: (?-i:[A-Z])[A-Za-z'-]*){0,4}"
+)
+_CHAT_SOCIAL_TARGET = rf"(?P<target>you|{_CHAT_SOCIAL_PERSON})"
+_CHAT_AGREEMENT_TERMS = (
+    r"(?:be\s+exclusive|be\s+open\s+to\s+"
+    r"(?:romantic\s+contact|sexual\s+contact|"
+    r"romantic\s+and\s+sexual\s+contact))"
+)
+_CHAT_SOCIAL_FRAME_PATTERNS: dict[str, re.Pattern[str]] = {
+    "romantic_contact": re.compile(
+        r"\s*I\s+(?P<action>kiss(?:ed)?|hug(?:ged)?|embrac(?:e|ed)|cuddl(?:e|ed)|"
+        rf"caress(?:ed)?)\s+{_CHAT_SOCIAL_TARGET}\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "sexual_contact": re.compile(
+        r"\s*I\s+(?:(?P<action>(?:have|had)\s+sex\s+with|"
+        r"(?:sleep|slept)\s+with)\s+"
+        rf"{_CHAT_SOCIAL_TARGET}|(?:touch|touched)\s+"
+        r"(?P<touched_target>you|[A-Za-z][A-Za-z'-]*"
+        r"(?: [A-Za-z][A-Za-z'-]*){0,4})\s+"
+        r"(?P<touched_action>sexually))\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "agreement_create": re.compile(
+        rf"\s*I\s+(?:(?P<action>propose)\s+to\s+{_CHAT_SOCIAL_TARGET}"
+        rf"\s+that\s+we\s+(?P<terms>{_CHAT_AGREEMENT_TERMS})"
+        rf"|(?P<accept_action>accept)\s+"
+        rf"(?P<proposal_owner>your|{_CHAT_SOCIAL_PERSON}(?:'s|’s))\s+proposal"
+        rf"\s+(?:that\s+we\s+|to\s+)(?P<accepted_terms>{_CHAT_AGREEMENT_TERMS}))"
+        r"\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "agreement_amend": re.compile(
+        rf"\s*I\s+(?:(?P<action>propose)\s+to\s+{_CHAT_SOCIAL_TARGET}"
+        rf"\s+that\s+we\s+(?:amend|change|revise)\s+our\s+agreement\s+to\s+"
+        rf"(?P<terms>{_CHAT_AGREEMENT_TERMS})"
+        rf"|(?P<accept_action>accept)\s+"
+        rf"(?P<proposal_owner>your|{_CHAT_SOCIAL_PERSON}(?:'s|’s))\s+proposal"
+        rf"\s+to\s+(?:amend|change|revise)\s+our\s+agreement\s+to\s+"
+        rf"(?P<accepted_terms>{_CHAT_AGREEMENT_TERMS}))\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "agreement_withdraw": re.compile(
+        r"\s*I\s+(?P<action>withdraw|withdrew)\s+from\s+our\s+agreement\b"
+        r".{0,160}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "agreement_release": re.compile(
+        r"\s*I\s+(?P<action>release(?:d)?)\s+(?P<target>you)\s+from\s+our\s+agreement\b"
+        r".{0,160}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "agreement_end": re.compile(
+        r"\s*I\s+(?P<action>end|ended)\s+our\s+agreement\b.{0,160}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "promise_make": re.compile(
+        rf"\s*I\s+(?P<action>promise|promised|swear|swore)\s+"
+        rf"{_CHAT_SOCIAL_TARGET}(?:\s+that)?\s+"
+        r"(?P<statement>(?:(?:I|we)\b|to\b).{1,218}?)"
+        r"[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "promise_withdraw": re.compile(
+        rf"\s*I\s+(?P<action>withdraw|withdrew|take|took)\s+"
+        rf"(?:back\s+)?my\s+promise\s+to\s+{_CHAT_SOCIAL_TARGET}"
+        r".{0,120}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "promise_release": re.compile(
+        r"\s*I\s+(?P<action>release(?:d)?)\s+(?P<target>you)\s+from\s+your\s+promise\b"
+        r".{0,160}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "promise_fulfill": re.compile(
+        rf"\s*I\s+(?P<action>[A-Za-z][A-Za-z'-]{{0,30}})\s+"
+        rf"{_CHAT_SOCIAL_TARGET}(?P<event_tail>(?:\s+[A-Za-z0-9][A-Za-z0-9'-]*){{0,12}})"
+        r"\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "promise_violate": re.compile(
+        rf"\s*I\s+(?P<action>[A-Za-z][A-Za-z'-]{{0,30}})\s+"
+        rf"{_CHAT_SOCIAL_TARGET}(?P<event_tail>(?:\s+[A-Za-z0-9][A-Za-z0-9'-]*){{0,12}})"
+        r"\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "thread_resolve": re.compile(
+        rf"\s*I\s+(?P<action>consider)\s+my\s+promise\s+to\s+"
+        rf"{_CHAT_SOCIAL_TARGET}\s+(?:resolved|settled)\b.{{0,120}}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    "disclosure": re.compile(
+        rf"\s*I\s+(?:(?P<action>tell|told)\s+{_CHAT_SOCIAL_TARGET}"
+        rf"|(?P<disclose_action>disclose|disclosed|admit|admitted|confess|confessed)"
+        rf"\s+to\s+(?P<disclosure_target>you|{_CHAT_SOCIAL_PERSON}))"
+        r"(?:\s+that)?\s+(?P<statement>.{1,240}?)[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+}
+
+_CHAT_SOCIAL_SUBCLAIM_PATTERNS: dict[tuple[str, str], re.Pattern[str]] = {
+    ("voluntariness", "voluntary"): re.compile(
+        r"\s*I\s+(?:chose|choose)\s+this\s+voluntarily\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    ("voluntariness", "coerced"): re.compile(
+        r"\s*I\s+(?:was|am)\s+(?:coerced|forced)\b.{0,120}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    ("voluntariness", "assaulted"): re.compile(
+        r"\s*I\s+(?:was|am)\s+assaulted\b.{0,120}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    ("consent", "granted"): re.compile(
+        r"\s*I\s+consent(?:ed)?\s+to\s+this\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    ("consent", "refused"): re.compile(
+        r"\s*I\s+(?:do\s+not\s+consent|did\s+not\s+consent|refuse(?:d)?\s+consent)"
+        r"\s*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    ("disclosure", "timely"): re.compile(
+        r"\s*I\s+(?:told|disclosed\s+this\s+to)\s+you\s+before\b"
+        r".{0,160}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    ("disclosure", "late"): re.compile(
+        r"\s*I\s+(?:told|disclosed\s+this\s+to)\s+you\s+after\b"
+        r".{0,160}[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+}
+
+
+def _normalized_promise_terms(statement: str) -> dict | None:
+    """Parse one bounded first-person promised predicate for later exact action matching."""
+    clean = re.sub(r"\s+", " ", str(statement or "").strip()).rstrip(".!?").strip()
+    match = re.fullmatch(
+        r"(?:I\s+(?:(?:will|shall)\s+)?|to\s+)"
+        r"(?P<negative>not\s+)?"
+        r"(?P<predicate>[A-Za-z][A-Za-z'-]{0,30}\s+"
+        rf"(?:you|{_CHAT_SOCIAL_PERSON})"
+        r"(?:\s+[A-Za-z0-9][A-Za-z0-9'-]*){0,12})",
+        clean,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    predicate = re.sub(
+        r"\s+",
+        " ",
+        str(match.group("predicate") or "").strip(),
+    ).casefold()
+    if not predicate:
+        return None
+    return {
+        "polarity": "refrain" if match.group("negative") else "perform",
+        "predicate": predicate,
+    }
+
+
+def _normalized_contact_act(code: str, match: re.Match[str]) -> str:
+    """Retain the exact performed contact verb inside the broader social class."""
+    action = str(match.groupdict().get("action") or "").casefold()
+    if code == "romantic_contact":
+        if action.startswith("kiss"):
+            return "kiss"
+        if action.startswith("hug"):
+            return "hug"
+        if action.startswith("embrac"):
+            return "embrace"
+        if action.startswith("cuddl"):
+            return "cuddle"
+        if action.startswith("caress"):
+            return "caress"
+    if code == "sexual_contact":
+        if match.groupdict().get("touched_action"):
+            return "touch_sexually"
+        if action.startswith(("have sex with", "had sex with")):
+            return "sex_with"
+        if action.startswith(("sleep with", "slept with")):
+            return "sleep_with"
+    return ""
+
+
+def recognize_chat_social_frame(
+    text: object,
+    action_code: object,
+    *,
+    start: int = 0,
+    end: int | None = None,
+    source_role: str = "",
+    expected_speaker_label: str = "",
+    require_actual_context: bool = True,
+) -> dict | None:
+    """Recognize one closed frame through the shared complete-message occurrence owner."""
+    source = str(text or "")
+    code = str(action_code or "")
+    pattern = _CHAT_SOCIAL_FRAME_PATTERNS.get(code)
+    exact_end = len(source) if end is None else end
+    if isinstance(start, bool) or not isinstance(start, int) or start < 0 \
+            or isinstance(exact_end, bool) or not isinstance(exact_end, int) \
+            or exact_end <= start or exact_end > len(source):
+        return None
+
+    content_start = 0
+    transport = re.match(r"^\s*([^:\n]{1,80}):\s*", source)
+    if transport is not None:
+        if source_role == "assistant_text":
+            supplied = str(transport.group(1) or "").strip()
+            expected = str(expected_speaker_label or "").strip()
+            if not expected or supplied.casefold() != expected.casefold():
+                return None
+            content_start = transport.end()
+        elif source_role == "user_text":
+            # The stored user role label is transport-owned; the proposal span
+            # still has to begin inside the exact role content that follows it.
+            content_start = transport.end()
+    if start < content_start:
+        return None
+
+    evidence = source[start:exact_end]
+    match = pattern.fullmatch(evidence) if pattern is not None else None
+    if match is None:
+        return None
+    action_group = next(
+        (
+            name
+            for name in (
+                "action",
+                "accept_action",
+                "disclose_action",
+                "touched_action",
+            )
+            if match.groupdict().get(name)
+        ),
+        "",
+    )
+    actor_match = re.search(r"\bI\b", evidence, re.IGNORECASE)
+    if not action_group or actor_match is None:
+        return None
+    action_start = start + match.start(action_group)
+    action_end = start + match.end(action_group)
+    actor_start = start + actor_match.start()
+    actor_end = start + actor_match.end()
+    try:
+        from .semantic_occurrence import (
+            OccurrenceAnchor,
+            build_occurrence_graph,
+            chat_context_allows_actual_span,
+        )
+
+        graph = build_occurrence_graph(
+            source,
+            detection_text=(
+                " " * content_start + source[content_start:]
+                if content_start
+                else source
+            ),
+            anchors=(
+                OccurrenceAnchor(
+                    "actor",
+                    "chat_role_speaker",
+                    actor_start,
+                    actor_end,
+                    "chat_role",
+                ),
+                OccurrenceAnchor(
+                    "action",
+                    code,
+                    action_start,
+                    action_end,
+                    "chat_social",
+                ),
+            ),
+            issuer="player" if source_role == "user_text" else "narrator",
+            channel="player_input" if source_role == "user_text" else "narrator_reply",
+            lifecycle_phase="new_action",
+            grammar_version="tier0-semantic/1",
+            operation_family="semantic_interpretation",
+        )
+        if require_actual_context and not chat_context_allows_actual_span(
+            graph,
+            source,
+            start,
+            exact_end,
+            content_start=content_start,
+            expected_speaker_label=expected_speaker_label,
+        ):
+            return None
+    except (TypeError, ValueError):
+        return None
+
+    target = str(
+        match.groupdict().get("target")
+        or match.groupdict().get("touched_target")
+        or match.groupdict().get("disclosure_target")
+        or ""
+    ).strip()
+    owner = str(match.groupdict().get("proposal_owner") or "").strip()
+    if not target and owner:
+        target = (
+            "you"
+            if owner.casefold() == "your"
+            else re.sub(r"(?:'s|’s)\Z", "", owner, flags=re.IGNORECASE).strip()
+        )
+    if code in {"agreement_withdraw", "agreement_end"}:
+        target = "you"
+    if not target or target.casefold() in {"him", "her", "them"}:
+        return None
+    out = {
+        "schema": "aetherstate-chat-social-frame/1",
+        "action_code": code,
+        "polarity": "positive",
+        "modality": "actual",
+        "source_text": source,
+        "source_span": {"start": start, "end": exact_end},
+        "source_segment": (
+            "shared_observation"
+            if code in {
+                "romantic_contact",
+                "sexual_contact",
+                "promise_fulfill",
+                "promise_violate",
+            }
+            else "direct_dialogue"
+        ),
+        "participant_binding": (
+            {"kind": "named", "label": target}
+            if target.casefold() != "you"
+            else {"kind": "counterpart"}
+        ),
+        "context_graph": graph,
+        "context_content_start": content_start,
+        "expected_speaker_label": str(expected_speaker_label or ""),
+    }
+    concrete_act = _normalized_contact_act(code, match)
+    if concrete_act:
+        out["concrete_act"] = concrete_act
+    if code in {"agreement_create", "agreement_amend"}:
+        terms = str(
+            match.groupdict().get("terms")
+            or match.groupdict().get("accepted_terms")
+            or ""
+        ).casefold()
+        out["agreement_intent"] = (
+            "accept" if match.groupdict().get("accept_action") else "propose"
+        )
+        allowed_acts = []
+        if (
+            "romantic contact" in terms
+            or "romantic and sexual contact" in terms
+        ):
+            allowed_acts.append("romantic_contact")
+        if (
+            "sexual contact" in terms
+            or "romantic and sexual contact" in terms
+        ):
+            allowed_acts.append("sexual_contact")
+        if "exclusive" not in terms and not allowed_acts:
+            return None
+        out["agreement_terms"] = {
+            "exclusivity": "exclusive" if "exclusive" in terms else "open",
+            "allowed_outside_acts": allowed_acts,
+            "requires_disclosure": False,
+            "disclosure_deadline": None,
+        }
+    if code == "promise_make":
+        promise_terms = _normalized_promise_terms(
+            str(match.groupdict().get("statement") or ""),
+        )
+        if promise_terms is not None:
+            out["promise_terms"] = promise_terms
+    if code in {"promise_fulfill", "promise_violate"}:
+        predicate = " ".join(
+            part for part in (
+                str(match.groupdict().get("action") or "").strip(),
+                target,
+                str(match.groupdict().get("event_tail") or "").strip(),
+            )
+            if part
+        )
+        predicate = re.sub(r"\s+", " ", predicate).casefold()
+        if not predicate:
+            return None
+        out["promise_event_terms"] = {"predicate": predicate}
+    if code == "disclosure":
+        statement = str(match.groupdict().get("statement") or "").strip()
+        statement = statement.rstrip(".!?").strip()
+        if not statement:
+            return None
+        out["disclosure_statement"] = statement
+    return out
+
+
+def recognize_chat_social_subclaim(
+    text: object,
+    *,
+    kind: object,
+    status: object,
+) -> bool:
+    """Return whether one independent exact span proves a closed social subclaim."""
+    pattern = _CHAT_SOCIAL_SUBCLAIM_PATTERNS.get((str(kind or ""), str(status or "")))
+    return bool(pattern is not None and pattern.fullmatch(str(text or "")) is not None)
+
 
 class SemanticFabricError(RuntimeError):
     """A compiled translation-memory artifact violates the semantic-fabric contract."""

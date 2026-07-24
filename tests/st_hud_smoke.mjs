@@ -17,7 +17,14 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SRC = fs.readFileSync(path.join(ROOT, "st-extension", "index.js"), "utf8");
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "st-extension", "manifest.json"), "utf8"),
+);
+const SRC = fs.readFileSync(path.join(ROOT, "st-extension", "index.js"), "utf8")
+  .replace(
+    /^import\s+\{\s*user_avatar\s*\}\s+from\s+["']\.\.\/\.\.\/\.\.\/personas\.js["'];\s*$/m,
+    'let user_avatar = "";',
+  );
 
 process.on("unhandledRejection", (e) => { fail("unhandled rejection: " + (e && e.stack || e)); done(); });
 
@@ -200,12 +207,59 @@ const payload = {
       hp: { cur: 5, max: 14 }, armament: "", defeated: false, dropped: [] }] },
 };
 
+const chatPayload = {
+  experience_mode: "chat",
+  continuity_available: true,
+  persona_actor_id: "persona:smoke",
+  character_actor_id: "character:smoke",
+  continuity: {
+    now: {
+      setting: "Rain taps against the ambulance-bay windows.",
+      possessions: [
+        { kind: "condition", summary: "Mara's wrist is lightly sprained." },
+        { kind: "possession", summary: "Mara carries the silver rain key." },
+      ],
+    },
+    relationship: {
+      summary: "Trust grew.",
+      changes: [{
+        change: "Trust grew",
+        reason: "The Persona waited up after a difficult shift.",
+        turn: 0,
+        evidence: "Accepted starting continuity",
+      }],
+      agreements: [{ summary: "Exclusive relationship agreement", status: "create" }],
+    },
+    open_threads: [{
+      kind: "plan",
+      summary: "Choose where to go this weekend.",
+      status: "open",
+    }],
+    shared_history: {
+      memories: [{ text: "They shared tea after Mara's first night shift.", turn: 0 }],
+      moments: [{ summary: "romantic contact", turn: 1 }],
+    },
+    character: {
+      name: "Mara",
+      description: "A night-shift paramedic with a dry sense of humor.",
+      personality: "Direct, observant, private, and protective.",
+    },
+  },
+  players: [{ name: "RPG_PLAYER_SENTINEL", stats: [{ key: "might", val: 99 }] }],
+  rolls: [{ label: "RPG_ROLL_SENTINEL" }],
+  war_room: { active: true, combatants: [{ name: "RPG_WAR_ROOM_SENTINEL" }] },
+  inventory: [{ name: "RPG_INVENTORY_SENTINEL" }],
+  private_character_material: "PRIVATE_CHARACTER_SENTINEL",
+};
+let hudPayload = payload;
+
 // ------------------------------ stub DOM / ST / network ------------------------------
 const registry = new Map();
 function makeEl(id) {
   const cls = new Set();
   const el = {
-    _id: id || "", _html: "", style: { setProperty(k, v) { this[k] = v; } }, dataset: {}, value: "", textContent: "",
+    _id: id || "", _html: "", style: { setProperty(k, v) { this[k] = v; } }, dataset: {},
+    value: "", textContent: "", disabled: false,
     title: "", children: [],
     classList: {
       add: (...c) => c.forEach((x) => cls.add(x)),
@@ -271,6 +325,7 @@ let seedStatusFetchReply = {
           already_present: true, rejected: [] },
 };
 let seedStatusFetchReplies = [];
+let experienceModeReply = { mode: "chat", locked: false };
 async function fetchStub(url, options = {}) {
   fetchCalls.push({ url: String(url), options });
   if (String(url).includes("/seed-status")) {
@@ -292,12 +347,14 @@ async function fetchStub(url, options = {}) {
     seedFetchBarrier = null;
     await barrier;
   }
-  const j = String(url).includes("/seed") ? seedFetchReply.body
+  const j = String(url).includes("/experience-mode") ? experienceModeReply
+    : String(url).includes("/aether/specialization") ? { name: "none" }
+    : String(url).includes("/seed") ? seedFetchReply.body
     : String(url).includes("/genesis")
       ? { session_id: "smoke-session", applied: 1, card_len: 20, greeting_len: 8 }
-    : String(url).includes("/hud") ? payload
+    : String(url).includes("/hud") ? hudPayload
     : String(url).includes("/aether/status")
-      ? { version: "smoke", mode: "relay", extraction: { mode: "off" } } : {};
+      ? { name: "AetherState", version: "smoke", mode: "relay", extraction: { mode: "off" } } : {};
   return { ok: String(url).includes("/seed") ? seedFetchReply.ok : true,
            status: String(url).includes("/seed")
              ? (seedFetchReply.status ?? (seedFetchReply.ok ? 200 : 409)) : 200,
@@ -347,6 +404,7 @@ const ctx = {
   event_types: {
     CHAT_COMPLETION_PROMPT_READY: "chat_completion_prompt_ready",
     CHAT_CHANGED: "chat_changed",
+    PERSONA_CHANGED: "persona_changed",
     MESSAGE_SWIPED: "message_swiped",
     GENERATION_STARTED: "generation_started",
     GENERATION_AFTER_COMMANDS: "generation_after_commands",
@@ -420,6 +478,342 @@ try {
   done();
 }
 await tick(); await tick(); await tick(); await tick();
+
+// Chat continuity identity is the exact selected Persona avatar key. A chat-locked metadata
+// Persona wins over the live global avatar. Changing the live Persona invalidates admission and
+// completes a fresh backend admission before the next prompt stamp.
+const CHAT_CORE_FP = `sha256:${"c".repeat(64)}`;
+const CHAT_CHARACTER_ACTOR = `character:${"d".repeat(64)}`;
+const CHAT_PERSONA_ACTOR = `persona:${"e".repeat(64)}`;
+const personaCard = {
+  name: "Raw Mara",
+  description: "Raw {{user}} description",
+  personality: "Raw personality",
+  scenario: "Raw scenario",
+  first_mes: "Raw greeting",
+  mes_example: "Raw example",
+  data: { extensions: { aetherstate: { role: "character", mode: "chat" } } },
+};
+ctx.characters = [personaCard];
+ctx.characterId = 0;
+ctx.chatId = "persona-identity-chat";
+ctx.chatMetadata = { persona: " locked-avatar.png " };
+ctx.chat = [];
+const originalFetchStub = sandbox.fetch;
+sandbox.fetch = async (url, options = {}) => {
+  fetchCalls.push({ url: String(url), options });
+  if (String(url).includes("/chat-core-status")) {
+    return { ok: false, status: 404, json: async () => ({ error: "not admitted" }) };
+  }
+  if (/\/chat-core(?:\?|$)/.test(String(url))) {
+    return { ok: true, status: 200, json: async () => ({
+      complete: true, mode: "chat", core_fingerprint: CHAT_CORE_FP,
+      character_actor_id: CHAT_CHARACTER_ACTOR, persona_actor_id: CHAT_PERSONA_ACTOR,
+    }) };
+  }
+  if (String(url).includes("/experience-mode")) {
+    return { ok: true, status: 200, json: async () => ({ mode: "chat", locked: false }) };
+  }
+  return originalFetchStub(url, options);
+};
+vm.runInContext('user_avatar = "global-avatar.png"', sandbox);
+fetchCalls.length = 0;
+const personaChatChanged = eventHandlers.get("chat_changed");
+const personaChanged = eventHandlers.get("persona_changed");
+personaChatChanged();
+await tick(); await tick(); await tick(); await tick();
+let chatCoreCall = fetchCalls.find((call) => /\/chat-core(?:\?|$)/.test(call.url));
+expect(Boolean(chatCoreCall), "Chat card runs bounded Core admission on CHAT_CHANGED");
+let chatCoreRequest = JSON.parse(chatCoreCall?.options?.body || "{}");
+expect(chatCoreRequest.persona === " locked-avatar.png ",
+       "chat-locked exact Persona avatar key wins without trimming or truncation");
+expect(chatCoreRequest.card?.description === "Raw {{user}} description",
+       "Chat admission sends raw pre-substitution card fields");
+expect(ctx.chatMetadata.aetherstate?.core_fingerprint === CHAT_CORE_FP
+       && ctx.chatMetadata.aetherstate?.character_actor_id === CHAT_CHARACTER_ACTOR
+       && ctx.chatMetadata.aetherstate?.persona_actor_id === CHAT_PERSONA_ACTOR
+       && !("core" in (ctx.chatMetadata.aetherstate || {})),
+       "browser caches only backend identity hints, never the full Core");
+expect(!fetchCalls.some((call) => /\/genesis(?:\?|$)/.test(call.url)),
+       "Chat admission promise owns generic Stage A without legacy Genesis");
+
+// A raw-card or coded-World edit while admission is in flight invalidates the stale response.
+// The serialized admission must re-read the live card, POST again, and cache only the second proof.
+async function runChatAdmissionRace(kind) {
+  const raceDigits = {
+    raw: ["1", "2"], coded: ["3", "4"],
+    "seed-unsupported": ["7", "8"], "seed-malformed": ["a", "b"],
+  };
+  const oldFp = `sha256:${raceDigits[kind][0].repeat(64)}`;
+  const newFp = `sha256:${raceDigits[kind][1].repeat(64)}`;
+  const initialSeed = kind === "seed-malformed"
+    ? {}
+    : { world: { name: "Race Old World" } };
+  const oldCard = {
+    ...personaCard,
+    description: "Race old description",
+    data: { extensions: { aetherstate: {
+      role: "character", mode: "chat",
+      core: { anchors: ["old"] },
+      seed: initialSeed,
+      core_fingerprint: `sha256:${"5".repeat(64)}`,
+      core_envelope_fingerprint: `sha256:${"6".repeat(64)}`,
+    } } },
+  };
+  ctx.characters = [oldCard];
+  ctx.chatId = `chat-race-${kind}`;
+  ctx.chatMetadata = { persona: `race-${kind}.png` };
+  fetchCalls.length = 0;
+  let releaseFirstPost;
+  let postCount = 0;
+  sandbox.fetch = async (url, options = {}) => {
+    fetchCalls.push({ url: String(url), options });
+    if (String(url).includes("/chat-core-status"))
+      return { ok: false, status: 404, json: async () => ({}) };
+    if (/\/chat-core(?:\?|$)/.test(String(url))) {
+      postCount += 1;
+      if (postCount === 1) {
+        return await new Promise((resolve) => { releaseFirstPost = () => resolve({
+          ok: true, status: 200, json: async () => ({
+            complete: true, mode: "chat", core_fingerprint: oldFp,
+            character_actor_id: CHAT_CHARACTER_ACTOR, persona_actor_id: CHAT_PERSONA_ACTOR,
+          }),
+        }); });
+      }
+      return { ok: true, status: 200, json: async () => ({
+        complete: true, mode: "chat", core_fingerprint: newFp,
+        character_actor_id: CHAT_CHARACTER_ACTOR, persona_actor_id: CHAT_PERSONA_ACTOR,
+      }) };
+    }
+    return originalFetchStub(url, options);
+  };
+  personaChanged();
+  for (let i = 0; i < 6 && !releaseFirstPost; i++) await tick();
+  expect(typeof releaseFirstPost === "function", `${kind} race reaches in-flight POST`);
+  if (kind === "raw") {
+    ctx.characters[0] = { ...oldCard, description: "Race new description" };
+  } else if (kind === "coded") {
+    ctx.characters[0] = {
+      ...oldCard,
+      data: { extensions: { aetherstate: {
+        ...oldCard.data.extensions.aetherstate,
+        seed: { world: { name: "Race New World" } },
+      } } },
+    };
+  } else if (kind === "seed-unsupported") {
+    ctx.characters[0] = {
+      ...oldCard,
+      data: { extensions: { aetherstate: {
+        ...oldCard.data.extensions.aetherstate,
+        seed: {
+          world: { name: "Race Old World" },
+          player: { name: "Unsupported on Chat" },
+        },
+      } } },
+    };
+  } else {
+    ctx.characters[0] = {
+      ...oldCard,
+      data: { extensions: { aetherstate: {
+        ...oldCard.data.extensions.aetherstate,
+        seed: "malformed-seed",
+      } } },
+    };
+  }
+  releaseFirstPost?.();
+  for (let i = 0; i < 12; i++) await tick();
+  expect(postCount === 2, `${kind} edit discards stale admission and re-admits`);
+  expect(ctx.chatMetadata.aetherstate?.core_fingerprint === newFp,
+         `${kind} race caches only the current admission response`);
+}
+await runChatAdmissionRace("raw");
+await runChatAdmissionRace("coded");
+await runChatAdmissionRace("seed-unsupported");
+await runChatAdmissionRace("seed-malformed");
+
+// Status is part of the same bounded promise. If it hangs, prompt-ready must return without
+// a Chat stamp and without advancing to the mutating admission POST.
+ctx.characters = [personaCard];
+ctx.chatId = "hung-chat-status";
+ctx.chatMetadata = { persona: "hung-status.png" };
+ctx.chat = [];
+fetchCalls.length = 0;
+let hungPostCalls = 0;
+const preHungSetTimeout = sandbox.setTimeout;
+sandbox.setTimeout = (fn) => { queueMicrotask(fn); return 1; };
+sandbox.fetch = async (url, options = {}) => {
+  fetchCalls.push({ url: String(url), options });
+  if (String(url).includes("/chat-core-status")) {
+    return await new Promise((_resolve, reject) => {
+      options.signal?.addEventListener("abort", () => {
+        const error = new Error("status timeout");
+        error.name = "AbortError";
+        reject(error);
+      }, { once: true });
+    });
+  }
+  if (/\/chat-core(?:\?|$)/.test(String(url))) hungPostCalls += 1;
+  return originalFetchStub(url, options);
+};
+personaChanged();
+const hungPrompt = { chat: [], dryRun: false };
+await eventHandlers.get("chat_completion_prompt_ready")(hungPrompt);
+expect(hungPostCalls === 0, "hung Chat status fails open without continuity writes");
+expect(!hungPrompt.chat.some((message) => String(message.content || "").includes("mode=chat;")),
+       "hung Chat status releases prompt-ready without an AetherState identity stamp");
+sandbox.setTimeout = preHungSetTimeout;
+
+ctx.chatMetadata = {};
+vm.runInContext('user_avatar = "changed-avatar.png"', sandbox);
+fetchCalls.length = 0;
+ctx.characters = [personaCard];
+ctx.chatId = "persona-change-chat";
+sandbox.fetch = async (url, options = {}) => {
+  fetchCalls.push({ url: String(url), options });
+  if (String(url).includes("/chat-core-status"))
+    return { ok: false, status: 404, json: async () => ({}) };
+  if (/\/chat-core(?:\?|$)/.test(String(url))) {
+    return { ok: true, status: 200, json: async () => ({
+      complete: true, mode: "chat", core_fingerprint: CHAT_CORE_FP,
+      character_actor_id: CHAT_CHARACTER_ACTOR, persona_actor_id: CHAT_PERSONA_ACTOR,
+    }) };
+  }
+  return originalFetchStub(url, options);
+};
+expect(typeof personaChanged === "function", "PERSONA_CHANGED invalidation hook registered");
+personaChanged();
+await tick(); await tick(); await tick(); await tick();
+const nextPersonaPrompt = { chat: [], dryRun: false };
+await eventHandlers.get("chat_completion_prompt_ready")(nextPersonaPrompt);
+chatCoreCall = fetchCalls.find((call) => /\/chat-core(?:\?|$)/.test(call.url));
+chatCoreRequest = JSON.parse(chatCoreCall?.options?.body || "{}");
+expect(chatCoreRequest.persona === "changed-avatar.png",
+       "PERSONA_CHANGED re-runs admission with the new exact Persona before stamping");
+const identitySentinel = nextPersonaPrompt.chat.find((message) => message.role === "system")?.content || "";
+expect(identitySentinel.includes(`mode=chat;core_fingerprint=${CHAT_CORE_FP};`)
+       && identitySentinel.includes(`character_actor_id=${CHAT_CHARACTER_ACTOR};`)
+       && identitySentinel.includes(`persona_actor_id=${CHAT_PERSONA_ACTOR};`),
+       "prompt stamp carries bounded backend-owned Chat identity");
+
+// A coded Chat greeting swipe must stay on Chat admission. Even a legacy-looking
+// seed_fingerprint field cannot route its optional World through Narrator /seed or /genesis.
+ctx.characters = [{
+  ...personaCard,
+  data: { extensions: { aetherstate: {
+    role: "character", mode: "chat",
+    seed: { world: { name: "Chat Swipe World" } },
+    seed_fingerprint: `sha256:${"9".repeat(64)}`,
+  } } },
+}];
+ctx.chat = [{ is_user: false, mes: "Alternate Chat greeting." }];
+fetchCalls.length = 0;
+const beforeChatGreetingTimer = sandbox.setTimeout;
+sandbox.setTimeout = (fn, delay) => {
+  if (delay === 400) queueMicrotask(fn);
+  return 0;
+};
+eventHandlers.get("message_swiped")(0);
+for (let i = 0; i < 8; i++) await tick();
+sandbox.setTimeout = beforeChatGreetingTimer;
+expect(!fetchCalls.some((call) => /\/seed(?:\?|$)/.test(call.url)),
+       "coded Chat greeting swipe never enters Narrator seed admission");
+expect(!fetchCalls.some((call) => /\/genesis(?:\?|$)/.test(call.url)),
+       "coded Chat greeting swipe never enters legacy Narrator Genesis");
+sandbox.fetch = originalFetchStub;
+
+expect(manifest.aetherstate_build === "release-1.24.0",
+       "manifest exposes the local Chat-mode build marker");
+const statusCommand = slashCommands.get("aether-status");
+expect(typeof statusCommand === "function", "status command registered");
+const statusText = typeof statusCommand === "function" ? await statusCommand() : "";
+expect(statusText.includes("release-1.24.0"),
+       "status output exposes the same Chat-mode build marker");
+
+const experienceSelect = registry.get("aes_experience");
+const experienceHelp = registry.get("aes_experience_help");
+expect(Boolean(experienceSelect) && typeof experienceSelect.onchange === "function",
+       "panel has a per-session Chat/RPG experience selector");
+if (experienceSelect && typeof experienceSelect.onchange === "function") {
+  experienceModeReply = { mode: "chat", locked: true };
+  fetchCalls.length = 0;
+  await experienceSelect.onchange({ target: { value: "rpg" } });
+  await tick(); await tick();
+  const experienceWrite = fetchCalls.find((call) => call.url.includes("/experience-mode")
+    && String(call.options?.method || "GET").toUpperCase() === "POST");
+  expect(Boolean(experienceWrite)
+         && JSON.parse(experienceWrite.options.body || "{}").mode === "rpg",
+         "panel writes the selected experience to the current session endpoint");
+  expect(experienceSelect.disabled === true
+         && experienceHelp?.textContent === "Start a new chat to change modes.",
+         "locked experience disables the selector with the required recovery guidance");
+  expect(String(registry.get("aes_chip")?.textContent || "").includes("Chat"),
+         "status chip reads the selected session experience");
+
+  const intentRow = registry.get("aes_intent_row");
+  const compactRow = registry.get("aes_compact_row");
+  ctx.characters = [personaCard];
+  ctx.characterId = 0;
+  ctx.chat = [];
+
+  ctx.chatId = "mode-rpg-chat";
+  ctx.chatMetadata = {
+    aetherstate_sid: "mode-rpg-session",
+    aetherstate_chat_id: "mode-rpg-chat",
+  };
+  experienceModeReply = { mode: "rpg", locked: false };
+  fetchCalls.length = 0;
+  personaChatChanged();
+  await tick(); await tick(); await tick(); await tick();
+  expect(experienceSelect.value === "rpg" && experienceSelect.disabled === false,
+         "CHAT_CHANGED rehydrates locked Chat controls as unlocked RPG controls");
+  expect(experienceHelp?.textContent
+         === "RPG includes the Player sheet, mechanics, and RPG HUD.",
+         "CHAT_CHANGED restores the exact unlocked RPG guidance");
+  expect(registry.get("aes_experience_state")?.textContent === "RPG"
+         && String(registry.get("aes_chip")?.textContent || "").includes("RPG"),
+         "CHAT_CHANGED refreshes both selector status and session status as RPG");
+  expect(intentRow?.style.display === "" && compactRow?.style.display === "",
+         "CHAT_CHANGED restores RPG-only controls for an RPG session");
+  expect(fetchCalls.some((call) => call.url.includes(
+    "/aether/session/mode-rpg-session/experience-mode")),
+    "CHAT_CHANGED reads the newly active RPG session experience");
+
+  ctx.chatId = "mode-chat-chat";
+  ctx.chatMetadata = {
+    aetherstate_sid: "mode-chat-session",
+    aetherstate_chat_id: "mode-chat-chat",
+  };
+  experienceModeReply = { mode: "chat", locked: true };
+  fetchCalls.length = 0;
+  personaChatChanged();
+  await tick(); await tick(); await tick(); await tick();
+  expect(experienceSelect.value === "chat" && experienceSelect.disabled === true,
+         "CHAT_CHANGED rehydrates unlocked RPG controls as locked Chat controls");
+  expect(experienceHelp?.textContent === "Start a new chat to change modes.",
+         "CHAT_CHANGED restores the exact locked Chat recovery guidance");
+  expect(registry.get("aes_experience_state")?.textContent === "Chat"
+         && String(registry.get("aes_chip")?.textContent || "").includes("Chat"),
+         "CHAT_CHANGED refreshes both selector status and session status as Chat");
+  expect(intentRow?.style.display === "none" && compactRow?.style.display === "none",
+         "CHAT_CHANGED hides RPG-only controls for a Chat session");
+  expect(fetchCalls.some((call) => call.url.includes(
+    "/aether/session/mode-chat-session/experience-mode")),
+    "CHAT_CHANGED reads the newly active Chat session experience");
+}
+const experienceCommand = slashCommands.get("aether-experience");
+expect(typeof experienceCommand === "function", "session experience slash command registered");
+experienceModeReply = { mode: "rpg", locked: false };
+fetchCalls.length = 0;
+const experienceText = typeof experienceCommand === "function"
+  ? await experienceCommand(null, "rpg") : "";
+expect(experienceText.includes("RPG")
+       && fetchCalls.some((call) => call.url.includes("/experience-mode")),
+       "session experience command reports and writes RPG through the session endpoint");
+const specCommand = slashCommands.get("aether-spec");
+const specText = typeof specCommand === "function" ? await specCommand(null, "none") : "";
+expect(specText.includes("global fallback"),
+       "specialization command is explicitly labelled as the advanced global fallback");
+experienceModeReply = { mode: "chat", locked: false };
 
 // SillyTavern's duplicate character-editor controls can turn V2 scalar fields into
 // [realValue, ""]. The guard must repair only AetherState-generated Narrators before prompt
@@ -1876,7 +2270,73 @@ expect(!body._html.includes("WHAT IS COMING") && !body._html.includes("WHAT YOU 
   "compact inactive lethal exchange contains no stale future or roster");
 payload.war_room = activeWarRoom;
 
-// 7) reader-only protocol scrub: it must rescan streaming growth, preserve raw chat, and
+// 7) Chat uses one compact continuity surface and never touches the RPG renderer family.
+hudPayload = chatPayload;
+registry.get("aes_hud_ref").onclick();
+await tick(); await tick();
+expect(hud.classList.contains("mode-chat"), "Chat payload sets the dedicated HUD mode class");
+expect(registry.get("aes_hud_title")?.textContent === "Chat Continuity",
+       "Chat payload gives the surface its product title");
+mustContain(body._html, [
+  "Rain taps against the ambulance-bay windows.",
+  "Mara carries the silver rain key.",
+  "Trust grew.",
+  "aes-expand",
+], "compact Chat continuity");
+for (const forbidden of [
+  "aes-tabs", "aes-bars", "WAR ROOM", "No player character yet", "no player",
+  "RPG_PLAYER_SENTINEL", "RPG_ROLL_SENTINEL", "RPG_WAR_ROOM_SENTINEL",
+  "RPG_INVENTORY_SENTINEL", "PRIVATE_CHARACTER_SENTINEL",
+]) {
+  expect(!body._html.includes(forbidden), `compact Chat omits RPG/private surface: ${forbidden}`);
+}
+
+sandbox.aetherHudExpand();
+await tick(); await tick();
+const expandedChat = body._html;
+mustContain(expandedChat, [
+  'data-chat-section="now"', "Now",
+  'data-chat-section="relationship"', "Relationship",
+  'data-chat-section="open_threads"', "Open Threads",
+  'data-chat-section="shared_history"', "Shared History",
+  'data-chat-section="character"', "Character",
+  "Accepted starting continuity", "Choose where to go this weekend.",
+  "They shared tea after Mara's first night shift.",
+  "A night-shift paramedic with a dry sense of humor.",
+], "expanded Chat continuity");
+const chatSectionPositions = [
+  "now", "relationship", "open_threads", "shared_history", "character",
+].map((name) => expandedChat.indexOf(`data-chat-section="${name}"`));
+expect(chatSectionPositions.every((position) => position >= 0)
+       && chatSectionPositions.every((position, index) =>
+         index === 0 || position > chatSectionPositions[index - 1]),
+       "expanded Chat sections preserve the approved order");
+for (const forbidden of [
+  "aes-tabs", "aes-vitals", "aes-rollbtn", "WAR ROOM", "No player character yet",
+  "RPG_PLAYER_SENTINEL", "RPG_ROLL_SENTINEL", "RPG_WAR_ROOM_SENTINEL",
+  "RPG_INVENTORY_SENTINEL", "PRIVATE_CHARACTER_SENTINEL",
+]) {
+  expect(!expandedChat.includes(forbidden), `expanded Chat omits RPG/private surface: ${forbidden}`);
+}
+
+hudPayload = {
+  experience_mode: "chat",
+  continuity_available: false,
+  continuity_reason: "Exact Chat continuity binding is unavailable.",
+};
+registry.get("aes_hud_ref").onclick();
+await tick(); await tick();
+mustContain(body._html, ["Continuity paused"], "paused Chat continuity");
+expect(!body._html.includes("No player character yet") && !body._html.includes("aes-tabs"),
+       "paused Chat never falls through to the RPG no-Player renderer");
+
+hudPayload = payload;
+registry.get("aes_hud_ref").onclick();
+await tick(); await tick();
+expect(!hud.classList.contains("mode-chat"), "RPG refresh clears the Chat mode class");
+mustContain(body._html, ["aes-tabs", "Testa Vector"], "RPG surface still renders after Chat");
+
+// 8) reader-only protocol scrub: it must rescan streaming growth, preserve raw chat, and
 // never nest wrappers around fragments hidden by an earlier partial render.
 expect(typeof sandbox.aetherScrubTags === "function", "window.aetherScrubTags exists");
 const rawMessage = "Story remains raw.\n[foe | Ash Hound | standard | teeth]";

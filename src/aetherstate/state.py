@@ -878,6 +878,10 @@ _SPEC: dict[str, set[str]] = {
     "mechanic_settlement_commit": {
         "contract_id", "settlement_ref", "frame_ref", "members",
     },
+    "chat_core_seed": {
+        "core", "core_fingerprint", "character_actor_id", "persona_actor_id",
+        "card_envelope_fingerprint",
+    },
     "world_identity_set": {"world_id"},
     # Creator-only, typed source document used to rebuild cards after long campaigns.  This is
     # presentation/lore metadata, never objective event truth and never an extraction surface.
@@ -987,13 +991,27 @@ _SPEC: dict[str, set[str]] = {
     "route_set": {"a", "b", "segments"},
 }
 
+# Chat continuity is intentionally outside the RPG Semantic Transition Truth inventory. These
+# records have their own exact revision/fingerprint authority and never become mechanic projections.
+_CHAT_CONTINUITY_SPEC: dict[str, set[str]] = {
+    "relationship_agreement_revision": {"record"},
+    "social_occurrence_admit": {"record"},
+    "social_occurrence_supersede": {"record"},
+    "social_referent_bind": {"record"},
+    "continuity_thread_transition": {"record"},
+}
+
 # 08 E2 deterministic family apply-order (freeze first so mid-delta safewords gate the rest)
 _ORDER = {"semantic_meaning_commit": -5,
           "semantic_binding_commit": -4,
           "semantic_world_alignment_commit": -3,
           "semantic_frame_commit": -2,
           "mechanic_settlement_commit": 1,
-          "freeze": -1, "unfreeze": 0, "world_identity_set": 0, "creator_world_seed": 0,
+          "freeze": -1, "unfreeze": 0, "chat_core_seed": 0,
+          "relationship_agreement_revision": 1,
+          "social_occurrence_admit": 2, "social_occurrence_supersede": 2,
+          "social_referent_bind": 3, "continuity_thread_transition": 4,
+          "world_identity_set": 0, "creator_world_seed": 0,
           "capability_assign": 1,
           "entity_add": 0, "presence": 1, "move_entity": 2,
           "scene_set": 2, "scene_mode": 2, "item_mint": 2, "item_gain": 2,
@@ -1024,6 +1042,12 @@ _FAMILY = {
     "fact_admit": "facts",
     "belief_acquire": "facts",
     "mechanic_settlement_commit": "facts",
+    "chat_core_seed": "facts",
+    "relationship_agreement_revision": "facts",
+    "social_occurrence_admit": "facts",
+    "social_occurrence_supersede": "facts",
+    "social_referent_bind": "facts",
+    "continuity_thread_transition": "facts",
     "world_identity_set": "facts",
     "creator_world_seed": "facts",
     "capability_assign": "facts",
@@ -1111,15 +1135,29 @@ def slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_") or "unnamed"
 
 
+_COLLECTIVE_HOLDER_IDS = frozenset({
+    "anyone", "everyone", "group", "men", "people", "someone", "unknown", "women",
+})
+
+
+def _collective_holder_id(value: object) -> bool:
+    holder = str(value or "").strip().casefold()
+    return holder in _COLLECTIVE_HOLDER_IDS or holder.startswith(
+        ("category:", "group:", "unknown:"),
+    )
+
+
 def empty_state() -> dict:
     return {"schema": SCHEMA, "entities": {}, "chars": {}, "attributes": {}, "clothing": {},
             "poses": {}, "contacts": {}, "consent": {}, "relationships": {}, "facts": {},
+            "relationship_agreements": {}, "social_occurrences": {},
+            "social_referent_bindings": [], "continuity_threads": {},
             "beliefs": {}, "epistemic_history": [], "claims": [], "propositions": {},
             "memories": [], "scene": {}, "clock": {"day": 1, "time_of_day": "evening",
             "minutes": 0, "calendar_note": None}, "frozen": False, "rolls": [], "player": {},
             "items": {}, "gear": {}, "inventory": {}, "effects": {}, "quests": {},
             "affinity": {}, "factions": {}, "world": {}, "world_identity": {},
-            "creator_world": {},
+            "creator_world": {}, "chat_core": {},
             "world_events": [], "world_overlay": {},
             "meta": {"turn": -1}}
 
@@ -1130,12 +1168,14 @@ def is_empty(state: dict) -> bool:
         return True
     return not (state.get("entities") or state.get("chars") or state.get("scene")
                 or state.get("consent") or state.get("relationships") or state.get("facts")
+                or state.get("relationship_agreements") or state.get("social_occurrences")
+                or state.get("social_referent_bindings") or state.get("continuity_threads")
                 or state.get("beliefs") or state.get("claims")
                 or state.get("rolls") or state.get("frozen") or state.get("player")
                 or state.get("semantic_meanings") or state.get("semantic_bindings")
                 or state.get("semantic_world_alignments") or state.get("semantic_frames")
                 or state.get("mechanic_settlements") or state.get("world_events")
-                or state.get("creator_world") or state.get("claims"))
+                or state.get("creator_world") or state.get("chat_core") or state.get("claims"))
 
 
 def _trim_receipt_ledger(rows: list[dict], current_turn: int, older_cap: int = 16) -> None:
@@ -1453,6 +1493,8 @@ def validate_op(op: Any) -> Optional[dict]:
         op = {**op, "op": "clothing"}
     kind = op.get("op")
     spec = _SPEC.get(kind)
+    if spec is None:
+        spec = _CHAT_CONTINUITY_SPEC.get(kind)
     if spec is None or not spec.issubset(op.keys()):
         return None
     try:
@@ -1496,6 +1538,55 @@ def validate_op(op: Any) -> Optional[dict]:
             validate_claim_frame(op.get("frame"))
         if kind == "mechanic_settlement_commit":
             _validate_settlement_members_shape(op)
+        if kind == "chat_core_seed":
+            from .chat_card import (
+                chat_envelope_fingerprint,
+                core_fingerprint,
+                validate_core,
+                world_fingerprint,
+            )
+
+            core = validate_core(op.get("core"))
+            if op.get("core_fingerprint") != core_fingerprint(core):
+                return None
+            character_actor_id = str(op.get("character_actor_id") or "")
+            persona_actor_id = str(op.get("persona_actor_id") or "")
+            if re.fullmatch(r"character:[0-9a-f]{64}", character_actor_id) is None \
+                    or re.fullmatch(r"persona:[0-9a-f]{64}", persona_actor_id) is None:
+                return None
+            envelope = str(op.get("card_envelope_fingerprint") or "")
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", envelope) is None:
+                return None
+            world = op.get("world")
+            if world is not None and not isinstance(world, dict):
+                return None
+            if str(op.get("world_fingerprint") or "") != world_fingerprint(world):
+                return None
+            if envelope != chat_envelope_fingerprint(core, world):
+                return None
+        if kind in {
+            "relationship_agreement_revision",
+            "social_occurrence_admit",
+            "social_occurrence_supersede",
+            "social_referent_bind",
+            "continuity_thread_transition",
+        }:
+            from .chat_continuity import (
+                validate_agreement_revision,
+                validate_social_occurrence,
+                validate_social_occurrence_supersession,
+                validate_social_referent_binding,
+                validate_thread_transition,
+            )
+
+            validators = {
+                "relationship_agreement_revision": validate_agreement_revision,
+                "social_occurrence_admit": validate_social_occurrence,
+                "social_occurrence_supersede": validate_social_occurrence_supersession,
+                "social_referent_bind": validate_social_referent_binding,
+                "continuity_thread_transition": validate_thread_transition,
+            }
+            validators[kind](op.get("record"))
         if kind == "world_identity_set":
             world_id = str(op.get("world_id") or "")
             parent = str(op.get("parent_world_id") or "")
@@ -1545,13 +1636,32 @@ def validate_op(op: Any) -> Optional[dict]:
         if kind == "mood" and not any(k in op for k in ("valence", "energy", "dominance")):
             return None
         if kind == "consent_signal" and (op["category"] not in ACT_CATEGORIES
-                                         or op["signal"] not in set(SIGNAL_TO_LEVEL) | {"safeword"}):
+                                         or op["signal"] not in set(SIGNAL_TO_LEVEL) | {"safeword"}
+                                         or _collective_holder_id(op.get("from_char"))
+                                         or _collective_holder_id(op.get("to_char"))):
             return None
         if kind == "consent_set" and (op["category"] not in ACT_CATEGORIES
-                                      or op["level"] not in CONSENT_RANK):
+                                      or op["level"] not in CONSENT_RANK
+                                      or _collective_holder_id(op.get("subject"))
+                                      or _collective_holder_id(op.get("partner"))):
             return None
-        if kind == "relationship_adj" and op["dimension"] not in REL_DIMS:
-            return None
+        if kind == "relationship_adj":
+            if op["dimension"] not in REL_DIMS:
+                return None
+            if "reason" in op and (
+                not isinstance(op["reason"], str) or not op["reason"].strip()
+                or len(op["reason"].strip()) > 4000
+            ):
+                return None
+            if "quality" in op and (
+                not isinstance(op["quality"], str) or not op["quality"].strip()
+                or len(op["quality"].strip()) > 120
+            ):
+                return None
+            if "cause_ref" in op:
+                from .chat_continuity import validate_cause_ref
+
+                validate_cause_ref(op["cause_ref"])
         if kind == "reveal_fact" and op["source"] not in {"witnessed", "told", "overheard", "inferred"}:
             return None
         if kind == "fact_admit":
@@ -1567,7 +1677,10 @@ def validate_op(op: Any) -> Optional[dict]:
             }:
                 return None
         if kind == "belief_acquire" and (
-            op.get("stance") not in {"knows", "believes", "doubts", "disputes", "uncertain", "rumor"}
+            op.get("stance") not in {
+                "knows", "believes", "doubts", "disputes",
+                "uncertain", "rumor", "was_told",
+            }
             or not isinstance(op.get("holder"), str) or not op["holder"].strip()
             or not (
                 isinstance(op.get("statement"), str) and op["statement"].strip()
@@ -2079,6 +2192,133 @@ def _committed_cohort_spawn_authorized(state: dict, op: dict) -> bool:
     )
 
 
+def _state_has_continuity_cause(state: dict, cause_ref: object) -> bool:
+    if not isinstance(cause_ref, dict):
+        return False
+    kind = str(cause_ref.get("kind") or "")
+    fingerprint = str(cause_ref.get("fingerprint") or "")
+    if not kind or not fingerprint:
+        return False
+    record_groups = {
+        "relationship_agreement": [
+            *(state.get("relationship_agreements") or {}).values(),
+        ],
+        "social_occurrence": [
+            *(state.get("social_occurrences") or {}).values(),
+        ],
+        "continuity_thread": [
+            *(state.get("continuity_threads") or {}).values(),
+        ],
+        "social_referent_binding": [[
+            *(state.get("social_referent_bindings") or []),
+        ]],
+        "claim_record": [[*(state.get("claims") or [])]],
+        "fact_record": [[*(state.get("facts") or {}).values()]],
+    }.get(kind)
+    if record_groups is None:
+        return False
+    return any(
+        isinstance(row, dict) and row.get("fingerprint") == fingerprint
+        for group in record_groups
+        for rows in group
+        for row in (rows if isinstance(rows, list) else [rows])
+    )
+
+
+_OPAQUE_OUTSIDE_ACTOR_RE = re.compile(r"^actor:[0-9a-f]{64}$")
+
+
+def _chat_actor_authority_violation(
+    store,
+    session_id: str,
+    branch_id: str,
+    state: dict,
+    submitted_op: dict,
+) -> Optional[str]:
+    """Bind Chat continuity and consent holders to Task 2's exact durable identity."""
+    kind = str(submitted_op.get("op") or "")
+    continuity = kind in _CHAT_CONTINUITY_SPEC
+    consent = kind in {"consent_set", "consent_signal"}
+    chat_core = state.get("chat_core") or {}
+    bound_chat = bool(chat_core.get("core_fingerprint"))
+    relationship = kind == "relationship_adj"
+    if not continuity and not (bound_chat and (consent or relationship)):
+        return None
+
+    try:
+        binding = store.experience_binding(session_id)
+        receipt = store.chat_core_receipt_for_session(session_id)
+    except (KeyError, TypeError, ValueError):
+        return "bound Chat authority has no valid Task 2 identity receipt"
+    if receipt is None:
+        return "bound Chat authority has no valid Task 2 identity receipt"
+    exact = {
+        "core_fingerprint": str(chat_core.get("core_fingerprint") or ""),
+        "character_actor_id": str(chat_core.get("character_actor_id") or ""),
+        "persona_actor_id": str(chat_core.get("persona_actor_id") or ""),
+        "card_envelope_fingerprint": str(
+            chat_core.get("card_envelope_fingerprint") or "",
+        ),
+        "world_fingerprint": str(chat_core.get("world_fingerprint") or ""),
+        "admitted_turn": int(chat_core.get("admitted_turn", -1)),
+    }
+    if binding.mode != "chat" \
+            or binding.core_fingerprint != exact["core_fingerprint"] \
+            or binding.character_actor_id != exact["character_actor_id"] \
+            or binding.persona_actor_id != exact["persona_actor_id"] \
+            or receipt["branch_id"] != branch_id \
+            or any(receipt[key] != value for key, value in exact.items()):
+        return "bound Chat authority does not match its exact session, branch, Core, and Persona"
+
+    admitted = {
+        exact["character_actor_id"],
+        exact["persona_actor_id"],
+    }
+    for actor_id, row in (state.get("entities") or {}).items():
+        if _OPAQUE_OUTSIDE_ACTOR_RE.fullmatch(str(actor_id)) is not None \
+                and isinstance(row, dict) \
+                and row.get("kind") in {"actor", "character", "persona"}:
+            admitted.add(str(actor_id))
+
+    actor_ids: list[str] = []
+
+    def collect_actor_refs(value: object) -> None:
+        if isinstance(value, dict):
+            if value.get("kind") == "actor":
+                actor_ids.append(str(value.get("actor_id") or ""))
+            for nested in value.values():
+                collect_actor_refs(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect_actor_refs(nested)
+
+    if continuity:
+        record = submitted_op.get("record")
+        if kind == "social_occurrence_supersede" and isinstance(record, dict):
+            occurrence_id = str(record.get("occurrence_id") or "")
+            predecessors = (state.get("social_occurrences") or {}).get(
+                occurrence_id,
+            ) or []
+            if predecessors:
+                collect_actor_refs(predecessors[-1])
+        collect_actor_refs(record)
+        if kind == "social_referent_bind" and isinstance(record, dict):
+            actor_ids.append(str(record.get("actor_id") or ""))
+    elif kind == "consent_set":
+        actor_ids.extend([
+            str(submitted_op.get("subject") or ""),
+            str(submitted_op.get("partner") or ""),
+        ])
+    else:
+        actor_ids.extend([
+            str(submitted_op.get("from_char") or ""),
+            str(submitted_op.get("to_char") or ""),
+        ])
+    if not actor_ids or any(actor_id not in admitted for actor_id in actor_ids):
+        return "bound Chat actor references must name exact already-admitted opaque actors"
+    return None
+
+
 def authority_violation(
     op: dict,
     source: str,
@@ -2101,13 +2341,15 @@ def authority_violation(
     if "_requires_settlement_ref" in op and source != "rule":
         return "mechanic-dependent scene admission is code-owned and rule-only"
 
+    if kind in ("semantic_meaning_commit", "claim_record"):
+        if source != "rule":
+            return "semantic recognition receipts are code-owned: only a trusted rule may commit one"
+
     if kind in (
-        "semantic_meaning_commit",
         "semantic_binding_commit",
         "semantic_world_alignment_commit",
         "semantic_frame_commit",
         "mechanic_settlement_commit",
-        "claim_record",
     ) \
             or "_semantic_frame_ref" in op \
             or "_settlement_ref" in op:
@@ -2117,6 +2359,88 @@ def authority_violation(
         spec = getattr(cfg, "specialization", None)
         if spec is None or spec.name != "rpg":
             return "semantic action frames are RPG-only; specialization=none remains inert"
+
+    if kind in {
+        "relationship_agreement_revision",
+        "social_occurrence_admit",
+        "social_occurrence_supersede",
+        "social_referent_bind",
+        "continuity_thread_transition",
+    }:
+        spec = getattr(cfg, "specialization", None)
+        if spec is not None and spec.name == "rpg":
+            return "Living Character continuity is Chat-only and cannot mutate RPG state"
+        if not (state.get("chat_core") or {}).get("core_fingerprint"):
+            return "Living Character continuity requires one exact admitted Chat Core"
+        if kind == "relationship_agreement_revision":
+            record = op.get("record") or {}
+            action = str(record.get("action") or "")
+            automatic = False
+            if source == "rule" and record.get("lifecycle_source") in {
+                "user_text", "assistant_response",
+            }:
+                if action in {"create", "amend"}:
+                    try:
+                        from .chat_continuity import (
+                            automatic_agreement_has_exact_assent,
+                            automatic_agreement_is_lifecycle_proposal,
+                        )
+
+                        automatic = (
+                            automatic_agreement_has_exact_assent(record)
+                            or automatic_agreement_is_lifecycle_proposal(record)
+                        )
+                    except (TypeError, ValueError):
+                        automatic = False
+                elif action in {"withdraw", "release", "end"}:
+                    evidence = record.get("evidence") or {}
+                    automatic = (
+                        isinstance(record.get("acting_party"), dict)
+                        and isinstance(evidence, dict)
+                        and evidence.get("kind") == "agreement_transition"
+                        and evidence.get("accepted") is True
+                        and evidence.get("code_sealed") is True
+                    )
+            if source not in {"user", "genesis"} and not automatic:
+                return "automatic agreement admission remains closed until lifecycle-owned assent exists"
+        elif kind == "social_occurrence_admit":
+            evidence = (op.get("record") or {}).get("admission_evidence")
+            code_sealed = (
+                isinstance(evidence, dict)
+                and evidence.get("accepted") is True
+                and evidence.get("code_sealed") is True
+            )
+            if source not in {"user", "genesis"} \
+                    and not (source == "rule" and code_sealed):
+                return "automatic social occurrence admission remains closed until lifecycle-owned evidence exists"
+        elif kind == "social_occurrence_supersede":
+            if source not in {"user", "genesis"}:
+                return "occurrence correction/retraction is privileged user or Creator input"
+        elif kind == "social_referent_bind":
+            if source not in {"user", "genesis"}:
+                return "anonymous referent binding is privileged manual or Creator input"
+        elif source not in {"user", "genesis", "rule", "extraction"}:
+            return "continuity thread transition has no accepted ingress authority"
+
+    if kind == "relationship_adj" and (state.get("chat_core") or {}).get("core_fingerprint"):
+        reason = str(op.get("reason") or "").strip()
+        quality = str(op.get("quality") or "").strip()
+        cause_ref = op.get("cause_ref")
+        creator_seed = (
+            source == "genesis"
+            and isinstance(op.get("_continuity_seed"), dict)
+            and op["_continuity_seed"].get("family") == "relationship_causes"
+            and isinstance(cause_ref, dict)
+            and cause_ref.get("kind") == "creator"
+            and re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                str(cause_ref.get("fingerprint") or ""),
+            ) is not None
+        )
+        if not reason or not quality or (
+            not creator_seed and not _state_has_continuity_cause(state, cause_ref)
+        ):
+            return "fresh Chat relationship changes require reason, quality, and an accepted exact cause"
 
     if kind == "fact_admit":
         authority = str(op.get("authority") or "")
@@ -2167,6 +2491,10 @@ def authority_violation(
     if kind == "player_seed":                  # privileged: initialization only (doc 05 §5.1)
         return None if source in ("user", "genesis") else \
             "player card is privileged: genesis or the user only (doc 05 §5.1)"
+
+    if kind == "chat_core_seed":
+        return None if source in ("user", "genesis") else \
+            "Chat Core is admitted only by the user or genesis boundary"
 
     if kind == "world_identity_set":
         return None if source in ("user", "genesis", "rule") else \
@@ -2407,6 +2735,37 @@ def resolve_entity_ref(state: dict, token) -> Optional[str]:
         if any(str(a).lower() == low for a in (e.get("aliases") or [])):
             return eid
     return None
+
+
+def resolve_unique_entity_ref(state: dict, token) -> Optional[str]:
+    """Resolve one accepted entity only when the written name/alias is unambiguous.
+
+    Exact durable ids and exact entity slugs remain authoritative.  Display names and aliases are
+    convenience referents, so a collision abstains instead of inheriting dictionary order.
+    """
+    value = str(token or "").strip()
+    if not value:
+        return None
+    entities = state.get("entities") or {}
+    if value in entities:
+        return value
+    normalized_slug = slug(value)
+    if normalized_slug in entities:
+        return normalized_slug
+    folded = value.casefold()
+    candidates = {
+        str(entity_id)
+        for entity_id, entity in entities.items()
+        if isinstance(entity, dict)
+        and (
+            str(entity.get("name") or "").casefold() == folded
+            or any(
+                str(alias or "").casefold() == folded
+                for alias in entity.get("aliases") or ()
+            )
+        )
+    }
+    return next(iter(candidates)) if len(candidates) == 1 else None
 
 
 def _ensure_entities(state: dict, op: dict) -> None:
@@ -3112,6 +3471,118 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         _semantic_frame_for_op(state, op, turn)
         _apply_prepared_mechanic_settlement(state, op, turn)
         return
+    if kind == "chat_core_seed":
+        from .chat_card import core_fingerprint, validate_core
+
+        core = validate_core(op.get("core"))
+        if op.get("core_fingerprint") != core_fingerprint(core):
+            raise OpReject("Chat Core fingerprint is forged or stale")
+        snapshot = {
+            "schema": "aetherstate-chat-core-state/1",
+            "core": json.loads(json.dumps(core)),
+            "core_fingerprint": op["core_fingerprint"],
+            "character_actor_id": op["character_actor_id"],
+            "persona_actor_id": op["persona_actor_id"],
+            "card_envelope_fingerprint": op["card_envelope_fingerprint"],
+            "admitted_turn": turn,
+        }
+        if op.get("world_fingerprint"):
+            snapshot["world_fingerprint"] = op["world_fingerprint"]
+        current = state.get("chat_core")
+        if isinstance(current, dict) and current.get("core_fingerprint"):
+            if current != snapshot:
+                raise OpReject("this lineage is already bound to a different Chat Core or Persona")
+            return
+        state["chat_core"] = snapshot
+        entities = state.setdefault("entities", {})
+        records = (
+            (op["character_actor_id"], {
+                "kind": "character", "name": core["name"], "aliases": [],
+                "location_id": None, "present": True,
+            }),
+            (op["persona_actor_id"], {
+                "kind": "persona", "name": "Persona", "aliases": [],
+                "location_id": None, "present": True,
+            }),
+        )
+        for actor_id, record in records:
+            prior = entities.get(actor_id)
+            if prior is not None and prior != record:
+                raise OpReject("Chat actor identity conflicts with an existing entity")
+            entities[actor_id] = record
+        if turn > state["meta"].get("turn", -1):
+            state["meta"]["turn"] = turn
+        return
+    if kind in {
+        "relationship_agreement_revision",
+        "social_occurrence_admit",
+        "social_occurrence_supersede",
+        "continuity_thread_transition",
+    }:
+        from .chat_continuity import (
+            validate_agreement_revision,
+            validate_social_occurrence,
+            validate_thread_transition,
+        )
+
+        record = deepcopy(op.get("_record"))
+        if kind == "relationship_agreement_revision":
+            record = validate_agreement_revision(record)
+            table = state.setdefault("relationship_agreements", {})
+            record_id = record["agreement_id"]
+        elif kind in {"social_occurrence_admit", "social_occurrence_supersede"}:
+            record = validate_social_occurrence(record)
+            table = state.setdefault("social_occurrences", {})
+            record_id = record["occurrence_id"]
+        else:
+            record = validate_thread_transition(record)
+            table = state.setdefault("continuity_threads", {})
+            record_id = record["thread_id"]
+        revisions = table.setdefault(record_id, [])
+        if record["revision"] != len(revisions) + 1:
+            if revisions and revisions[-1] == record:
+                return
+            raise OpReject("continuity record revision is not exactly sequential")
+        if revisions and record.get("supersedes_fingerprint") != \
+                revisions[-1].get("fingerprint"):
+            raise OpReject("continuity record predecessor fingerprint is forged or stale")
+        revisions.append(record)
+        if turn > state["meta"].get("turn", -1):
+            state["meta"]["turn"] = turn
+        return
+    if kind == "social_referent_bind":
+        from .chat_continuity import validate_social_referent_binding
+
+        record = validate_social_referent_binding(op.get("_record"))
+        occurrence_rows = (state.get("social_occurrences") or {}).get(
+            record["occurrence_id"],
+        ) or []
+        if not occurrence_rows:
+            raise OpReject("anonymous referent binding has no admitted occurrence")
+        anonymous_ids = {
+            ref.get("anonymous_id")
+            for ref in occurrence_rows[-1].get("outside_participants") or []
+            if isinstance(ref, dict) and ref.get("kind") == "anonymous"
+        }
+        if record["anonymous_id"] not in anonymous_ids:
+            raise OpReject("referent binding does not target an occurrence-local anonymous ref")
+        bindings = state.setdefault("social_referent_bindings", [])
+        prior = next(
+            (
+                row for row in bindings
+                if row.get("occurrence_id") == record["occurrence_id"]
+                and row.get("anonymous_id") == record["anonymous_id"]
+            ),
+            None,
+        )
+        if prior is not None:
+            if prior != record:
+                raise OpReject("anonymous referent is already bound to a different actor")
+            return
+        bindings.append(record)
+        if turn > state["meta"].get("turn", -1):
+            state["meta"]["turn"] = turn
+        return
     if "_requires_settlement_ref" in op:
         public, private = _state_settlement_pair(
             state, str(op.get("_requires_settlement_ref") or ""), turn
@@ -3609,6 +4080,17 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         hist = rel["history"].setdefault(dim, [])
         hist.append([turn, rel["dims"][dim]])
         del hist[:-100]
+        if op.get("reason") and op.get("quality") and isinstance(op.get("cause_ref"), dict):
+            causes = rel.setdefault("causes", [])
+            causes.append({
+                "turn": turn,
+                "direction": key,
+                "dimension": dim,
+                "quality": op["quality"],
+                "reason": op["reason"],
+                "cause_ref": deepcopy(op["cause_ref"]),
+            })
+            del causes[:-100]
     elif kind == "reveal_fact":
         fid = hashlib.blake2b(str(op["statement"]).encode(), digest_size=6).hexdigest()
         # Compression item 3 (2026-07-09): a near-restatement SUPERSEDES the older record —
@@ -3656,7 +4138,22 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             state["memories"].append({                     # line no longer rides recall twice
                 "text": op["text"], "participants": op.get("participants", []),
                 "importance": _clamp(op.get("importance", 3), 1, 10),
-                "tags": tags, "turn": turn})
+                "tags": tags, "turn": turn,
+                # A missing historical audience is not proof of public visibility.
+                # RPG readers retain their explicit legacy-open policy; Chat readers
+                # pass a fail-closed blank policy at the common projection boundary.
+                "visibility": str(op.get("visibility") or ""),
+                "scoped_actors": sorted({
+                    str(actor) for actor in op.get("scoped_actors") or []
+                    if str(actor)
+                }),
+                "lifecycle_source": str(
+                    op.get("_lifecycle_source") or "historical"
+                ),
+                "response_occurrence_id": str(
+                    op.get("_response_occurrence_id") or ""
+                ),
+            })
         del state["memories"][:-100]
     elif kind == "goal":
         goals = _char(state, op["char"])["goals"]
@@ -5821,6 +6318,7 @@ class ApplyResult:
     submitted_applied: int = 0
     quarantined: list[dict] = field(default_factory=list)   # each: {"op":..., "reason":...}
     duplicates: list[dict] = field(default_factory=list)    # identical EffectId no-ops
+    atomic_group_failures: list[dict] = field(default_factory=list)
     state: dict = field(default_factory=empty_state)
     froze: bool = False
     unfroze: bool = False
@@ -5975,7 +6473,9 @@ _SCENE_MOVEMENT_SOURCES = frozenset({"user", "rule"})
 
 def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
             source: str = "rule", *, session_id: Optional[str] = None,
-            branch_id: Optional[str] = None) -> dict:
+            branch_id: Optional[str] = None,
+            lifecycle_source: str = "",
+            response_occurrence_id: str = "") -> dict:
     """Bake config/registry-dependent values into the journaled op (replay determinism,
     03 SS3.3; doc 07 §6 extends the bake to item reference data). `state` is the pre-apply
     snapshot — used only to generate a fresh, unique instance id at mint.
@@ -5987,6 +6487,69 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
     """
     out = dict(op)
     out["_turn"] = turn
+    if op["op"] in {
+        "relationship_agreement_revision",
+        "social_occurrence_admit",
+        "social_occurrence_supersede",
+        "social_referent_bind",
+        "continuity_thread_transition",
+    }:
+        from .chat_continuity import (
+            bake_agreement_revision,
+            bake_social_occurrence,
+            bake_social_occurrence_supersession,
+            bake_social_referent_binding,
+            bake_thread_transition,
+        )
+
+        current_state_value = state or {}
+        record = deepcopy(op.get("record"))
+        if isinstance(record, dict):
+            record["lifecycle_source"] = str(lifecycle_source or source)
+            record["response_occurrence_id"] = str(response_occurrence_id or "")
+        if op["op"] == "relationship_agreement_revision":
+            agreement_id = str((record or {}).get("agreement_id") or "")
+            current = (current_state_value.get("relationship_agreements") or {}).get(
+                agreement_id,
+            ) or []
+            out["_record"] = bake_agreement_revision(
+                record,
+                current,
+                admitted_turn=turn,
+            )
+        elif op["op"] == "social_occurrence_admit":
+            occurrence_id = str((record or {}).get("occurrence_id") or "")
+            current = (current_state_value.get("social_occurrences") or {}).get(
+                occurrence_id,
+            ) or []
+            out["_record"] = bake_social_occurrence(record, current)
+        elif op["op"] == "social_occurrence_supersede":
+            occurrence_id = str((record or {}).get("occurrence_id") or "")
+            current = (current_state_value.get("social_occurrences") or {}).get(
+                occurrence_id,
+            ) or []
+            out["_record"] = bake_social_occurrence_supersession(record, current)
+        elif op["op"] == "social_referent_bind":
+            occurrence_id = str((record or {}).get("occurrence_id") or "")
+            current_occurrence = (current_state_value.get("social_occurrences") or {}).get(
+                occurrence_id,
+            ) or []
+            if not current_occurrence:
+                raise ValueError("anonymous referent binding has no admitted occurrence")
+            baked, duplicate = bake_social_referent_binding(
+                record,
+                occurrence=current_occurrence[-1],
+                existing=current_state_value.get("social_referent_bindings") or [],
+            )
+            out["_record"] = baked
+            if duplicate:
+                out["_continuity_duplicate"] = True
+        else:
+            thread_id = str((record or {}).get("thread_id") or "")
+            current = (current_state_value.get("continuity_threads") or {}).get(
+                thread_id,
+            ) or []
+            out["_record"] = bake_thread_transition(record, current)
     if op["op"] in {"fact_admit", "belief_acquire"}:
         from .capability_glossary import content_fingerprint
 
@@ -6044,6 +6607,17 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
             resolved_holder = resolve_entity_ref(state or {}, raw_holder) or raw_holder
             holder = normalize_actor_id(resolved_holder) or slug(resolved_holder)
             evidence = str(op.get("evidence_source") or op.get("source"))
+            evidence_ref = None
+            if op.get("evidence_ref") is not None:
+                from .chat_continuity import validate_cause_ref
+
+                evidence_ref = validate_cause_ref(
+                    op.get("evidence_ref"),
+                    context="belief evidence_ref",
+                )
+            source_occurrence_id = str(
+                op.get("source_occurrence_id") or ""
+            ).strip()
             pid = str(out["proposition_id"])
             scoped = sorted({
                 normalize_actor_id(resolve_entity_ref(state or {}, str(value)) or str(value))
@@ -6060,6 +6634,8 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
                 "ingress": str(source),
                 "authority_ceiling": "actor_epistemic_only",
                 "claim_id": op.get("claim_id"),
+                "evidence_ref": evidence_ref,
+                "source_occurrence_id": source_occurrence_id,
             }
             belief_id = "belief:" + content_fingerprint(identity_payload).removeprefix("sha256:")
             record = {
@@ -6082,6 +6658,8 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
                 "source": evidence,
                 "teller": op.get("teller"),
                 "claim_id": op.get("claim_id"),
+                "evidence_ref": evidence_ref,
+                "source_occurrence_id": source_occurrence_id,
                 "ingress": str(source),
                 "authority_ceiling": "actor_epistemic_only",
                 "establishes_truth": False,
@@ -6094,6 +6672,10 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
             out["source"] = evidence
             out["holder"] = holder
             out["scoped_actors"] = scoped
+            if evidence_ref is not None:
+                out["evidence_ref"] = evidence_ref
+            if source_occurrence_id:
+                out["source_occurrence_id"] = source_occurrence_id
             out["_belief_id"] = belief_id
             out["_record"] = record
     if op["op"] == "claim_record":
@@ -6101,7 +6683,12 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
 
         frame = validate_claim_frame(op.get("frame"))
         ingress = str(frame.get("ingress") or "code")
-        record_source = slug(str(frame.get("source") or ingress))
+        exact_source = str(op.get("_exact_source_identity") or "")
+        record_source = (
+            exact_source
+            if exact_source
+            else slug(str(frame.get("source") or ingress))
+        )
         world_id = str(((state or {}).get("world_identity") or {}).get("world_id") or "world_unbound")
         try:
             occurrence_index = max(1, int(str(frame.get("frame_id") or "1").rsplit("-", 1)[-1]))
@@ -6121,6 +6708,8 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
             occurrence_index=occurrence_index,
             visibility=str(op.get("visibility") or "public"),
             scoped_actors=op.get("scoped_actors") or scoped,
+            lifecycle_source=str(lifecycle_source or source),
+            response_occurrence_id=str(response_occurrence_id or ""),
         )
     if op["op"] == "semantic_meaning_commit":
         from .semantic_fabric import validate_compiled_meaning_receipt
@@ -8653,7 +9242,9 @@ def apply_delta(store, session_id: str, branch_id: str, turn: int, ops: list,
                 semantic_declaration: object = None,
                 semantic_authority: object = None,
                 semantic_context: object = None,
-                semantic_source: object = None) -> ApplyResult:
+                semantic_source: object = None,
+                lifecycle_source: str = "",
+                response_occurrence_id: str = "") -> ApplyResult:
     """03 SS5.1: validate op-by-op, resolve aliases, authority-check, apply sequentially,
     journal ONLY what applied, checkpoint on cadence, mirror frozen to the session row.
 
@@ -8668,7 +9259,188 @@ def apply_delta(store, session_id: str, branch_id: str, turn: int, ops: list,
                                    semantic_declaration=semantic_declaration,
                                    semantic_authority=semantic_authority,
                                    semantic_context=semantic_context,
-                                   semantic_source=semantic_source)
+                                   semantic_source=semantic_source,
+                                   lifecycle_source=lifecycle_source,
+                                   response_occurrence_id=response_occurrence_id)
+
+
+def _apply_partitioned_delta_groups(
+    store,
+    session_id: str,
+    branch_id: str,
+    turn: int,
+    partitions: object,
+    cfg,
+    *,
+    expected_response_occurrence_id: str,
+) -> ApplyResult:
+    """Apply accepted Chat partitions only while their exact response occurrence is current."""
+    if isinstance(partitions, list):
+        partition_map = {"assistant_response": partitions}
+    elif isinstance(partitions, dict):
+        partition_map = dict(partitions)
+    else:
+        raise ValueError("Chat continuity partitions must be a mapping or operation list")
+    allowed = {"user_text", "assistant_response", "deferred_extraction"}
+    if set(partition_map) - allowed:
+        raise ValueError("Chat continuity partition is unsupported")
+    response_id = str(expected_response_occurrence_id or "")
+    if not response_id:
+        raise ValueError("Chat continuity apply requires one accepted response occurrence")
+    with store.transaction():
+        row = store.db.execute(
+            "SELECT accepted_response_occurrence_id FROM turns"
+            " WHERE branch_id=? AND turn_index=?",
+            (branch_id, int(turn)),
+        ).fetchone()
+        if row is None or str(row["accepted_response_occurrence_id"] or "") != response_id:
+            return ApplyResult(state=current_state(store, branch_id))
+        aggregate = ApplyResult(state=current_state(store, branch_id))
+        for lifecycle in ("user_text", "assistant_response", "deferred_extraction"):
+            ops = partition_map.get(lifecycle, [])
+            if ops is None:
+                continue
+            if not isinstance(ops, list):
+                raise ValueError(f"{lifecycle} partition must be an operation list")
+            if not ops:
+                continue
+            grouped: dict[str, list[dict]] = {}
+            ordinary: list = []
+            for op in ops:
+                group_id = (
+                    str(op.get("_social_group_id") or "")
+                    if isinstance(op, dict)
+                    else ""
+                )
+                if group_id:
+                    grouped.setdefault(group_id, []).append(op)
+                else:
+                    ordinary.append(op)
+
+            workloads: list[tuple[str, list]] = [
+                (group_id, members)
+                for group_id, members in grouped.items()
+            ]
+            if ordinary:
+                workloads.append(("", ordinary))
+            for group_id, members in workloads:
+                clean_members = []
+                for member in members:
+                    if isinstance(member, dict):
+                        clean = dict(member)
+                        clean.pop("_social_group_id", None)
+                        clean_members.append(clean)
+                    else:
+                        clean_members.append(member)
+                result = None
+                try:
+                    with store.transaction():
+                        result = _apply_delta_locked(
+                            store,
+                            session_id,
+                            branch_id,
+                            turn,
+                            clean_members,
+                            (
+                                "extraction"
+                                if lifecycle == "deferred_extraction"
+                                else "rule"
+                            ),
+                            cfg,
+                            required_extraction=(
+                                (turn, turn)
+                                if lifecycle == "deferred_extraction"
+                                else None
+                            ),
+                            lifecycle_source=lifecycle,
+                            response_occurrence_id=(
+                                "" if lifecycle == "user_text" else response_id
+                            ),
+                        )
+                        if group_id:
+                            fully_applied = (
+                                not result.quarantined
+                                and result.submitted_applied == len(clean_members)
+                            )
+                            exact_duplicate = (
+                                not result.quarantined
+                                and not result.applied
+                                and len(result.duplicates) == len(clean_members)
+                            )
+                            if not fully_applied and not exact_duplicate:
+                                raise OpReject(
+                                    "atomic social group did not apply as one complete unit",
+                                )
+                except OpReject as exc:
+                    if not group_id:
+                        raise
+                    failure = {
+                        "group_id": group_id,
+                        "lifecycle_source": lifecycle,
+                        "reason": str(exc),
+                    }
+                    aggregate.atomic_group_failures.append(failure)
+                    aggregate.quarantined.extend({
+                        "op": member,
+                        "reason": str(exc),
+                        "social_group_id": group_id,
+                    } for member in clean_members)
+                    aggregate.state = current_state(store, branch_id)
+                    continue
+                assert result is not None
+                aggregate.applied.extend(result.applied)
+                aggregate.submitted_applied += result.submitted_applied
+                aggregate.quarantined.extend(result.quarantined)
+                aggregate.duplicates.extend(result.duplicates)
+                aggregate.atomic_group_failures.extend(
+                    result.atomic_group_failures
+                )
+                aggregate.state = result.state
+                aggregate.froze = aggregate.froze or result.froze
+                aggregate.unfroze = aggregate.unfroze or result.unfroze
+        return aggregate
+
+
+class _PartitionedChatAbort(RuntimeError):
+    def __init__(self, result: ApplyResult) -> None:
+        super().__init__("partitioned Chat job rejected")
+        self.result = result
+
+
+def apply_partitioned_delta(
+    store,
+    session_id: str,
+    branch_id: str,
+    turn: int,
+    partitions: object,
+    cfg,
+    *,
+    expected_response_occurrence_id: str,
+) -> ApplyResult:
+    """Commit every Chat partition and mirror source as one whole-job transaction."""
+    try:
+        with store.transaction():
+            result = _apply_partitioned_delta_groups(
+                store,
+                session_id,
+                branch_id,
+                turn,
+                partitions,
+                cfg,
+                expected_response_occurrence_id=expected_response_occurrence_id,
+            )
+            if result.atomic_group_failures:
+                raise _PartitionedChatAbort(result)
+            return result
+    except _PartitionedChatAbort as exc:
+        result = exc.result
+        result.applied = []
+        result.submitted_applied = 0
+        result.duplicates = []
+        result.froze = False
+        result.unfroze = False
+        result.state = current_state(store, branch_id)
+        return result
 
 
 def _migrate_fresh_legacy_knowledge_op(op: object) -> object:
@@ -8705,7 +9477,9 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
                         semantic_declaration: object = None,
                         semantic_authority: object = None,
                         semantic_context: object = None,
-                        semantic_source: object = None) -> ApplyResult:
+                        semantic_source: object = None,
+                        lifecycle_source: str = "",
+                        response_occurrence_id: str = "") -> ApplyResult:
     res = ApplyResult(state=current_state(store, branch_id))
     ops = [_migrate_fresh_legacy_knowledge_op(op) for op in ops]
     if required_extraction is not None:
@@ -9069,13 +9843,32 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
         if why is not None:
             res.quarantined.append({"op": op, "reason": why})
             continue
+        why = _chat_actor_authority_violation(
+            store,
+            session_id,
+            branch_id,
+            res.state,
+            op,
+        )
+        if why is not None:
+            res.quarantined.append({"op": op, "reason": why})
+            continue
         try:
             op2 = _enrich(
                 op2, turn, cfg, res.state, source=source,
                 session_id=session_id, branch_id=branch_id,
+                lifecycle_source=lifecycle_source,
+                response_occurrence_id=response_occurrence_id,
             )
         except (KeyError, TypeError, ValueError) as exc:
             res.quarantined.append({"op": op, "reason": str(exc)})
+            continue
+        if lifecycle_source:
+            op2["_lifecycle_source"] = str(lifecycle_source)
+        if response_occurrence_id:
+            op2["_response_occurrence_id"] = str(response_occurrence_id)
+        if op2.pop("_continuity_duplicate", False):
+            res.duplicates.append(op2)
             continue
         if op2.get("op") == "claim_record":
             record = op2.get("_record") or {}
@@ -9263,13 +10056,28 @@ def _apply_delta_locked(store, session_id: str, branch_id: str, turn: int, ops: 
             if op.get("op") == "world_event_admit" and isinstance(op.get("event"), dict)
         ]
         if new_receipts or new_mechanic_receipts or durable_claims or durable_events:
-            store.journal_with_receipts(branch_id, lo, turn, res.applied, source,
-                                        list(new_receipts.values()),
-                                        mechanic_receipts=list(new_mechanic_receipts.values()),
-                                        claim_records=durable_claims,
-                                        world_event_records=durable_events)
+            journal_row_id = store.journal_with_receipts(
+                branch_id, lo, turn, res.applied, source,
+                list(new_receipts.values()),
+                mechanic_receipts=list(new_mechanic_receipts.values()),
+                claim_records=durable_claims,
+                world_event_records=durable_events,
+                lifecycle_source=lifecycle_source,
+                response_occurrence_id=response_occurrence_id,
+            )
         else:
-            store.journal(branch_id, lo, turn, res.applied, source)
+            journal_row_id = store.journal(
+                branch_id,
+                lo,
+                turn,
+                res.applied,
+                source,
+                lifecycle_source=lifecycle_source,
+                response_occurrence_id=response_occurrence_id,
+            )
+        for op_index, applied_op in enumerate(res.applied):
+            if lifecycle_source or applied_op.get("op") == "memory_event":
+                applied_op["_journal_op_ref"] = f"{journal_row_id}:{op_index}"
         every = cfg.session.checkpoint_every_turns
         if turn >= 0 and every > 0 and turn % every == 0:
             store.checkpoint(branch_id, turn, res.state)
@@ -9500,6 +10308,7 @@ def state_summary(state: dict) -> dict:
         "memories": state.get("memories", [])[-20:],
         "rolls": state.get("rolls", []),
         "player": state.get("player", {}),
+        "chat_core": state.get("chat_core", {}),
         "items": state.get("items", {}),
         "gear": state.get("gear", {}),
         "inventory": state.get("inventory", {}),

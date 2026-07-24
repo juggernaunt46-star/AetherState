@@ -82,6 +82,55 @@ to `AssistGroupsConfig`.
 
 ---
 
+## `experience.py` — per-session Chat / RPG experience
+
+**Responsibility.** Resolve and bind one product experience per session while keeping it separate
+from relay `enriched|passthrough` mode. Explicit Player choice wins; legacy Narrator cards, ordinary
+Character cards, stored speaker identity, and Player-card state are bounded migration evidence.
+
+**Public API.** `ExperienceBinding`, `ExperienceModeLocked`,
+`normalize_experience_mode(value)`, `config_for_experience(cfg, mode)`, and
+`infer_legacy_experience(row, state, stamp, fallback="chat")`.
+
+**Edit points.** Experience admission, lock timing, or legacy inference changes belong here and in
+the Store/SessionEngine boundary. Never infer the exact Persona or Character identity from prose,
+display names, greetings, or transcript similarity.
+
+---
+
+## `chat_card.py` — portable Chat Character cards
+
+**Responsibility.** Validate immutable Character Core fields, preserve exact Persona-key identity,
+fingerprint the Core and optional World, inspect bounded ordinary JSON/PNG V2 cards, and build a
+portable AetherState Chat Character card without RPG seed material or private Creator direction.
+
+**Public API.** `ordinary_core`, `validate_core`, `core_fingerprint`, `validate_persona_key`,
+`world_fingerprint`, `chat_envelope_fingerprint`, `build_card`, and
+`inspect_card_json_or_png`.
+
+**Edit points.** Card schema, field caps, portable metadata, or import compatibility changes belong
+here. Keep fingerprints domain-separated and reject malformed or stale embedded metadata as one
+unit instead of partially trusting it.
+
+---
+
+## `chat_continuity.py` — Living Character relationship continuity
+
+**Responsibility.** Validate and bake typed relationship agreements, social occurrences,
+supersessions, referent bindings, open-thread transitions, and portable starting continuity. It
+projects only actor-relative, Player-safe Chat continuity and seals supported proposals at the
+accepted-message journal boundary.
+
+**Public API.** The `validate_*`, `bake_*`, and `project_*` record helpers;
+`validate_starting_continuity`, `starting_continuity_op`, `project_continuity`,
+`scope_chat_memory_ops`, and `seal_accepted_chat_proposals`.
+
+**Edit points.** Add a relationship or continuity family only with closed validation, exact
+fingerprints, journal/replay support, swipe/fork/supersession behavior, and actor-relative privacy
+tests. Recognition may propose; only code-owned admission can make a durable record.
+
+---
+
 ## `proxy.py` — transparent byte-relay (hot path)
 
 **Responsibility.** Be a correct OpenAI proxy first, an enrichment host second. This module

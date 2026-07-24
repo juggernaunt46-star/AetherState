@@ -1,5 +1,13 @@
 # AetherState — Maintainer's Map (v1.0.0)
 
+## Chat mode runtime ownership
+
+| Module | Exact ownership boundary |
+|---|---|
+| `experience.py` | Resolves and normalizes the per-session product experience (`chat` or `rpg`), including card/default inference, explicit choice, lock semantics, and request-local effective profiles. It does not own the relay's independent `enriched`/`passthrough` mode. |
+| `chat_card.py` | Derives an ordinary Character Core, validates an optional coded envelope atomically, and fingerprints portable Chat Core and optional World sources. It does not admit a session, infer a Persona, or write continuity. |
+| `chat_continuity.py` | Validates and bakes Chat starting-continuity and accepted-response records, preserving exact actor/branch/lifecycle provenance and projecting only player-safe continuity. It does not infer missing actors, consent, facts, or relationship consequences. |
+
 > **Purpose of this docs set.** A complete, code-accurate map of AetherState so that future
 > work — repairs, updates, additions — can be scoped and executed (by a human or a skill)
 > without re-reading the whole tree. Every claim here is grounded in the shipped source under

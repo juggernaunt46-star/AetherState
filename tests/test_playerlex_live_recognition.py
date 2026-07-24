@@ -393,8 +393,8 @@ def test_pipeline_never_calls_playerlex_for_replay_or_non_player_turns(
     reserved_kinds: list[str] = []
     original_reserve = pipe._reserve_lost_turn
 
-    def observed_reserve(resolution, document, state):
-        reserved = original_reserve(resolution, document, state)
+    def observed_reserve(resolution, document, state, request_cfg):
+        reserved = original_reserve(resolution, document, state, request_cfg)
         if reserved is not None:
             reserved_kinds.append(reserved["kind"])
         return reserved

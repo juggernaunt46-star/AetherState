@@ -15,16 +15,25 @@ def _apply_runtime_overrides(
     assist_endpoint_urls: Iterable[str] = (),
 ) -> None:
     """Apply process-local launcher overrides without rewriting the user's config file."""
+    from .config import record_runtime_config_overrides
+
+    server_changed: dict[str, object] = {}
     if host:
         cfg.server.host = host
+        server_changed["host"] = host
     if port is not None:
         cfg.server.port = port
+        server_changed["port"] = port
 
     origins = [str(origin).strip() for origin in cors_origins if str(origin).strip()]
     if origins:
         cfg.server.cors_origins = list(dict.fromkeys(origins))
+        server_changed["cors_origins"] = cfg.server.cors_origins
+    if server_changed:
+        record_runtime_config_overrides(cfg, "server", server_changed)
 
     endpoints = {str(endpoint.name): endpoint for endpoint in cfg.assist.endpoints}
+    endpoints_changed = False
     for raw in assist_endpoint_urls:
         name, separator, url = str(raw).partition("=")
         name = name.strip()
@@ -35,6 +44,9 @@ def _apply_runtime_overrides(
         if endpoint is None:
             raise ValueError(f"configured assist endpoint not found: {name}")
         endpoint.base_url = url
+        endpoints_changed = True
+    if endpoints_changed:
+        record_runtime_config_overrides(cfg, "assist", {"endpoints": cfg.assist.endpoints})
 
 
 def _configure_turn_trace_file(

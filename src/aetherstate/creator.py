@@ -1658,6 +1658,32 @@ _WORLD_SYSTEM = (
     "higher/lower, inner/outer) and one calendar, and make every location description and "
     "every date agree with them — a reader must be able to do the math.")
 
+_CHAT_WORLD_FIELDS = (
+    "name", "genre", "setting", "date", "time", "tone",
+    "factions", "locations", "npcs", "aspects", "extras",
+)
+_CHAT_WORLD_SYSTEM = (
+    "You author optional World grounding for a non-RPG character Chat. Return one complete "
+    "minified JSON object containing generic identity and lore only, with exactly this schema: "
+    "{\"name\":str,\"genre\":str,\"setting\":str,\"date\":str,\"time\":str,\"tone\":str,"
+    "\"factions\":[str],\"locations\":[str],\"npcs\":[{\"name\":str,\"role\":str,"
+    "\"desc\":str,\"home\":str}],\"aspects\":[str],"
+    "\"extras\":[{\"label\":str,\"text\":str}]}. Preserve every filled player field verbatim "
+    "and fill useful blanks. This is not an RPG campaign: do not return a World id, opening "
+    "quest, fronts, loot, combat, travel routes, Player Card, stats, mechanics, or directives. "
+    "Creative direction controls the generated lore but is never itself lore."
+)
+_CHAT_CHARACTER_SYSTEM = (
+    "You author the immutable Character Core for a non-RPG character Chat. Return one complete "
+    "minified JSON object and nothing else. The exact Character Core schema is "
+    "{\"schema\":\"aetherstate-character-core/1\",\"revision\":1,\"name\":str,"
+    "\"description\":str,\"personality\":str,\"scenario\":str,\"first_message\":str,"
+    "\"example_dialogue\":str,\"anchors\":[str],\"boundaries\":[str]}. Preserve every "
+    "filled player field verbatim and fill useful blanks. Do not return a Player Card, World, "
+    "stats, skills, abilities, resources, gear, rolls, combat, progression, Narrator or DM "
+    "instructions. Creative direction controls the proposal but never enters the portable Core."
+)
+
 _CHAR_SYSTEM_TMPL = (
     "You are a character-creation assistant for a tabletop RPG set in the world described. The "
     "player gives a few seed details; you fill in what they left blank into a complete character "
@@ -1863,6 +1889,53 @@ def _world_user(seed: dict, world_ctx: str = "") -> str:
         )
     if len(lines) == 1:
         lines.append("- (the player left everything blank — invent a compelling world)")
+    return "\n".join(lines)
+
+
+def _chat_world_user(seed: dict) -> str:
+    clean = {
+        key: deepcopy(seed.get(key))
+        for key in _CHAT_WORLD_FIELDS
+        if seed.get(key) not in (None, "", [], {})
+    }
+    lines = [
+        "Player's optional Chat World draft (filled values are canon; fill only blanks):",
+        json.dumps(clean, ensure_ascii=False, separators=(",", ":")),
+    ]
+    if _s(seed.get("notes")):
+        lines.extend([
+            "",
+            "CREATIVE DIRECTION - CONTROLLING INSTRUCTIONS (do not return as lore):",
+            _s(seed.get("notes"), _CREATOR_DIRECTION_MAX),
+        ])
+    return "\n".join(lines)
+
+
+def _chat_character_user(seed: dict) -> str:
+    from .chat_card import CORE_SCHEMA
+
+    clean = {
+        "schema": CORE_SCHEMA,
+        "revision": 1,
+        **{
+            key: deepcopy(seed.get(key))
+            for key in (
+                "name", "description", "personality", "scenario", "first_message",
+                "example_dialogue", "anchors", "boundaries",
+            )
+            if seed.get(key) not in (None, "", [], {})
+        },
+    }
+    lines = [
+        "Player's Chat Character Core draft (filled values are canon; fill only blanks):",
+        json.dumps(clean, ensure_ascii=False, separators=(",", ":")),
+    ]
+    if _s(seed.get("notes")):
+        lines.extend([
+            "",
+            "CREATIVE DIRECTION - CONTROLLING INSTRUCTIONS (do not return in the Core):",
+            _s(seed.get("notes"), _CREATOR_DIRECTION_MAX),
+        ])
     return "\n".join(lines)
 
 
@@ -3132,13 +3205,118 @@ def _keep_seed_routes(seed_routes, model_routes, cap: int = 24) -> list:
     return out
 
 
-async def author_world(get_client, cfg, ep, seed: dict) -> dict:
+def _chat_world_validation_issues(doc: dict) -> list[str]:
+    issues: list[str] = []
+    if not isinstance(doc, dict):
+        return ["Chat World proposal must be an object"]
+    if set(doc) != set(_CHAT_WORLD_FIELDS):
+        issues.append("Chat World proposal must contain only the generic identity and lore fields")
+    scalar_limits = {
+        "name": 80,
+        "genre": 160,
+        "setting": _CREATOR_LONG_PROSE_MAX,
+        "date": 160,
+        "time": 160,
+        "tone": 160,
+    }
+    for key, limit in scalar_limits.items():
+        value = doc.get(key)
+        if not isinstance(value, str) or not value.strip():
+            issues.append(f"missing {key}")
+        elif len(value.strip()) > limit:
+            issues.append(f"{key} exceeds its {limit}-character limit")
+    for key in ("factions", "locations", "aspects"):
+        rows = doc.get(key)
+        if not isinstance(rows, list) or len(rows) > _MAX_LIST:
+            issues.append(f"{key} must be a bounded list")
+        elif any(not isinstance(row, str) or not row.strip() for row in rows):
+            issues.append(f"{key} contains an incomplete row")
+    npcs = doc.get("npcs")
+    if not isinstance(npcs, list) or len(npcs) > _MAX_LIST:
+        issues.append("npcs must be a bounded list")
+    elif any(
+        not isinstance(row, dict)
+        or set(row) != {"name", "role", "desc", "home"}
+        or any(not isinstance(row.get(key), str) for key in ("name", "role", "desc", "home"))
+        or not str(row.get("name") or "").strip()
+        for row in npcs
+    ):
+        issues.append("npcs contains an incomplete row")
+    issues.extend(_creator_extras_issues(doc.get("extras"), owner="Chat World"))
+    return issues
+
+
+def _chat_world_document(doc: dict, seed: dict) -> dict:
+    merged = {
+        "name": _s_soft(doc.get("name"), 80),
+        "genre": _s_soft(doc.get("genre"), 160),
+        "setting": _s_soft(doc.get("setting"), _CREATOR_LONG_PROSE_MAX),
+        "date": _s_soft(doc.get("date"), 160),
+        "time": _s_soft(doc.get("time"), 160),
+        "tone": _s_soft(doc.get("tone"), 160),
+        "factions": [
+            _s_soft(row, _CREATOR_ROW_PROSE_MAX) for row in _lst(doc.get("factions"))
+            if _s_soft(row, _CREATOR_ROW_PROSE_MAX)
+        ][:_MAX_LIST],
+        "locations": [
+            _s_soft(row, _CREATOR_ROW_PROSE_MAX) for row in _lst(doc.get("locations"))
+            if _s_soft(row, _CREATOR_ROW_PROSE_MAX)
+        ][:_MAX_LIST],
+        "npcs": _norm_npcs(doc.get("npcs"))[:_MAX_LIST],
+        "aspects": [
+            _s_soft(row, _CREATOR_ROW_PROSE_MAX) for row in _lst(doc.get("aspects"))
+            if _s_soft(row, _CREATOR_ROW_PROSE_MAX)
+        ][:_MAX_LIST],
+        "extras": _norm_extras(doc.get("extras"))[:_MAX_LIST],
+    }
+    for key in ("name", "genre", "setting", "date", "time", "tone"):
+        if _s(seed.get(key)):
+            merged[key] = _s_soft(seed[key], {
+                "name": 80,
+                "setting": _CREATOR_LONG_PROSE_MAX,
+            }.get(key, 160))
+    for key in ("factions", "locations", "npcs", "aspects", "extras"):
+        if _lst(seed.get(key)):
+            merged[key] = deepcopy(seed[key])[:_MAX_LIST]
+    return merged
+
+
+async def author_world(
+    get_client,
+    cfg,
+    ep,
+    seed: dict,
+    *,
+    experience_mode: str = "rpg",
+) -> dict:
     """LLM-author the blanks of a world seed, then deterministic-fill + clamp.
 
     Returns source='llm' with the doc, or source='error' with a human-readable detail —
     the Creator shows the error and leaves the form alone instead of silently swapping
     in templates (the caller can still request the deterministic fill explicitly)."""
     seed = seed if isinstance(seed, dict) else {}
+    if str(experience_mode or "").strip().lower() == "chat":
+        try:
+            parsed, issue = await _complete_creator_object(
+                get_client,
+                cfg,
+                ep,
+                system=_CHAT_WORLD_SYSTEM,
+                user=_chat_world_user(seed),
+                validator=_chat_world_validation_issues,
+            )
+            if parsed is None:
+                return {
+                    "source": "error",
+                    "detail": _creator_failure_detail("Chat World", issue),
+                }
+            return {"source": "llm", "doc": _chat_world_document(parsed, seed)}
+        except Exception as exc:
+            log.warning("Chat World Creator failed safely: %s", type(exc).__name__)
+            return {
+                "source": "error",
+                "detail": "Chat World authoring failed safely; nothing was loaded. Try again.",
+            }
     try:
         parsed, issue = await _complete_creator_object(
             get_client,
@@ -3179,6 +3357,65 @@ async def author_world(get_client, cfg, ep, seed: dict) -> dict:
         log.warning("World Creator failed safely: %s", type(exc).__name__)
         return {"source": "error",
                 "detail": "World authoring failed safely; nothing was loaded. Try again."}
+
+
+async def author_chat_character(get_client, cfg, ep, seed: dict) -> dict:
+    """Author one complete non-RPG Character Core through the configured main model."""
+    from .chat_card import (
+        CORE_SCHEMA,
+        _CORE_LIST_CAPS,
+        _CORE_STRING_CAPS,
+        validate_core,
+    )
+
+    seed = seed if isinstance(seed, dict) else {}
+
+    def issues(doc: dict) -> list[str]:
+        allowed = {
+            "schema", "revision", *_CORE_STRING_CAPS.keys(), *_CORE_LIST_CAPS.keys(),
+        }
+        if not isinstance(doc, dict):
+            return ["Character Core proposal must be an object"]
+        if set(doc) - allowed:
+            return ["Character Core proposal contains fields outside the requested schema"]
+        try:
+            validate_core(doc)
+        except ValueError as exc:
+            return [str(exc)]
+        return []
+
+    try:
+        parsed, issue = await _complete_creator_object(
+            get_client,
+            cfg,
+            ep,
+            system=_CHAT_CHARACTER_SYSTEM,
+            user=_chat_character_user(seed),
+            validator=issues,
+        )
+        if parsed is None:
+            return {
+                "source": "error",
+                "detail": _creator_failure_detail("Chat Character Core", issue),
+            }
+        merged = dict(parsed)
+        merged["schema"] = CORE_SCHEMA
+        merged["revision"] = 1
+        for key in _CORE_STRING_CAPS:
+            if _s(seed.get(key)):
+                merged[key] = seed[key]
+        for key in _CORE_LIST_CAPS:
+            if _lst(seed.get(key)):
+                merged[key] = deepcopy(seed[key])
+        return {"source": "llm", "doc": validate_core(merged)}
+    except (TypeError, ValueError) as exc:
+        return {"source": "error", "detail": str(exc)}
+    except Exception as exc:
+        log.warning("Chat Character Creator failed safely: %s", type(exc).__name__)
+        return {
+            "source": "error",
+            "detail": "Chat Character authoring failed safely; nothing was loaded. Try again.",
+        }
 
 
 async def author_player(get_client, cfg, ep, seed: dict, world: Optional[dict] = None) -> dict:

@@ -26,7 +26,7 @@ def test_creator_has_persistent_guided_and_expert_views_without_replacing_action
         'onclick="authorPlayer()"',
         'onclick="genNarratorCard()"',
         'onclick="saveWorld()"',
-        'onclick="savePlayer()"',
+        'onclick="savePlayer(\'rpg\')"',
         'onclick="loadCommitted(\'world\')"',
         'onclick="loadCommitted(\'player\')"',
     ):

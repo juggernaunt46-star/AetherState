@@ -133,15 +133,14 @@ nli_threshold = 0.85  # L10: minimum contradiction confidence (0.0-1.0) before a
 #                              # lost turn rolls again (pre-1.15 behavior)
 
 # ------------------------------------------------------------------
-# NARRATIVE MODE (Q27 / RPG specialization). Leave as "none" for normal chat-RP — that is
-# byte-identical to not having this section at all. Set "rpg" to turn the character card
-# into a Dungeon Master: it runs the world, NPCs and factions, YOUR character becomes a
-# tracked Player Card ([PLAYER]/[QUEST] blocks appear), and the guard reframes to a
-# Game-Master framing. Switch live with  /aether-spec rpg  (or the Console). When "rpg" a
-# built-in profile fills defaults for other sections (e.g. injection priorities); anything
-# you set below still wins.
+# ADVANCED EXPERIENCE FALLBACK (Q27 / RPG specialization profile). New SillyTavern chats normally
+# choose Chat or RPG per session in the panel, or with /aether-experience chat|rpg, before the first
+# accepted reply locks that choice. This global "none" fallback maps to Chat; "rpg" maps to RPG when
+# no explicit session/card evidence exists. /aether-spec changes only that advanced global fallback,
+# not an attached session. Under RPG, the built-in profile fills defaults for other sections
+# (e.g. injection priorities); anything you set below still wins.
 [specialization]
-name = "none"         # none | rpg
+name = "none"         # none (Chat fallback) | rpg (RPG fallback)
 # narration_pre_display_guard = true  # RPG only: privately checks mechanically authoritative
 #                                      # replies before display; pure RP still streams normally
 # blocks = ["PLAYER", "EFFECTS", "GEAR", "INVENTORY", "FACTIONS", "RELATIONS", "QUEST", "WORLD", "DIRECTIVE"]

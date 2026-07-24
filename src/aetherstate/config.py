@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import os
 import shutil
+from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 
 try:
     import tomllib  # py311+
@@ -442,6 +443,9 @@ class Config(BaseModel):
     source: str = "defaults"         # which config actually loaded: file | last_known_good | defaults
     source_path: str = ""            # absolute path the config loaded from (where Console saves write back)
     persistence_enabled: bool = True  # runtime-only fuse; isolated read-only launches disable saves
+    _explicit_override_paths: set[tuple[str, ...]] = PrivateAttr(default_factory=set)
+    _experience_profile_base: "Config | None" = PrivateAttr(default=None)
+    _experience_runtime_snapshot: dict[str, Any] | None = PrivateAttr(default=None)
 
     @model_validator(mode="after")
     def _sync_extraction_group(self) -> "Config":
@@ -473,6 +477,167 @@ def _merge(base: dict, extra: dict) -> dict:
         else:
             base[k] = v
     return base
+
+
+def _explicit_paths(value: object, prefix: tuple[str, ...] = ()) -> set[tuple[str, ...]]:
+    """Record provenance only. Values, especially credentials, never enter this structure."""
+    if not isinstance(value, dict):
+        return {prefix} if prefix else set()
+    paths: set[tuple[str, ...]] = set()
+    for key, child in value.items():
+        child_prefix = (*prefix, str(key))
+        if isinstance(child, dict):
+            paths.update(_explicit_paths(child, child_prefix))
+        else:
+            paths.add(child_prefix)
+    return paths
+
+
+def _path_value(cfg: Config, path: tuple[str, ...]):
+    value: object = cfg
+    for part in path:
+        value = getattr(value, part)
+    return deepcopy(value)
+
+
+def _set_path_value(cfg: Config, path: tuple[str, ...], value: object) -> None:
+    if not path:
+        return
+    parent: object = cfg
+    for part in path[:-1]:
+        parent = getattr(parent, part)
+    setattr(parent, path[-1], deepcopy(value))
+
+
+def _set_dict_path(target: dict, path: tuple[str, ...], value: object) -> None:
+    parent = target
+    for part in path[:-1]:
+        child = parent.get(part)
+        if not isinstance(child, dict):
+            child = {}
+            parent[part] = child
+        parent = child
+    if path:
+        parent[path[-1]] = deepcopy(value)
+
+
+def _clear_plaintext_credentials(cfg: Config) -> None:
+    cfg.upstream.api_key = ""
+    for endpoint in cfg.assist.endpoints:
+        endpoint.api_key = ""
+
+
+def _sanitized_config_dump(cfg: Config) -> dict[str, Any]:
+    value = cfg.model_dump()
+    value["upstream"]["api_key"] = ""
+    for endpoint in value["assist"]["endpoints"]:
+        endpoint["api_key"] = ""
+    return value
+
+
+def _changed_paths(
+    before: object, after: object, prefix: tuple[str, ...] = ()
+) -> set[tuple[str, ...]]:
+    if isinstance(before, dict) and isinstance(after, dict):
+        paths: set[tuple[str, ...]] = set()
+        for key in before.keys() | after.keys():
+            paths.update(_changed_paths(
+                before.get(key), after.get(key), (*prefix, str(key))
+            ))
+        return paths
+    return {prefix} if prefix and before != after else set()
+
+
+def finalize_experience_profile_base(cfg: Config) -> None:
+    """Freeze a secret-free explicit-override base after migration and CLI processing."""
+    paths = set(cfg._explicit_override_paths)
+    snapshot = _sanitized_config_dump(cfg)
+    if not paths:
+        paths = _changed_paths(_sanitized_config_dump(Config()), snapshot)
+    if ("upstream", "api_key") in paths:
+        paths.remove(("upstream", "api_key"))
+        if cfg.upstream.credential_ref:
+            paths.add(("upstream", "credential_ref"))
+    base = Config()
+    for path in sorted(paths):
+        try:
+            _set_path_value(base, path, _path_value(cfg, path))
+        except (AttributeError, TypeError, ValueError):
+            continue
+    _clear_plaintext_credentials(base)
+    base.source = cfg.source
+    base.source_path = cfg.source_path
+    base.persistence_enabled = cfg.persistence_enabled
+    base._explicit_override_paths = paths
+    cfg._explicit_override_paths = paths
+    cfg._experience_profile_base = base
+    cfg._experience_runtime_snapshot = snapshot
+    if base.upstream.api_key or any(endpoint.api_key for endpoint in base.assist.endpoints):
+        raise AssertionError("experience profile base cannot retain plaintext credentials")
+
+
+def record_runtime_config_overrides(
+    cfg: Config, section: str, values: dict[str, object]
+) -> None:
+    """Keep only fields the player changed in the request-local profile provenance."""
+    clean_section = str(section).strip()
+    if not clean_section or not isinstance(values, dict):
+        return
+    for field, value in values.items():
+        path = (clean_section, str(field))
+        if path == ("upstream", "api_key"):
+            continue
+        cfg._explicit_override_paths.add(path)
+        if cfg._experience_profile_base is not None:
+            try:
+                _set_path_value(cfg._experience_profile_base, path, value)
+            except (AttributeError, TypeError, ValueError):
+                continue
+    if cfg._experience_profile_base is not None:
+        _clear_plaintext_credentials(cfg._experience_profile_base)
+
+
+def build_effective_config(
+    cfg: Config, internal_specialization: Literal["none", "rpg"]
+) -> Config:
+    if internal_specialization not in ("none", "rpg"):
+        raise ValueError("internal specialization must be none|rpg")
+    if cfg._experience_profile_base is None:
+        base = cfg.model_copy(deep=True)
+        _clear_plaintext_credentials(base)
+        paths = _changed_paths(
+            _sanitized_config_dump(Config()), _sanitized_config_dump(base)
+        )
+    else:
+        base = cfg._experience_profile_base.model_copy(deep=True)
+        paths = set(cfg._explicit_override_paths)
+    explicit: dict[str, object] = {}
+    for path in sorted(paths):
+        if path == ("specialization", "name"):
+            continue
+        try:
+            _set_dict_path(explicit, path, _path_value(base, path))
+        except (AttributeError, TypeError, ValueError):
+            continue
+    if cfg._experience_runtime_snapshot is not None:
+        current = _sanitized_config_dump(cfg)
+        for path in sorted(_changed_paths(cfg._experience_runtime_snapshot, current)):
+            if path in {("specialization", "name"), ("upstream", "api_key")}:
+                continue
+            try:
+                _set_dict_path(explicit, path, _path_value(cfg, path))
+            except (AttributeError, TypeError, ValueError):
+                continue
+    explicit.setdefault("specialization", {})["name"] = internal_specialization
+    effective = Config.model_validate(_apply_specialization(explicit))
+    _clear_plaintext_credentials(effective)
+    effective.source = cfg.source
+    effective.source_path = cfg.source_path
+    effective.persistence_enabled = cfg.persistence_enabled
+    effective._explicit_override_paths = set(cfg._explicit_override_paths)
+    effective._experience_profile_base = base
+    effective._experience_runtime_snapshot = deepcopy(cfg._experience_runtime_snapshot)
+    return effective
 
 
 def _apply_specialization(user: dict) -> dict:
@@ -507,8 +672,11 @@ def load_config(path: str | Path | None, *, read_only: bool = False) -> Config:
                 continue
             try:
                 raw = tomllib.loads(candidate.read_text(encoding="utf-8"))
+                env = _env_overrides()
+                explicit_paths = _explicit_paths(raw) | _explicit_paths(env)
                 cfg = Config.model_validate(
-                    _apply_specialization(_merge(dict(raw), _env_overrides())))
+                    _apply_specialization(_merge(dict(raw), env)))
+                cfg._explicit_override_paths = explicit_paths
                 cfg.source = label
                 cfg.persistence_enabled = not read_only
                 cfg.source_path = "" if read_only else str(p)
@@ -522,12 +690,15 @@ def load_config(path: str | Path | None, *, read_only: bool = False) -> Config:
                 return cfg
             except Exception:
                 continue
-    data = _apply_specialization(_merge(data, _env_overrides()))
+    env = _env_overrides()
+    explicit_paths = _explicit_paths(env)
+    data = _apply_specialization(_merge(data, env))
     try:
         cfg = Config.model_validate(data)
     except Exception:
         cfg = Config()
     cfg.source = source
+    cfg._explicit_override_paths = explicit_paths
     cfg.persistence_enabled = not read_only
     if path and not read_only:
         cfg.source_path = str(Path(path))

@@ -218,7 +218,7 @@ def _ready(system: FakeSystem, paths: StackPaths) -> None:
             200,
             {
                 "name": "aetherstate",
-                "version": "1.23.0",
+                "version": "1.24.0",
                 "data_dir": str(paths.aetherstate_data_dir),
                 "upstream_configured": True,
             },

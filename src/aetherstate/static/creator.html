@@ -129,6 +129,18 @@ html[data-view="guided"] .guided-only{display:block}
 html[data-view="guided"] span.guided-only{display:inline}
 html[data-view="guided"] .help-dot.guided-only{display:inline-grid}
 html[data-view="guided"] .expert-only{display:none!important}
+.chat-only{display:none}
+html[data-card-draft="chat"] .chat-only{display:block}
+html[data-card-draft="chat"] #char>.card:not(.chat-only),
+html[data-card-draft="chat"] #char>.actions:not(.chat-only),
+html[data-card-draft="chat"] #char>.author-status:not(.chat-only),
+html[data-card-draft="chat"] #char>.hint:not(.chat-only),
+html[data-card-draft="chat"] #tab_enemy,
+html[data-card-draft="chat"] .rpg-draft-only,
+html[data-card-draft="chat"] #specBanner{display:none!important}
+.mode-control{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--dim)}
+.mode-control select{width:auto;min-width:116px;padding:4px 8px}
+.mode-help{max-width:220px;font-size:10.5px;color:var(--dim)}
 .help-dot{position:relative;display:inline-grid;place-items:center;width:17px;height:17px;margin-left:5px;padding:0;border:1px solid #58627e;border-radius:50%;background:#252b3b;color:#b9c8ee;font:700 11px/1 system-ui;cursor:help;vertical-align:middle}
 .help-dot:hover,.help-dot:focus-visible{border-color:var(--acc);color:#fff;outline:none}
 .help-dot:hover::after,.help-dot:focus-visible::after{content:attr(data-tip);position:absolute;z-index:30;left:0;top:24px;width:min(330px,75vw);padding:9px 11px;border:1px solid #536184;border-radius:8px;background:#10131c;color:var(--fg);font:12px/1.45 system-ui;text-align:left;white-space:normal;box-shadow:0 8px 24px #000a}
@@ -138,6 +150,12 @@ html[data-view="guided"] .expert-only{display:none!important}
 <body>
 <header>
   <h1>Aether<span>State</span> · Creator</h1>
+  <label class="mode-control" for="cardDraftMode">Card draft
+    <select id="cardDraftMode" class="chip" onchange="setCardDraftMode(this.value)">
+      <option value="rpg" selected>RPG Narrator</option>
+      <option value="chat">Chat Character</option>
+    </select>
+  </label>
   <nav>
     <button id="tab_world" class="on" onclick="showTab('world')">🌍 World</button>
     <button id="tab_char" onclick="showTab('char')">🧑 Character</button>
@@ -154,6 +172,12 @@ html[data-view="guided"] .expert-only{display:none!important}
   <select id="modelSel" class="chip expert-only" title="Main story model used for every AI auto-fill"><option value="">main model: auto</option></select>
   <span id="specChip" class="chip expert-only">spec: …</span>
   <select id="sessSel" class="chip" title="Optional apply-to-session target. You do NOT need this to make a Narrator card — the card carries its own world+character seed."><option value="">session: …</option></select>
+  <label id="sessionExperienceWrap" class="mode-control" for="sessionExperienceMode" hidden>Current session
+    <select id="sessionExperienceMode" class="chip" onchange="setSessionExperience(this.value)" disabled>
+      <option value="chat">Chat</option><option value="rpg">RPG</option>
+    </select>
+    <span id="sessionExperienceHelp" class="mode-help"></span>
+  </label>
   <button id="sessRefresh" class="chip" title="Refresh the session list (keeps everything you've typed)" style="cursor:pointer;font-weight:700">↻</button>
 </header>
 <main>
@@ -210,7 +234,7 @@ html[data-view="guided"] .expert-only{display:none!important}
       <h2>World aspects & lore <small>magic / tech / cosmology — one per line · <span class="limit-counter" data-row-count-for="w_aspects"></span></small></h2>
       <div id="w_aspects" class="list"></div>
       <button class="mini" onclick="addLine('w_aspects')">+ aspect</button>
-      <div class="row c2" style="margin-top:14px">
+      <div class="row c2 rpg-draft-only" style="margin-top:14px">
         <div class="field"><label>Opening scene <span class="limit-counter" data-count-for="w_scene"></span></label><textarea id="w_scene" maxlength="8000" data-limit="8000" placeholder="Where does play begin?"></textarea></div>
         <div class="field"><label>Opening quest / hook <span class="limit-counter" data-count-for="w_quest"></span></label><textarea id="w_quest" maxlength="8000" data-limit="8000" placeholder="The first thing pulling the player forward."></textarea></div>
       </div>
@@ -223,7 +247,7 @@ html[data-view="guided"] .expert-only{display:none!important}
       <div class="hint">Each detail is a label (e.g. <i>Magic System</i>, <i>The Sundering</i>) and up to 8,000 characters of text. The engine surfaces it when relevant, so a big world stays token-cheap.</div>
     </div>
 
-    <div class="card">
+    <div class="card rpg-draft-only">
       <h2><span class="guided-only">How the world keeps moving</span><span class="expert-only">Living-world structures</span> <small>AI-generated rows stay visible and editable before save</small></h2>
       <div class="hint guided-only">Use these when you want threats to advance, rewards to fit enemy importance, or journeys to take a known amount of time. The defaults are safe for a first game.</div>
       <div class="hint expert-only">These rows become frozen world setup. Fronts are code-advanced clocks, loot tiers seed grounded drops, and routes set travel time.</div>
@@ -260,12 +284,12 @@ html[data-view="guided"] .expert-only{display:none!important}
 
     <div class="actions">
       <button class="act ai" id="w_ai" onclick="authorWorld()">✨ Auto-fill blanks with AI</button>
-      <button class="act ghost" id="w_template" onclick="fillOffline('world')" title="No AI — fill blanks from the built-in genre template">Fill blanks with templates</button>
+      <button class="act ghost rpg-draft-only" id="w_template" onclick="fillOffline('world')" title="No AI — fill blanks from the built-in genre template">Fill blanks with templates</button>
       <button class="act" onclick="showTab('char')">Next: Character →</button>
-      <button class="act ghost" id="w_save" onclick="saveWorld()" title="Optional: apply this world straight to the selected live session (usually not needed — the Narrator card carries the world itself)">Save to live session</button>
+      <button class="act ghost rpg-draft-only" id="w_save" onclick="saveWorld()" title="Optional: apply this world straight to the selected live session (usually not needed — the Narrator card carries the world itself)" disabled>Save to live session</button>
     </div>
     <div class="author-status"><span id="w_ai_status" role="status" aria-live="polite">AI fills blanks only. You can keep editing while it works; newer edits are protected.</span><span id="w_ai_elapsed" class="author-elapsed" aria-hidden="true"></span><button id="w_ai_retry" class="mini" type="button" onclick="authorWorld()" hidden>Try again with current draft</button></div>
-    <div class="card guide-card guided-only" style="margin-top:14px">
+    <div class="card guide-card guided-only rpg-draft-only" style="margin-top:14px">
       <h2>Choose how to continue</h2>
       <div class="guide-grid">
         <div class="guide-point"><b>Auto-fill blanks</b>Uses your selected story AI to complete only what you left open. Best when you have a direction but want help building.</div>
@@ -283,6 +307,58 @@ html[data-view="guided"] .expert-only{display:none!important}
 
   <!-- ===================== CHARACTER TAB ===================== -->
   <section id="char" class="tab">
+    <div class="card chat-only">
+      <h2>Immutable Character Core <small>portable identity; lived continuity stays separate</small></h2>
+      <div class="row c2">
+        <div class="field"><label>Name</label><input id="cc_name" maxlength="160" placeholder="The character you will talk to"></div>
+        <div class="field"><label>Personality</label><textarea id="cc_personality" maxlength="8000" data-limit="8000"></textarea></div>
+      </div>
+      <div class="field"><label>Description</label><textarea id="cc_description" maxlength="12000" data-limit="12000"></textarea></div>
+      <div class="field"><label>Scenario</label><textarea id="cc_scenario" maxlength="12000" data-limit="12000"></textarea></div>
+      <div class="row c2">
+        <div class="field"><label>First message</label><textarea id="cc_first_message" maxlength="8000" data-limit="8000"></textarea></div>
+        <div class="field"><label>Example dialogue</label><textarea id="cc_example_dialogue" maxlength="12000" data-limit="12000"></textarea></div>
+      </div>
+      <div class="row c2">
+        <div class="field"><label>Behavioral anchors <small>one per line</small></label><textarea id="cc_anchors" maxlength="12000"></textarea></div>
+        <div class="field"><label>Boundaries <small>one per line</small></label><textarea id="cc_boundaries" maxlength="12000"></textarea></div>
+      </div>
+      <div class="field"><label>Private Creator direction <small>sent to AI fill; never enters the card</small></label><textarea id="cc_notes" maxlength="32768" data-limit="32768"></textarea></div>
+    </div>
+    <div class="card chat-only">
+      <h2>Optional starting continuity <small>separate from immutable Core</small></h2>
+      <div class="row c2">
+        <div class="field"><label>Starting memories <small>one shared memory per line</small></label><textarea id="cc_memories"></textarea></div>
+        <div class="field"><label>Character knowledge <small>one private statement per line</small></label><textarea id="cc_knowledge"></textarea></div>
+      </div>
+      <div class="row c2">
+        <div class="field"><label>Visible possessions / non-RPG conditions <small>one per line; prefix possession:</small></label><textarea id="cc_possessions_conditions"></textarea></div>
+        <div class="field"><label>Open threads <small>one unfinished conversation per line</small></label><textarea id="cc_threads"></textarea></div>
+      </div>
+      <h2 style="margin-top:14px">Optional starting relationship</h2>
+      <div class="row c3">
+        <div class="field"><label>Current qualitative relationship</label><select id="cc_relationship_quality"><option value="">not authored</option><option value="gain">close / trusting</option><option value="repair">repairing</option><option value="strain">strained</option><option value="loss">distant</option><option value="forgiveness">forgiving</option></select></div>
+        <div class="field"><label>Arrangement label</label><select id="cc_arrangement"><option value="undefined">undefined</option><option value="exclusive">exclusive</option><option value="open">open</option><option value="polyamorous">polyamorous</option><option value="casual">casual</option><option value="affair">affair</option><option value="custom">custom</option></select></div>
+        <div class="field"><label>Outside romantic / sexual contact</label><select id="cc_outside_policy"><option value="unspecified">unspecified</option><option value="prohibited">prohibited</option><option value="allowed">allowed</option><option value="requires_disclosure">allowed with disclosure</option></select></div>
+      </div>
+      <div class="row c2">
+        <div class="field"><label>Authored relationship cause</label><textarea id="cc_relationship_cause"></textarea></div>
+        <div class="field"><label>Free-text agreement note</label><textarea id="cc_agreement_note"></textarea></div>
+      </div>
+      <div class="field"><label>Disclosure requirement</label><select id="cc_disclosure_requirement"><option value="none">none</option><option value="before_act">before outside contact</option><option value="after_act_allowed">after contact allowed</option><option value="unspecified">required; timing unspecified</option></select></div>
+      <div class="hint">Agreement parties are fixed to the Character and current Persona. Outside people remain runtime referents; Creator does not fabricate participants.</div>
+    </div>
+    <div class="card chat-only">
+      <h2>Build or enhance a Chat Character</h2>
+      <input id="chatCardImport" type="file" accept=".json,.png,application/json,image/png" onchange="importChatCard(this)">
+      <div class="actions" style="margin-top:12px">
+        <button class="act ai" id="cc_ai" onclick="authorChatCharacter()">✨ Auto-fill blank Core fields</button>
+        <button class="act" onclick="generateDraftCard()">Generate Chat Character card</button>
+        <button class="act ghost" id="cc_save" onclick="savePlayer('chat')" disabled>Save continuity to bound live Chat</button>
+      </div>
+      <div class="author-status"><span id="cc_ai_status" role="status" aria-live="polite">AI fills blank Core fields only.</span><span id="cc_ai_elapsed" class="author-elapsed"></span><button id="cc_ai_retry" class="mini" type="button" onclick="authorChatCharacter()" hidden>Try again</button></div>
+      <div id="cc_cardmsg" class="hint">The preview keeps immutable Core, optional starting continuity, and optional World visibly separate.</div>
+    </div>
     <div class="card guide-card guided-only">
       <h2>Create who you will play</h2>
       <p>Define the parts you care about. AetherState can build the remaining details so the character fits your world.</p>
@@ -384,7 +460,7 @@ html[data-view="guided"] .expert-only{display:none!important}
     </div>
     <div id="c_cardmsg" class="hint" style="margin-top:8px"></div>
     <div class="actions" style="margin-top:10px">
-      <button class="act ghost" id="c_save" onclick="savePlayer()" title="Optional: apply this character straight to the selected live session (usually you don't need this — the card seeds itself)">Save to live session</button>
+      <button class="act ghost" id="c_save" onclick="savePlayer('rpg')" title="Optional: apply this character straight to the selected live session (usually you don't need this — the card seeds itself)" disabled>Save to live session</button>
       <select id="c_presets" class="chip" style="max-width:240px"><option value="">character presets…</option></select>
       <button class="mini" onclick="loadPreset('player')">Load preset</button>
       <button class="mini" onclick="savePreset('player')">💾 Save as preset</button>
@@ -443,7 +519,7 @@ html[data-view="guided"] .expert-only{display:none!important}
         <button class="mini" onclick="renderReview()">↻ refresh</button>
       </div>
       <div class="actions" style="margin-top:10px;border-top:1px solid var(--edge);padding-top:12px">
-        <button class="act" onclick="genNarratorCard(true)" title="Build a SillyTavern Narrator card from THIS session's committed world + character. It carries them as a seed, so a fresh chat with it auto-loads everything.">🎭 Generate Narrator card for this session</button>
+        <button class="act" onclick="generateDraftCard(true)" title="Build the selected Chat Character or RPG Narrator card from the current Creator mode.">Generate card for this session</button>
       </div>
       <div id="rv_card" class="hint" style="margin-top:8px">Makes a SillyTavern card named after this world, opening on its first scene — and it carries the world + character as a seed, so a brand-new chat with the card is already set up. No re-applying.</div>
     </div>
@@ -455,6 +531,8 @@ html[data-view="guided"] .expert-only{display:none!important}
 const QS = new URLSearchParams(location.search);
 let SID = QS.get("session") || "";
 let REG = null, SPEC = "none", WORLD_CACHE = null, PLAYER_CACHE = null, WORLD_ID = "", PRESETS = [], ENEMY_PREVIEW = null;
+let CARD_DRAFT_MODE="rpg", SESSION_EXPERIENCE_MODE="";
+let SESSION_EXPERIENCE_LOCKED=false, CHAT_CORE_CACHE=null, CHAT_CONTINUITY_CACHE=null;
 let WORLD_FORM_EPOCH=0, PLAYER_FORM_EPOCH=0, CREATOR_SESSION_EPOCH=0, AUTHORING_ACTIVE="", AUTHORING_TIMER=null;
 const CREATOR_SESSION_REQUESTS=Object.create(null);
 
@@ -470,6 +548,45 @@ function setCreatorView(mode,announce=true){
   if(expert){expert.classList.toggle("on",CREATOR_VIEW==="expert");expert.setAttribute("aria-pressed",String(CREATOR_VIEW==="expert"));}
   try{localStorage.setItem(CREATOR_VIEW_KEY,CREATOR_VIEW)}catch(e){}
   if(announce)toast(CREATOR_VIEW==="guided"?"Guided View — plain explanations are on":"Expert View — every technical detail is visible","ok");
+}
+function setCardDraftMode(mode){
+  CARD_DRAFT_MODE=mode==="chat"?"chat":"rpg";
+  document.documentElement.dataset.cardDraft=CARD_DRAFT_MODE;
+  const select=$("cardDraftMode"); if(select)select.value=CARD_DRAFT_MODE;
+  if(CARD_DRAFT_MODE==="chat"&&$("enemy")?.classList.contains("on"))showTab("char");
+  renderSpec();
+  scheduleDraft();
+}
+function applySessionExperience(value){
+  const exact=value&&(value.mode==="chat"||value.mode==="rpg")?value.mode:"";
+  SESSION_EXPERIENCE_MODE=exact;
+  SESSION_EXPERIENCE_LOCKED=!exact||!!(value&&value.locked);
+  const wrap=$("sessionExperienceWrap"),select=$("sessionExperienceMode"),help=$("sessionExperienceHelp");
+  if(wrap)wrap.hidden=!SID;
+  if(select){select.value=exact;select.disabled=!SID||SESSION_EXPERIENCE_LOCKED;}
+  for(const [id,mode] of [["w_save","rpg"],["c_save","rpg"],["cc_save","chat"]]){
+    const button=$(id);if(button)button.disabled=!SID||exact!==mode;
+  }
+  if(help)help.textContent=!exact?"Live session mode unavailable; live changes are disabled.":
+    SESSION_EXPERIENCE_LOCKED?"Start a new chat to change modes.":"This changes only the attached live session.";
+}
+async function loadSessionExperience(){
+  if(!SID){applySessionExperience({mode:"",locked:true});return;}
+  applySessionExperience({mode:"",locked:true});
+  const context=creatorSessionSnapshot("experience");
+  try{const value=await api(`/aether/session/${context.sid}/experience-mode`);
+    if(creatorSessionIsCurrent(context))applySessionExperience(value);
+  }catch(e){if(creatorSessionIsCurrent(context))applySessionExperience({mode:"",locked:true});}
+}
+async function setSessionExperience(mode){
+  if(!SID||SESSION_EXPERIENCE_LOCKED||
+      (SESSION_EXPERIENCE_MODE!=="chat"&&SESSION_EXPERIENCE_MODE!=="rpg"))return;
+  const context=creatorSessionSnapshot("experience-set");
+  applySessionExperience({mode:"",locked:true});
+  try{const value=await api(`/aether/session/${context.sid}/experience-mode`,{
+      method:"POST",body:JSON.stringify({mode:mode==="chat"?"chat":"rpg"})});
+    if(creatorSessionIsCurrent(context)){applySessionExperience(value);toast("Current session mode updated","ok");}
+  }catch(e){if(creatorSessionIsCurrent(context)){await loadSessionExperience();toast("Could not change session mode: "+e.message,"bad");}}
 }
 const CREATOR_HELP=Object.freeze({
   w_name:"What it does: names the campaign and its generated card. Good practice: use a short, memorable title.",
@@ -567,7 +684,11 @@ function sessOptLabel(x, newest){
 // ---- draft autosave (2026-07-08): your work is kept in this browser so a page refresh, a
 // session-list refresh, or reopening the Creator never wipes what you typed.
 const DRAFT_KEY="aether_creator_draft_v1"; let _draftT=null;
-function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({world:worldDoc(), player:playerDoc(), enemy:enemyDoc(), ts:Date.now()}));
+function saveDraft(){ try{ localStorage.setItem(DRAFT_KEY, JSON.stringify({card_draft_mode:CARD_DRAFT_MODE,
+  world:CARD_DRAFT_MODE==="chat"?optionalWorldDoc():worldDoc(),
+  world_direction:CARD_DRAFT_MODE==="chat"?String($("w_notes")?.value||""):null,
+  player:CARD_DRAFT_MODE==="chat"?null:playerDoc(), chat:CARD_DRAFT_MODE==="chat"?chatCoreDoc():null,
+  enemy:CARD_DRAFT_MODE==="chat"?null:enemyDoc(), ts:Date.now()}));
   const c=$("draftChip"); if(c) c.style.display=""; }catch(e){} }
 function scheduleDraft(){ clearTimeout(_draftT); _draftT=setTimeout(saveDraft, 600); }
 function removeDraftRow(btn){ const row=btn&&btn.closest?btn.closest(".item"):null;
@@ -581,9 +702,13 @@ function clearCreatorDraft(){
   location.replace(target.toString());
 }
 function restoreDraft(){ try{ const raw=localStorage.getItem(DRAFT_KEY); if(!raw) return false; const d=JSON.parse(raw); if(!d) return false;
-  if(d.world) applyWorld(d.world); if(d.player) applyPlayer(normalizePresetPlayer(d.player)); if(d.enemy) applyEnemy(d.enemy);
+  setCardDraftMode(d.card_draft_mode==="chat"?"chat":"rpg");
+  if(d.world) applyWorld(d.world); if(d.player) applyPlayer(normalizePresetPlayer(d.player));
+  if(CARD_DRAFT_MODE==="chat"&&$("w_notes"))$("w_notes").value=String(d.world_direction||"");
+  if(d.chat)applyChatCore(d.chat.core,d.chat.continuity); if(d.enemy&&CARD_DRAFT_MODE==="rpg") applyEnemy(d.enemy);
   const c=$("draftChip"); if(c) c.style.display="";
-  return !!((d.world&&(d.world.name||d.world.setting))||(d.player&&d.player.name)||(d.enemy&&d.enemy.name)); }catch(e){ return false; } }
+  return !!((d.world&&(d.world.name||d.world.setting))||(d.player&&d.player.name)||
+    (d.chat&&d.chat.core&&d.chat.core.name)||(d.enemy&&d.enemy.name)); }catch(e){ return false; } }
 function wireDraftAutosave(){ document.addEventListener("input", scheduleDraft, true);
   document.addEventListener("change", scheduleDraft, true); }
 
@@ -595,6 +720,22 @@ function mintWorldId(){
 function ensureWorldId(){
   if(!/^world_[0-9a-f]{32}$/.test(WORLD_ID)) WORLD_ID=mintWorldId();
   return WORLD_ID;
+}
+function hasMeaningfulWorldDraft(){
+  const scalar=["w_name","w_setting","w_date","w_tone"].some(id=>String($(id)?.value||"").trim());
+  return scalar||readLines("w_factions").length>0||readLines("w_locations").length>0||
+    readNpcs().length>0||readLines("w_aspects").length>0||readExtras("w_extras").length>0;
+}
+function chatWorldAuthorDoc(){
+  return {name:$("w_name").value.trim(),genre:$("w_genre").value,
+    setting:$("w_setting").value.trim(),date:$("w_date").value.trim(),
+    time:$("w_time").value,tone:$("w_tone").value.trim(),
+    factions:readLines("w_factions"),locations:readLines("w_locations"),
+    npcs:readNpcs(),aspects:readLines("w_aspects"),extras:readExtras("w_extras")};
+}
+function optionalWorldDoc(){
+  if(!hasMeaningfulWorldDraft())return null;
+  return {world_id:ensureWorldId(),...chatWorldAuthorDoc()};
 }
 
 function showTab(name){
@@ -1205,6 +1346,74 @@ function playerDoc(){ const skills={}; for(const k in skillRanks){ if(skillRanks
   notes:$("c_notes").value.trim(),
   gear:readGear(),
   extras:readExtras("c_extras"), resources }); }
+function chatCoreDoc(){
+  const value=id=>String($(id)?.value||"").trim(),lines=id=>value(id).split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  const core={schema:"aetherstate-character-core/1",revision:1,name:value("cc_name"),
+    description:value("cc_description"),personality:value("cc_personality"),
+    scenario:value("cc_scenario"),first_message:value("cc_first_message"),
+    example_dialogue:value("cc_example_dialogue"),anchors:lines("cc_anchors"),
+    boundaries:lines("cc_boundaries")};
+  const continuity={schema:"aetherstate-chat-starting-continuity/1",
+    memories:lines("cc_memories").map((text,index)=>({memory_id:`memory.creator-${index+1}`,text,visibility:"shared"})),
+    player_visible_possessions_conditions:lines("cc_possessions_conditions").map((raw,index)=>{
+      const possession=/^possession\s*:/i.test(raw),summary=raw.replace(/^(possession|condition)\s*:\s*/i,"");
+      return {record_id:`observable.creator-${index+1}`,kind:possession?"possession":"condition",summary};}),
+    character_knowledge:lines("cc_knowledge").map((statement,index)=>({
+      knowledge_id:`knowledge.creator-${index+1}`,statement,visibility:"character_private"})),
+    relationship_causes:[],agreement_revisions:[],
+    open_threads:lines("cc_threads").map((summary,index)=>({
+      schema:"aetherstate-continuity-thread-transition/1",thread_id:`thread.creator-${index+1}`,
+      revision:1,action:"create",kind:"unfinished_conversation",summary,
+      participants:[{role:"character"},{role:"current_persona"}],status:"open"}))};
+  const quality=value("cc_relationship_quality"),reason=value("cc_relationship_cause");
+  if(quality&&reason)continuity.relationship_causes.push({cause_id:"cause.creator-relationship",
+    from:{role:"character"},to:{role:"current_persona"},dimension:"relationship",
+    quality,reason,cause_ref:{kind:"creator",fingerprint:"sha256:"+"0".repeat(64)}});
+  const arrangement=value("cc_arrangement")||"undefined",policy=value("cc_outside_policy")||"unspecified";
+  const disclosure=value("cc_disclosure_requirement")||"none",note=value("cc_agreement_note");
+  if(arrangement!=="undefined"||policy!=="unspecified"||disclosure!=="none"||note){
+    const requiresDisclosure=policy==="requires_disclosure"||disclosure!=="none";
+    continuity.agreement_revisions.push({schema:"aetherstate-relationship-agreement/1",
+      agreement_id:`agreement.${arrangement.replace(/[^a-z0-9]+/gi,"-").toLowerCase()}`,
+      revision:1,action:"create",parties:[{role:"character"},{role:"current_persona"}],
+      exclusivity:arrangement==="exclusive"||policy==="prohibited"?"exclusive":"open",
+      allowed_outside_acts:policy==="allowed"||policy==="requires_disclosure"?["romantic_contact","sexual_contact"]:[],
+      requires_disclosure:requiresDisclosure,
+      disclosure_deadline:requiresDisclosure?(disclosure==="none"?"unspecified":disclosure):null,
+      effective_turn:0,assent:[]});
+    if(note)continuity.memories.push({memory_id:"memory.agreement-note",
+      text:`Starting relationship agreement: ${note}`,visibility:"shared"});
+  }
+  const hasContinuity=Object.entries(continuity).some(([key,rows])=>key!=="schema"&&rows.length);
+  return {core,continuity:hasContinuity?continuity:null,notes:value("cc_notes")};
+}
+function applyChatCore(core,continuity){
+  if(!core)return; CHAT_CORE_CACHE=JSON.parse(JSON.stringify(core));
+  CHAT_CONTINUITY_CACHE=continuity?JSON.parse(JSON.stringify(continuity)):null;
+  const set=(id,value)=>{const el=$(id);if(el)el.value=value==null?"":String(value);};
+  set("cc_name",core.name);set("cc_description",core.description);set("cc_personality",core.personality);
+  set("cc_scenario",core.scenario);set("cc_first_message",core.first_message);
+  set("cc_example_dialogue",core.example_dialogue);set("cc_anchors",(core.anchors||[]).join("\n"));
+  set("cc_boundaries",(core.boundaries||[]).join("\n"));
+  const seed=continuity||{};
+  set("cc_memories",(seed.memories||[]).filter(row=>row.memory_id!=="memory.agreement-note").map(row=>row.text).join("\n"));
+  set("cc_knowledge",(seed.character_knowledge||[]).map(row=>row.statement).join("\n"));
+  set("cc_possessions_conditions",(seed.player_visible_possessions_conditions||[]).map(row=>
+    `${row.kind==="possession"?"possession":"condition"}: ${row.summary}`).join("\n"));
+  set("cc_threads",(seed.open_threads||[]).map(row=>row.summary).join("\n"));
+  const cause=(seed.relationship_causes||[])[0]||{};set("cc_relationship_quality",cause.quality||"");
+  set("cc_relationship_cause",cause.reason||"");
+  const agreement=(seed.agreement_revisions||[])[0]||{};
+  set("cc_arrangement",String(agreement.agreement_id||"").replace(/^agreement\./,"")||"undefined");
+  const allowed=(agreement.allowed_outside_acts||[]).length>0;
+  set("cc_outside_policy",agreement.requires_disclosure?"requires_disclosure":
+    (allowed?"allowed":agreement.exclusivity==="exclusive"?"prohibited":"unspecified"));
+  set("cc_disclosure_requirement",agreement.requires_disclosure?(agreement.disclosure_deadline||"unspecified"):"none");
+  const note=(seed.memories||[]).find(row=>row.memory_id==="memory.agreement-note");
+  set("cc_agreement_note",note?String(note.text||"").replace(/^Starting relationship agreement:\s*/,""):"");
+  if(typeof PLAYER_FORM_EPOCH!=="undefined")PLAYER_FORM_EPOCH+=1;
+  refreshLimitCounters(document);scheduleDraft();
+}
 
 // ---- apply a doc back into the form
 function applyWorld(w){ if(!w) return; WORLD_FORM_EPOCH+=1; const genreBefore=currentGenre(); WORLD_CACHE=w;
@@ -1266,51 +1475,65 @@ function mergeCreatorValue(base,proposal,current,path=""){
 function mergeAuthorResult(base,proposal,current){ const merged=mergeCreatorValue(base,proposal,current);
   return {doc:merged.value||{},preserved:[...new Set(merged.preserved)]}; }
 function setAuthorStatus(mode,message,kind="",retry=false){
-  const status=$(mode==="world"?"w_ai_status":"c_ai_status"),button=$(mode==="world"?"w_ai_retry":"c_ai_retry");
+  const prefix=mode==="world"?"w":mode==="chat_character"?"cc":"c";
+  const status=$(`${prefix}_ai_status`),button=$(`${prefix}_ai_retry`);
   if(status){ status.textContent=message; status.className=kind; status.setAttribute("role",kind==="bad"?"alert":"status");
     status.setAttribute("aria-live",kind==="bad"?"assertive":"polite"); }
   if(button) button.hidden=!retry;
 }
 function setAuthoringBusy(mode,busy){
-  for(const id of ["w_ai","c_ai","w_template","c_template"]){ const button=$(id); if(button) button.disabled=busy; }
+  for(const id of ["w_ai","c_ai","cc_ai","w_template","c_template"]){ const button=$(id); if(button) button.disabled=busy; }
   const activeSection=mode==="player"?"char":"world";
-  for(const section of ["world","char"]){ const panel=$(section); if(panel) panel.setAttribute("aria-busy",String(busy&&section===activeSection)); }
+  for(const section of ["world","char"]){ const panel=$(section); if(!panel)continue;
+    if(mode==="chat_character")panel.setAttribute("aria-busy",String(busy&&section==="char"));
+    else panel.setAttribute("aria-busy",String(busy&&section===activeSection)); }
 }
 function formatAuthorElapsed(ms){ const seconds=Math.max(0,Math.floor(ms/1000));
   return `${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,"0")}`; }
-function startAuthoringTimer(mode){ const started=Date.now(),elapsed=$(mode==="world"?"w_ai_elapsed":"c_ai_elapsed");
-  setAuthorStatus(mode,`Authoring ${mode==="world"?"World":"Character"}. You can keep editing; newer edits will be kept.`);
+function startAuthoringTimer(mode){ const started=Date.now();let elapsed=$(mode==="world"?"w_ai_elapsed":"c_ai_elapsed");
+  if(mode==="chat_character")elapsed=$("cc_ai_elapsed");
+  setAuthorStatus(mode,`Authoring ${mode==="world"?"World":mode==="chat_character"?"Chat Character Core":"Character"}. You can keep editing; newer edits will be kept.`);
   const update=()=>{ if(elapsed) elapsed.textContent=`(${formatAuthorElapsed(Date.now()-started)})`; };
   update(); AUTHORING_TIMER=setInterval(update,1000);
 }
 function stopAuthoringTimer(mode){ if(AUTHORING_TIMER){ clearInterval(AUTHORING_TIMER); AUTHORING_TIMER=null; }
-  const elapsed=$(mode==="world"?"w_ai_elapsed":"c_ai_elapsed"); if(elapsed) elapsed.textContent=""; }
+  const elapsed=$(mode==="world"?"w_ai_elapsed":mode==="chat_character"?"cc_ai_elapsed":"c_ai_elapsed"); if(elapsed) elapsed.textContent=""; }
 async function runCreatorAuthoring(mode){
   if(AUTHORING_ACTIVE){ const active=AUTHORING_ACTIVE==="world"?"World":"Character";
     setAuthorStatus(mode,`A ${active} fill is already running. Wait for it to finish; no second model call was sent.`,"bad");
     toast("Another AI fill is already running — no second model call was sent","bad"); return; }
+  const draftMode=typeof CARD_DRAFT_MODE==="string"?CARD_DRAFT_MODE:"rpg";
   let draft,worldDraft;
-  try{ draft=mode==="world"?worldDoc():playerDoc(); worldDraft=mode==="player"?worldDoc():null; }
+  try{
+    if(draftMode==="rpg"){draft=mode==="world"?worldDoc():playerDoc();worldDraft=mode==="player"?worldDoc():null;}
+    else if(mode==="world"){draft={...chatWorldAuthorDoc(),notes:String($("w_notes")?.value||"").trim()};worldDraft=null;}
+    else{const chat=chatCoreDoc();draft=Object.assign({},chat.core,{notes:chat.notes});worldDraft=optionalWorldDoc();}
+  }
   catch(e){ if(e.creatorField) showCreatorValidation(e,"Authoring blocked: "); else toast("Authoring blocked: "+e.message,"bad");
     setAuthorStatus(mode,`Authoring blocked. ${e.message||"Fix the highlighted field and try again."}`,"bad",true); return; }
   const context={worldEpoch:WORLD_FORM_EPOCH,playerEpoch:PLAYER_FORM_EPOCH,worldId:WORLD_ID,
-    genre:draft.genre,world:worldDraft,session:creatorSessionSnapshot()};
+    genre:draft.genre,world:worldDraft,draftMode,session:creatorSessionSnapshot()};
   AUTHORING_ACTIVE=mode; setAuthoringBusy(mode,true); startAuthoringTimer(mode);
   try{
-    const payload={mode,doc:draft,model:$("modelSel").value||undefined}; if(mode==="player") payload.world=worldDraft;
+    const payload={mode,doc:draft,experience_mode:draftMode,
+      model:$("modelSel").value||undefined}; if(mode==="player") payload.world=worldDraft;
     const r=await api(`/aether/session/${context.session.sid||"new"}/author`,{method:"POST",body:JSON.stringify(payload)});
     if(r.source!=="llm"){ const detail=r.detail||"unknown error";
       setAuthorStatus(mode,`AI fill failed. Your current draft is untouched. ${detail}`,"bad",true);
       toast("AI fill failed: "+detail+" — your form is untouched","bad"); return; }
-    const explicitReplacement=!creatorSessionIsCurrent(context.session)||(mode==="world"?
-      WORLD_FORM_EPOCH!==context.worldEpoch||WORLD_ID!==context.worldId||currentGenre()!==context.genre:
-      PLAYER_FORM_EPOCH!==context.playerEpoch||WORLD_FORM_EPOCH!==context.worldEpoch||!creatorValuesEqual(worldDoc(),context.world));
+    const explicitReplacement=!creatorSessionIsCurrent(context.session)||draftMode!==context.draftMode||(mode==="world"?
+      WORLD_FORM_EPOCH!==context.worldEpoch||(draftMode==="rpg"&&WORLD_ID!==context.worldId)||currentGenre()!==context.genre:
+      PLAYER_FORM_EPOCH!==context.playerEpoch||WORLD_FORM_EPOCH!==context.worldEpoch||
+      !creatorValuesEqual(draftMode==="chat"?optionalWorldDoc():worldDoc(),context.world));
     if(explicitReplacement){ setAuthorStatus(mode,"AI result skipped because a prefill, preset, or generation context changed. Your current draft is safe.","bad",true);
       toast("AI result skipped — the current draft changed context and was left untouched","bad"); return; }
-    const current=mode==="world"?worldDoc():canonicalPlayerDocument(playerDoc());
-    const proposed=Object.assign({},r.doc,{notes:draft.notes}),proposal=mode==="world"?proposed:canonicalPlayerDocument(proposed);
-    const merged=mergeAuthorResult(draft,proposal,current); if(mode==="world") applyWorld(merged.doc); else applyPlayer(merged.doc);
-    const kept=merged.preserved.length,subject=mode==="world"?"World":"Character";
+    const current=mode==="world"?(draftMode==="chat"?chatWorldAuthorDoc():worldDoc()):
+      (mode==="chat_character"?chatCoreDoc().core:canonicalPlayerDocument(playerDoc()));
+    const proposed=mode==="chat_character"?r.doc:Object.assign({},r.doc,{notes:draft.notes});
+    const proposal=mode==="player"?canonicalPlayerDocument(proposed):proposed;
+    const merged=mergeAuthorResult(draft,proposal,current);
+    if(mode==="world")applyWorld(draftMode==="chat"?{...merged.doc,notes:draft.notes}:merged.doc);else if(mode==="chat_character")applyChatCore(merged.doc,chatCoreDoc().continuity);else applyPlayer(merged.doc);
+    const kept=merged.preserved.length,subject=mode==="world"?"World":mode==="chat_character"?"Chat Character Core":"Character";
     setAuthorStatus(mode,kept?`AI fill complete. Kept ${kept} newer ${kept===1?"edit":"edits"} you made while it worked.`:
       "AI fill complete. Your existing choices stayed in place.","ok");
     toast(`${subject} authored by the main AI ✨ (${r.model||"auto"})${kept?` — kept ${kept} newer edits`:""}`,"ok");
@@ -1320,12 +1543,23 @@ async function runCreatorAuthoring(mode){
   }finally{ stopAuthoringTimer(mode); AUTHORING_ACTIVE=""; setAuthoringBusy(mode,false); }
 }
 async function authorWorld(){ return runCreatorAuthoring("world"); }
-async function authorPlayer(){ return runCreatorAuthoring("player"); }
+async function authorPlayer(){
+  if(typeof CARD_DRAFT_MODE==="string"&&CARD_DRAFT_MODE==="chat")return runCreatorAuthoring("chat_character");
+  return runCreatorAuthoring("player");
+}
+async function authorChatCharacter(){ return runCreatorAuthoring("chat_character"); }
 async function fillOffline(mode){
   if(AUTHORING_ACTIVE){ toast("Wait for the current Creator fill to finish — no second request was sent","bad"); return; }
+  const draftMode=typeof CARD_DRAFT_MODE==="string"?CARD_DRAFT_MODE:"rpg";
+  if(draftMode==="chat"){
+    toast("Chat drafts use AI fill; no RPG template was applied.","bad"); return;
+  }
   AUTHORING_ACTIVE=mode; setAuthoringBusy(mode,true);
   setAuthorStatus(mode,`Filling ${mode==="world"?"World blanks from templates":"Character blanks from defaults"}…`);
-  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({mode, offline:1, doc:mode==="world"?worldDoc():playerDoc(), world:worldDoc()})});
+  try{ const r=await api(`/aether/session/${SID||"new"}/author`, {method:"POST", body:JSON.stringify({
+    mode,offline:1,experience_mode:draftMode,
+    doc:mode==="world"?(draftMode==="chat"?chatWorldAuthorDoc():worldDoc()):playerDoc(),
+    world:draftMode==="chat"?optionalWorldDoc():worldDoc()})});
     if(mode==="world") applyWorld(r.doc); else applyPlayer(r.doc);
     const message=mode==="world"?"Blanks filled from the genre template":"Blanks filled from registry defaults";
     setAuthorStatus(mode,message+".","ok"); toast(message,"ok");
@@ -1345,11 +1579,18 @@ async function loadPresets(){
   }catch(e){} }
 async function savePreset(kind){
   const name=prompt(`Name this ${kind==="world"?"world":"character"} preset:`); if(!name) return;
-  try{ await api("/aether/presets", {method:"POST", body:JSON.stringify({kind, name, doc:kind==="world"?worldDoc():playerDoc()})});
+  const chatDraft=typeof CARD_DRAFT_MODE==="string"&&CARD_DRAFT_MODE==="chat";
+  if(chatDraft&&kind==="player"){toast("RPG Character presets are unavailable in Chat card mode.","bad");return;}
+  const doc=kind==="world"?(chatDraft?optionalWorldDoc():worldDoc()):playerDoc();
+  if(!doc){toast("Describe the optional Chat World before saving it as a preset.","bad");return;}
+  try{ await api("/aether/presets", {method:"POST", body:JSON.stringify({kind, name, doc})});
     toast(`Preset “${name}” saved`, "ok"); loadPresets();
   }catch(e){ if(e.creatorField) showCreatorValidation(e,"Preset blocked: "); else toast("Preset save failed: "+e.message, "bad"); } }
 async function loadPreset(kind){
   const sel=$(kind==="world"?"w_presets":"c_presets"); if(!sel.value){ toast("pick a preset first",""); return; }
+  if(typeof CARD_DRAFT_MODE==="string"&&CARD_DRAFT_MODE==="chat"&&kind==="player"){
+    toast("RPG Character presets are unavailable in Chat card mode.","bad");return;
+  }
   if(AUTHORING_ACTIVE){ toast("Wait for the current Creator fill to finish — the preset was not loaded","bad"); return; }
   AUTHORING_ACTIVE=kind; setAuthoringBusy(kind,true);
   setAuthorStatus(kind,`Loading the selected ${kind==="world"?"World":"Character"} preset…`);
@@ -1386,6 +1627,24 @@ async function renderReview(){
     const pre=await api(`/aether/session/${sessionContext.sid}/creator`);
     if(!creatorSessionIsCurrent(sessionContext)) return;
     let h="";
+    const chatReview=pre.experience_mode==="chat";
+    if(chatReview){
+      const core=pre.core||pre.chat_core;
+      if(core){h+=`<h3 style="color:var(--acc2);font-size:13px;margin:4px 0 8px">Immutable Core - ${esc(core.name||"(unnamed)")}</h3>`;
+        h+=reviewProse("Description",core.description)+reviewProse("Personality",core.personality)+
+          reviewProse("Scenario",core.scenario)+chipRow("Behavioral anchors",core.anchors||[])+chipRow("Boundaries",core.boundaries||[]);
+      }else h+=`<div class="hint">Continuity paused: no bound Chat Core.</div>`;
+      const accepted=(pre.continuity_results||[]).filter(row=>row.accepted);
+      h+=`<h3 style="color:var(--acc2);font-size:13px;margin:16px 0 8px">Optional starting continuity</h3>`;
+      h+=accepted.length?chipRow("accepted records",accepted.map(row=>row.family)):
+        `<div class="hint">No starting continuity records admitted.</div>`;
+      const world=pre.world_live||pre.world;
+      h+=`<h3 style="color:var(--acc2);font-size:13px;margin:16px 0 8px">Optional World</h3>`;
+      if(world)h+=reviewProse("Setting",world.setting)+reviewRows("Factions",world.factions)+
+        reviewRows("Locations",world.locations)+reviewRows("World aspects",world.aspects);
+      else h+=`<div class="hint">Worldless Chat - no World is required or fabricated.</div>`;
+      host.innerHTML=h;return;
+    }
     const w=pre.world_live||pre.world;
     if(w){ h+=`<h3 style="color:var(--acc2);font-size:13px;margin:4px 0 8px">🌍 World — ${esc(w.name||"(unnamed)")}${w.genre?` <span style="color:var(--dim)">(${esc(w.genre)})</span>`:""}</h3>`;
       h+=chipRow("calendar",[w.date,w.time,w.tone].filter(Boolean));
@@ -1438,10 +1697,70 @@ async function loadCommitted(kind){
   try{ const pre=await api(`/aether/session/${sessionContext.sid}/creator`);
     if(!creatorSessionIsCurrent(sessionContext)){ setAuthorStatus(kind,"Session prefill skipped because you selected a different game. Your current draft is untouched.","bad"); return; }
     if(kind==="world"){ if(!pre.world){ setAuthorStatus(kind,"This session has no committed World to load.","bad"); toast("No world committed yet",""); return; } applyWorld(pre.world); showTab("world"); setAuthorStatus(kind,"Committed World loaded into the editable form.","ok"); toast("Committed world loaded into the form","ok"); }
+    else if(pre.experience_mode==="chat"){
+      if(!pre.core&&!pre.chat_core){setAuthorStatus("chat_character","This session has no bound Chat Character Core to load.","bad");toast("No Chat Core committed yet","");return;}
+      applyChatCore(pre.core||pre.chat_core,null);if(pre.world)applyWorld(pre.world);showTab("char");
+      setAuthorStatus("chat_character","Bound Chat Core loaded. Accepted continuity statuses remain session-owned.","ok");
+      toast("Bound Chat Character loaded into the form","ok");
+    }
     else { if(!pre.player){ setAuthorStatus(kind,"This session has no committed Character to load.","bad"); toast("No character committed yet",""); return; }
       const p=Object.assign({},pre.player,{name:pre.player_name||""}); applyPlayer(p); showTab("char"); setAuthorStatus(kind,"Committed Character loaded into the editable form.","ok"); toast("Committed character loaded into the form","ok"); }
   }catch(e){ if(creatorSessionIsCurrent(sessionContext)){ setAuthorStatus(kind,"Session prefill failed. Your current draft is untouched.","bad"); toast("Load failed: "+e.message,"bad"); }
   }finally{ AUTHORING_ACTIVE=""; setAuthoringBusy(kind,false); } }
+
+async function importChatCard(input){
+  const file=input&&input.files&&input.files[0];if(!file)return;
+  try{
+    const payload={filename:file.name};
+    if(/\.png$/i.test(file.name)){const bytes=new Uint8Array(await file.arrayBuffer());
+      let binary="";for(const byte of bytes)binary+=String.fromCharCode(byte);payload.data_b64=btoa(binary);
+    }else payload.text=await file.text();
+    const inspected=await api("/aether/chat-card/inspect",{method:"POST",body:JSON.stringify(payload)});
+    const aes=inspected.extensions&&inspected.extensions.aetherstate;
+    const core=aes&&aes.core?aes.core:{schema:"aetherstate-character-core/1",revision:1,
+      name:inspected.name||"",description:inspected.description||"",
+      personality:inspected.personality||"",scenario:inspected.scenario||"",
+      first_message:inspected.first_mes||"",example_dialogue:inspected.mes_example||"",
+      anchors:[],boundaries:[]};
+    setCardDraftMode("chat");
+    applyChatCore(core,aes&&aes.seed?aes.seed.continuity:null);
+    if(aes&&aes.seed&&aes.seed.world)applyWorld(aes.seed.world);
+    showTab("char");toast(aes?"Coded Chat card imported for enhancement":"Ordinary card imported; structured enhancement fields are optional","ok");
+  }catch(e){toast("Chat card import failed: "+e.message,"bad");}
+  finally{if(input)input.value="";}
+}
+async function genChatCard(fromSession=false){
+  let context=null;
+  try{
+    context=creatorSessionSnapshot("chat-card");
+    let draft,world;
+    if(fromSession){
+      if(!context.sid)throw new Error("Select a live Chat session first");
+      const prefill=await api(`/aether/session/${context.sid}/creator`);
+      if(!creatorSessionIsCurrent(context))return;
+      if(prefill.experience_mode!=="chat"||!prefill.core)
+        throw new Error("The selected session has no positively bound Chat Core");
+      draft={core:prefill.core,continuity:prefill.continuity||null};
+      world=prefill.world||null;
+    }else{
+      draft=chatCoreDoc();world=optionalWorldDoc();
+    }
+    if(!draft.core.name)throw new Error("Character Core name is required");
+    setCardMsg("Building the Chat Character card...");
+    const response=await api("/aether/chat-card",{method:"POST",body:JSON.stringify({
+      core:draft.core,continuity:draft.continuity,world})});
+    if(!creatorSessionIsCurrent(context))return;
+    const a=document.createElement("a");a.href="data:image/png;base64,"+response.png_b64;
+    a.download=(response.name||"Chat Character")+".png";document.body.appendChild(a);a.click();a.remove();
+    const preview=`Immutable Core: ${draft.core.name}. `+
+      `Starting continuity: ${draft.continuity?"included":"none"}. Optional World: ${world?"included":"none"}.`;
+    setCardMsg("Chat Character card ready. "+preview);toast("Chat Character card ready - check your downloads","ok");
+  }catch(e){if(!context||creatorSessionIsCurrent(context)){setCardMsg("");toast("Chat card generation failed: "+e.message,"bad");}}
+}
+async function generateDraftCard(fromSession=false){
+  if(CARD_DRAFT_MODE==="chat")return genChatCard(fromSession);
+  return genNarratorCard(fromSession);
+}
 
 // ---- world Narrator card (2026-07-08 rework): the card is the DELIVERABLE and the CARRIER.
 // It is built straight from what you typed — NO session, NO "save to a blank session first" —
@@ -1449,7 +1768,7 @@ async function loadCommitted(kind){
 // extension auto-commits that seed to the fresh session's ledger: your world & character are
 // already there, no re-applying. Falls back to a session's committed world when the form is
 // empty (so the Session-review tab's button still makes a card for what's committed).
-function setCardMsg(m){ for(const id of ["c_cardmsg","rv_card"]){ const el=$(id); if(el) el.textContent=m; } }
+function setCardMsg(m){ for(const id of ["c_cardmsg","cc_cardmsg","rv_card"]){ const el=$(id); if(el) el.textContent=m; } }
 async function genNarratorCard(fromSession){
   let sessionContext=null;
   try{
@@ -1507,11 +1826,13 @@ async function loadSessions(){
     if(!SID){ sel.insertAdjacentHTML("afterbegin",
       `<option value="" selected>— card only (no session) —</option>`); }
     sel.onchange=async()=>{ SID=sel.value; CREATOR_SESSION_EPOCH+=1;
+      if(typeof applySessionExperience==="function")applySessionExperience({mode:"",locked:true});
       const sessionContext=creatorSessionSnapshot("session-select");
       history.replaceState(null,"",`?session=${encodeURIComponent(sessionContext.sid)}`);
       try{ const pre=await api(`/aether/session/${sessionContext.sid}/creator`);
         if(!creatorSessionIsCurrent(sessionContext)) return;
         SPEC=pre.specialization||"none"; renderSpec();
+        if(typeof loadSessionExperience==="function")await loadSessionExperience();
         toast("Now targeting this session for “Save to live session”","ok");
       }catch(e){}
       if(!creatorSessionIsCurrent(sessionContext)) return;
@@ -1521,6 +1842,8 @@ async function loadSessions(){
 // ---- save
 function sessLabel(){ const sel=$("sessSel"); return sel&&sel.selectedIndex>=0&&sel.value?sel.options[sel.selectedIndex].text.split(" · ")[0]:"session"; }
 async function saveWorld(){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
+  if(typeof SESSION_EXPERIENCE_MODE==="undefined"||SESSION_EXPERIENCE_MODE!=="rpg"){
+    toast("Live World save requires a positively bound RPG session.","bad");return;}
   const sessionContext=creatorSessionSnapshot("save-world");
   try{ const submitted=worldDoc(),r=await api(`/aether/session/${sessionContext.sid}/world`, {method:"POST", body:JSON.stringify({world:submitted})});
     if(!r.applied&&!r.already_committed) throw new Error("the World was not admitted");
@@ -1530,8 +1853,26 @@ async function saveWorld(){ if(!SID){ toast("No session — open a chat first (o
       `World saved to ${sessLabel()} — ${r.applied} ops applied`, "ok");
   }catch(e){ toast(creatorSessionIsCurrent(sessionContext)?"Save failed: "+e.message:
     "Save to the previously selected session failed: "+e.message, "bad"); } }
-async function savePlayer(){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
+async function savePlayer(requestedExperience="rpg"){ if(!SID){ toast("No session — open a chat first (or pick one in the header)", "bad"); return; }
+  if((requestedExperience!=="chat"&&requestedExperience!=="rpg")||
+      typeof SESSION_EXPERIENCE_MODE==="undefined"||
+      SESSION_EXPERIENCE_MODE!==requestedExperience){
+    toast(requestedExperience==="chat"?"Chat save requires a positively bound Chat session.":
+      "Player save requires a positively bound RPG session.","bad");return;
+  }
   const sessionContext=creatorSessionSnapshot("save-player");
+  if(requestedExperience==="chat"){
+    try{const submitted=chatCoreDoc(),r=await api(`/aether/session/${sessionContext.sid}/chat-core`,{
+        method:"POST",body:JSON.stringify({bound:true,core:submitted.core,continuity:submitted.continuity})});
+      if(!r.complete)throw new Error("the bound Chat Core was not admitted");
+      if(!creatorSessionIsCurrent(sessionContext))return;
+      CHAT_CORE_CACHE=cloneCreatorValue(submitted.core);
+      CHAT_CONTINUITY_CACHE=cloneCreatorValue(submitted.continuity);
+      toast("Chat Core and accepted starting continuity saved to "+sessLabel(),"ok");
+    }catch(e){toast(creatorSessionIsCurrent(sessionContext)?"Chat save failed: "+e.message:
+      "Save to the previously selected Chat finished after the target changed.","bad");}
+    return;
+  }
   try{ const submitted=playerDoc(),r=await api(`/aether/session/${sessionContext.sid}/player`, {method:"POST", body:JSON.stringify({player:submitted})});
     if(!r.applied&&!r.already_committed) throw new Error("the Character was not admitted");
     if(!creatorSessionIsCurrent(sessionContext)){ toast("Character save finished for the previously selected session; the current target and draft cache were left untouched","ok"); return; }
@@ -1561,6 +1902,7 @@ async function loadModels(){
 
 // ---- boot
 async function boot(){
+  if(typeof setCardDraftMode==="function")setCardDraftMode(CARD_DRAFT_MODE);
   try{ REG = await api("/aether/registry"); }
   catch(e){ toast("Could not load registry — is the proxy running?", "bad"); return; }
   // genre + time selects
@@ -1583,6 +1925,7 @@ async function boot(){
   else { try{ const st = await api("/aether/status");   // no session picked: show the GLOBAL
     SPEC = st.specialization || "none";                  // spec honestly (2026-07-09: the chip
   }catch(e){} }                                          // claimed "off" while the proxy ran rpg)
+  if(SID&&typeof loadSessionExperience==="function")await loadSessionExperience();
   genreChanged(false);                       // refresh the hint without erasing restored draft ranks
   renderSpec();
   refreshLimitCounters(document); refreshAllListCounts();

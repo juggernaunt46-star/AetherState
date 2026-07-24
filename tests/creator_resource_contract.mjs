@@ -861,6 +861,311 @@ const invalidTimeLabel = sessionLabelController.sessOptLabel({
 assert.match(invalidTimeLabel, /^Unnamed session · created time unavailable · chat kappa234 · t3$/);
 assert.doesNotMatch(invalidTimeLabel, /internal-invalid-time/);
 
+// Chat card drafting is independent from the attached live session experience. A blank Chat
+// World must stay absent without even consulting worldDoc(), because worldDoc() mints an ID.
+assert.match(html, /CARD_DRAFT_MODE\s*=\s*"rpg"/,
+  "Creator must own a separate chat|rpg card-draft mode");
+assert.match(html, /SESSION_EXPERIENCE_MODE\s*=\s*""/,
+  "Creator must separately track the attached session's experience mode");
+const frozenRepairFailures = [];
+async function frozenRepairCheck(label, check) {
+  try { await check(); }
+  catch (error) { frozenRepairFailures.push(`${label}: ${error.message}`); }
+}
+
+await frozenRepairCheck("unknown session experience fails closed", async () => {
+  const experienceElements = new Map([
+    ["sessionExperienceWrap", { hidden: true }],
+    ["sessionExperienceMode", { value: "", disabled: false }],
+    ["sessionExperienceHelp", { textContent: "" }],
+    ["w_save", { disabled: false }],
+    ["c_save", { disabled: false }],
+    ["cc_save", { disabled: false }],
+  ]);
+  const experienceController = {
+    SID: "experience-unavailable", SESSION_EXPERIENCE_MODE: "",
+    SESSION_EXPERIENCE_LOCKED: false, calls: 0,
+    $: (id) => experienceElements.get(id) || null,
+    creatorSessionSnapshot: () => ({ sid: "experience-unavailable" }),
+    creatorSessionIsCurrent: () => true,
+    api: async () => { experienceController.calls += 1; throw new Error("offline"); },
+    toast: () => {},
+  };
+  vm.createContext(experienceController);
+  vm.runInContext([
+    extractFunction("applySessionExperience"),
+    `async ${extractFunction("loadSessionExperience")}`,
+    `async ${extractFunction("setSessionExperience")}`,
+  ].join("\n"), experienceController,
+  { filename: "creator-session-experience-fail-closed-contract.js" });
+  for (const malformed of [null, {}, { mode: "none", locked: false }]) {
+    experienceController.applySessionExperience(malformed);
+    assert.equal(experienceController.SESSION_EXPERIENCE_MODE, "");
+    assert.equal(experienceController.SESSION_EXPERIENCE_LOCKED, true);
+    assert.equal(experienceElements.get("sessionExperienceMode").disabled, true);
+  }
+  await experienceController.loadSessionExperience();
+  await experienceController.setSessionExperience("chat");
+  assert.equal(experienceController.SESSION_EXPERIENCE_MODE, "");
+  assert.equal(experienceController.SESSION_EXPERIENCE_LOCKED, true);
+  assert.equal(experienceElements.get("sessionExperienceMode").disabled, true);
+  assert.equal(experienceElements.get("w_save").disabled, true);
+  assert.equal(experienceElements.get("c_save").disabled, true);
+  assert.equal(experienceElements.get("cc_save").disabled, true);
+  assert.match(experienceElements.get("sessionExperienceHelp").textContent, /unavailable/i);
+  assert.equal(experienceController.calls, 1,
+    "unknown mode must not authorize a mode-changing POST");
+});
+
+await frozenRepairCheck("Chat-labelled save cannot fall through to RPG Player", async () => {
+  const chatSaveController = {
+    SID: "rpg-session", SESSION_EXPERIENCE_MODE: "rpg",
+    CREATOR_SESSION_EPOCH: 0, CREATOR_SESSION_REQUESTS: Object.create(null),
+    playerReads: 0, calls: 0, messages: [],
+    playerDoc: () => { chatSaveController.playerReads += 1; return { name: "Hidden Player" }; },
+    api: async () => { chatSaveController.calls += 1; return { applied: 1 }; },
+    sessLabel: () => "RPG session",
+    toast: (message) => chatSaveController.messages.push(message),
+    showCreatorValidation: () => {},
+  };
+  vm.createContext(chatSaveController);
+  vm.runInContext([
+    extractFunction("creatorSessionSnapshot"), extractFunction("creatorSessionIsCurrent"),
+    extractFunction("cloneCreatorValue"), `async ${extractFunction("savePlayer")}`,
+  ].join("\n"), chatSaveController,
+  { filename: "creator-chat-save-positive-binding-contract.js" });
+  await chatSaveController.savePlayer("chat");
+  assert.equal(chatSaveController.playerReads, 0);
+  assert.equal(chatSaveController.calls, 0);
+  assert.match(chatSaveController.messages.at(-1), /bound Chat/i);
+});
+
+const blankWorldElements = new Map([
+  ["w_name", { value: "" }], ["w_setting", { value: "" }],
+  ["w_date", { value: "" }], ["w_tone", { value: "" }],
+  ["w_notes", { value: "" }],
+]);
+const optionalWorldController = {
+  worldReads: 0, worldIdReads: 0,
+  $: (id) => blankWorldElements.get(id) || { value: "" },
+  readLines: () => [], readNpcs: () => [], readExtras: () => [],
+  ensureWorldId: () => {
+    optionalWorldController.worldIdReads += 1;
+    return "world_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  },
+  chatWorldAuthorDoc: () => {
+    optionalWorldController.worldReads += 1;
+    return { name: blankWorldElements.get("w_name").value };
+  },
+};
+vm.createContext(optionalWorldController);
+vm.runInContext([
+  extractFunction("hasMeaningfulWorldDraft"),
+  extractFunction("optionalWorldDoc"),
+].join("\n"), optionalWorldController,
+{ filename: "creator-chat-optional-world-contract.js" });
+assert.equal(optionalWorldController.hasMeaningfulWorldDraft(), false);
+assert.equal(optionalWorldController.optionalWorldDoc(), null);
+assert.equal(optionalWorldController.worldReads, 0,
+  "blank Chat World inspection must not call worldDoc or mint a World ID");
+assert.equal(optionalWorldController.worldIdReads, 0);
+blankWorldElements.get("w_notes").value = "PRIVATE CREATOR DIRECTION ONLY";
+await frozenRepairCheck("Creator-only World direction stays worldless", async () => {
+  assert.equal(optionalWorldController.hasMeaningfulWorldDraft(), false);
+  assert.equal(optionalWorldController.optionalWorldDoc(), null);
+  assert.equal(optionalWorldController.worldReads, 0);
+  assert.equal(optionalWorldController.worldIdReads, 0);
+});
+blankWorldElements.get("w_notes").value = "";
+blankWorldElements.get("w_name").value = "Rainline";
+assert.equal(optionalWorldController.hasMeaningfulWorldDraft(), true);
+assert.equal(optionalWorldController.optionalWorldDoc().world_id,
+  "world_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+assert.equal(optionalWorldController.worldReads, 1);
+assert.equal(optionalWorldController.worldIdReads, 1);
+
+// An ordinary imported card populates the Chat Core, can be enhanced structurally, and builds
+// through the Chat card route without touching the unchanged RPG Narrator fixture below.
+assert.ok(html.includes('id="chatCardImport"'), "Creator needs a JSON/PNG Chat card import control");
+assert.ok(html.includes("/aether/chat-card/inspect"), "Chat import must use the inspect owner");
+assert.ok(html.includes("/aether/chat-card"), "Chat builds must use the Chat card owner");
+const coreElements = new Map([
+  ["cc_name", { value: "Mara" }],
+  ["cc_description", { value: "A night-shift paramedic." }],
+  ["cc_personality", { value: "Direct and observant." }],
+  ["cc_scenario", { value: "Mara and the Persona talk after work." }],
+  ["cc_first_message", { value: "You are still awake?" }],
+  ["cc_example_dialogue", { value: "Mara: I noticed." }],
+  ["cc_anchors", { value: "Does not claim unknown facts." }],
+  ["cc_boundaries", { value: "Never acts for the Persona." }],
+  ["cc_memories", { value: "" }],
+  ["cc_knowledge", { value: "" }],
+  ["cc_possessions_conditions", { value: "" }],
+  ["cc_threads", { value: "" }],
+  ["cc_relationship_quality", { value: "" }],
+  ["cc_relationship_cause", { value: "" }],
+  ["cc_arrangement", { value: "undefined" }],
+  ["cc_outside_policy", { value: "unspecified" }],
+  ["cc_disclosure_requirement", { value: "none" }],
+  ["cc_agreement_note", { value: "" }],
+]);
+const coreController = {
+  $: (id) => coreElements.get(id) || null,
+  scheduleDraft: () => {}, refreshLimitCounters: () => {},
+  document: {},
+};
+vm.createContext(coreController);
+vm.runInContext([
+  extractFunction("chatCoreDoc"),
+  extractFunction("applyChatCore"),
+].join("\n"), coreController,
+{ filename: "creator-chat-core-roundtrip-contract.js" });
+const coreDraft = coreController.chatCoreDoc();
+assert.equal(coreDraft.core.schema, "aetherstate-character-core/1");
+assert.equal(coreDraft.core.name, "Mara");
+assert.deepEqual(JSON.parse(JSON.stringify(coreDraft.core.anchors)),
+  ["Does not claim unknown facts."]);
+assert.deepEqual(JSON.parse(JSON.stringify(coreDraft.core.boundaries)),
+  ["Never acts for the Persona."]);
+assert.equal(coreDraft.continuity, null);
+coreElements.get("cc_name").value = "";
+coreController.applyChatCore(coreDraft.core, null);
+assert.equal(coreElements.get("cc_name").value, "Mara");
+
+const chatBuildController = {
+  request: null, downloads: 0, messages: [],
+  chatCoreDoc: () => coreDraft,
+  optionalWorldDoc: () => null,
+  creatorSessionSnapshot: () => ({ sid: "", lane: "chat-card", request: 1 }),
+  creatorSessionIsCurrent: () => true,
+  setCardMsg: (message) => chatBuildController.messages.push(message),
+  toast: () => {},
+  api: async (url, options) => {
+    chatBuildController.request = { url, body: JSON.parse(options.body) };
+    return { name: "Mara", png_b64: "AA==" };
+  },
+  document: {
+    createElement: () => ({
+      click: () => { chatBuildController.downloads += 1; },
+      remove: () => {},
+    }),
+    body: { appendChild: () => {} },
+  },
+};
+vm.createContext(chatBuildController);
+vm.runInContext(`async ${extractFunction("genChatCard")}`, chatBuildController,
+  { filename: "creator-worldless-chat-build-contract.js" });
+await chatBuildController.genChatCard();
+assert.equal(chatBuildController.request.url, "/aether/chat-card");
+assert.equal(chatBuildController.request.body.world, null);
+assert.equal(chatBuildController.request.body.core.name, "Mara");
+assert.equal(chatBuildController.downloads, 1);
+assert.match(chatBuildController.messages.at(-1), /Immutable Core: Mara/);
+assert.match(chatBuildController.messages.at(-1), /Optional World: none/);
+
+await frozenRepairCheck("session Chat card uses exact bound prefill", async () => {
+  const boundCore = { ...coreDraft.core, name: "Bound Mara" };
+  const boundContinuity = {
+    schema: "aetherstate-chat-starting-continuity/1",
+    memories: [{ memory_id: "memory.bound", text: "Bound memory", visibility: "shared" }],
+    player_visible_possessions_conditions: [], character_knowledge: [],
+    relationship_causes: [], agreement_revisions: [], open_threads: [],
+  };
+  const boundWorld = {
+    world_id: "world_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    name: "Bound Rainline", genre: "modern_drama", setting: "Bound setting",
+  };
+  const sessionBuildController = {
+    draftReads: 0, worldReads: 0, requests: [], requestBody: null,
+    chatCoreDoc: () => { sessionBuildController.draftReads += 1; return coreDraft; },
+    optionalWorldDoc: () => { sessionBuildController.worldReads += 1; return null; },
+    creatorSessionSnapshot: () => ({ sid: "bound-session", lane: "chat-card", request: 1 }),
+    creatorSessionIsCurrent: () => true,
+    setCardMsg: () => {}, toast: () => {},
+    api: async (url, options = {}) => {
+      sessionBuildController.requests.push(url);
+      if (url === "/aether/session/bound-session/creator") {
+        return {
+          experience_mode: "chat", core: boundCore,
+          continuity: boundContinuity, world: boundWorld,
+        };
+      }
+      sessionBuildController.requestBody = JSON.parse(options.body);
+      return { name: "Bound Mara", png_b64: "AA==" };
+    },
+    document: {
+      createElement: () => ({ click: () => {}, remove: () => {} }),
+      body: { appendChild: () => {} },
+    },
+  };
+  vm.createContext(sessionBuildController);
+  vm.runInContext(`async ${extractFunction("genChatCard")}`, sessionBuildController,
+    { filename: "creator-session-chat-build-contract.js" });
+  await sessionBuildController.genChatCard(true);
+  assert.deepEqual(sessionBuildController.requests, [
+    "/aether/session/bound-session/creator", "/aether/chat-card",
+  ]);
+  assert.equal(sessionBuildController.draftReads, 0);
+  assert.equal(sessionBuildController.worldReads, 0);
+  assert.equal(sessionBuildController.requestBody.core.name, "Bound Mara");
+  assert.deepEqual(JSON.parse(JSON.stringify(sessionBuildController.requestBody.continuity)),
+    boundContinuity);
+  assert.equal(sessionBuildController.requestBody.world.name, "Bound Rainline");
+});
+assert.deepEqual(frozenRepairFailures, [],
+  `Task 6 frozen repair failures:\n${frozenRepairFailures.join("\n")}`);
+
+const importedCores = [];
+const ordinaryImportController = {
+  api: async (url, options) => {
+    ordinaryImportController.request = { url, body: JSON.parse(options.body) };
+    return {
+      name: "Mara",
+      description: "A night-shift paramedic.",
+      personality: "Direct and observant.",
+      scenario: "Mara and the Persona talk after work.",
+      first_mes: "You are still awake?",
+      mes_example: "Mara: I noticed.",
+    };
+  },
+  setCardDraftMode: (mode) => { ordinaryImportController.mode = mode; },
+  applyChatCore: (core, continuity) => importedCores.push({ core, continuity }),
+  applyWorld: () => { throw new Error("ordinary imports have no coded World"); },
+  showTab: (tab) => { ordinaryImportController.tab = tab; },
+  toast: (message) => { ordinaryImportController.message = message; },
+};
+vm.createContext(ordinaryImportController);
+vm.runInContext(`async ${extractFunction("importChatCard")}`, ordinaryImportController,
+  { filename: "creator-ordinary-chat-import-contract.js" });
+const ordinaryInput = {
+  value: "selected",
+  files: [{ name: "Mara.json", text: async () => "{\"name\":\"Mara\"}" }],
+};
+await ordinaryImportController.importChatCard(ordinaryInput);
+assert.equal(ordinaryImportController.request.url, "/aether/chat-card/inspect");
+assert.equal(ordinaryImportController.mode, "chat");
+assert.equal(importedCores[0].core.name, "Mara");
+assert.deepEqual(JSON.parse(JSON.stringify(importedCores[0].core.anchors)), []);
+assert.equal(importedCores[0].continuity, null);
+assert.match(ordinaryImportController.message, /Ordinary card imported/);
+assert.equal(ordinaryInput.value, "");
+ordinaryImportController.btoa = (binary) => Buffer.from(binary, "binary").toString("base64");
+const ordinaryPngInput = {
+  value: "selected",
+  files: [{
+    name: "Mara.png",
+    arrayBuffer: async () => Uint8Array.from([1, 2, 3]).buffer,
+  }],
+};
+await ordinaryImportController.importChatCard(ordinaryPngInput);
+assert.equal(ordinaryImportController.request.url, "/aether/chat-card/inspect");
+assert.equal(ordinaryImportController.request.body.filename, "Mara.png");
+assert.equal(ordinaryImportController.request.body.data_b64, "AQID");
+assert.equal("text" in ordinaryImportController.request.body, false);
+assert.equal(importedCores.at(-1).core.name, "Mara");
+assert.match(ordinaryImportController.message, /Ordinary card imported/);
+assert.equal(ordinaryPngInput.value, "");
+
 const longNameLabel = sessionLabelController.sessOptLabel({
   world_name: "A World Name So Long It Would Previously Consume Every Useful Tail Cue",
   player_name: "A Character Name That Is Also Far Too Long For One Select Option",
@@ -1002,6 +1307,7 @@ const editedWorld = { ...submittedWorld, name: "Edited While Saving" };
 const worldSaveReply = deferred();
 const worldSaveController = {
   SID: "save-world", WORLD_ID: submittedWorld.world_id, WORLD_CACHE: null,
+  SESSION_EXPERIENCE_MODE: "rpg",
   CREATOR_SESSION_EPOCH: 0, CREATOR_SESSION_REQUESTS: Object.create(null),
   worldReads: 0, messages: [],
   worldDoc: () => JSON.parse(JSON.stringify(
@@ -1026,6 +1332,7 @@ const submittedPlayer = { name: "Submitted Player", resources: { hp: { cur: 20, 
 const playerSaveReply = deferred();
 const playerSaveController = {
   SID: "save-player-old", PLAYER_CACHE: { name: "Prior Cache" }, messages: [],
+  SESSION_EXPERIENCE_MODE: "rpg",
   CREATOR_SESSION_EPOCH: 0, CREATOR_SESSION_REQUESTS: Object.create(null),
   playerDoc: () => JSON.parse(JSON.stringify(submittedPlayer)), api: () => playerSaveReply.promise,
   sessLabel: () => "Old player session", toast: (message) => playerSaveController.messages.push(message),

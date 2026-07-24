@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import secrets
 import sqlite3
 import threading
@@ -18,6 +19,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 
+from .experience import (
+    ExperienceBinding,
+    ExperienceModeLocked,
+    normalize_experience_mode,
+)
 from .worldlex_store import WorldLexStore
 
 _SCHEMA = """
@@ -66,6 +72,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_creator_seed_receipt_session
   ON creator_seed_receipts(session_id);
 CREATE INDEX IF NOT EXISTS idx_creator_seed_receipt_fingerprint
   ON creator_seed_receipts(seed_fingerprint);
+CREATE TABLE IF NOT EXISTS chat_core_receipts(
+  session_id TEXT PRIMARY KEY, branch_id TEXT, journal_op_id INTEGER UNIQUE,
+  core_fingerprint TEXT, world_fingerprint TEXT, card_envelope_fingerprint TEXT,
+  character_actor_id TEXT, persona_actor_id TEXT, admitted_turn INTEGER,
+  admission_fingerprint TEXT, receipt_fingerprint TEXT, committed_at REAL);
+CREATE TABLE IF NOT EXISTS chat_continuity_seed_receipts(
+  session_id TEXT, record_fingerprint TEXT, branch_id TEXT, family TEXT,
+  record_json TEXT, admitted_turn INTEGER, journal_op_id INTEGER,
+  receipt_fingerprint TEXT, committed_at REAL, lifecycle_source TEXT DEFAULT '',
+  response_occurrence_id TEXT DEFAULT '',
+  PRIMARY KEY(session_id, record_fingerprint));
+CREATE INDEX IF NOT EXISTS idx_chat_continuity_seed_receipt_branch
+  ON chat_continuity_seed_receipts(branch_id, admitted_turn, family);
+CREATE TABLE IF NOT EXISTS chat_user_text_receipts(
+  branch_id TEXT, turn_index INTEGER, source_message_fingerprint TEXT,
+  journal_op_id INTEGER, committed_at REAL,
+  PRIMARY KEY(branch_id, turn_index, source_message_fingerprint));
+CREATE INDEX IF NOT EXISTS idx_chat_user_text_receipts_turn
+  ON chat_user_text_receipts(branch_id, turn_index, source_message_fingerprint);
+CREATE TABLE IF NOT EXISTS chat_accepted_message_receipts(
+  branch_id TEXT, turn_index INTEGER, lifecycle_source TEXT,
+  response_occurrence_id TEXT DEFAULT '', source_message_fingerprint TEXT,
+  receipt_fingerprint TEXT, committed_at REAL,
+  PRIMARY KEY(branch_id, turn_index, lifecycle_source));
+CREATE INDEX IF NOT EXISTS idx_chat_accepted_message_receipts_response
+  ON chat_accepted_message_receipts(
+    branch_id, turn_index, lifecycle_source, response_occurrence_id
+  );
 CREATE TABLE IF NOT EXISTS claim_records(
   branch_id TEXT, claim_id TEXT, origin_branch TEXT, session_id TEXT, world_id TEXT,
   turn_index INTEGER, source TEXT, fingerprint TEXT, record_json TEXT,
@@ -102,10 +136,19 @@ CREATE TABLE IF NOT EXISTS memories(
   memory_id TEXT PRIMARY KEY, session_id TEXT, branch_id TEXT, tier TEXT,
   text TEXT, participants TEXT DEFAULT '[]', location_id TEXT, tags TEXT DEFAULT '[]',
   importance INTEGER DEFAULT 3, created_turn INTEGER, last_accessed_turn INTEGER DEFAULT 0,
-  parent_id TEXT, scene_index INTEGER DEFAULT 0, embedding_ref INTEGER);
+  parent_id TEXT, scene_index INTEGER DEFAULT 0, embedding_ref INTEGER,
+  source_journal_op_refs TEXT DEFAULT '[]');
 CREATE INDEX IF NOT EXISTS idx_memories_branch ON memories(branch_id, parent_id);
 CREATE TABLE IF NOT EXISTS recall(
   session_id TEXT PRIMARY KEY, for_turn INTEGER, lines TEXT, created REAL);
+CREATE TABLE IF NOT EXISTS recall_records(
+  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, branch_id TEXT,
+  for_turn INTEGER, source_turn INTEGER, lifecycle_source TEXT,
+  response_occurrence_id TEXT DEFAULT '', source_message_fingerprint TEXT DEFAULT '',
+  journal_op_refs TEXT DEFAULT '[]', lines TEXT DEFAULT '[]', created REAL);
+CREATE INDEX IF NOT EXISTS idx_recall_records_lineage
+  ON recall_records(branch_id, for_turn, source_turn, lifecycle_source,
+                    response_occurrence_id);
 CREATE TABLE IF NOT EXISTS lint(
   id INTEGER PRIMARY KEY AUTOINCREMENT, branch_id TEXT, turn_index INTEGER, rule TEXT,
   severity TEXT, subjects TEXT, detail TEXT, evidence TEXT, ts REAL);
@@ -135,10 +178,81 @@ _MIGRATIONS = [("caps", "native", "TEXT DEFAULT ''"),
                ("sessions", "mode", "TEXT DEFAULT 'enriched'"),  # 05 SS7: enriched|passthrough
                ("sessions", "label", "TEXT DEFAULT ''"),  # user-facing friendly name (rename)
                ("sessions", "narrator_speaker", "TEXT DEFAULT ''"),
+               ("sessions", "experience_mode", "TEXT DEFAULT ''"),
+               ("sessions", "experience_mode_source", "TEXT DEFAULT ''"),
+               ("sessions", "experience_mode_locked_turn", "INTEGER"),
+               ("sessions", "core_fingerprint", "TEXT DEFAULT ''"),
+               ("sessions", "character_actor_id", "TEXT DEFAULT ''"),
+               ("sessions", "persona_actor_id", "TEXT DEFAULT ''"),
                # Typed event ownership is needed for extraction-only retraction on old DBs.
-               ("world_event_records", "source", "TEXT DEFAULT ''")]
+               ("world_event_records", "source", "TEXT DEFAULT ''"),
+               ("turns", "accepted_response_occurrence_id", "TEXT DEFAULT ''"),
+               ("ops_journal", "lifecycle_source", "TEXT DEFAULT ''"),
+               ("ops_journal", "response_occurrence_id", "TEXT DEFAULT ''"),
+               ("effect_receipts", "lifecycle_source", "TEXT DEFAULT ''"),
+               ("effect_receipts", "response_occurrence_id", "TEXT DEFAULT ''"),
+               ("mechanic_settlement_receipts", "lifecycle_source", "TEXT DEFAULT ''"),
+               ("mechanic_settlement_receipts", "response_occurrence_id", "TEXT DEFAULT ''"),
+               ("claim_records", "lifecycle_source", "TEXT DEFAULT ''"),
+               ("claim_records", "response_occurrence_id", "TEXT DEFAULT ''"),
+               ("world_event_records", "lifecycle_source", "TEXT DEFAULT ''"),
+               ("world_event_records", "response_occurrence_id", "TEXT DEFAULT ''"),
+               ("chat_continuity_seed_receipts", "lifecycle_source", "TEXT DEFAULT ''"),
+               ("chat_continuity_seed_receipts", "response_occurrence_id", "TEXT DEFAULT ''"),
+               ("memories", "visibility", "TEXT DEFAULT ''"),
+               ("memories", "scoped_actors", "TEXT DEFAULT '[]'"),
+               ("memories", "journal_op_id", "INTEGER"),
+               ("memories", "journal_op_ref", "TEXT DEFAULT ''"),
+               ("memories", "source_message_fingerprint", "TEXT DEFAULT ''"),
+               ("memories", "lifecycle_source", "TEXT DEFAULT ''"),
+               ("memories", "response_occurrence_id", "TEXT DEFAULT ''"),
+               ("memories", "source_journal_op_refs", "TEXT DEFAULT '[]'")]
 
 _CREATOR_SEED_RECEIPT_SCHEMA = "aetherstate-creator-seed-receipt/1"
+_CHAT_CORE_ADMISSION_DOMAIN = b"aetherstate-chat-core-admission/1\0"
+_CHAT_CORE_RECEIPT_DOMAIN = b"aetherstate-chat-core-receipt/1\0"
+_CHAT_CONTINUITY_SEED_RECEIPT_DOMAIN = (
+    b"aetherstate-chat-continuity-seed-receipt/1\0"
+)
+_CHAT_ACCEPTED_MESSAGE_RECEIPT_DOMAIN = (
+    b"aetherstate-chat-accepted-message-receipt/1\0"
+)
+
+
+def _canonical_json(value: object) -> str:
+    try:
+        return json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("receipt value must be finite JSON") from exc
+
+
+def _chat_accepted_message_receipt_fingerprint(authority: dict) -> str:
+    return "sha256:" + hashlib.sha256(
+        _CHAT_ACCEPTED_MESSAGE_RECEIPT_DOMAIN
+        + _canonical_json(authority).encode("utf-8")
+    ).hexdigest()
+
+
+def _chat_admission_fingerprint(card_envelope_fingerprint: str,
+                                persona_actor_id: str) -> str:
+    payload = f"{card_envelope_fingerprint}\0{persona_actor_id}".encode("utf-8")
+    return "sha256:" + hashlib.sha256(_CHAT_CORE_ADMISSION_DOMAIN + payload).hexdigest()
+
+
+def _chat_receipt_fingerprint(authority: dict) -> str:
+    return "sha256:" + hashlib.sha256(
+        _CHAT_CORE_RECEIPT_DOMAIN + _canonical_json(authority).encode("utf-8")
+    ).hexdigest()
+
+
+def _chat_continuity_seed_receipt_fingerprint(authority: dict) -> str:
+    return "sha256:" + hashlib.sha256(
+        _CHAT_CONTINUITY_SEED_RECEIPT_DOMAIN
+        + _canonical_json(authority).encode("utf-8")
+    ).hexdigest()
 
 
 def _creator_seed_receipt_authority(
@@ -312,6 +426,40 @@ class Store:
             cols = {r["name"] for r in self.db.execute(f"PRAGMA table_info({table})")}
             if col not in cols:
                 self.db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_ops_journal_lifecycle"
+            " ON ops_journal(branch_id, lifecycle_source, response_occurrence_id, turn_hi)"
+        )
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_claim_records_lifecycle"
+            " ON claim_records(branch_id, lifecycle_source, response_occurrence_id, turn_index)"
+        )
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_memories_lifecycle"
+            " ON memories(branch_id, lifecycle_source, response_occurrence_id, created_turn)"
+        )
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_effect_receipts_lifecycle"
+            " ON effect_receipts(branch_id, lifecycle_source,"
+            " response_occurrence_id, turn_index)"
+        )
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mechanic_settlement_receipts_lifecycle"
+            " ON mechanic_settlement_receipts(branch_id, lifecycle_source,"
+            " response_occurrence_id, turn_index)"
+        )
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_world_event_records_lifecycle"
+            " ON world_event_records(branch_id, lifecycle_source,"
+            " response_occurrence_id, turn_index)"
+        )
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_continuity_seed_receipts_lifecycle"
+            " ON chat_continuity_seed_receipts(branch_id, lifecycle_source,"
+            " response_occurrence_id, admitted_turn)"
+        )
+        self._migrate_chat_accepted_message_receipts()
+        self._migrate_legacy_chat_memory_lineage()
         # A process can stop during the cold LLM pass. Its in-flight claim is not durable work;
         # make the session retryable on the next start.
         self.db.execute(
@@ -325,6 +473,215 @@ class Store:
         # reducer commit and its exact replay artifact can inhabit one SQLite transaction.
         from .turn_lifecycle import TurnLifecycleStore
         self.turn_lifecycle = TurnLifecycleStore(self)
+
+    def _insert_chat_message_receipt_locked(
+        self,
+        branch_id: str,
+        turn_index: int,
+        lifecycle_source: str,
+        response_occurrence_id: str,
+        source_message_fingerprint: str,
+    ) -> None:
+        lifecycle = str(lifecycle_source or "")
+        response_id = str(response_occurrence_id or "")
+        source_fingerprint = str(source_message_fingerprint or "")
+        if lifecycle not in {
+            "user_text", "assistant_response", "deferred_extraction",
+        } or not re.fullmatch(r"sha256:[0-9a-f]{64}", source_fingerprint):
+            raise ValueError("accepted Chat message receipt is malformed")
+        if lifecycle == "user_text" and response_id:
+            raise ValueError("user-text receipt cannot name an assistant response")
+        if lifecycle != "user_text" and re.fullmatch(
+            r"response:[0-9a-f]{64}",
+            response_id,
+        ) is None:
+            raise ValueError("assistant receipt requires an accepted response")
+        authority = {
+            "schema": "aetherstate-chat-accepted-message-receipt/1",
+            "branch_id": str(branch_id),
+            "turn_index": int(turn_index),
+            "lifecycle_source": lifecycle,
+            "response_occurrence_id": response_id,
+            "source_message_fingerprint": source_fingerprint,
+        }
+        receipt_fingerprint = _chat_accepted_message_receipt_fingerprint(
+            authority
+        )
+        self.db.execute(
+            "INSERT OR IGNORE INTO chat_accepted_message_receipts("
+            "branch_id, turn_index, lifecycle_source, response_occurrence_id,"
+            " source_message_fingerprint, receipt_fingerprint, committed_at)"
+            " VALUES(?,?,?,?,?,?,?)",
+            (
+                str(branch_id),
+                int(turn_index),
+                lifecycle,
+                response_id,
+                source_fingerprint,
+                receipt_fingerprint,
+                time.time(),
+            ),
+        )
+        prior = self.db.execute(
+            "SELECT response_occurrence_id, source_message_fingerprint,"
+            " receipt_fingerprint FROM chat_accepted_message_receipts"
+            " WHERE branch_id=? AND turn_index=? AND lifecycle_source=?",
+            (str(branch_id), int(turn_index), lifecycle),
+        ).fetchone()
+        if prior is None or (
+            str(prior["response_occurrence_id"] or "") != response_id
+            or str(prior["source_message_fingerprint"] or "")
+            != source_fingerprint
+            or str(prior["receipt_fingerprint"] or "")
+            != receipt_fingerprint
+        ):
+            raise ValueError("accepted Chat message receipt conflicts with prior lineage")
+
+    def _migrate_chat_accepted_message_receipts(self) -> None:
+        """Backfill receipts only from exact accepted turns that still retain source text."""
+        rows = self.db.execute(
+            "SELECT t.branch_id, t.turn_index,"
+            " t.accepted_response_occurrence_id, x.user_text, x.assistant_text"
+            " FROM turns AS t JOIN turn_texts AS x"
+            " ON x.branch_id=t.branch_id AND x.turn_index=t.turn_index"
+            " WHERE COALESCE(t.accepted_response_occurrence_id, '')<>''"
+        ).fetchall()
+        for row in rows:
+            branch_id = str(row["branch_id"])
+            turn = int(row["turn_index"])
+            response_id = str(row["accepted_response_occurrence_id"] or "")
+            if re.fullmatch(r"response:[0-9a-f]{64}", response_id) is None:
+                continue
+            user_text = str(row["user_text"] or "")
+            assistant_text = str(row["assistant_text"] or "")
+            if user_text:
+                self._insert_chat_message_receipt_locked(
+                    branch_id,
+                    turn,
+                    "user_text",
+                    "",
+                    "sha256:" + hashlib.sha256(
+                        user_text.encode("utf-8")
+                    ).hexdigest(),
+                )
+            if assistant_text:
+                source_fingerprint = "sha256:" + hashlib.sha256(
+                    assistant_text.encode("utf-8")
+                ).hexdigest()
+                for lifecycle in (
+                    "assistant_response",
+                    "deferred_extraction",
+                ):
+                    self._insert_chat_message_receipt_locked(
+                        branch_id,
+                        turn,
+                        lifecycle,
+                        response_id,
+                        source_fingerprint,
+                    )
+
+    def _migrate_legacy_chat_memory_lineage(self) -> None:
+        """Recover only uniquely provable pre-lineage memory mirrors."""
+        rows = self.db.execute(
+            "SELECT * FROM memories"
+            " WHERE lifecycle_source IN ('user_text','assistant_response',"
+            "'deferred_extraction')"
+            " AND (COALESCE(source_message_fingerprint, '')=''"
+            " OR COALESCE(journal_op_ref, '')='')"
+        ).fetchall()
+        for row in rows:
+            try:
+                branch_id = str(row["branch_id"] or "")
+                turn = int(row["created_turn"])
+                lifecycle = str(row["lifecycle_source"] or "")
+                wanted_importance = int(row["importance"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            receipt = self.db.execute(
+                "SELECT source_message_fingerprint"
+                " FROM chat_accepted_message_receipts"
+                " WHERE branch_id=? AND turn_index=? AND lifecycle_source=?",
+                (branch_id, turn, lifecycle),
+            ).fetchone()
+            if receipt is None:
+                continue
+            source_fingerprint = str(
+                receipt["source_message_fingerprint"] or ""
+            )
+            direct_ref = str(row["journal_op_ref"] or "")
+            journal_id = row["journal_op_id"]
+            if not direct_ref:
+                journal_rows = self.db.execute(
+                    "SELECT id, ops FROM ops_journal"
+                    " WHERE branch_id=? AND turn_hi=? AND lifecycle_source=?"
+                    " AND COALESCE(response_occurrence_id, '')=?",
+                    (
+                        branch_id,
+                        turn,
+                        lifecycle,
+                        str(row["response_occurrence_id"] or ""),
+                    ),
+                ).fetchall()
+                candidates: list[tuple[int, int]] = []
+                try:
+                    wanted_participants = sorted(
+                        str(value)
+                        for value in json.loads(row["participants"] or "[]")
+                    )
+                    wanted_tags = sorted(
+                        str(value)
+                        for value in json.loads(row["tags"] or "[]")
+                    )
+                except (TypeError, ValueError):
+                    continue
+                for journal in journal_rows:
+                    try:
+                        operations = json.loads(journal["ops"])
+                    except (TypeError, ValueError):
+                        continue
+                    if not isinstance(operations, list):
+                        continue
+                    for index, operation in enumerate(operations):
+                        if not isinstance(operation, dict) \
+                                or operation.get("op") != "memory_event":
+                            continue
+                        if str(operation.get("text") or "") != str(
+                            row["text"] or ""
+                        ):
+                            continue
+                        if sorted(
+                            str(value)
+                            for value in operation.get("participants") or []
+                        ) != wanted_participants:
+                            continue
+                        if sorted(
+                            str(value)
+                            for value in operation.get("tags") or []
+                        ) != wanted_tags:
+                            continue
+                        try:
+                            candidate_importance = int(
+                                operation.get("importance", 3)
+                            )
+                        except (TypeError, ValueError):
+                            continue
+                        if candidate_importance != wanted_importance:
+                            continue
+                        candidates.append((int(journal["id"]), index))
+                if len(candidates) != 1:
+                    continue
+                journal_id, op_index = candidates[0]
+                direct_ref = f"{journal_id}:{op_index}"
+            self.db.execute(
+                "UPDATE memories SET source_message_fingerprint=?,"
+                " journal_op_id=?, journal_op_ref=? WHERE memory_id=?",
+                (
+                    source_fingerprint,
+                    journal_id,
+                    direct_ref,
+                    str(row["memory_id"]),
+                ),
+            )
 
     def apply_guard(self):
         """Serialize one reducer commit; RLock permits nested read/write helpers."""
@@ -388,6 +745,308 @@ class Store:
                 " active_branch, created_at, last_seen) VALUES(?,?,?,?,?,?,?)",
                 (sid, external_id, anchor_hash, frontend, bid, now, now))
             return sid, bid
+
+    def chat_core_receipt_for_session(self, session_id: str) -> Optional[dict]:
+        """Return restart-safe proof for one exact journaled Chat Core admission."""
+        with self._lock:
+            row = self.db.execute(
+                "SELECT * FROM chat_core_receipts WHERE session_id=?",
+                (str(session_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            branch = self.db.execute(
+                "SELECT session_id FROM branches WHERE branch_id=?",
+                (row["branch_id"],),
+            ).fetchone()
+            journal = self.db.execute(
+                "SELECT branch_id, turn_lo, turn_hi, ops FROM ops_journal WHERE id=?",
+                (row["journal_op_id"],),
+            ).fetchone()
+        authority = {
+            "schema": "aetherstate-chat-core-receipt/1",
+            "session_id": str(row["session_id"]),
+            "branch_id": str(row["branch_id"]),
+            "journal_op_id": int(row["journal_op_id"]),
+            "core_fingerprint": str(row["core_fingerprint"]),
+            "world_fingerprint": str(row["world_fingerprint"] or ""),
+            "card_envelope_fingerprint": str(row["card_envelope_fingerprint"]),
+            "character_actor_id": str(row["character_actor_id"]),
+            "persona_actor_id": str(row["persona_actor_id"]),
+            "admitted_turn": int(row["admitted_turn"]),
+            "admission_fingerprint": str(row["admission_fingerprint"]),
+        }
+        if branch is None or str(branch["session_id"]) != authority["session_id"] \
+                or journal is None or str(journal["branch_id"]) != authority["branch_id"] \
+                or int(journal["turn_lo"]) != authority["admitted_turn"] \
+                or int(journal["turn_hi"]) != authority["admitted_turn"]:
+            raise ValueError("Chat Core receipt lost its exact session or journal binding")
+        if authority["admission_fingerprint"] != _chat_admission_fingerprint(
+            authority["card_envelope_fingerprint"], authority["persona_actor_id"],
+        ) or str(row["receipt_fingerprint"]) != _chat_receipt_fingerprint(authority):
+            raise ValueError("Chat Core receipt fingerprint is invalid")
+        try:
+            ops = json.loads(journal["ops"])
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("Chat Core receipt journal is unreadable") from exc
+        matches = [
+            op for op in ops
+            if isinstance(op, dict)
+            and op.get("op") == "chat_core_seed"
+            and op.get("core_fingerprint") == authority["core_fingerprint"]
+            and str(op.get("world_fingerprint") or "") == authority["world_fingerprint"]
+            and op.get("card_envelope_fingerprint")
+            == authority["card_envelope_fingerprint"]
+            and op.get("character_actor_id") == authority["character_actor_id"]
+            and op.get("persona_actor_id") == authority["persona_actor_id"]
+            and op.get("_turn") == authority["admitted_turn"]
+        ]
+        if len(matches) != 1:
+            raise ValueError("Chat Core receipt does not identify one exact journal operation")
+        return {
+            **authority,
+            "receipt_fingerprint": str(row["receipt_fingerprint"]),
+            "committed_at": float(row["committed_at"]),
+        }
+
+    def persist_chat_core_receipt(
+        self,
+        *,
+        session_id: str,
+        branch_id: str,
+        journal_op_id: int,
+        core_fingerprint: str,
+        world_fingerprint: str,
+        card_envelope_fingerprint: str,
+        character_actor_id: str,
+        persona_actor_id: str,
+        admitted_turn: int,
+    ) -> dict:
+        admission_fingerprint = _chat_admission_fingerprint(
+            card_envelope_fingerprint, persona_actor_id,
+        )
+        authority = {
+            "schema": "aetherstate-chat-core-receipt/1",
+            "session_id": str(session_id),
+            "branch_id": str(branch_id),
+            "journal_op_id": int(journal_op_id),
+            "core_fingerprint": str(core_fingerprint),
+            "world_fingerprint": str(world_fingerprint or ""),
+            "card_envelope_fingerprint": str(card_envelope_fingerprint),
+            "character_actor_id": str(character_actor_id),
+            "persona_actor_id": str(persona_actor_id),
+            "admitted_turn": int(admitted_turn),
+            "admission_fingerprint": admission_fingerprint,
+        }
+        receipt_fingerprint = _chat_receipt_fingerprint(authority)
+        with self.transaction():
+            prior = self.chat_core_receipt_for_session(session_id)
+            if prior is not None:
+                comparable = {
+                    key: prior[key] for key in authority
+                }
+                if comparable != authority:
+                    raise ValueError(
+                        "session already has a different Chat Core admission receipt",
+                    )
+                return prior
+            committed_at = time.time()
+            self.db.execute(
+                "INSERT INTO chat_core_receipts("
+                "session_id, branch_id, journal_op_id, core_fingerprint, world_fingerprint,"
+                "card_envelope_fingerprint, character_actor_id, persona_actor_id, admitted_turn,"
+                "admission_fingerprint, receipt_fingerprint, committed_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    session_id, branch_id, journal_op_id, core_fingerprint,
+                    world_fingerprint, card_envelope_fingerprint, character_actor_id,
+                    persona_actor_id, admitted_turn, admission_fingerprint,
+                    receipt_fingerprint, committed_at,
+                ),
+            )
+            receipt = self.chat_core_receipt_for_session(session_id)
+            if receipt is None:
+                raise RuntimeError("Chat Core receipt was not durably readable")
+            return receipt
+
+    def chat_continuity_seed_receipts(self, session_id: str) -> list[dict]:
+        """Return exact per-record Creator seed proofs bound to their journal operations."""
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT * FROM chat_continuity_seed_receipts"
+                " WHERE session_id=? ORDER BY committed_at, family, record_fingerprint",
+                (str(session_id),),
+            ).fetchall()
+        receipts: list[dict] = []
+        for row in rows:
+            try:
+                record = json.loads(row["record_json"])
+                authority = {
+                    "schema": "aetherstate-chat-continuity-seed-receipt/1",
+                    "session_id": str(row["session_id"]),
+                    "record_fingerprint": str(row["record_fingerprint"]),
+                    "branch_id": str(row["branch_id"]),
+                    "family": str(row["family"]),
+                    "record": record,
+                    "admitted_turn": int(row["admitted_turn"]),
+                    "journal_op_id": int(row["journal_op_id"]),
+                    "lifecycle_source": str(row["lifecycle_source"] or ""),
+                    "response_occurrence_id": str(row["response_occurrence_id"] or ""),
+                }
+                branch = self.db.execute(
+                    "SELECT session_id FROM branches WHERE branch_id=?",
+                    (authority["branch_id"],),
+                ).fetchone()
+                journal = self.db.execute(
+                    "SELECT branch_id, turn_lo, turn_hi, ops, source,"
+                    " lifecycle_source, response_occurrence_id"
+                    " FROM ops_journal WHERE id=?",
+                    (authority["journal_op_id"],),
+                ).fetchone()
+                if branch is None \
+                        or str(branch["session_id"]) != authority["session_id"] \
+                        or journal is None \
+                        or str(journal["branch_id"]) != authority["branch_id"] \
+                        or int(journal["turn_lo"]) != authority["admitted_turn"] \
+                        or int(journal["turn_hi"]) != authority["admitted_turn"] \
+                        or str(journal["source"]) != "genesis" \
+                        or str(journal["lifecycle_source"] or "") \
+                        != authority["lifecycle_source"] \
+                        or str(journal["response_occurrence_id"] or "") \
+                        != authority["response_occurrence_id"]:
+                    raise ValueError("continuity seed receipt lost its exact Ledger binding")
+                ops = json.loads(journal["ops"])
+                matches = [
+                    op for op in ops
+                    if isinstance(op, dict)
+                    and isinstance(op.get("_continuity_seed"), dict)
+                    and op["_continuity_seed"].get("family") == authority["family"]
+                    and op["_continuity_seed"].get("record_fingerprint")
+                    == authority["record_fingerprint"]
+                    and op["_continuity_seed"].get("record") == record
+                ]
+                if len(matches) != 1:
+                    raise ValueError(
+                        "continuity seed receipt does not own one exact journal operation"
+                    )
+                expected = _chat_continuity_seed_receipt_fingerprint(authority)
+                if not secrets.compare_digest(
+                    str(row["receipt_fingerprint"]), expected
+                ):
+                    legacy_authority = {
+                        key: value
+                        for key, value in authority.items()
+                        if key not in {"lifecycle_source", "response_occurrence_id"}
+                    }
+                    legacy = (
+                        not authority["lifecycle_source"]
+                        and not authority["response_occurrence_id"]
+                        and secrets.compare_digest(
+                            str(row["receipt_fingerprint"]),
+                            _chat_continuity_seed_receipt_fingerprint(
+                                legacy_authority
+                            ),
+                        )
+                    )
+                    if not legacy:
+                        raise ValueError(
+                            "continuity seed receipt fingerprint is invalid"
+                        )
+                committed_at = float(row["committed_at"])
+                if not math.isfinite(committed_at):
+                    raise ValueError("continuity seed receipt time is invalid")
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                OverflowError,
+                json.JSONDecodeError,
+            ) as exc:
+                raise ValueError(
+                    "stored Chat continuity seed receipt failed exact validation"
+                ) from exc
+            receipts.append(
+                {
+                    **authority,
+                    "receipt_fingerprint": str(row["receipt_fingerprint"]),
+                    "committed_at": committed_at,
+                }
+            )
+        return receipts
+
+    def persist_chat_continuity_seed_receipt(
+        self,
+        *,
+        session_id: str,
+        record_fingerprint: str,
+        branch_id: str,
+        family: str,
+        record: dict,
+        admitted_turn: int,
+        journal_op_id: int,
+        lifecycle_source: str = "creator_starting_continuity",
+        response_occurrence_id: str = "",
+    ) -> dict:
+        authority = {
+            "schema": "aetherstate-chat-continuity-seed-receipt/1",
+            "session_id": str(session_id),
+            "record_fingerprint": str(record_fingerprint),
+            "branch_id": str(branch_id),
+            "family": str(family),
+            "record": json.loads(_canonical_json(record)),
+            "admitted_turn": int(admitted_turn),
+            "journal_op_id": int(journal_op_id),
+            "lifecycle_source": str(lifecycle_source or ""),
+            "response_occurrence_id": str(response_occurrence_id or ""),
+        }
+        receipt_fingerprint = _chat_continuity_seed_receipt_fingerprint(authority)
+        with self.transaction():
+            prior = next(
+                (
+                    receipt
+                    for receipt in self.chat_continuity_seed_receipts(session_id)
+                    if receipt["record_fingerprint"] == record_fingerprint
+                ),
+                None,
+            )
+            if prior is not None:
+                if any(prior[key] != authority[key] for key in authority):
+                    raise ValueError(
+                        "continuity seed identity already owns different journal bytes"
+                    )
+                return prior
+            committed_at = time.time()
+            self.db.execute(
+                "INSERT INTO chat_continuity_seed_receipts("
+                "session_id, record_fingerprint, branch_id, family, record_json,"
+                " admitted_turn, journal_op_id, receipt_fingerprint, committed_at,"
+                " lifecycle_source, response_occurrence_id)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    authority["session_id"],
+                    authority["record_fingerprint"],
+                    authority["branch_id"],
+                    authority["family"],
+                    _canonical_json(authority["record"]),
+                    authority["admitted_turn"],
+                    authority["journal_op_id"],
+                    receipt_fingerprint,
+                    committed_at,
+                    authority["lifecycle_source"],
+                    authority["response_occurrence_id"],
+                ),
+            )
+            receipt = next(
+                (
+                    candidate
+                    for candidate in self.chat_continuity_seed_receipts(session_id)
+                    if candidate["record_fingerprint"] == record_fingerprint
+                ),
+                None,
+            )
+            if receipt is None:
+                raise RuntimeError("continuity seed receipt was not durably readable")
+            return receipt
 
     def creator_seed_receipt(self, session_id: str, seed_fingerprint: str) -> Optional[dict]:
         """Return one validated durable portable-seed admission receipt.
@@ -682,6 +1341,471 @@ class Store:
                             (now, session_id))
         return now
 
+    def experience_binding(self, session_id: str) -> ExperienceBinding:
+        with self._lock:
+            row = self.db.execute(
+                "SELECT experience_mode, experience_mode_source,"
+                " experience_mode_locked_turn, core_fingerprint,"
+                " character_actor_id, persona_actor_id"
+                " FROM sessions WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError("unknown session")
+        return ExperienceBinding(
+            normalize_experience_mode(row["experience_mode"]),
+            str(row["experience_mode_source"] or ""),
+            (
+                int(row["experience_mode_locked_turn"])
+                if row["experience_mode_locked_turn"] is not None
+                else None
+            ),
+            str(row["core_fingerprint"] or ""),
+            str(row["character_actor_id"] or ""),
+            str(row["persona_actor_id"] or ""),
+        )
+
+    def experience_inference_set_unlocked(
+        self, session_id: str, mode: str, source: str
+    ) -> ExperienceBinding:
+        selected = normalize_experience_mode(mode)
+        inferred_source = str(source or "default")
+        if inferred_source == "explicit":
+            raise ValueError("inference source cannot be explicit")
+        with self.transaction():
+            current = self.experience_binding(session_id)
+            if current.locked or current.source == "explicit":
+                return current
+            self.db.execute(
+                "UPDATE sessions SET experience_mode=?, experience_mode_source=?"
+                " WHERE session_id=? AND experience_mode_locked_turn IS NULL"
+                " AND COALESCE(experience_mode_source, '')<>'explicit'",
+                (selected, inferred_source, session_id),
+            )
+            return self.experience_binding(session_id)
+
+    def experience_mode_set_unlocked(
+        self, session_id: str, mode: str
+    ) -> ExperienceBinding:
+        selected = normalize_experience_mode(mode)
+        with self.transaction():
+            current = self.experience_binding(session_id)
+            if current.locked:
+                raise ExperienceModeLocked(current)
+            self.db.execute(
+                "UPDATE sessions SET experience_mode=?, experience_mode_source='explicit'"
+                " WHERE session_id=? AND experience_mode_locked_turn IS NULL",
+                (selected, session_id),
+            )
+            return self.experience_binding(session_id)
+
+    def experience_lock(self, session_id: str, turn: int) -> ExperienceBinding:
+        if not isinstance(turn, int) or isinstance(turn, bool) or turn < 0:
+            raise ValueError("locked turn must be a non-negative integer")
+        with self.transaction():
+            current = self.experience_binding(session_id)
+            if current.locked:
+                return current
+            self.db.execute(
+                "UPDATE sessions SET experience_mode=?,"
+                " experience_mode_source=CASE WHEN COALESCE(experience_mode_source,'')=''"
+                " THEN 'default' ELSE experience_mode_source END,"
+                " experience_mode_locked_turn=?"
+                " WHERE session_id=? AND experience_mode_locked_turn IS NULL",
+                (current.mode, turn, session_id),
+            )
+            return self.experience_binding(session_id)
+
+    def reset_unlocked_experience(
+        self, session_id: str, mode: str
+    ) -> ExperienceBinding:
+        """Atomically change an unaccepted session and discard only provisional Genesis state."""
+        selected = normalize_experience_mode(mode)
+        with self.transaction():
+            current = self.experience_binding(session_id)
+            if current.locked:
+                raise ExperienceModeLocked(current)
+            accepted = self.db.execute(
+                "SELECT 1 FROM turn_texts tt JOIN branches b ON b.branch_id=tt.branch_id"
+                " WHERE b.session_id=? AND COALESCE(tt.assistant_text,'')<>'' LIMIT 1",
+                (session_id,),
+            ).fetchone()
+            if accepted is not None:
+                raise ExperienceModeLocked(current)
+            row = self.db.execute(
+                "SELECT active_branch FROM sessions WHERE session_id=?", (session_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError("unknown session")
+            active_branch = str(row["active_branch"] or "")
+            branch_rows = self.db.execute(
+                "SELECT branch_id FROM branches WHERE session_id=?", (session_id,)
+            ).fetchall()
+            branch_ids = {str(branch["branch_id"]) for branch in branch_rows}
+
+            checkpoint_rows = self.db.execute(
+                "SELECT branch_id, turn_index, state FROM checkpoints WHERE branch_id IN"
+                " (SELECT branch_id FROM branches WHERE session_id=?)",
+                (session_id,),
+            ).fetchall()
+
+            durable_records = self.db.execute(
+                "SELECT 1 FROM claim_records WHERE branch_id IN"
+                " (SELECT branch_id FROM branches WHERE session_id=?)"
+                " UNION ALL SELECT 1 FROM world_event_records WHERE branch_id IN"
+                " (SELECT branch_id FROM branches WHERE session_id=?)"
+                " UNION ALL SELECT 1 FROM effect_receipts WHERE branch_id IN"
+                " (SELECT branch_id FROM branches WHERE session_id=?)"
+                " UNION ALL SELECT 1 FROM mechanic_settlement_receipts WHERE branch_id IN"
+                " (SELECT branch_id FROM branches WHERE session_id=?) LIMIT 1",
+                (session_id, session_id, session_id, session_id),
+            ).fetchone()
+            if durable_records is not None:
+                raise ExperienceModeLocked(current)
+
+            raw_creator_receipt = self.db.execute(
+                "SELECT 1 FROM creator_seed_receipts WHERE session_id=?", (session_id,)
+            ).fetchone()
+            try:
+                creator_receipt = self.creator_seed_receipt_for_session(session_id)
+            except ValueError as exc:
+                raise ExperienceModeLocked(current) from exc
+            if raw_creator_receipt is not None and creator_receipt is None:
+                raise ExperienceModeLocked(current)
+            raw_chat_receipt = self.db.execute(
+                "SELECT 1 FROM chat_core_receipts WHERE session_id=?", (session_id,),
+            ).fetchone()
+            try:
+                chat_receipt = self.chat_core_receipt_for_session(session_id)
+            except ValueError as exc:
+                raise ExperienceModeLocked(current) from exc
+            if raw_chat_receipt is not None and chat_receipt is None:
+                raise ExperienceModeLocked(current)
+            raw_continuity_receipts = self.db.execute(
+                "SELECT COUNT(*) AS n FROM chat_continuity_seed_receipts"
+                " WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            try:
+                continuity_receipts = self.chat_continuity_seed_receipts(session_id)
+            except ValueError as exc:
+                raise ExperienceModeLocked(current) from exc
+            if int(raw_continuity_receipts["n"] or 0) != len(continuity_receipts):
+                raise ExperienceModeLocked(current)
+            continuity_journal_ids = {
+                int(receipt["journal_op_id"]) for receipt in continuity_receipts
+            }
+
+            authored_row_ids: set[int] = set()
+            authored_world_id = ""
+            authored_world_state = None
+            if creator_receipt is not None:
+                if not creator_receipt["world_requested"] \
+                        or creator_receipt["player_requested"] \
+                        or creator_receipt["migrated"] \
+                        or int(creator_receipt["applied_ops"]) <= 0 \
+                        or str(creator_receipt["branch_id"]) not in branch_ids:
+                    raise ExperienceModeLocked(current)
+                authored_world_id = str(creator_receipt["world_id"] or "")
+                world_source = creator_receipt["world_source"]
+                from . import creator as _creator
+                from .state import (
+                    TIMES,
+                    _creator_world_snapshot,
+                    empty_state,
+                    reduce_state,
+                    slug,
+                )
+
+                admitted_turn = int(creator_receipt["admitted_turn"])
+                expected_snapshot = _creator_world_snapshot(
+                    world_source, admitted_turn
+                )
+                expected_payloads = [
+                    json.dumps(
+                        op,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    )
+                    for op in _creator.world_to_ops(world_source)
+                ]
+                expected_payloads.sort()
+                candidates = self.db.execute(
+                    "SELECT id, ops FROM ops_journal WHERE branch_id=? AND turn_lo=?"
+                    " AND turn_hi=? AND source='user' ORDER BY id",
+                    (
+                        str(creator_receipt["branch_id"]),
+                        int(creator_receipt["admitted_turn"]),
+                        int(creator_receipt["admitted_turn"]),
+                    ),
+                ).fetchall()
+                exact_rows = []
+                for candidate in candidates:
+                    try:
+                        ops = json.loads(candidate["ops"])
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if not isinstance(ops, list) \
+                            or len(ops) != int(creator_receipt["applied_ops"]):
+                        continue
+                    normalized_payloads = []
+                    valid_payloads = True
+                    for op in ops:
+                        op_turn = op.get("_turn") if isinstance(op, dict) else None
+                        if not isinstance(op, dict) \
+                                or not isinstance(op_turn, int) \
+                                or isinstance(op_turn, bool) \
+                                or op_turn != admitted_turn:
+                            valid_payloads = False
+                            break
+                        normalized = dict(op)
+                        expected_metadata = {"_turn": admitted_turn}
+                        if normalized.get("op") == "creator_world_seed":
+                            expected_metadata["_snapshot"] = expected_snapshot
+                        if normalized.get("op") == "scene_set" \
+                                and current.mode == "rpg":
+                            expected_metadata["_canon"] = 1
+                        if normalized.get("op") == "time_advance" \
+                                and current.mode == "rpg":
+                            expected_metadata["_turn_mark"] = 1
+                            new_time = normalized.get("to_time_of_day")
+                            if new_time in TIMES \
+                                    and TIMES.index(new_time) <= TIMES.index("evening"):
+                                expected_metadata["_day_wrap"] = 1
+                        if normalized.get("op") == "front_add":
+                            expected_metadata.update({
+                                "_fid": slug(str(normalized.get("name") or ""))[:64],
+                                "_segments": max(
+                                    3, min(12, int(normalized.get("segments", 6)))
+                                ),
+                                "_pace": max(
+                                    1, min(3, int(normalized.get("pace", 1)))
+                                ),
+                            })
+                            if normalized.get("event_duration_turns") is not None:
+                                expected_metadata["_event_duration_turns"] = max(
+                                    1,
+                                    min(
+                                        100,
+                                        int(normalized["event_duration_turns"]),
+                                    ),
+                                )
+                        actual_metadata = {
+                            key: value
+                            for key, value in normalized.items()
+                            if str(key).startswith("_")
+                        }
+                        try:
+                            metadata_matches = json.dumps(
+                                actual_metadata,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                                allow_nan=False,
+                            ) == json.dumps(
+                                expected_metadata,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                                allow_nan=False,
+                            )
+                        except (TypeError, ValueError):
+                            metadata_matches = False
+                        if not metadata_matches:
+                            valid_payloads = False
+                            break
+                        for key in expected_metadata:
+                            normalized.pop(key)
+                        try:
+                            normalized_payloads.append(json.dumps(
+                                normalized,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                                allow_nan=False,
+                            ))
+                        except (TypeError, ValueError):
+                            valid_payloads = False
+                            break
+                    if valid_payloads \
+                            and sorted(normalized_payloads) == expected_payloads:
+                        exact_rows.append((candidate, ops))
+                if len(exact_rows) != 1:
+                    raise ExperienceModeLocked(current)
+                authored_world_state = reduce_state(
+                    empty_state(), exact_rows[0][1]
+                )
+                authored_row_ids.add(int(exact_rows[0][0]["id"]))
+
+            proof_row = self.db.execute(
+                "SELECT branch_id FROM semantic_bootstrap_proofs WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            proof = None
+            proof_row_ids: set[int] = set()
+            if proof_row is not None:
+                proof_branch = str(proof_row["branch_id"] or "")
+                if proof_branch != active_branch or proof_branch not in branch_ids:
+                    raise ExperienceModeLocked(current)
+                try:
+                    proof = self.semantic_bootstrap_proof(session_id, proof_branch)
+                except ValueError as exc:
+                    raise ExperienceModeLocked(current) from exc
+                if proof is None:
+                    raise ExperienceModeLocked(current)
+                proof_row_ids = {int(entry["id"]) for entry in proof.journal_rows}
+
+            journal_rows = self.db.execute(
+                "SELECT id, branch_id, turn_hi, source, ops FROM ops_journal WHERE branch_id IN"
+                " (SELECT branch_id FROM branches WHERE session_id=?) ORDER BY id",
+                (session_id,),
+            ).fetchall()
+            provisional_ids: set[int] = set()
+            journal_ops: dict[int, list[dict]] = {}
+            for journal_row in journal_rows:
+                journal_id = int(journal_row["id"])
+                source = str(journal_row["source"] or "")
+                try:
+                    ops = json.loads(journal_row["ops"])
+                except (json.JSONDecodeError, TypeError) as exc:
+                    raise ExperienceModeLocked(current) from exc
+                if not isinstance(ops, list) \
+                        or any(not isinstance(op, dict) for op in ops):
+                    raise ExperienceModeLocked(current)
+                journal_ops[journal_id] = ops
+                if journal_id in authored_row_ids:
+                    continue
+                if source == "genesis" or (
+                    source == "bootstrap" and journal_id in proof_row_ids
+                ):
+                    provisional_ids.add(journal_id)
+                    if authored_world_id:
+                        provisional_world_ids = {
+                            str(op.get("world_id") or "")
+                            for op in ops
+                            if isinstance(op, dict)
+                            and op.get("op") == "world_identity_set"
+                        }
+                        provisional_world_ids.update(
+                            str((op.get("document") or {}).get("world_id") or "")
+                            for op in ops
+                            if isinstance(op, dict)
+                            and op.get("op") == "creator_world_seed"
+                        )
+                        provisional_world_ids.discard("")
+                        if provisional_world_ids - {authored_world_id}:
+                            raise ExperienceModeLocked(current)
+                    continue
+                raise ExperienceModeLocked(current)
+
+            if proof_row_ids - provisional_ids:
+                raise ExperienceModeLocked(current)
+            if chat_receipt is not None \
+                    and int(chat_receipt["journal_op_id"]) not in provisional_ids:
+                raise ExperienceModeLocked(current)
+            if continuity_journal_ids - provisional_ids:
+                raise ExperienceModeLocked(current)
+
+            if checkpoint_rows:
+                from .state import empty_state, reduce_state
+
+                creator_branch = (
+                    str(creator_receipt["branch_id"])
+                    if creator_receipt is not None
+                    else ""
+                )
+                for checkpoint_row in checkpoint_rows:
+                    checkpoint_branch = str(checkpoint_row["branch_id"])
+                    if creator_branch and checkpoint_branch != creator_branch:
+                        raise ExperienceModeLocked(current)
+                    branch_journal = [
+                        row for row in journal_rows
+                        if str(row["branch_id"]) == checkpoint_branch
+                    ]
+                    if not branch_journal:
+                        raise ExperienceModeLocked(current)
+                    try:
+                        checkpoint_state = json.loads(checkpoint_row["state"])
+                        checkpoint_json = json.dumps(
+                            checkpoint_state,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            allow_nan=False,
+                        )
+                    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                        raise ExperienceModeLocked(current) from exc
+                    checkpoint_turn = int(checkpoint_row["turn_index"])
+                    prefix_state = empty_state()
+                    permitted_states: set[str] = set()
+                    for journal_row in branch_journal:
+                        if int(journal_row["turn_hi"]) > checkpoint_turn:
+                            continue
+                        prefix_state = reduce_state(
+                            prefix_state,
+                            journal_ops[int(journal_row["id"])],
+                        )
+                        permitted_states.add(json.dumps(
+                            prefix_state,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            allow_nan=False,
+                        ))
+                    if checkpoint_json not in permitted_states:
+                        raise ExperienceModeLocked(current)
+
+            from .turn_lifecycle import TurnLifecycleError
+
+            try:
+                self.turn_lifecycle.delete_provisional_bootstrap_family(
+                    session_id, proof
+                )
+            except (TurnLifecycleError, TypeError, ValueError) as exc:
+                raise ExperienceModeLocked(current) from exc
+            if proof_row is not None:
+                self.db.execute(
+                    "DELETE FROM semantic_bootstrap_proofs WHERE session_id=?",
+                    (session_id,),
+                )
+            if provisional_ids:
+                marks = ",".join("?" for _ in provisional_ids)
+                self.db.execute(
+                    f"DELETE FROM ops_journal WHERE id IN ({marks})",
+                    tuple(sorted(provisional_ids)),
+                )
+            if chat_receipt is not None:
+                self.db.execute(
+                    "DELETE FROM chat_core_receipts WHERE session_id=?", (session_id,),
+                )
+            if continuity_receipts:
+                self.db.execute(
+                    "DELETE FROM chat_continuity_seed_receipts WHERE session_id=?",
+                    (session_id,),
+                )
+            if checkpoint_rows:
+                self.db.execute(
+                    "DELETE FROM checkpoints WHERE branch_id IN"
+                    " (SELECT branch_id FROM branches WHERE session_id=?)",
+                    (session_id,),
+                )
+            if creator_receipt is not None:
+                self.checkpoint(
+                    str(creator_receipt["branch_id"]),
+                    int(creator_receipt["admitted_turn"]),
+                    authored_world_state,
+                )
+            self.db.execute(
+                "UPDATE sessions SET genesis='', genesis_epoch=COALESCE(genesis_epoch,0)+1,"
+                " narrator_speaker='', experience_mode=?, experience_mode_source='explicit',"
+                " core_fingerprint='', character_actor_id='', persona_actor_id=''"
+                " WHERE session_id=? AND experience_mode_locked_turn IS NULL",
+                (selected, session_id),
+            )
+            return self.experience_binding(session_id)
+
     def relink_external(self, session_id: str, external_id: str) -> None:
         """08 S4: chat rename — L3 chain evidence outranks a never-seen L1 id."""
         with self.transaction():
@@ -699,16 +1823,110 @@ class Store:
         """
         with self.transaction():
             source = self.db.execute(
-                "SELECT frozen, genesis, mode, narrator_speaker FROM sessions"
+                "SELECT frozen, genesis, mode, narrator_speaker, experience_mode,"
+                " experience_mode_source, experience_mode_locked_turn, core_fingerprint,"
+                " character_actor_id, persona_actor_id FROM sessions"
                 " WHERE session_id=?", (source_session_id,)).fetchone()
             if source is None:
                 return False
+            inherit_experience = (
+                source["experience_mode_locked_turn"] is not None
+                or source["experience_mode_source"] == "explicit"
+            )
             cur = self.db.execute(
-                "UPDATE sessions SET frozen=?, genesis=?, mode=?, narrator_speaker=?"
+                "UPDATE sessions SET frozen=?, genesis=?, mode=?, narrator_speaker=?,"
+                " experience_mode=?, experience_mode_source=?,"
+                " experience_mode_locked_turn=?, core_fingerprint=?,"
+                " character_actor_id=?, persona_actor_id=?"
                 " WHERE session_id=?",
                 (source["frozen"], source["genesis"], source["mode"],
-                 source["narrator_speaker"], target_session_id))
-            return cur.rowcount == 1
+                  source["narrator_speaker"],
+                  source["experience_mode"] if inherit_experience else "",
+                  source["experience_mode_source"] if inherit_experience else "",
+                  source["experience_mode_locked_turn"] if inherit_experience else None,
+                  source["core_fingerprint"] if inherit_experience else "",
+                  source["character_actor_id"] if inherit_experience else "",
+                  source["persona_actor_id"] if inherit_experience else "",
+                  target_session_id))
+            if cur.rowcount != 1:
+                return False
+            source_receipt = self.chat_core_receipt_for_session(source_session_id)
+            if source_receipt is not None and inherit_experience:
+                target = self.db.execute(
+                    "SELECT active_branch FROM sessions WHERE session_id=?",
+                    (target_session_id,),
+                ).fetchone()
+                target_branch = str(target["active_branch"] or "") if target else ""
+                rows = self.db.execute(
+                    "SELECT id, ops FROM ops_journal WHERE branch_id=? ORDER BY id",
+                    (target_branch,),
+                ).fetchall()
+                matching = []
+                for row in rows:
+                    try:
+                        ops = json.loads(row["ops"])
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if any(
+                        isinstance(op, dict)
+                        and op.get("op") == "chat_core_seed"
+                        and op.get("core_fingerprint") == source_receipt["core_fingerprint"]
+                        and op.get("persona_actor_id") == source_receipt["persona_actor_id"]
+                        for op in ops
+                    ):
+                        matching.append(int(row["id"]))
+                if len(matching) != 1:
+                    raise ValueError("forked Chat Core lost its exact journal identity")
+                self.persist_chat_core_receipt(
+                    session_id=target_session_id,
+                    branch_id=target_branch,
+                    journal_op_id=matching[0],
+                    core_fingerprint=source_receipt["core_fingerprint"],
+                    world_fingerprint=source_receipt["world_fingerprint"],
+                    card_envelope_fingerprint=source_receipt["card_envelope_fingerprint"],
+                    character_actor_id=source_receipt["character_actor_id"],
+                    persona_actor_id=source_receipt["persona_actor_id"],
+                    admitted_turn=source_receipt["admitted_turn"],
+                )
+                source_continuity = self.chat_continuity_seed_receipts(
+                    source_session_id
+                )
+                for seed_receipt in source_continuity:
+                    matching_seed_rows = []
+                    for row in rows:
+                        try:
+                            ops = json.loads(row["ops"])
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                        if any(
+                            isinstance(op, dict)
+                            and isinstance(op.get("_continuity_seed"), dict)
+                            and op["_continuity_seed"].get("family")
+                            == seed_receipt["family"]
+                            and op["_continuity_seed"].get("record_fingerprint")
+                            == seed_receipt["record_fingerprint"]
+                            for op in ops
+                        ):
+                            matching_seed_rows.append(int(row["id"]))
+                    if not matching_seed_rows:
+                        # The seed was outside the proven fork prefix.
+                        continue
+                    if len(matching_seed_rows) != 1:
+                        raise ValueError(
+                            "forked continuity seed lost its exact journal identity"
+                        )
+                    self.persist_chat_continuity_seed_receipt(
+                        session_id=target_session_id,
+                        record_fingerprint=seed_receipt["record_fingerprint"],
+                        branch_id=target_branch,
+                        family=seed_receipt["family"],
+                        record=seed_receipt["record"],
+                        admitted_turn=seed_receipt["admitted_turn"],
+                        journal_op_id=matching_seed_rows[0],
+                        lifecycle_source=seed_receipt["lifecycle_source"],
+                        response_occurrence_id=seed_receipt["response_occurrence_id"],
+                    )
+            return True
 
     # -- canonical transcript (L3 spine, 03 SS2.2) -------------------------------
     def append_msgs(self, branch_id: str, start_pos: int,
@@ -771,47 +1989,70 @@ class Store:
                 " WHERE branch_id=? AND pos<?", (bid, source_branch, at_pos))
             self.db.execute(
                 "INSERT INTO turns(branch_id, turn_index, user_hash, assistant_hash,"
-                " chain_hash, klass, gen_type, swipe_count, settled, extraction)"
+                " chain_hash, klass, gen_type, swipe_count, settled, extraction,"
+                " accepted_response_occurrence_id)"
                 " SELECT ?, turn_index, user_hash, assistant_hash, chain_hash, klass,"
-                " gen_type, swipe_count, settled, extraction FROM turns"
+                " gen_type, swipe_count, settled, extraction,"
+                " accepted_response_occurrence_id FROM turns"
                 " WHERE branch_id=? AND turn_index<=?", (bid, source_branch, fork_turn))
             # 03 SS3.3: the fork inherits state history up to the fork point — ops journal,
             # checkpoints and turn texts are copied so state_at(new_branch) replays correctly.
-            self.db.execute(
-                "INSERT INTO ops_journal(branch_id, turn_lo, turn_hi, ops, source, ts)"
-                " SELECT ?, turn_lo, turn_hi, ops, source, ts FROM ops_journal"
-                " WHERE branch_id=? AND turn_hi<=? ORDER BY id", (bid, source_branch, fork_turn))
+            source_journal = self.db.execute(
+                "SELECT * FROM ops_journal WHERE branch_id=? AND turn_hi<=? ORDER BY id",
+                (source_branch, fork_turn),
+            ).fetchall()
+            journal_id_map: dict[int, int] = {}
+            for journal_row in source_journal:
+                cursor = self.db.execute(
+                    "INSERT INTO ops_journal(branch_id, turn_lo, turn_hi, ops, source, ts,"
+                    " lifecycle_source, response_occurrence_id)"
+                    " VALUES(?,?,?,?,?,?,?,?)",
+                    (
+                        bid, journal_row["turn_lo"], journal_row["turn_hi"],
+                        journal_row["ops"], journal_row["source"], journal_row["ts"],
+                        journal_row["lifecycle_source"],
+                        journal_row["response_occurrence_id"],
+                    ),
+                )
+                journal_id_map[int(journal_row["id"])] = int(cursor.lastrowid)
             self.db.execute(
                 "INSERT INTO effect_receipts(branch_id, effect_id, turn_index, family, target,"
-                " direction, delta, payload_hash, owner, source, status, ts)"
+                " direction, delta, payload_hash, owner, source, status, ts,"
+                " lifecycle_source, response_occurrence_id)"
                 " SELECT ?, effect_id, turn_index, family, target, direction, delta, payload_hash,"
-                " owner, source, status, ts FROM effect_receipts"
+                " owner, source, status, ts, lifecycle_source, response_occurrence_id"
+                " FROM effect_receipts"
                 " WHERE branch_id=? AND turn_index<=?",
                 (bid, source_branch, fork_turn))
             self.db.execute(
                 "INSERT INTO mechanic_settlement_receipts(branch_id, settlement_ref, turn_index,"
                 " contract_id, frame_ref, meaning_ref, outcome, outcome_quality,"
                 " requirement_fingerprint, request_fingerprint, accepted_group_fingerprint,"
-                " receipt_fingerprint, receipt_json, source, status, ts)"
+                " receipt_fingerprint, receipt_json, source, status, ts,"
+                " lifecycle_source, response_occurrence_id)"
                 " SELECT ?, settlement_ref, turn_index, contract_id, frame_ref, meaning_ref,"
                 " outcome, outcome_quality, requirement_fingerprint, request_fingerprint,"
                 " accepted_group_fingerprint, receipt_fingerprint, receipt_json, source, status,"
-                " ts FROM mechanic_settlement_receipts"
+                " ts, lifecycle_source, response_occurrence_id"
+                " FROM mechanic_settlement_receipts"
                 " WHERE branch_id=? AND turn_index<=?",
                 (bid, source_branch, fork_turn))
             self.db.execute(
                 "INSERT INTO claim_records(branch_id, claim_id, origin_branch, session_id,"
-                " world_id, turn_index, source, fingerprint, record_json, status, ts)"
+                " world_id, turn_index, source, fingerprint, record_json, status, ts,"
+                " lifecycle_source, response_occurrence_id)"
                 " SELECT ?, claim_id, origin_branch, session_id, world_id, turn_index, source,"
-                " fingerprint, record_json, status, ts FROM claim_records"
+                " fingerprint, record_json, status, ts, lifecycle_source,"
+                " response_occurrence_id FROM claim_records"
                 " WHERE branch_id=? AND turn_index<=?",
                 (bid, source_branch, fork_turn))
             self.db.execute(
                 "INSERT INTO world_event_records(branch_id, event_id, origin_branch, session_id,"
                 " world_id, turn_index, kind, relation_target, source, fingerprint, record_json,"
-                " status, ts)"
+                " status, ts, lifecycle_source, response_occurrence_id)"
                 " SELECT ?, event_id, origin_branch, session_id, world_id, turn_index, kind,"
-                " relation_target, source, fingerprint, record_json, status, ts"
+                " relation_target, source, fingerprint, record_json, status, ts,"
+                " lifecycle_source, response_occurrence_id"
                 " FROM world_event_records"
                 " WHERE branch_id=? AND turn_index<=?",
                 (bid, source_branch, fork_turn))
@@ -823,19 +2064,125 @@ class Store:
                 "INSERT INTO turn_texts(branch_id, turn_index, user_text, assistant_text)"
                 " SELECT ?, turn_index, user_text, assistant_text FROM turn_texts"
                 " WHERE branch_id=? AND turn_index<=?", (bid, source_branch, fork_turn))
+            accepted_receipts = self.db.execute(
+                "SELECT turn_index, lifecycle_source, response_occurrence_id,"
+                " source_message_fingerprint"
+                " FROM chat_accepted_message_receipts"
+                " WHERE branch_id=? AND turn_index<=?"
+                " ORDER BY turn_index, lifecycle_source",
+                (source_branch, fork_turn),
+            ).fetchall()
+            for receipt in accepted_receipts:
+                self._insert_chat_message_receipt_locked(
+                    bid,
+                    int(receipt["turn_index"]),
+                    str(receipt["lifecycle_source"]),
+                    str(receipt["response_occurrence_id"] or ""),
+                    str(receipt["source_message_fingerprint"] or ""),
+                )
             # memory index rows follow the spine (02 SS10); fresh ids, parent links remapped
             mrows = self.db.execute(
                 "SELECT * FROM memories WHERE branch_id=? AND created_turn<=?",
                 (source_branch, fork_turn)).fetchall()
-            idmap = {r["memory_id"]: _ulid() for r in mrows}
+            memory_refs: dict[str, str] = {}
+            idmap: dict[str, str] = {}
+            for memory_row in mrows:
+                source_ref = str(memory_row["journal_op_ref"] or "")
+                target_ref = ""
+                if source_ref:
+                    row_id, separator, op_index = source_ref.partition(":")
+                    mapped_id = journal_id_map.get(int(row_id)) if row_id.isdigit() else None
+                    if separator and mapped_id is not None and op_index.isdigit():
+                        target_ref = f"{mapped_id}:{op_index}"
+                source_memory_id = str(memory_row["memory_id"])
+                memory_refs[source_memory_id] = target_ref
+                idmap[source_memory_id] = (
+                    "memory:" + hashlib.sha256(target_ref.encode("utf-8")).hexdigest()
+                    if target_ref
+                    else _ulid()
+                )
             for r in mrows:
+                target_ref = memory_refs[str(r["memory_id"])]
+                target_journal_id = int(target_ref.partition(":")[0]) if target_ref else None
+                try:
+                    source_refs = json.loads(r["source_journal_op_refs"] or "[]")
+                except (TypeError, ValueError):
+                    source_refs = []
+                target_source_refs = []
+                for source_ref in source_refs if isinstance(source_refs, list) else []:
+                    row_id, separator, op_index = str(source_ref).partition(":")
+                    mapped_id = journal_id_map.get(int(row_id)) if row_id.isdigit() else None
+                    if separator and mapped_id is not None and op_index.isdigit():
+                        target_source_refs.append(f"{mapped_id}:{op_index}")
                 self.db.execute(
                     "INSERT INTO memories(memory_id, session_id, branch_id, tier, text,"
                     " participants, location_id, tags, importance, created_turn,"
-                    " last_accessed_turn, parent_id, scene_index) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " last_accessed_turn, parent_id, scene_index, visibility, scoped_actors,"
+                    " journal_op_id, journal_op_ref, lifecycle_source,"
+                    " response_occurrence_id, source_message_fingerprint,"
+                    " source_journal_op_refs)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (idmap[r["memory_id"]], sid, bid, r["tier"], r["text"], r["participants"],
                      r["location_id"], r["tags"], r["importance"], r["created_turn"],
-                     r["last_accessed_turn"], idmap.get(r["parent_id"]), r["scene_index"]))
+                     r["last_accessed_turn"], idmap.get(r["parent_id"]), r["scene_index"],
+                     r["visibility"], r["scoped_actors"], target_journal_id, target_ref,
+                     r["lifecycle_source"], r["response_occurrence_id"],
+                     r["source_message_fingerprint"], json.dumps(target_source_refs)))
+            user_receipts = self.db.execute(
+                "SELECT * FROM chat_user_text_receipts"
+                " WHERE branch_id=? AND turn_index<=?",
+                (source_branch, fork_turn),
+            ).fetchall()
+            for receipt in user_receipts:
+                mapped_journal_id = journal_id_map.get(int(receipt["journal_op_id"]))
+                if mapped_journal_id is None:
+                    continue
+                self.db.execute(
+                    "INSERT INTO chat_user_text_receipts("
+                    "branch_id, turn_index, source_message_fingerprint,"
+                    " journal_op_id, committed_at) VALUES(?,?,?,?,?)",
+                    (
+                        bid,
+                        receipt["turn_index"],
+                        receipt["source_message_fingerprint"],
+                        mapped_journal_id,
+                        receipt["committed_at"],
+                    ),
+                )
+            recall_rows = self.db.execute(
+                "SELECT * FROM recall_records"
+                " WHERE branch_id=? AND source_turn<=? ORDER BY id",
+                (source_branch, fork_turn),
+            ).fetchall()
+            for recall_row in recall_rows:
+                try:
+                    source_refs = json.loads(recall_row["journal_op_refs"] or "[]")
+                except (TypeError, ValueError):
+                    source_refs = []
+                target_refs = []
+                for source_ref in source_refs if isinstance(source_refs, list) else []:
+                    row_id, separator, op_index = str(source_ref).partition(":")
+                    mapped_id = journal_id_map.get(int(row_id)) if row_id.isdigit() else None
+                    if separator and mapped_id is not None and op_index.isdigit():
+                        target_refs.append(f"{mapped_id}:{op_index}")
+                self.db.execute(
+                    "INSERT INTO recall_records("
+                    "session_id, branch_id, for_turn, source_turn, lifecycle_source,"
+                    " response_occurrence_id, source_message_fingerprint,"
+                    " journal_op_refs, lines, created) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        sid,
+                        bid,
+                        recall_row["for_turn"],
+                        recall_row["source_turn"],
+                        recall_row["lifecycle_source"],
+                        recall_row["response_occurrence_id"],
+                        recall_row["source_message_fingerprint"],
+                        json.dumps(target_refs),
+                        recall_row["lines"],
+                        recall_row["created"],
+                    ),
+                )
             self.turn_lifecycle.fork_prefix(source_branch, bid, at_pos, fork_turn)
             self.db.execute("UPDATE sessions SET active_branch=? WHERE session_id=?", (bid, sid))
             if discard_empty_branch and discard_empty_branch not in {source_branch, bid}:
@@ -845,7 +2192,9 @@ class Store:
                 branch_tables = ("branch_msgs", "turns", "ops_journal", "effect_receipts",
                                  "mechanic_settlement_receipts", "claim_records",
                                  "world_event_records", "checkpoints", "turn_texts",
-                                 "memories", "discovery", "lint", "director",
+                                 "memories", "recall_records", "chat_user_text_receipts",
+                                 "chat_accepted_message_receipts",
+                                 "discovery", "lint", "director",
                                  "semantic_turn_lifecycles")
                 occupied = empty is None or any(
                     self.db.execute(
@@ -872,6 +2221,8 @@ class Store:
                         "branch_msgs", "turns", "ops_journal", "effect_receipts",
                         "mechanic_settlement_receipts", "claim_records",
                         "world_event_records", "checkpoints", "turn_texts", "memories",
+                        "recall_records", "chat_user_text_receipts",
+                        "chat_accepted_message_receipts",
                         "discovery", "lint", "director",
                     ):
                         self.db.execute(
@@ -902,7 +2253,14 @@ class Store:
             if not row or row["head_turn"] < 0:
                 return 0
             self.db.execute(
-                "UPDATE turns SET swipe_count=swipe_count+1, assistant_hash=NULL "
+                "DELETE FROM chat_accepted_message_receipts"
+                " WHERE branch_id=? AND turn_index=?"
+                " AND lifecycle_source IN ('assistant_response','deferred_extraction')",
+                (branch_id, int(row["head_turn"])),
+            )
+            self.db.execute(
+                "UPDATE turns SET swipe_count=swipe_count+1, assistant_hash=NULL,"
+                " accepted_response_occurrence_id='' "
                 "WHERE branch_id=? AND turn_index=?", (branch_id, row["head_turn"]))
             got = self.db.execute("SELECT swipe_count FROM turns WHERE branch_id=? AND turn_index=?",
                                   (branch_id, row["head_turn"])).fetchone()
@@ -910,7 +2268,8 @@ class Store:
 
     def write_turn_hashes(self, branch_id: str, turn_index: int, *,
                           user_hash: Optional[str] = None,
-                          assistant_hash: Optional[str] = None) -> None:
+                          assistant_hash: Optional[str] = None,
+                          accepted_response_occurrence_id: Optional[str] = None) -> None:
         """Persist content-free turn identity used by lost-reply and response dedup guards."""
         fields: list[str] = []
         values: list[object] = []
@@ -920,6 +2279,9 @@ class Store:
         if assistant_hash is not None:
             fields.append("assistant_hash=?")
             values.append(str(assistant_hash))
+        if accepted_response_occurrence_id is not None:
+            fields.append("accepted_response_occurrence_id=?")
+            values.append(str(accepted_response_occurrence_id))
         if not fields:
             return
         with self.transaction():
@@ -927,26 +2289,203 @@ class Store:
                 f"UPDATE turns SET {', '.join(fields)} WHERE branch_id=? AND turn_index=?",
                 (*values, branch_id, turn_index))
 
+    def publish_chat_response_if_current(
+        self,
+        branch_id: str,
+        turn_index: int,
+        *,
+        expected_swipe_count: int,
+        assistant_text: str,
+        assistant_hash: str,
+        accepted_response_occurrence_id: str,
+    ) -> bool:
+        """Publish one Chat candidate only while its exact swipe attempt still owns the turn."""
+        if isinstance(expected_swipe_count, bool) \
+                or not isinstance(expected_swipe_count, int) \
+                or expected_swipe_count < 0:
+            return False
+        response_id = str(accepted_response_occurrence_id or "")
+        if re.fullmatch(r"response:[0-9a-f]{64}", response_id) is None:
+            return False
+        with self.transaction():
+            updated = self.db.execute(
+                "UPDATE turns SET assistant_hash=?, accepted_response_occurrence_id=?"
+                " WHERE branch_id=? AND turn_index=? AND swipe_count=?"
+                " AND COALESCE(accepted_response_occurrence_id, '')=''"
+                " AND assistant_hash IS NULL",
+                (
+                    str(assistant_hash),
+                    response_id,
+                    branch_id,
+                    int(turn_index),
+                    expected_swipe_count,
+                ),
+            )
+            if updated.rowcount != 1:
+                return False
+            self.db.execute(
+                "INSERT INTO turn_texts(branch_id, turn_index, assistant_text)"
+                " VALUES(?,?,?)"
+                " ON CONFLICT(branch_id, turn_index) DO UPDATE"
+                " SET assistant_text=excluded.assistant_text",
+                (branch_id, int(turn_index), str(assistant_text)),
+            )
+            source = self.db.execute(
+                "SELECT user_text, assistant_text FROM turn_texts"
+                " WHERE branch_id=? AND turn_index=?",
+                (branch_id, int(turn_index)),
+            ).fetchone()
+            user_text = str(source["user_text"] or "") if source else ""
+            accepted_text = str(source["assistant_text"] or "") if source else ""
+            if user_text:
+                self._insert_chat_message_receipt_locked(
+                    branch_id,
+                    int(turn_index),
+                    "user_text",
+                    "",
+                    "sha256:" + hashlib.sha256(
+                        user_text.encode("utf-8")
+                    ).hexdigest(),
+                )
+            if accepted_text:
+                accepted_fingerprint = "sha256:" + hashlib.sha256(
+                    accepted_text.encode("utf-8")
+                ).hexdigest()
+                for lifecycle in (
+                    "assistant_response",
+                    "deferred_extraction",
+                ):
+                    self._insert_chat_message_receipt_locked(
+                        branch_id,
+                        int(turn_index),
+                        lifecycle,
+                        response_id,
+                        accepted_fingerprint,
+                    )
+            return True
+
+    def chat_user_text_admitted(
+        self,
+        branch_id: str,
+        turn_index: int,
+        source_message_fingerprint: str,
+    ) -> bool:
+        with self._lock:
+            row = self.db.execute(
+                "SELECT 1 FROM chat_user_text_receipts r"
+                " JOIN ops_journal j ON j.id=r.journal_op_id"
+                " AND j.branch_id=r.branch_id"
+                " AND j.turn_lo=r.turn_index AND j.turn_hi=r.turn_index"
+                " AND j.source='rule' AND j.lifecycle_source='user_text'"
+                " AND COALESCE(j.response_occurrence_id, '')=''"
+                " WHERE r.branch_id=? AND r.turn_index=?"
+                " AND r.source_message_fingerprint=?",
+                (
+                    str(branch_id),
+                    int(turn_index),
+                    str(source_message_fingerprint),
+                ),
+            ).fetchone()
+        return row is not None
+
+    def record_chat_user_text_admission(
+        self,
+        branch_id: str,
+        turn_index: int,
+        source_message_fingerprint: str,
+        journal_op_id: int,
+    ) -> None:
+        fingerprint = str(source_message_fingerprint or "")
+        digest = fingerprint.removeprefix("sha256:")
+        if not fingerprint.startswith("sha256:") \
+                or len(digest) != 64 \
+                or any(char not in "0123456789abcdef" for char in digest):
+            raise ValueError("Chat user-text receipt requires an exact message fingerprint")
+        with self.transaction():
+            journal = self.db.execute(
+                "SELECT branch_id, turn_lo, turn_hi, source, lifecycle_source,"
+                " response_occurrence_id"
+                " FROM ops_journal WHERE id=?",
+                (int(journal_op_id),),
+            ).fetchone()
+            if journal is None \
+                    or str(journal["branch_id"]) != str(branch_id) \
+                    or int(journal["turn_lo"]) != int(turn_index) \
+                    or int(journal["turn_hi"]) != int(turn_index) \
+                    or str(journal["source"]) != "rule" \
+                    or str(journal["lifecycle_source"]) != "user_text" \
+                    or str(journal["response_occurrence_id"] or ""):
+                raise ValueError("Chat user-text receipt lost its exact Ledger operation")
+            prior = self.db.execute(
+                "SELECT journal_op_id FROM chat_user_text_receipts"
+                " WHERE branch_id=? AND turn_index=? AND source_message_fingerprint=?",
+                (
+                    str(branch_id),
+                    int(turn_index),
+                    fingerprint,
+                ),
+            ).fetchone()
+            if prior is not None and int(prior["journal_op_id"]) != int(journal_op_id):
+                live_prior = self.db.execute(
+                    "SELECT 1 FROM ops_journal WHERE id=? AND branch_id=?"
+                    " AND turn_lo=? AND turn_hi=? AND source='rule'"
+                    " AND lifecycle_source='user_text'"
+                    " AND COALESCE(response_occurrence_id, '')=''",
+                    (
+                        int(prior["journal_op_id"]),
+                        str(branch_id),
+                        int(turn_index),
+                        int(turn_index),
+                    ),
+                ).fetchone()
+                if live_prior is not None:
+                    raise ValueError("Chat user-text receipt conflicts with prior Ledger truth")
+            self.db.execute(
+                "INSERT INTO chat_user_text_receipts("
+                "branch_id, turn_index, source_message_fingerprint, journal_op_id, committed_at)"
+                " VALUES(?,?,?,?,?)"
+                " ON CONFLICT(branch_id, turn_index, source_message_fingerprint)"
+                " DO UPDATE SET journal_op_id=excluded.journal_op_id,"
+                " committed_at=excluded.committed_at",
+                (
+                    str(branch_id),
+                    int(turn_index),
+                    fingerprint,
+                    int(journal_op_id),
+                    time.time(),
+                ),
+            )
+
     # -- versioning spine (03 SS3.3) --------------------------------------------
     def journal(self, branch_id: str, turn_lo: int, turn_hi: int,
                 ops: list[dict], source: str, *,
                 claim_records: Optional[list[dict]] = None,
-                world_event_records: Optional[list[dict]] = None) -> None:
+                world_event_records: Optional[list[dict]] = None,
+                lifecycle_source: str = "",
+                response_occurrence_id: str = "") -> int:
+        lifecycle = str(lifecycle_source or source)
+        response_id = str(response_occurrence_id or "")
         with self.transaction():
             self._assert_typed_record_ownership(
                 branch_id, turn_lo, turn_hi, ops,
                 claim_records or [], world_event_records or [],
             )
-            self.db.execute(
-                "INSERT INTO ops_journal(branch_id, turn_lo, turn_hi, ops, source, ts)"
-                " VALUES(?,?,?,?,?,?)",
-                (branch_id, turn_lo, turn_hi, json.dumps(ops), source, time.time()))
+            cursor = self.db.execute(
+                "INSERT INTO ops_journal(branch_id, turn_lo, turn_hi, ops, source, ts,"
+                " lifecycle_source, response_occurrence_id) VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    branch_id, turn_lo, turn_hi, json.dumps(ops), source, time.time(),
+                    lifecycle, response_id,
+                ))
             self._insert_typed_records(
                 branch_id,
                 source,
                 claim_records or [],
                 world_event_records or [],
+                lifecycle_source=lifecycle,
+                response_occurrence_id=response_id,
             )
+            return int(cursor.lastrowid)
 
     @staticmethod
     def _record_json(value: dict) -> str:
@@ -1007,6 +2546,9 @@ class Store:
         source: str,
         claim_records: list[dict],
         world_event_records: list[dict],
+        *,
+        lifecycle_source: str = "",
+        response_occurrence_id: str = "",
     ) -> None:
         """Publish typed records beside their owning journal row.
 
@@ -1036,8 +2578,9 @@ class Store:
                 continue
             self.db.execute(
                 "INSERT INTO claim_records(branch_id, claim_id, origin_branch, session_id,"
-                " world_id, turn_index, source, fingerprint, record_json, status, ts)"
-                " VALUES(?,?,?,?,?,?,?,?,?,'committed',?)",
+                " world_id, turn_index, source, fingerprint, record_json, status, ts,"
+                " lifecycle_source, response_occurrence_id)"
+                " VALUES(?,?,?,?,?,?,?,?,?,'committed',?,?,?)",
                 (
                     branch_id,
                     claim_id,
@@ -1049,6 +2592,8 @@ class Store:
                     fingerprint,
                     encoded,
                     now,
+                    lifecycle_source,
+                    response_occurrence_id,
                 ),
             )
         for raw in world_event_records:
@@ -1073,8 +2618,8 @@ class Store:
             self.db.execute(
                 "INSERT INTO world_event_records(branch_id, event_id, origin_branch, session_id,"
                 " world_id, turn_index, kind, relation_target, source, fingerprint, record_json,"
-                " status, ts)"
-                " VALUES(?,?,?,?,?,?,?,?,?,?,?,'committed',?)",
+                " status, ts, lifecycle_source, response_occurrence_id)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,'committed',?,?,?)",
                 (
                     branch_id,
                     event_id,
@@ -1088,6 +2633,8 @@ class Store:
                     fingerprint,
                     encoded,
                     now,
+                    lifecycle_source,
+                    response_occurrence_id,
                 ),
             )
 
@@ -1254,18 +2801,25 @@ class Store:
                               ops: list[dict], source: str, receipts: list[dict],
                               mechanic_receipts: Optional[list[dict]] = None, *,
                               claim_records: Optional[list[dict]] = None,
-                              world_event_records: Optional[list[dict]] = None) -> None:
+                              world_event_records: Optional[list[dict]] = None,
+                              lifecycle_source: str = "",
+                              response_occurrence_id: str = "") -> int:
         """Commit one journal row and its damage/mechanic receipts atomically."""
         now = time.time()
+        lifecycle = str(lifecycle_source or source)
+        response_id = str(response_occurrence_id or "")
         with self.transaction():
             self._assert_typed_record_ownership(
                 branch_id, turn_lo, turn_hi, ops,
                 claim_records or [], world_event_records or [],
             )
-            self.db.execute(
-                "INSERT INTO ops_journal(branch_id, turn_lo, turn_hi, ops, source, ts)"
-                " VALUES(?,?,?,?,?,?)",
-                (branch_id, turn_lo, turn_hi, json.dumps(ops), source, now))
+            cursor = self.db.execute(
+                "INSERT INTO ops_journal(branch_id, turn_lo, turn_hi, ops, source, ts,"
+                " lifecycle_source, response_occurrence_id) VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    branch_id, turn_lo, turn_hi, json.dumps(ops), source, now,
+                    lifecycle, response_id,
+                ))
             self.db.executemany(
                 "INSERT INTO effect_receipts(branch_id, effect_id, turn_index, family, target,"
                 " direction, delta, payload_hash, owner, source, status, ts)"
@@ -1273,6 +2827,15 @@ class Store:
                 [(branch_id, r["effect_id"], turn_hi, r["family"], r["target"],
                   r["direction"], r["delta"], r["payload_hash"], r["owner"], source,
                   "committed", now) for r in receipts])
+            if receipts:
+                self.db.executemany(
+                    "UPDATE effect_receipts SET lifecycle_source=?, response_occurrence_id=?"
+                    " WHERE branch_id=? AND effect_id=?",
+                    [
+                        (lifecycle, response_id, branch_id, r["effect_id"])
+                        for r in receipts
+                    ],
+                )
             self.db.executemany(
                 "INSERT INTO mechanic_settlement_receipts(branch_id, settlement_ref, turn_index,"
                 " contract_id, frame_ref, meaning_ref, outcome, outcome_quality,"
@@ -1298,12 +2861,25 @@ class Store:
                     "committed",
                     now,
                 ) for r in (mechanic_receipts or [])])
+            if mechanic_receipts:
+                self.db.executemany(
+                    "UPDATE mechanic_settlement_receipts"
+                    " SET lifecycle_source=?, response_occurrence_id=?"
+                    " WHERE branch_id=? AND settlement_ref=?",
+                    [
+                        (lifecycle, response_id, branch_id, r["settlement_ref"])
+                        for r in mechanic_receipts
+                    ],
+                )
             self._insert_typed_records(
                 branch_id,
                 source,
                 claim_records or [],
                 world_event_records or [],
+                lifecycle_source=lifecycle,
+                response_occurrence_id=response_id,
             )
+            return int(cursor.lastrowid)
 
     def rule_ops_between(self, branch_id: str, turn_lo: int, turn_hi: int) -> list[dict]:
         """Rule/user ops whose journal range sits within ``turn_lo..turn_hi``.
@@ -1471,6 +3047,44 @@ class Store:
         """True only while every recorded turn in ``lo..hi`` still awaits this batch."""
         return self.extraction_range_is(branch_id, lo, hi, "pending")
 
+    def accepted_response_occurrence_id(
+        self, branch_id: str, turn_index: int
+    ) -> str:
+        with self._lock:
+            row = self.db.execute(
+                "SELECT accepted_response_occurrence_id FROM turns"
+                " WHERE branch_id=? AND turn_index=?",
+                (branch_id, int(turn_index)),
+            ).fetchone()
+        return str(row["accepted_response_occurrence_id"] or "") if row else ""
+
+    def chat_extraction_compare_and_set(
+        self,
+        branch_id: str,
+        turn_index: int,
+        response_occurrence_id: str,
+        status: str,
+        *,
+        expected: str = "pending",
+    ) -> bool:
+        """Transition one Chat extraction only while its accepted candidate still owns it."""
+        response_id = str(response_occurrence_id or "")
+        if not response_id:
+            return False
+        with self.transaction():
+            updated = self.db.execute(
+                "UPDATE turns SET extraction=? WHERE branch_id=? AND turn_index=?"
+                " AND accepted_response_occurrence_id=? AND extraction=?",
+                (
+                    str(status),
+                    branch_id,
+                    int(turn_index),
+                    response_id,
+                    str(expected),
+                ),
+            )
+            return updated.rowcount == 1
+
     def settle_head(self, branch_id: str) -> bool:
         """Idle settle (2026-07-04): the head turn normally settles only when the NEXT
         request arrives (lag-1 swipe protection), so the newest turn never extracted
@@ -1509,6 +3123,20 @@ class Store:
                             (branch_id, turn_index))
             self.db.execute("DELETE FROM memories WHERE branch_id=? AND created_turn>?",
                             (branch_id, turn_index))
+            self.db.execute(
+                "DELETE FROM recall_records WHERE branch_id=? AND source_turn>?",
+                (branch_id, turn_index),
+            )
+            self.db.execute(
+                "DELETE FROM chat_user_text_receipts"
+                " WHERE branch_id=? AND turn_index>?",
+                (branch_id, turn_index),
+            )
+            self.db.execute(
+                "DELETE FROM chat_accepted_message_receipts"
+                " WHERE branch_id=? AND turn_index>?",
+                (branch_id, turn_index),
+            )
             # members whose summary rolled back re-enter retrieval (08 L2 hierarchy intact)
             self.db.execute(
                 "UPDATE memories SET parent_id=NULL WHERE branch_id=? AND parent_id IS NOT"
@@ -1558,6 +3186,10 @@ class Store:
             self.db.execute("DELETE FROM memories WHERE branch_id=? AND created_turn>=?",
                             (branch_id, turn_index))
             self.db.execute(
+                "DELETE FROM recall_records WHERE branch_id=? AND source_turn>=?",
+                (branch_id, turn_index),
+            )
+            self.db.execute(
                 "UPDATE memories SET parent_id=NULL WHERE branch_id=? AND parent_id IS NOT"
                 " NULL AND parent_id NOT IN (SELECT memory_id FROM memories WHERE branch_id=?)",
                 (branch_id, branch_id))
@@ -1572,20 +3204,375 @@ class Store:
                 "(SELECT session_id FROM branches WHERE branch_id=?)",
                 (turn_index, branch_id))
 
+    def retract_chat_response_at(self, branch_id: str, turn_index: int) -> str:
+        """Retract only the abandoned accepted Chat response lineage.
+
+        User-text recognition survives. Assistant-response and deferred-extraction records
+        tied to the exact response occurrence are retired, and the turn becomes eligible for
+        the replacement response's own cold path.
+        """
+        with self.transaction():
+            turn = self.db.execute(
+                "SELECT accepted_response_occurrence_id FROM turns"
+                " WHERE branch_id=? AND turn_index=?",
+                (branch_id, int(turn_index)),
+            ).fetchone()
+            response_id = (
+                str(turn["accepted_response_occurrence_id"] or "")
+                if turn is not None
+                else ""
+            )
+            if response_id:
+                lifecycle = ("assistant_response", "deferred_extraction")
+                marks = ",".join("?" for _ in lifecycle)
+                self.db.execute(
+                    f"DELETE FROM chat_accepted_message_receipts WHERE branch_id=?"
+                    f" AND turn_index=? AND lifecycle_source IN ({marks})"
+                    " AND response_occurrence_id=?",
+                    (
+                        branch_id,
+                        int(turn_index),
+                        *lifecycle,
+                        response_id,
+                    ),
+                )
+                self.db.execute(
+                    f"DELETE FROM ops_journal WHERE branch_id=?"
+                    f" AND lifecycle_source IN ({marks})"
+                    " AND response_occurrence_id=?",
+                    (branch_id, *lifecycle, response_id),
+                )
+                for table in (
+                    "effect_receipts",
+                    "mechanic_settlement_receipts",
+                    "claim_records",
+                    "world_event_records",
+                ):
+                    self.db.execute(
+                        f"DELETE FROM {table} WHERE branch_id=?"
+                        f" AND lifecycle_source IN ({marks})"
+                        " AND response_occurrence_id=?",
+                        (branch_id, *lifecycle, response_id),
+                    )
+                memory_rows = self.db.execute(
+                    f"SELECT memory_id FROM memories WHERE branch_id=?"
+                    f" AND lifecycle_source IN ({marks})"
+                    " AND response_occurrence_id=?",
+                    (branch_id, *lifecycle, response_id),
+                ).fetchall()
+                memory_ids = [str(row["memory_id"]) for row in memory_rows]
+                self.db.execute(
+                    f"DELETE FROM memories WHERE branch_id=?"
+                    f" AND lifecycle_source IN ({marks})"
+                    " AND response_occurrence_id=?",
+                    (branch_id, *lifecycle, response_id),
+                )
+                if memory_ids:
+                    memory_marks = ",".join("?" for _ in memory_ids)
+                    self.db.execute(
+                        f"DELETE FROM embeddings WHERE memory_id IN ({memory_marks})",
+                        tuple(memory_ids),
+                    )
+                self.db.execute(
+                    "DELETE FROM recall_records WHERE branch_id=?"
+                    " AND response_occurrence_id=?",
+                    (branch_id, response_id),
+                )
+                self.db.execute(
+                    "UPDATE memories SET parent_id=NULL WHERE branch_id=?"
+                    " AND parent_id IS NOT NULL"
+                    " AND parent_id NOT IN ("
+                    "SELECT memory_id FROM memories WHERE branch_id=?"
+                    ")",
+                    (branch_id, branch_id),
+                )
+            self.db.execute(
+                "DELETE FROM checkpoints WHERE branch_id=? AND turn_index>=?",
+                (branch_id, int(turn_index)),
+            )
+            self.db.execute(
+                "UPDATE turn_texts SET assistant_text=NULL"
+                " WHERE branch_id=? AND turn_index=?",
+                (branch_id, int(turn_index)),
+            )
+            self.db.execute(
+                "UPDATE turns SET extraction='pending', assistant_hash=NULL,"
+                " accepted_response_occurrence_id=''"
+                " WHERE branch_id=? AND turn_index=?",
+                (branch_id, int(turn_index)),
+            )
+            return response_id
+
+    def apply_deferred_chat_swipe(
+        self,
+        *,
+        branch_id: str,
+        turn_index: int,
+        keep: int,
+        expected_swipe_count: int,
+    ) -> None:
+        """Apply the deferred Chat transcript mutation with one exact count CAS."""
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in (turn_index, keep, expected_swipe_count)
+        ):
+            raise ValueError("Chat swipe mutation plan is invalid")
+        with self.transaction():
+            branch = self.db.execute(
+                "SELECT head_turn, status FROM branches WHERE branch_id=?",
+                (branch_id,),
+            ).fetchone()
+            turn = self.db.execute(
+                "SELECT swipe_count FROM turns WHERE branch_id=? AND turn_index=?",
+                (branch_id, turn_index),
+            ).fetchone()
+            if branch is None or branch["status"] != "live" \
+                    or int(branch["head_turn"]) != turn_index or turn is None:
+                raise ValueError("Chat swipe branch advanced before mutation")
+            if int(turn["swipe_count"] or 0) != expected_swipe_count:
+                raise ValueError("Chat swipe count changed before mutation")
+            self.db.execute(
+                "DELETE FROM branch_msgs WHERE branch_id=? AND pos>=?",
+                (branch_id, keep),
+            )
+            self.retract_chat_response_at(branch_id, turn_index)
+            updated = self.db.execute(
+                "UPDATE turns SET swipe_count=?"
+                " WHERE branch_id=? AND turn_index=? AND swipe_count=?",
+                (
+                    expected_swipe_count + 1,
+                    branch_id,
+                    turn_index,
+                    expected_swipe_count,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("Chat swipe lost its count CAS")
+
     # -- memory index (02 SS10; retrieval metadata lives HERE, not in the journal) ----
     def memories_add(self, session_id: str, branch_id: str, tier: str, text: str,
                      participants: list, location_id: Optional[str], tags: list,
-                     importance: int, created_turn: int, scene_index: int) -> str:
-        mid = _ulid()
+                     importance: int, created_turn: int, scene_index: int, *,
+                     visibility: str = "public",
+                     scoped_actors: Optional[list[str]] = None,
+                     journal_op_ref: str = "",
+                     lifecycle_source: str = "",
+                     response_occurrence_id: str = "",
+                     source_message_fingerprint: str = "",
+                     source_journal_op_refs: Optional[list[str]] = None) -> str:
+        op_ref = str(journal_op_ref or "")
+        mid = (
+            "memory:" + hashlib.sha256(op_ref.encode("utf-8")).hexdigest()
+            if op_ref
+            else _ulid()
+        )
+        journal_row_id = None
+        if op_ref:
+            row_id, separator, op_index = op_ref.partition(":")
+            if not separator or not row_id.isdigit() or not op_index.isdigit():
+                raise ValueError("memory journal_op_ref must be <row id>:<op index>")
+            journal_row_id = int(row_id)
+        scope_json = json.dumps(sorted({
+            str(actor) for actor in (scoped_actors or []) if str(actor)
+        }))
+        source_refs_json = json.dumps(sorted({
+            str(ref) for ref in (source_journal_op_refs or []) if str(ref)
+        }))
+        encoded_participants = json.dumps(participants)
+        encoded_tags = json.dumps(tags)
+        values = (
+            mid, session_id, branch_id, tier, text, encoded_participants,
+            location_id, encoded_tags, importance, created_turn, created_turn,
+            scene_index, str(visibility or ""), scope_json, journal_row_id, op_ref,
+            str(lifecycle_source or ""), str(response_occurrence_id or ""),
+            str(source_message_fingerprint or ""),
+            source_refs_json,
+        )
         with self.transaction():
+            prior = self.db.execute(
+                "SELECT * FROM memories WHERE memory_id=?", (mid,),
+            ).fetchone()
+            if prior is not None:
+                comparable = (
+                    prior["session_id"], prior["branch_id"], prior["tier"], prior["text"],
+                    prior["participants"], prior["location_id"], prior["tags"],
+                    prior["importance"], prior["created_turn"], prior["scene_index"],
+                    prior["visibility"], prior["scoped_actors"], prior["journal_op_id"],
+                    prior["journal_op_ref"], prior["lifecycle_source"],
+                    prior["response_occurrence_id"], prior["source_message_fingerprint"],
+                    prior["source_journal_op_refs"],
+                )
+                expected = (
+                    session_id, branch_id, tier, text, encoded_participants,
+                    location_id, encoded_tags, importance, created_turn, scene_index,
+                    str(visibility or ""), scope_json, journal_row_id, op_ref,
+                    str(lifecycle_source or ""), str(response_occurrence_id or ""),
+                    str(source_message_fingerprint or ""),
+                    source_refs_json,
+                )
+                if comparable != expected:
+                    raise ValueError("memory mirror identity conflicts with prior bytes")
+                return mid
             self.db.execute(
                 "INSERT INTO memories(memory_id, session_id, branch_id, tier, text,"
                 " participants, location_id, tags, importance, created_turn,"
-                " last_accessed_turn, scene_index) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                (mid, session_id, branch_id, tier, text, json.dumps(participants),
-                 location_id, json.dumps(tags), importance, created_turn, created_turn,
-                 scene_index))
+                " last_accessed_turn, scene_index, visibility, scoped_actors,"
+                " journal_op_id, journal_op_ref, lifecycle_source,"
+                " response_occurrence_id, source_message_fingerprint,"
+                " source_journal_op_refs)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                values)
         return mid
+
+    def turn_text_source_fingerprint(
+        self,
+        branch_id: str,
+        turn_index: int,
+        lifecycle_source: str,
+        *,
+        require_receipt: bool = False,
+    ) -> str:
+        column = (
+            "user_text" if lifecycle_source == "user_text"
+            else "assistant_text"
+            if lifecycle_source in {"assistant_response", "deferred_extraction"}
+            else ""
+        )
+        if not column:
+            return ""
+        with self._lock:
+            receipt = self.db.execute(
+                "SELECT response_occurrence_id, source_message_fingerprint,"
+                " receipt_fingerprint FROM chat_accepted_message_receipts"
+                " WHERE branch_id=? AND turn_index=? AND lifecycle_source=?",
+                (
+                    str(branch_id),
+                    int(turn_index),
+                    str(lifecycle_source),
+                ),
+            ).fetchone()
+            if receipt is not None:
+                response_id = str(
+                    receipt["response_occurrence_id"] or ""
+                )
+                source_fingerprint = str(
+                    receipt["source_message_fingerprint"] or ""
+                )
+                authority = {
+                    "schema": "aetherstate-chat-accepted-message-receipt/1",
+                    "branch_id": str(branch_id),
+                    "turn_index": int(turn_index),
+                    "lifecycle_source": str(lifecycle_source),
+                    "response_occurrence_id": response_id,
+                    "source_message_fingerprint": source_fingerprint,
+                }
+                if str(receipt["receipt_fingerprint"] or "") != (
+                    _chat_accepted_message_receipt_fingerprint(authority)
+                ):
+                    return ""
+                if lifecycle_source == "user_text":
+                    if response_id:
+                        return ""
+                elif self.accepted_response_occurrence_id(
+                    branch_id,
+                    int(turn_index),
+                ) != response_id:
+                    return ""
+                return source_fingerprint
+            if require_receipt:
+                return ""
+            row = self.db.execute(
+                f"SELECT {column} AS source_text FROM turn_texts"
+                " WHERE branch_id=? AND turn_index=?",
+                (branch_id, int(turn_index)),
+            ).fetchone()
+        text = str(row["source_text"] or "") if row else ""
+        return (
+            "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+            if text
+            else ""
+        )
+
+    def journal_op_refs_current(
+        self,
+        branch_id: str,
+        refs: object,
+        *,
+        require: bool = False,
+    ) -> bool:
+        """Verify exact operation coordinates still belong to this accepted branch lineage."""
+        if not isinstance(refs, list):
+            return False
+        normalized = sorted({str(ref) for ref in refs if str(ref)})
+        if require and not normalized:
+            return False
+        with self._lock:
+            for ref in normalized:
+                row_id, separator, op_index = ref.partition(":")
+                if not separator or not row_id.isdigit() or not op_index.isdigit():
+                    return False
+                row = self.db.execute(
+                    "SELECT turn_hi, ops, lifecycle_source, response_occurrence_id"
+                    " FROM ops_journal WHERE branch_id=? AND id=?",
+                    (str(branch_id), int(row_id)),
+                ).fetchone()
+                if row is None:
+                    return False
+                try:
+                    operations = json.loads(row["ops"])
+                except (TypeError, ValueError):
+                    return False
+                index = int(op_index)
+                if not isinstance(operations, list) or not 0 <= index < len(operations):
+                    return False
+                response_id = str(row["response_occurrence_id"] or "")
+                if response_id:
+                    accepted = self.db.execute(
+                        "SELECT accepted_response_occurrence_id FROM turns"
+                        " WHERE branch_id=? AND turn_index=?",
+                        (str(branch_id), int(row["turn_hi"])),
+                    ).fetchone()
+                    if accepted is None or str(
+                        accepted["accepted_response_occurrence_id"] or ""
+                    ) != response_id:
+                        return False
+        return True
+
+    def memory_artifact_lineage_current(self, branch_id: str, row) -> bool:
+        """Validate one indexed memory/summary before it enters a Chat-derived artifact."""
+        try:
+            turn = int(row["created_turn"])
+            lifecycle = str(row["lifecycle_source"] or "")
+            response_id = str(row["response_occurrence_id"] or "")
+            fingerprint = str(row["source_message_fingerprint"] or "")
+            direct_ref = str(row["journal_op_ref"] or "")
+            source_refs = json.loads(row["source_journal_op_refs"] or "[]")
+        except (KeyError, TypeError, ValueError):
+            return False
+        if lifecycle not in {
+            "user_text", "assistant_response", "deferred_extraction",
+        } or not fingerprint:
+            return False
+        if lifecycle == "user_text" and response_id:
+            return False
+        if lifecycle in {"assistant_response", "deferred_extraction"} \
+                and (
+                    not response_id
+                    or self.accepted_response_occurrence_id(branch_id, turn)
+                    != response_id
+                ):
+            return False
+        if fingerprint != self.turn_text_source_fingerprint(
+            branch_id,
+            turn,
+            lifecycle,
+            require_receipt=True,
+        ):
+            return False
+        refs = [direct_ref] if direct_ref else []
+        if isinstance(source_refs, list):
+            refs.extend(str(ref) for ref in source_refs if str(ref))
+        return self.journal_op_refs_current(branch_id, refs, require=True)
 
     def memories_candidates(self, branch_id: str, fetch_cap: int = 1000) -> list[sqlite3.Row]:
         """Unconsolidated rows only (parent_id IS NULL — 08 L2 exclusion), newest first;
@@ -1613,16 +3600,149 @@ class Store:
                 " parent_id IS NULL AND scene_index<=? ORDER BY scene_index, created_turn",
                 (branch_id, max_scene_index)).fetchall()
 
-    def write_recall(self, session_id: str, for_turn: int, lines: list[str]) -> None:
+    def clear_recall(
+        self,
+        session_id: str,
+        *,
+        branch_id: str,
+        for_turn: int,
+    ) -> None:
         with self.transaction():
             self.db.execute(
-                "INSERT OR REPLACE INTO recall(session_id, for_turn, lines, created)"
-                " VALUES(?,?,?,?)", (session_id, for_turn, json.dumps(lines), time.time()))
+                "DELETE FROM recall_records"
+                " WHERE session_id=? AND branch_id=? AND for_turn=?",
+                (str(session_id), str(branch_id), int(for_turn)),
+            )
 
-    def read_recall(self, session_id: str) -> list[str]:
+    def write_recall(
+        self,
+        session_id: str,
+        for_turn: int,
+        lines: list[str],
+        *,
+        branch_id: str = "",
+        source_turn: int = -1,
+        lifecycle_source: str = "",
+        response_occurrence_id: str = "",
+        source_message_fingerprint: str = "",
+        journal_op_refs: Optional[list[str]] = None,
+        replace: bool = True,
+    ) -> None:
+        with self.transaction():
+            if not branch_id:
+                self.db.execute(
+                    "INSERT OR REPLACE INTO recall(session_id, for_turn, lines, created)"
+                    " VALUES(?,?,?,?)",
+                    (session_id, for_turn, json.dumps(lines), time.time()),
+                )
+                return
+            if replace:
+                self.db.execute(
+                    "DELETE FROM recall_records"
+                    " WHERE session_id=? AND branch_id=? AND for_turn=?",
+                    (str(session_id), str(branch_id), int(for_turn)),
+                )
+            self.db.execute(
+                "INSERT INTO recall_records("
+                "session_id, branch_id, for_turn, source_turn, lifecycle_source,"
+                " response_occurrence_id, source_message_fingerprint,"
+                " journal_op_refs, lines, created) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (
+                    str(session_id),
+                    str(branch_id),
+                    int(for_turn),
+                    int(source_turn),
+                    str(lifecycle_source or ""),
+                    str(response_occurrence_id or ""),
+                    str(source_message_fingerprint or ""),
+                    json.dumps(list(journal_op_refs or [])),
+                    json.dumps(list(lines)),
+                    time.time(),
+                ),
+            )
+
+    def read_recall(
+        self,
+        session_id: str,
+        *,
+        branch_id: str = "",
+        for_turn: Optional[int] = None,
+        experience_mode: str = "",
+    ) -> list[str]:
+        if branch_id:
+            query = (
+                "SELECT * FROM recall_records"
+                " WHERE session_id=? AND branch_id=?"
+            )
+            params: list[object] = [str(session_id), str(branch_id)]
+            if for_turn is not None:
+                query += " AND for_turn=?"
+                params.append(int(for_turn))
+            query += " ORDER BY id"
+            with self._lock:
+                rows = self.db.execute(query, tuple(params)).fetchall()
+            out: list[str] = []
+            for row in rows:
+                lifecycle = str(row["lifecycle_source"] or "")
+                response_id = str(row["response_occurrence_id"] or "")
+                source_turn = int(row["source_turn"])
+                if experience_mode == "chat":
+                    if lifecycle not in {
+                        "user_text",
+                        "assistant_response",
+                        "deferred_extraction",
+                    }:
+                        continue
+                    if lifecycle == "user_text":
+                        if response_id:
+                            continue
+                    elif not response_id:
+                        continue
+                if response_id:
+                    current = self.accepted_response_occurrence_id(
+                        branch_id,
+                        source_turn,
+                    )
+                    if current != response_id:
+                        continue
+                source_fingerprint = str(
+                    row["source_message_fingerprint"] or ""
+                )
+                current_fingerprint = self.turn_text_source_fingerprint(
+                    branch_id,
+                    source_turn,
+                    lifecycle,
+                    require_receipt=experience_mode == "chat",
+                )
+                if experience_mode == "chat":
+                    if not source_fingerprint \
+                            or source_fingerprint != current_fingerprint:
+                        continue
+                elif source_fingerprint \
+                        and source_fingerprint != current_fingerprint:
+                    continue
+                try:
+                    refs = json.loads(row["journal_op_refs"] or "[]")
+                    values = json.loads(row["lines"])
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(refs, list):
+                    continue
+                if (refs or experience_mode == "chat") and not self.journal_op_refs_current(
+                    branch_id,
+                    refs,
+                    require=experience_mode == "chat",
+                ):
+                    continue
+                if isinstance(values, list):
+                    out.extend(str(value) for value in values)
+            if out or experience_mode == "chat":
+                return out
         with self._lock:
-            row = self.db.execute("SELECT lines FROM recall WHERE session_id=?",
-                                  (session_id,)).fetchone()
+            row = self.db.execute(
+                "SELECT lines FROM recall WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
         try:
             return json.loads(row["lines"]) if row else []
         except (TypeError, ValueError):
@@ -1870,7 +3990,10 @@ class Store:
                 for tbl in ("turns", "ops_journal", "effect_receipts",
                             "mechanic_settlement_receipts", "claim_records",
                             "world_event_records", "checkpoints", "branch_msgs",
-                            "turn_texts", "memories", "lint", "director", "discovery"):
+                            "turn_texts", "memories", "recall_records",
+                            "chat_user_text_receipts",
+                            "chat_accepted_message_receipts",
+                            "lint", "director", "discovery"):
                     self.db.execute(f"DELETE FROM {tbl} WHERE branch_id=?", (b,))
                 self.db.execute("DELETE FROM branches WHERE branch_id=?", (b,))
             for tbl in ("slices", "recall", "notes"):
@@ -1880,6 +4003,9 @@ class Store:
             )
             self.db.execute(
                 "DELETE FROM creator_seed_receipts WHERE session_id=?", (session_id,)
+            )
+            self.db.execute(
+                "DELETE FROM chat_core_receipts WHERE session_id=?", (session_id,)
             )
             self.db.execute("DELETE FROM embeddings WHERE memory_id NOT IN"
                             " (SELECT memory_id FROM memories)")

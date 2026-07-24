@@ -476,7 +476,10 @@ def test_frozen_zero_and_duplicate_selection_never_rerank(services):
         ).fetchone()[0]
         == 1
     )
-    with pytest.raises(PlayerLessonsConflictError, match="different input hash"):
+    with pytest.raises(
+        PlayerLessonsConflictError,
+        match="different input, mode, or Character Core",
+    ):
         _selection(
             lessons,
             branch_id,
@@ -643,10 +646,10 @@ def test_exact_v1_migration_preserves_narration_definition_and_frozen_receipt():
         values["fingerprint"] = PlayerLessons._definition_fingerprint(values)
         store.db.execute(
             f"""
-            INSERT INTO player_lessons({", ".join(player_lessons_module._LESSON_COLUMNS)})
-            VALUES({", ".join("?" for _ in player_lessons_module._LESSON_COLUMNS)})
+            INSERT INTO player_lessons({", ".join(player_lessons_module._V2_LESSON_COLUMNS)})
+            VALUES({", ".join("?" for _ in player_lessons_module._V2_LESSON_COLUMNS)})
             """,
-            tuple(values[column] for column in player_lessons_module._LESSON_COLUMNS),
+            tuple(values[column] for column in player_lessons_module._V2_LESSON_COLUMNS),
         )
         store.db.execute(
             """
@@ -691,6 +694,66 @@ def test_exact_v1_migration_preserves_narration_definition_and_frozen_receipt():
             "player_lesson_intent_selection_items",
             "player_lesson_intent_applications",
         }
+    finally:
+        store.db.close()
+
+
+def test_v2_store_migrates_to_v3_with_blank_chat_core_scope():
+    store = Store(":memory:")
+    try:
+        v2_schema = getattr(player_lessons_module, "_V2_SCHEMA_STATEMENTS", None)
+        v2_columns = getattr(player_lessons_module, "_V2_LESSON_COLUMNS", None)
+        v2_fingerprint = getattr(
+            player_lessons_module, "_v2_definition_fingerprint", None
+        )
+        assert v2_schema is not None
+        assert v2_columns is not None
+        assert callable(v2_fingerprint)
+        for statement in v2_schema:
+            store.db.execute(statement)
+        now = 1700000100.0
+        values = {
+            "lesson_id": "lesson_" + "c" * 32,
+            "effect_type": "narration_behavior",
+            "title": "Existing Chat-compatible narration preference",
+            "scope": "every_rpg_turn",
+            "do_text": "Keep the established definition.",
+            "avoid_text": "",
+            "anchor_entry_id": None,
+            "anchor_lex_id": None,
+            "anchor_concept_id": None,
+            "anchor_meaning_fingerprint": None,
+            "enabled": 1,
+            "revision": 2,
+            "fingerprint": "",
+            "approved_via": "local_control_api",
+            "approved_at": now,
+            "created_at": now - 10,
+            "updated_at": now,
+        }
+        values["fingerprint"] = v2_fingerprint(values)
+        store.db.execute(
+            f"""
+            INSERT INTO player_lessons({", ".join(v2_columns)})
+            VALUES({", ".join("?" for _ in v2_columns)})
+            """,
+            tuple(values[column] for column in v2_columns),
+        )
+        store.db.commit()
+
+        lessons = PlayerLessons(store.db, None, store._lock)
+        migrated = lessons.list_lessons()
+        assert len(migrated) == 1
+        assert migrated[0]["character_core_fingerprint"] == ""
+        assert migrated[0]["revision"] == 2
+        assert migrated[0]["fingerprint"] == PlayerLessons._definition_fingerprint({
+            **values,
+            "character_core_fingerprint": "",
+        })
+        columns = {
+            row["name"] for row in store.db.execute("PRAGMA table_info(player_lessons)")
+        }
+        assert "character_core_fingerprint" in columns
     finally:
         store.db.close()
 
@@ -934,7 +997,10 @@ def test_intent_frozen_zero_duplicate_and_nonapplication_reason_never_rerank(ser
         recognized_meanings=(_intent_recognition(action),),
     )
     assert duplicate["frozen_selected_count"] == 0 and duplicate["selected"] == []
-    with pytest.raises(PlayerLessonsConflictError, match="different input hash"):
+    with pytest.raises(
+        PlayerLessonsConflictError,
+        match="different input hash or narration mode",
+    ):
         lessons.select_intent(
             branch_id=branch_id,
             turn_index=0,

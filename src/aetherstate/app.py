@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from pathlib import Path
 
-from .config import Config
+from .config import Config, finalize_experience_profile_base
 from .control import _persist_config, make_control_router
 from .secret_store import CredentialStoreUnavailable, migrate_legacy_credentials
 from .extraction import Ladder
@@ -30,6 +30,7 @@ def create_app(cfg: Config, client_factory: Optional[Callable[[], httpx.AsyncCli
             "legacy provider credential could not be secured; "
             "enable the operating-system credential vault or use environment injection"
         )
+    finalize_experience_profile_base(cfg)
     _client: dict = {}
 
     @asynccontextmanager

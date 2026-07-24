@@ -959,6 +959,179 @@ class TurnLifecycleStore:
                 ).fetchone()
         return int(row["n"])
 
+    def delete_provisional_bootstrap_family(
+        self, session_id: str, proof: Optional[object]
+    ) -> bool:
+        """Delete only the reserved visible turn proved to be the supplied T0 bootstrap child.
+
+        A semantic new-session bootstrap commits its proof and reserves visible T1 in one outer
+        transaction.  An unlocked mode reset may therefore remove that reservation only when the
+        complete receipt family still has the exact pristine identity produced by ``reserve``.
+        Any lifecycle without its proof, any additional lifecycle, or any settled/artifact-bearing
+        attempt or delivery child is continuity rather than disposable bootstrap state and fails
+        closed.
+        """
+        session_ref = _require_text(session_id, "session_id")
+        with self.store.transaction():
+            lifecycles = self.db.execute(
+                "SELECT * FROM semantic_turn_lifecycles WHERE session_id=?"
+                " ORDER BY branch_id, turn_index, lifecycle_key",
+                (session_ref,),
+            ).fetchall()
+            if proof is None:
+                if lifecycles:
+                    raise TurnReservationConflict(
+                        "semantic lifecycle has no matching bootstrap proof"
+                    )
+                return False
+            if len(lifecycles) != 1:
+                raise TurnReservationConflict(
+                    "bootstrap proof does not own exactly one semantic lifecycle"
+                )
+
+            proof_session = _require_text(
+                getattr(proof, "session_id", None), "bootstrap proof session_id"
+            )
+            proof_branch = _require_text(
+                getattr(proof, "branch_id", None), "bootstrap proof branch_id"
+            )
+            proof_turn = _require_non_negative_integer(
+                getattr(proof, "turn_index", None), "bootstrap proof turn_index"
+            )
+            proof_post_hash = _require_sha(
+                getattr(proof, "post_bootstrap_state_fingerprint", None),
+                "bootstrap proof post ledger hash",
+            )
+            lifecycle = lifecycles[0]
+            try:
+                key = validate_pre_mutation_key(json.loads(lifecycle["key_json"]))
+            except (json.JSONDecodeError, TypeError, TurnArtifactError) as exc:
+                raise TurnReservationConflict(
+                    "bootstrap lifecycle key is malformed"
+                ) from exc
+            if proof_session != session_ref \
+                    or key["session_id"] != proof_session \
+                    or key["branch_id"] != proof_branch \
+                    or key["turn_index"] != proof_turn + 1 \
+                    or key["pre_ledger_hash"] != proof_post_hash:
+                raise TurnReservationConflict(
+                    "semantic lifecycle is not the exact visible bootstrap child"
+                )
+            for column in (
+                "lifecycle_key",
+                "session_id",
+                "branch_id",
+                "turn_index",
+                "accepted_prefix_pos",
+                "accepted_head_hash",
+                "player_input_hash",
+                "semantic_contract_version",
+            ):
+                if lifecycle[column] != key[column]:
+                    raise TurnReservationConflict(
+                        "semantic lifecycle columns differ from its canonical key"
+                    )
+            if lifecycle["key_json"] != _canonical_bytes(key).decode("utf-8") \
+                    or lifecycle["status"] != "reserved":
+                raise TurnReservationConflict(
+                    "bootstrap lifecycle is not an exact pristine reservation"
+                )
+            lifecycle_null_fields = (
+                "active_attempt_index",
+                "base_envelope_fingerprint",
+                "terminal_envelope_fingerprint",
+                "pre_ledger_hash",
+                "mechanics_post_ledger_hash",
+                "post_ledger_hash",
+                "occurrence_fingerprint",
+                "effect_fingerprint",
+                "rng_fingerprint",
+                "config_fingerprint",
+                "engine_version",
+                "consumed_intent_id",
+                "next_intent_id",
+                "source_lifecycle_key",
+            )
+            if any(lifecycle[field] is not None for field in lifecycle_null_fields):
+                raise TurnReservationConflict(
+                    "bootstrap lifecycle contains non-provisional settlement state"
+                )
+            lifecycle_key = str(key["lifecycle_key"])
+            request_hash = _require_sha(
+                lifecycle["initial_request_hash"], "initial_request_hash"
+            )
+
+            attempts = self.db.execute(
+                "SELECT * FROM semantic_turn_attempts WHERE lifecycle_key=?"
+                " ORDER BY attempt_index",
+                (lifecycle_key,),
+            ).fetchall()
+            if len(attempts) != 1:
+                raise TurnReservationConflict(
+                    "bootstrap lifecycle does not own exactly one initial attempt"
+                )
+            attempt = attempts[0]
+            if attempt["lifecycle_key"] != lifecycle_key \
+                    or attempt["attempt_index"] != 0 \
+                    or attempt["attempt_kind"] != "initial" \
+                    or attempt["request_hash"] != request_hash \
+                    or attempt["status"] != "reserved":
+                raise TurnReservationConflict(
+                    "bootstrap lifecycle attempt is not its exact pristine reservation"
+                )
+            attempt_null_fields = (
+                "ledger_anchor_hash",
+                "refusal_code",
+                "fallback_envelope_fingerprint",
+                "fallback_envelope_json",
+                "fallback_bytes",
+                "fallback_hash",
+                "terminal_envelope_fingerprint",
+                "terminal_envelope_json",
+                "accepted_bytes",
+                "accepted_hash",
+                "logical_message_id",
+                "selected_artifact_digest",
+            )
+            if any(attempt[field] is not None for field in attempt_null_fields):
+                raise TurnReservationConflict(
+                    "bootstrap attempt contains non-provisional artifact state"
+                )
+
+            claims = self.db.execute(
+                "SELECT * FROM semantic_turn_delivery_claims WHERE lifecycle_key=?",
+                (lifecycle_key,),
+            ).fetchall()
+            completions = self.db.execute(
+                "SELECT * FROM semantic_turn_delivery_completions WHERE lifecycle_key=?",
+                (lifecycle_key,),
+            ).fetchall()
+            if claims or completions:
+                raise TurnReservationConflict(
+                    "pristine bootstrap reservation cannot have delivery children"
+                )
+
+            deleted_attempt = self.db.execute(
+                "DELETE FROM semantic_turn_attempts"
+                " WHERE lifecycle_key=? AND attempt_index=0",
+                (lifecycle_key,),
+            )
+            deleted_lifecycle = self.db.execute(
+                "DELETE FROM semantic_turn_lifecycles"
+                " WHERE lifecycle_key=? AND session_id=? AND branch_id=? AND turn_index=?",
+                (
+                    lifecycle_key,
+                    proof_session,
+                    proof_branch,
+                    proof_turn + 1,
+                ),
+            )
+            if deleted_attempt.rowcount != 1 or deleted_lifecycle.rowcount != 1:
+                raise TurnReservationConflict(
+                    "bootstrap lifecycle family changed during exact deletion"
+                )
+            return True
+
     def reserve(
         self, pre_mutation_key: Mapping[str, Any], *, request_hash: Optional[str] = None
     ) -> TurnReservation:

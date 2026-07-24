@@ -1,5 +1,23 @@
 # AetherState — Config Schema, HTTP API & Extension Contract
 
+## Chat mode configuration and API
+
+The legacy global `[specialization].name = "none"` remains compatible and maps to the Chat
+fallback; `rpg` remains the global RPG fallback. This global setting is not a session selector:
+each session persists its own `chat` or `rpg` experience, accepts an explicit pre-lock choice, and
+locks that choice after its first accepted reply. It remains separate from
+`sessions.mode = enriched|passthrough`.
+
+| Route | Contract |
+|---|---|
+| `GET` / `POST /aether/session/{sid}/experience-mode` | Reads or sets the per-session `chat`/`rpg` mode. A locked session returns its lock state rather than changing experience. |
+| `POST /aether/session/{sid}/chat-core` | Atomically admits an ordinary or coded Character card plus the exact Persona key; returns the opaque actor ids and Core status. |
+| `GET /aether/session/{sid}/chat-core-status` | Returns bounded Core-admission status and fingerprints, never the Core body. |
+| `POST /aether/chat-card` | Builds a portable Chat Character card from a Core and optional World without creating a session. |
+| `POST /aether/chat-card/inspect` | Inspects one portable Chat card's validated metadata. |
+| `POST /aether/session/{sid}/author` with `mode: "chat_character"` | Uses Creator's MAIN-model authoring path for one complete non-RPG Character Core; a World is optional. |
+| `GET /aether/session/{sid}/hud` | Returns the Chat Continuity response for a bound Chat session, or the existing RPG HUD payload for RPG. Chat fields do not appear in the RPG response; RPG Player, rules, rolls, and War Room fields do not appear in the Chat response. |
+
 Every configuration key (`config.py`), every HTTP route, and the SillyTavern extension's contract
 with the proxy.
 
@@ -285,7 +303,7 @@ Authorization occurrences are treated as one logical field. Errors are OpenAI-sh
 
 | `GET /aether/session/{sid}/hud` | the **resolved player-facing HUD payload** (`hud.hud_view`): scene, player card(s) with EFFECTIVE skill mods + resolved abilities + appearance, statuses/conditions, drives, gear (worn) + inventory (carried), quests, dice rolls/checks, relations/factions. Registry math done server-side; the ONE source both the SillyTavern HUD and the Console "Player" tab render. Read-only, fail-open |
 
-The **player HUD** (2026-07-07, `hud.py` + the ST extension window + the Console "Player" tab) closes the "AetherState hides everything from the human" gap. AetherState computes a rich player state and injects it into the MODEL as bracketed blocks — the HUD surfaces that same truth to the PLAYER. `hud.hud_view(state, cfg)` is the single resolved projection; `GET .../hud` serves it; the SillyTavern extension renders it in a movable, themeable (`neutral`/`fantasy`/`scifi`/`modern`) window (launcher tab, `/aether-hud`, or the panel link), and the Console renders the identical payload in its **Player** tab (now the default) — so nothing player-facing lives only in ST or only in `raw`. The active specialization (`rpg`/`none`) is shown in the HUD header, the panel chip, and the status chip, and the panel has a narrative-mode selector. **Player appearance/description** is a new field (Creator form → `set_attribute appearance` on the player entity → HUD/Console/Narrator card); it did not exist before (only NPCs had descriptions). The HUD and the Console "Player" tab are also EDITABLE (HUD via an ✎ edit-mode toggle): HP ±  (`hp_adj`), spend a banked stat point (the new privileged `stat_spend {char, stat}` op — +1 to a stat clamped to the registry max, −1 point), equip/unequip (`item_equip`/`item_unequip`), use (`item_consume`), remove a status (`effect_remove`), and sate/± drives (`craving`/`obsession`, override-gated like all organic edits). All buttons build ops and go through the privileged `PATCH /state` path. The HUD also has a **▁ compact/minimize** mode. `/hud` carries the ids these controls need (item `iid`, effect `key`, obsession `target_kind`, item `slot`/`consumable`). The payload is COMPREHENSIVE — not just the player: effect rows carry `kind`/`kind_label` (**Status / Condition / Disease**) + `note` + `mods`; a **`cast`** array surfaces every tracked non-player entity (presence, location, mood, their statuses/conditions/diseases, drives, goals, worn/exposed, relationship tier + dims to the player); plus player `mood` + skill `mastery`, `relationships` (dims), `memories` (recent events), `consent`, and world flags/factions/affinity. Both the HUD and the Console "Player" tab render all of it (statuses shown even when empty), so nothing tracked stays hidden.
+The **experience HUD** (`hud.py` + the ST extension window + the Console "Player" tab) closes the "AetherState hides everything from the human" gap. `GET .../hud` resolves the bound session experience: Chat returns the Player-safe **Chat Continuity** projection, while RPG returns the established Player HUD. The SillyTavern extension renders the matching view in a movable, themeable (`neutral`/`fantasy`/`scifi`/`modern`) window (launcher tab, `/aether-hud`, or the panel link), and the Console exposes the same permitted truth. The panel and status chip show the active per-session experience and its lock state; they do not present the global specialization fallback as a live-session selector. In RPG, **Player appearance/description** flows from Creator through `set_attribute appearance` to the HUD, Console, and Narrator card. The RPG HUD and Console Player tab are editable (HUD via an ✎ edit-mode toggle): HP ± (`hp_adj`), banked stat spending (`stat_spend`), equip/unequip, consume, remove status, and override-gated drive edits all use the privileged `PATCH /state` path. Its payload also includes the tracked cast, relationship dimensions, memories, consent, world flags, factions, and affinity. Chat omits these RPG mechanics and Character-private continuity.
 
 The **world Narrator card** (2026-07-07, `narrator.py`) closes the "hard to see which world I'm in" gap: the card is NAMED after the world, its first message opens on the authored opening scene, its description carries the setting/laws/factions/places/cast + the Player, and its avatar is genre-tinted. The Creator's "🎭 Generate Narrator card" button (Session review tab / Character tab) POSTs the relevant install route and downloads the PNG. Session generation deliberately carries the immutable Creator source rather than current HP, organically encountered cast, or other live progression; legacy checkpoints use the reconstructed-state fallback.
 
@@ -366,11 +384,14 @@ unfreeze|writeback|state`, `/aether/extraction`, `/aether/groups`, `/aether/over
 > panel/slash reads must match `status.py`/`control.py` response shapes. Changing one side alone
 > breaks identity or the UI silently.
 
-## 4. RPG specialization (v0.2, phases RPG-0…RPG-2)
+## 4. RPG specialization profile and global fallback (v0.2, phases RPG-0…RPG-2)
 
-`[specialization].name = "none"` (default) is inert — byte-identical to pre-RPG. `"rpg"` turns
-the character card into a Dungeon Master and tracks the user's persona as a Player Card
-(`02 §7`).
+`[specialization].name = "none"` (default) supplies the advanced Chat fallback; `"rpg"` supplies
+the advanced RPG fallback and profile. Normal SillyTavern use chooses the per-session experience
+before the first accepted reply through the panel, `/aether-experience chat|rpg`, or the
+experience-mode route. An explicit or locked session choice is not rewritten by this global
+fallback. Under RPG, the character card acts as a Dungeon Master and the selected Persona is
+tracked as a Player Card (`02 §7`).
 
 ### 4.1 `[specialization]` — `SpecializationConfig`
 
@@ -405,17 +426,19 @@ profile > base-default**. RPG-0's profile contributes `[injection].priorities` (
 profile. Applied in `load_config` on both the file and defaults paths; `name` may also be set
 via `AETHERSTATE_SPECIALIZATION__NAME`.
 
-### 4.2 Control route (`control.py`)
+### 4.2 Advanced global fallback route (`control.py`)
 
 - `GET /aether/specialization` → `{name, blocks, dm_guard, dice, tiers}`.
-- `POST /aether/specialization {"name":"none"|"rpg"}` → sets it live (compose reads `cfg` per
-  request, so rendering + the DM guard change immediately) and persists `[specialization].name`
-  to `config.toml` so the profile overlay re-applies on next load. `422` on an unknown name.
+- `POST /aether/specialization {"name":"none"|"rpg"}` → changes and persists the advanced global
+  fallback. It may affect unbound legacy traffic, but never changes an explicitly selected or
+  locked per-session experience. `422` on an unknown name.
 - `/aether/status` also reports the active `specialization`.
 
 ### 4.3 Extension slash (`st-extension/index.js`)
 
-- `/aether-spec [none|rpg]` → POSTs the route; with no argument, reports the current mode.
+- `/aether-experience [chat|rpg]` → reads or sets the current session before its experience locks.
+- `/aether-spec [none|rpg]` → changes the advanced global fallback only; with no argument, reports
+  that fallback.
 
 
 ### 4.4 RPG-1 — mechanics, resolution & the rules contract (phase RPG-1)

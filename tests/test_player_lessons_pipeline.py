@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from aetherstate.config import Config
+from aetherstate import chat_card, genesis
 from aetherstate.pipeline import Pipeline
 from aetherstate.player_lessons import PlayerLessons
 from aetherstate.playerlex import PlayerLex
@@ -41,7 +42,7 @@ class RecordingLessons:
         self.select_calls.append(kwargs)
         return self._rows()
 
-    def rehydrate(self, branch_id: str, turn_index: int):
+    def rehydrate(self, branch_id: str, turn_index: int, **_context):
         self.rehydrate_calls.append((branch_id, turn_index))
         return self._rows()
 
@@ -152,6 +153,83 @@ def _pipeline(session: str, *, rpg: bool = True):
     return pipe, store, lessons, _stamp(session)
 
 
+def _chat_pipeline(session: str):
+    cfg = _cfg(rpg=False)
+    store = Store(":memory:")
+    lessons = RecordingLessons()
+    pipe = Pipeline(
+        store,
+        SessionEngine(store, cfg.session),
+        cfg,
+        rng=random.Random(22),
+        playerlex_service=None,
+        player_lessons_service=lessons,
+    )
+    session_id, branch_id = store.create_session(external_id=session)
+    store.experience_inference_set_unlocked(session_id, "chat", "card:character")
+    core = chat_card.ordinary_core({
+        "name": "Mara",
+        "description": "A private paramedic.",
+        "personality": "Direct and observant.",
+        "scenario": "Mara and the Persona share a home.",
+        "first_mes": "You are still awake?",
+        "mes_example": "",
+    })
+    before = store.journal_high_water()
+    result, identity = genesis.seed_chat_core(
+        store,
+        cfg,
+        session_id,
+        branch_id,
+        core,
+        "bound-chat-persona.png",
+        turn=0,
+    )
+    assert result.applied and not result.quarantined
+    rows = store.journal_window(
+        branch_id,
+        after_id=before,
+        through_id=store.journal_high_water(),
+    )
+    assert len(rows) == 1
+    store.persist_chat_core_receipt(
+        session_id=session_id,
+        branch_id=branch_id,
+        journal_op_id=rows[0]["id"],
+        core_fingerprint=identity["core_fingerprint"],
+        world_fingerprint=identity["world_fingerprint"],
+        card_envelope_fingerprint=identity["card_envelope_fingerprint"],
+        character_actor_id=identity["character_actor_id"],
+        persona_actor_id=identity["persona_actor_id"],
+        admitted_turn=0,
+    )
+    with store.transaction():
+        store.db.execute(
+            "UPDATE sessions SET experience_mode='chat',"
+            " experience_mode_source='card:character', core_fingerprint=?,"
+            " character_actor_id=?, persona_actor_id=? WHERE session_id=?",
+            (
+                identity["core_fingerprint"],
+                identity["character_actor_id"],
+                identity["persona_actor_id"],
+                session_id,
+            ),
+        )
+    stamp = Stamp(
+        session=session,
+        turn=1,
+        gen_type="normal",
+        speaker="Mara",
+        card_role="character",
+        user="Bean",
+        mode="chat",
+        core_fingerprint=identity["core_fingerprint"],
+        character_actor_id=identity["character_actor_id"],
+        persona_actor_id=identity["persona_actor_id"],
+    )
+    return pipe, store, lessons, stamp, identity
+
+
 def _wire_text(packet: bytes) -> str:
     payload = json.loads(packet)
     return "\n".join(str(row.get("content", "")) for row in payload["messages"])
@@ -175,6 +253,8 @@ def test_fresh_player_rpg_turn_selects_once_delivers_and_duplicate_reuses_exact_
     call = lessons.select_calls[0]
     assert call["turn_index"] == first_ctx.turn_index
     assert call["narration_mode"] == "exploration"
+    assert call["experience_mode"] == "rpg"
+    assert call["character_core_fingerprint"] == ""
     assert call["user_hash"]
     assert isinstance(call["recognized_meanings"], tuple)
     assert lessons.rehydrate_calls == [(first_ctx.branch_id, first_ctx.turn_index)]
@@ -371,22 +451,48 @@ def test_replay_classes_rehydrate_frozen_selection_without_reranking(
     assert len(lessons.delivered_calls) == 2
 
 
-@pytest.mark.parametrize("rpg,gen_type", ((False, "normal"), (True, "impersonate")))
-def test_non_rpg_and_impersonation_never_select_player_lessons(rpg: bool, gen_type: str):
-    pipe, _store, lessons, stamp = _pipeline(f"lesson-inert-{rpg}-{gen_type}", rpg=rpg)
-    stamp = _stamp(stamp.session, gen_type=gen_type)
+def test_non_rpg_and_impersonation_never_select_player_lessons():
+    generic, _store, generic_lessons, stamp = _pipeline(
+        "lesson-inert-generic-relay", rpg=False,
+    )
+    generic_packet, _ctx = generic.process(
+        _stamp(stamp.session, card_role="character"),
+        _body(),
+    )
+    assert generic_lessons.select_calls == []
+    assert generic_lessons.rehydrate_calls == []
+    assert generic_lessons.delivered_calls == []
+    assert "PLAYER LESSONS" not in _wire_text(generic_packet)
 
-    packet, _ctx = pipe.process(stamp, _body())
+    impersonation, _store, impersonation_lessons, stamp = _pipeline(
+        "lesson-inert-impersonation",
+    )
+    impersonation_packet, _ctx = impersonation.process(
+        _stamp(stamp.session, gen_type="impersonate"),
+        _body(),
+    )
+    assert impersonation_lessons.select_calls == []
+    assert impersonation_lessons.rehydrate_calls == []
+    assert impersonation_lessons.delivered_calls == []
+    assert "PLAYER LESSONS" not in _wire_text(impersonation_packet)
 
-    assert lessons.select_calls == []
-    assert lessons.rehydrate_calls == []
-    assert lessons.delivered_calls == []
-    assert "PLAYER LESSONS" not in _wire_text(packet)
+    chat, _store, chat_lessons, chat_stamp, identity = _chat_pipeline(
+        "lesson-bound-chat-character",
+    )
+    chat_packet, chat_ctx = chat.process(chat_stamp, _body("I open the old door."))
+    assert chat_ctx is not None and chat_ctx.experience_mode == "chat"
+    assert len(chat_lessons.select_calls) == 1
+    assert chat_lessons.select_calls[0]["experience_mode"] == "chat"
+    assert chat_lessons.select_calls[0]["narration_mode"] == "chat"
+    assert chat_lessons.select_calls[0]["character_core_fingerprint"] \
+        == identity["core_fingerprint"]
+    assert "[PLAYER LESSONS player-lessons/1" in _wire_text(chat_packet)
 
 
 def test_non_narrator_card_never_receives_private_narration_lesson_text():
-    pipe, _store, lessons, stamp = _pipeline("lesson-character-card")
-
+    pipe, _store, lessons, stamp = _pipeline(
+        "lesson-unbound-character-card", rpg=False,
+    )
     packet, _ctx = pipe.process(
         _stamp(stamp.session, card_role="character"),
         _body("I open the old door."),
@@ -396,6 +502,17 @@ def test_non_narrator_card_never_receives_private_narration_lesson_text():
     assert lessons.rehydrate_calls == []
     assert lessons.delivered_calls == []
     assert "PLAYER LESSONS" not in _wire_text(packet)
+
+    chat, _store, chat_lessons, chat_stamp, _identity = _chat_pipeline(
+        "lesson-bound-character-card",
+    )
+    chat_packet, chat_ctx = chat.process(
+        chat_stamp,
+        _body("I open the old door."),
+    )
+    assert chat_ctx is not None and chat_ctx.experience_mode == "chat"
+    assert len(chat_lessons.select_calls) == 1
+    assert "[PLAYER LESSONS player-lessons/1" in _wire_text(chat_packet)
 
 
 def test_unstamped_heuristic_request_never_receives_private_narration_lesson_text():

@@ -26,15 +26,16 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
-from . import assist, compose, director, discovery, linter, memory
+from . import assist, chat_continuity, compose, director, discovery, linter, memory
 from .claim_ingress import link_extracted_beliefs_to_claims
 from .extraction import (Endpoint, Ladder, filter_unearned_social_ops,
                          filter_realization_owned_ops,
                          filter_unrealized_memory_ops)
+from .experience import config_for_experience
 from .narrator_realization import build_narrator_realization_from_state
-from .state import (apply_delta, assign_damage_effect_ids, battle_ops, combat_ops, current_state,
-                    faction_cascade_ops, is_empty,
-                    progression_ops, reduce_state, world_ops)
+from .state import (apply_delta, apply_partitioned_delta, assign_damage_effect_ids, battle_ops,
+                     combat_ops, current_state, faction_cascade_ops, is_empty,
+                     progression_ops, reduce_state, world_ops)
 
 log = logging.getLogger("aetherstate.jobs")
 
@@ -49,6 +50,9 @@ class Batch:
     lo: int
     hi: int
     head: int
+    request_cfg: object = None
+    experience_mode: str = ""
+    response_occurrence_id: str = ""
 
 
 class JobRunner:
@@ -69,13 +73,83 @@ class JobRunner:
         self._inflight = 0
         self._warned_no_assist = False
 
+    def _config_for_session(self, session_id: str):
+        """Recover the persisted request-local profile for restart/drain scheduling."""
+        try:
+            binding = self.store.experience_binding(session_id)
+            if not binding.source and not binding.locked:
+                return self.cfg
+            return config_for_experience(self.cfg, binding.mode)
+        except (KeyError, ValueError):
+            return None
+
+    def _batch_context(self, session_id: str, request_cfg=None):
+        """Resolve one durable experience boundary before any snapshot is rendered."""
+        cfg = request_cfg or self._config_for_session(session_id) or self.cfg
+        binding = self.store.experience_binding(session_id)
+        bound_chat = (
+            binding.mode == "chat"
+            and bool(binding.core_fingerprint)
+            and bool(binding.character_actor_id)
+            and bool(binding.persona_actor_id)
+        )
+        if bound_chat:
+            return "chat", cfg, binding
+        spec = getattr(cfg, "specialization", None)
+        mode = "rpg" if binding.mode == "rpg" or (
+            spec is not None and getattr(spec, "name", "none") == "rpg"
+        ) else ""
+        return mode, cfg, binding
+
+    def _batch_candidate_current(self, batch: Batch, *, status: str = "pending") -> bool:
+        if batch.experience_mode != "chat":
+            return self.store.extraction_range_is(
+                batch.branch_id, batch.lo, batch.hi, status
+            )
+        if batch.lo != batch.hi or not batch.response_occurrence_id:
+            return False
+        row = self.store.db.execute(
+            "SELECT accepted_response_occurrence_id, extraction FROM turns"
+            " WHERE branch_id=? AND turn_index=?",
+            (batch.branch_id, batch.lo),
+        ).fetchone()
+        return bool(
+            row
+            and str(row["accepted_response_occurrence_id"] or "")
+            == batch.response_occurrence_id
+            and str(row["extraction"] or "") == status
+        )
+
+    def _mark_batch_extraction(
+        self, batch: Batch, status: str, *, expected: str = "pending"
+    ) -> bool:
+        if batch.experience_mode == "chat":
+            return self.store.chat_extraction_compare_and_set(
+                batch.branch_id,
+                batch.lo,
+                batch.response_occurrence_id,
+                status,
+                expected=expected,
+            )
+        self.store.mark_extraction(
+            batch.branch_id,
+            batch.lo,
+            batch.hi,
+            status,
+            expected=expected,
+        )
+        return self.store.extraction_range_is(
+            batch.branch_id, batch.lo, batch.hi, status
+        )
+
     # ------------------------------------------------------------------ routing (Q8)
-    def endpoint_for(self, session_id: str) -> tuple[Endpoint, str, int]:
+    def endpoint_for(self, session_id: str, request_cfg=None) -> tuple[Endpoint, str, int]:
         """(endpoint, semaphore-key, max_concurrent) for an extraction batch."""
-        if self.cfg.extraction.mode == "assist":
-            eps = self.cfg.assist.endpoints
+        cfg = request_cfg or self._config_for_session(session_id) or self.cfg
+        if cfg.extraction.mode == "assist":
+            eps = cfg.assist.endpoints
             if eps:
-                name = (getattr(getattr(self.cfg.assist, "group_endpoints", None),   # per-group
+                name = (getattr(getattr(cfg.assist, "group_endpoints", None),   # per-group
                                 "extraction", "") or "").strip()                      # override (Q8)
                 e = next((x for x in eps if x.name == name), None) if name else None
                 if e is None:
@@ -93,14 +167,19 @@ class JobRunner:
         # 2026-07-07 live repro: after a proxy restart the in-memory model hint is gone and
         # resume_pending fired extraction with model="" -> upstream 404 x ladder. The
         # configured [upstream].model is the engine-default fallback (same rule as assist).
-        return (Endpoint(base_url=self.cfg.upstream.base_url,
-                         model=self.models.get(session_id, "")
-                         or getattr(self.cfg.upstream, "model", "") or ""), "main", 1)
+        return (Endpoint(base_url=cfg.upstream.base_url,
+                          model=self.models.get(session_id, "")
+                          or getattr(cfg.upstream, "model", "") or ""), "main", 1)
 
     # ------------------------------------------------------------------ scheduling
-    def notify(self, session_id: str, branch_id: str, head_turn: int) -> None:
+    def notify(
+        self, session_id: str, branch_id: str, head_turn: int, *, request_cfg=None
+    ) -> None:
         """Called post-stream. Arms debounce or flushes on a full batch (03 SS3.2)."""
-        if self.cfg.extraction.mode in ("off", "rules"):
+        cfg = request_cfg or self._config_for_session(session_id)
+        if cfg is None:
+            return
+        if cfg.extraction.mode in ("off", "rules"):
             return
         until = self._disabled_until.get(session_id)
         if until is not None:
@@ -111,32 +190,44 @@ class JobRunner:
         pending = self.store.pending_extractions(branch_id)
         if not pending or branch_id in self._queued:
             if not pending:                   # head may be unsettled: idle timer covers it
-                self._arm_debounce(session_id, branch_id, head_turn)
+                if request_cfg is None:
+                    self._arm_debounce(session_id, branch_id, head_turn)
+                else:
+                    self._arm_debounce(session_id, branch_id, head_turn, cfg)
             return
         # 2026-07-04: user-set update cadence. N settled turns -> extract now
         # (1 = every turn, immediate). Below the cadence the idle debounce catches up,
         # so a walk-away never leaves state behind.
-        cadence = max(1, int(getattr(self.cfg.extraction, "cadence_turns", 1) or 1))
+        cadence = max(1, int(getattr(cfg.extraction, "cadence_turns", 1) or 1))
         if len(pending) >= cadence:
-            self._flush(session_id, branch_id, head_turn)
+            if request_cfg is None:
+                self._flush(session_id, branch_id, head_turn)
+            else:
+                self._flush(session_id, branch_id, head_turn, cfg)
         else:
-            self._arm_debounce(session_id, branch_id, head_turn)
+            if request_cfg is None:
+                self._arm_debounce(session_id, branch_id, head_turn)
+            else:
+                self._arm_debounce(session_id, branch_id, head_turn, cfg)
 
-    def _arm_debounce(self, session_id: str, branch_id: str, head: int) -> None:
+    def _arm_debounce(self, session_id: str, branch_id: str, head: int, request_cfg=None) -> None:
         old = self._debounce.pop(branch_id, None)
         if old:
             old.cancel()
+        cfg = request_cfg or self._config_for_session(session_id)
+        if cfg is None:
+            return
 
         async def fire():
             try:
-                await asyncio.sleep(self.cfg.extraction.debounce_s)
+                await asyncio.sleep(cfg.extraction.debounce_s)
                 try:
                     # Idle settle (2026-07-04): without this, the newest turn waited
                     # for the NEXT message before it could ever extract.
                     self.store.settle_head(branch_id)
                 except Exception:
                     pass
-                self._flush(session_id, branch_id, head)
+                self._flush(session_id, branch_id, head, cfg)
             except asyncio.CancelledError:
                 pass
 
@@ -146,14 +237,17 @@ class JobRunner:
         """Startup recovery (2026-07-04): pending work is DB-durable, but nothing rescanned
         it after a restart — settled-but-unextracted turns sat 'pending' until the next
         request on that session. Called once from app startup."""
-        if self.cfg.extraction.mode in ("off", "rules"):
-            return 0
         n = 0
         try:
             rows = self.store.db.execute(
                 "SELECT s.session_id, b.branch_id, b.head_turn FROM branches b"
                 " JOIN sessions s ON s.session_id=b.session_id WHERE b.status='live'").fetchall()
             for r in rows:
+                cfg = self._config_for_session(r["session_id"])
+                if cfg is None:
+                    continue
+                if cfg.extraction.mode in ("off", "rules"):
+                    continue
                 if self.store.pending_extractions(r["branch_id"]) \
                         and r["branch_id"] not in self._queued:
                     self._flush(r["session_id"], r["branch_id"], r["head_turn"])
@@ -164,17 +258,40 @@ class JobRunner:
             log.warning("resume_pending failed open: %s", type(exc).__name__)
         return n
 
-    def _flush(self, session_id: str, branch_id: str, head: int) -> None:
+    def _flush(self, session_id: str, branch_id: str, head: int, request_cfg=None) -> None:
         t = self._debounce.pop(branch_id, None)
         if t:
             t.cancel()
         pending = self.store.pending_extractions(branch_id)
         if not pending or branch_id in self._queued:
             return
-        batch = pending[:self.cfg.extraction.batch_max_turns]
+        experience_mode, cfg, _binding = self._batch_context(
+            session_id, request_cfg
+        )
+        batch = pending[:(
+            1
+            if experience_mode == "chat"
+            else cfg.extraction.batch_max_turns
+        )]
+        response_occurrence_id = (
+            self.store.accepted_response_occurrence_id(branch_id, batch[0])
+            if experience_mode == "chat"
+            else ""
+        )
+        if experience_mode == "chat" and not response_occurrence_id:
+            return
         self._queued.add(branch_id)
         self.queue.put_nowait((PRIORITY["extraction"], next(self._seq),
-                               Batch(session_id, branch_id, batch[0], batch[-1], head)))
+                                Batch(
+                                    session_id,
+                                    branch_id,
+                                    batch[0],
+                                    batch[-1],
+                                    head,
+                                    cfg,
+                                    experience_mode,
+                                    response_occurrence_id,
+                                )))
         self._ensure_worker()
 
     def _ensure_worker(self) -> None:
@@ -185,7 +302,7 @@ class JobRunner:
     async def _work(self) -> None:
         while True:
             _, _, batch = await self.queue.get()
-            ep, sem_key, maxc = self.endpoint_for(batch.session_id)
+            ep, sem_key, maxc = self.endpoint_for(batch.session_id, batch.request_cfg)
             sem = self._sems.setdefault(sem_key, asyncio.Semaphore(maxc))
             await sem.acquire()
             task = asyncio.get_running_loop().create_task(self._run_guarded(batch, ep, sem))
@@ -198,8 +315,7 @@ class JobRunner:
             await self._run_batch(batch, ep)
         except Exception as exc:      # invariant 3: a job crash never propagates
             log.warning("batch failed open: %s", type(exc).__name__)
-            self.store.mark_extraction(
-                batch.branch_id, batch.lo, batch.hi, "failed", expected="pending")
+            self._mark_batch_extraction(batch, "failed", expected="pending")
         finally:
             sem.release()
             self._inflight -= 1
@@ -210,22 +326,73 @@ class JobRunner:
                 self.notify(batch.session_id, batch.branch_id, batch.head)
 
     async def _run_batch(self, b: Batch, ep: Endpoint) -> None:
+        experience_mode, cfg, binding = self._batch_context(
+            b.session_id, b.request_cfg
+        )
+        b.request_cfg = cfg
+        b.experience_mode = b.experience_mode or experience_mode
+        if b.experience_mode == "chat":
+            if b.lo != b.hi:
+                return
+            b.response_occurrence_id = (
+                b.response_occurrence_id
+                or self.store.accepted_response_occurrence_id(b.branch_id, b.lo)
+            )
+            if not self._batch_candidate_current(b):
+                return
         state = self.store.state_at(b.branch_id, b.lo - 1, reduce_state)
-        snapshot = compose.render_header(state, self.cfg) if not is_empty(state) \
+        snapshot = (
+            compose.render_chat_packet(state, binding, cfg)
+            if b.experience_mode == "chat" and not is_empty(state)
+            else compose.render_header(state, cfg)
+            if not is_empty(state)
             else "(nothing tracked yet)"
+        )
         # CHARACTERS = the registry as known NOW (04 SS1.2) — aliases aren't time-scrubbed;
         # the snapshot above stays at lo-1 so the delta describes changes, not history.
-        characters = self._characters(current_state(self.store, b.branch_id), b.session_id)
-        context, exchange = self._exchange_parts(b)
+        characters = self._characters(
+            current_state(self.store, b.branch_id), b.session_id, cfg
+        )
+        context, exchange = self._exchange_parts(b, cfg)
         if not exchange:
-            self.store.mark_extraction(
-                b.branch_id, b.lo, b.hi, "skipped", expected="pending")
+            self._mark_batch_extraction(b, "skipped", expected="pending")
             return
-        delta = await self.ladder.extract(ep, snapshot, characters, b.lo, b.hi, exchange,
-                                          context=context)
+        extract_kwargs = {"context": context}
+        chat_turn_rows = []
+        if b.experience_mode == "chat":
+            chat_turn_rows = self.store.get_turn_texts(b.branch_id, b.lo, b.hi)
+            if len(chat_turn_rows) != 1:
+                raise RuntimeError("Chat extraction lost its exact accepted turn text")
+            if getattr(self.ladder, "chat_role_coordinates", False):
+                extract_kwargs["chat_coordinates"] = {
+                    "character_actor_id": binding.character_actor_id,
+                    "persona_actor_id": binding.persona_actor_id,
+                    "user_text": str(chat_turn_rows[0]["user_text"] or ""),
+                    "assistant_text": str(chat_turn_rows[0]["assistant_text"] or ""),
+                }
+        if getattr(self.ladder, "request_local_config", False):
+            extract_kwargs.update({
+                "request_cfg": cfg,
+                "experience_mode": b.experience_mode,
+            })
+        delta = await self.ladder.extract(
+            ep,
+            snapshot,
+            characters,
+            b.lo,
+            b.hi,
+            exchange,
+            **extract_kwargs,
+        )
+        if b.experience_mode == "chat" and not self._batch_candidate_current(b):
+            log.info(
+                "discarded stale Chat extraction [%d,%d] after response replacement",
+                b.lo,
+                b.hi,
+            )
+            return
         if delta is None:
-            self.store.mark_extraction(
-                b.branch_id, b.lo, b.hi, "failed", expected="pending")
+            self._mark_batch_extraction(b, "failed", expected="pending")
             failure_kind = getattr(self.ladder, "last_failure_kind", None) or "unknown"
             attempts = getattr(self.ladder, "last_failure_attempts", None) or []
             log.warning(
@@ -236,9 +403,9 @@ class JobRunner:
                 return
             n = self._fails.get(b.session_id, 0) + 1
             self._fails[b.session_id] = n
-            if n >= self.cfg.extraction.fail_autodisable_after:      # 09 C2
+            if n >= cfg.extraction.fail_autodisable_after:      # 09 C2
                 self._disabled_until[b.session_id] = \
-                    b.head + self.cfg.extraction.fail_reenable_after_turns
+                    b.head + cfg.extraction.fail_reenable_after_turns
                 log.warning("extraction auto-disabled for session %s until turn %d",
                             b.session_id, self._disabled_until[b.session_id])
             return
@@ -294,28 +461,155 @@ class JobRunner:
             turn_lo=b.lo,
             turn_hi=b.hi,
         )
+        if b.experience_mode == "chat":
+            user_text = str(chat_turn_rows[0]["user_text"] or "")
+            assistant_text = str(chat_turn_rows[0]["assistant_text"] or "")
+            continuity_state = current_state(self.store, b.branch_id)
+            partitions = chat_continuity.seal_accepted_chat_proposals(
+                user_text=user_text,
+                assistant_text=assistant_text,
+                proposals=getattr(delta, "social_occurrence_proposals", []),
+                session_id=b.session_id,
+                branch_id=b.branch_id,
+                turn_index=b.lo,
+                character_actor_id=binding.character_actor_id,
+                persona_actor_id=binding.persona_actor_id,
+                response_occurrence_id=b.response_occurrence_id,
+                continuity_state=continuity_state,
+                character_display_name=str(
+                    ((continuity_state.get("entities") or {}).get(
+                        binding.character_actor_id,
+                    ) or {}).get("name") or ""
+                ),
+                claim_records=self.store.claim_records(
+                    b.branch_id,
+                    through_turn=b.hi,
+                ),
+            )
+            partitions["deferred_extraction"].extend(
+                chat_continuity.scope_chat_memory_ops(
+                    delta_ops,
+                    character_actor_id=binding.character_actor_id,
+                    persona_actor_id=binding.persona_actor_id,
+                )
+            )
+            with self.store.transaction():
+                if not self._batch_candidate_current(b):
+                    log.info(
+                        "discarded stale Chat extraction [%d,%d] before atomic commit",
+                        b.lo,
+                        b.hi,
+                    )
+                    return
+                res = apply_partitioned_delta(
+                    self.store,
+                    b.session_id,
+                    b.branch_id,
+                    b.hi,
+                    partitions,
+                    cfg,
+                    expected_response_occurrence_id=b.response_occurrence_id,
+                )
+                if res.atomic_group_failures:
+                    if not self.store.chat_extraction_compare_and_set(
+                        b.branch_id,
+                        b.lo,
+                        b.response_occurrence_id,
+                        "failed",
+                        expected="pending",
+                    ):
+                        raise RuntimeError(
+                            "Chat extraction candidate changed after grouped rejection"
+                        )
+                    log.warning(
+                        "Chat extraction [%d,%d] rejected %d incomplete atomic"
+                        " social group(s)",
+                        b.lo,
+                        b.hi,
+                        len(res.atomic_group_failures),
+                    )
+                    return
+                memory.index_applied(
+                    self.store,
+                    b.session_id,
+                    b.branch_id,
+                    res.applied,
+                    res.state,
+                    require_source_receipt=True,
+                )
+                artifact_lineage = {
+                    "turn": b.hi,
+                    "lifecycle_source": "deferred_extraction",
+                    "response_occurrence_id": b.response_occurrence_id,
+                    "source_message_fingerprint":
+                        self.store.turn_text_source_fingerprint(
+                            b.branch_id,
+                            b.hi,
+                            "deferred_extraction",
+                            require_receipt=True,
+                        ),
+                }
+                memory.reflect(
+                    self.store,
+                    cfg,
+                    b.session_id,
+                    b.branch_id,
+                    res.state,
+                    artifact_lineage=artifact_lineage,
+                )
+                memory.precompute_recall(
+                    self.store,
+                    cfg,
+                    b.session_id,
+                    b.branch_id,
+                    res.state,
+                    exchange,
+                    b.hi,
+                    viewer_actor_id=binding.character_actor_id,
+                    player_actor_id=binding.persona_actor_id,
+                    experience_mode="chat",
+                    artifact_lineage=artifact_lineage,
+                )
+                if not self.store.chat_extraction_compare_and_set(
+                    b.branch_id,
+                    b.lo,
+                    b.response_occurrence_id,
+                    "done",
+                    expected="pending",
+                ):
+                    raise RuntimeError(
+                        "Chat extraction candidate changed before atomic completion"
+                    )
+            log.info(
+                "extracted Chat response [%d,%d]: %d applied, %d quarantined",
+                b.lo,
+                b.hi,
+                len(res.applied),
+                len(res.quarantined),
+            )
+            return
         res = apply_delta(self.store, b.session_id, b.branch_id, b.hi, delta_ops,
-                          "extraction", self.cfg, turn_lo=b.lo,
+                          "extraction", cfg, turn_lo=b.lo,
                           required_extraction=(b.lo, b.hi))
         if not self.store.extraction_pending_range(b.branch_id, b.lo, b.hi):
             log.info("discarded retired extraction [%d,%d] after narration retry", b.lo, b.hi)
             return
         requeued = self._discover_from_quarantine(b, res.quarantined)
         try:                                   # RPG-3b (doc 05 §5.4): deterministic faction
-            spec = getattr(self.cfg, "specialization", None)   # cascade — journaled rule ops
+            spec = getattr(cfg, "specialization", None)   # cascade — journaled rule ops
             if spec is not None and spec.name == "rpg" and res.state.get("player"):
                 casc = faction_cascade_ops(res.state, res.applied,
                                            getattr(spec, "faction_cascade", 0.1))
                 if casc:
                     r2 = apply_delta(self.store, b.session_id, b.branch_id, b.hi, casc,
-                                     "rule", self.cfg,
+                                     "rule", cfg,
                                      required_extraction=(b.lo, b.hi))
                     res.state = r2.state       # downstream passes see the cascaded snapshot
                     log.info("faction cascade: %d op(s) applied", len(r2.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("faction cascade skipped: %s", type(exc).__name__)
         try:                                   # Phase 1 (plan doc 13): the combat referee —
-            spec = getattr(self.cfg, "specialization", None)   # batch-applied clashes/harm
+            spec = getattr(cfg, "specialization", None)   # batch-applied clashes/harm
             if spec is not None and spec.name == "rpg" and res.state.get("player") \
                     and getattr(spec, "war_room", True):       # can settle defeats too
                 wr = combat_ops(
@@ -323,7 +617,7 @@ class JobRunner:
                     prepare_intent=bool(getattr(spec, "enemy_rolls", True)))
                 if wr:
                     rw = apply_delta(self.store, b.session_id, b.branch_id, b.hi, wr,
-                                     "rule", self.cfg,
+                                     "rule", cfg,
                                      required_extraction=(b.lo, b.hi))
                     res.state = rw.state
                     res.applied = list(res.applied) + rw.applied
@@ -332,7 +626,7 @@ class JobRunner:
                     bw = battle_ops(res.state, res.applied)   # waves / settle, after the defeats
                     if bw:
                         rb = apply_delta(self.store, b.session_id, b.branch_id, b.hi, bw,
-                                         "rule", self.cfg,
+                                         "rule", cfg,
                                          required_extraction=(b.lo, b.hi))
                         res.state = rb.state
                         res.applied = list(res.applied) + rb.applied
@@ -340,20 +634,20 @@ class JobRunner:
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("combat pass skipped: %s", type(exc).__name__)
         try:                                   # RPG-5 (doc 10): code-awarded progression —
-            spec = getattr(self.cfg, "specialization", None)   # XP / level-ups / defeat from
+            spec = getattr(cfg, "specialization", None)   # XP / level-ups / defeat from
             if spec is not None and spec.name == "rpg" and res.state.get("player"):
                 pro = progression_ops(res.state, res.applied,
                                       hardcore=getattr(spec, "hardcore", False))
                 if pro:
                     r3 = apply_delta(self.store, b.session_id, b.branch_id, b.hi, pro,
-                                     "rule", self.cfg,
+                                     "rule", cfg,
                                      required_extraction=(b.lo, b.hi))
                     res.state = r3.state
                     log.info("progression: %d op(s) applied", len(r3.applied))
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("progression pass skipped: %s", type(exc).__name__)
         try:                                   # Phase 2 (plan doc 13): the living-world pass —
-            spec = getattr(self.cfg, "specialization", None)   # travel time, the idle clock,
+            spec = getattr(cfg, "specialization", None)   # travel time, the idle clock,
             if spec is not None and spec.name == "rpg" and res.state.get("player") \
                     and getattr(spec, "living_world", True):   # and faction-front ticks
                 lw = world_ops(res.state, res.applied,
@@ -362,7 +656,7 @@ class JobRunner:
                                turn_index=b.hi)
                 if lw:
                     r4 = apply_delta(self.store, b.session_id, b.branch_id, b.hi, lw,
-                                     "rule", self.cfg,
+                                     "rule", cfg,
                                      required_extraction=(b.lo, b.hi))
                     res.state = r4.state
                     log.info("living world: %d op(s) applied", len(r4.applied))
@@ -378,21 +672,25 @@ class JobRunner:
         try:                                   # P4: memory index + reflection + Q15 recall
             memory.index_applied(self.store, b.session_id, b.branch_id, res.applied,
                                  res.state)
-            memory.reflect(self.store, self.cfg, b.session_id, b.branch_id, res.state)
+            memory.reflect(self.store, cfg, b.session_id, b.branch_id, res.state)
             qvec = None
             get_client = self.ladder.get_client
             hint = self.models.get(b.session_id, "")
-            ep_r = assist.endpoint_for_group(self.cfg, "memory_reflection", hint)
+            ep_r = assist.endpoint_for_group(cfg, "memory_reflection", hint)
             if ep_r is not None:               # 06 C: digest -> LLM prose + semantic facts
-                await assist.synthesize(self.store, self.cfg, get_client, ep_r,
+                await assist.synthesize(self.store, cfg, get_client, ep_r,
                                         b.session_id, b.branch_id)
-            ep_e = assist.endpoint_for_group(self.cfg, "embeddings", hint)
+            ep_e = assist.endpoint_for_group(cfg, "embeddings", hint)
             if ep_e is not None:               # 03 SS7: vectors + query embed, cold path
-                await assist.embed_missing(self.store, self.cfg, get_client, ep_e,
+                await assist.embed_missing(self.store, cfg, get_client, ep_e,
                                            b.branch_id)
-                qvec = await assist.embed_query(get_client, self.cfg, ep_e, exchange)
-            memory.precompute_recall(self.store, self.cfg, b.session_id, b.branch_id,
-                                     res.state, exchange, b.hi, query_vec=qvec)
+                qvec = await assist.embed_query(get_client, cfg, ep_e, exchange)
+            memory.precompute_recall(self.store, cfg, b.session_id, b.branch_id,
+                                     res.state, exchange, b.hi, query_vec=qvec,
+                                     viewer_actor_id=next(
+                                         iter(res.state.get("player", {})), ""
+                                     ),
+                                     experience_mode="rpg")
         except Exception as exc:               # never fails the batch (invariant 3)
             log.warning("memory pass skipped: %s", type(exc).__name__)
         try:                                   # P4: linter L1-L9 on the post-apply snapshot
@@ -402,46 +700,48 @@ class JobRunner:
             log.warning("lint pass skipped: %s", type(exc).__name__)
 
         try:                                   # L10 (03 SS9): cold-path ledger-contradiction pass
-            ep_n = assist.endpoint_for_group(self.cfg, "linter_nli",   # assist/main gated, note-
+            ep_n = assist.endpoint_for_group(cfg, "linter_nli",   # assist/main gated, note-
                                              self.models.get(b.session_id, ""))   # only, fail-open
-            if ep_n is not None and self.cfg.linter.enabled:           # runs BEFORE director.stage
+            if ep_n is not None and cfg.linter.enabled:           # runs BEFORE director.stage
                 # NLI hardening (2026-07-08): a slow/absent linter_nli shim must NEVER stall the
                 # cold-path worker. Bound the whole probe+judge; TimeoutError falls through to the
                 # fail-open except below (invariant 1 — the pass is note-only, so it just skips).
                 ep_n = await asyncio.wait_for(
-                    assist.resolve_endpoint(self.ladder.get_client, self.cfg, ep_n), timeout=8)
+                    assist.resolve_endpoint(self.ladder.get_client, cfg, ep_n), timeout=8)
                 rows = self.store.get_turn_texts(b.branch_id, b.hi, b.hi)
                 text = rows[-1]["assistant_text"] if rows else ""
                 vios = list(vios) + await asyncio.wait_for(
                     linter.ledger_contradiction_pass(
-                        self.store, self.cfg, self.ladder.get_client, ep_n,
+                        self.store, cfg, self.ladder.get_client, ep_n,
                         b.session_id, b.branch_id, b.hi, res.state, text or ""), timeout=12)
         except Exception as exc:               # invariant 1: fail-open so its notes can be staged
             log.warning("L10 ledger-contradiction pass skipped: %s", type(exc).__name__)
         try:                                   # P4: director beats + note staging (03 SS8)
-            guard = self.cfg.user_guard.name or self.user_names.get(b.session_id, "")
-            director.stage(self.store, self.cfg, b.session_id, b.branch_id, b.hi,
+            guard = cfg.user_guard.name or self.user_names.get(b.session_id, "")
+            director.stage(self.store, cfg, b.session_id, b.branch_id, b.hi,
                            res.state, vios, user_name=guard,
-                           user_aliases=tuple(self.cfg.user_guard.aliases))
+                           user_aliases=tuple(cfg.user_guard.aliases))
         except Exception as exc:
             log.warning("director pass skipped: %s", type(exc).__name__)
 
     def _schedule_transient_retry(self, b: Batch) -> bool:
         """Requeue one persistent-429/5xx batch later without immediate endpoint hammering."""
+        cfg = b.request_cfg or self.cfg
         key = (b.session_id, b.branch_id, b.lo, b.hi)
         used = self._transient_retries.get(key, 0)
-        limit = max(0, int(getattr(self.cfg.extraction, "transient_batch_retries", 1)))
+        limit = max(0, int(getattr(cfg.extraction, "transient_batch_retries", 1)))
         if used >= limit:
             self._transient_retries.pop(key, None)
             return False
         self._transient_retries[key] = used + 1
-        delay = max(0.0, float(getattr(self.cfg.extraction, "transient_retry_s", 2.0)))
+        delay = max(0.0, float(getattr(cfg.extraction, "transient_retry_s", 2.0)))
 
         async def fire() -> None:
             await asyncio.sleep(delay)
-            self.store.mark_extraction(
-                b.branch_id, b.lo, b.hi, "pending", expected="failed")
-            if self.store.extraction_pending_range(b.branch_id, b.lo, b.hi):
+            requeued = self._mark_batch_extraction(
+                b, "pending", expected="failed"
+            )
+            if requeued and self._batch_candidate_current(b):
                 log.info(
                     "requeued transient extraction [%d,%d] after %.1fs",
                     b.lo, b.hi, delay,
@@ -457,12 +757,13 @@ class JobRunner:
         """03 SS9: deterministic checks per turn against the batch's post-apply snapshot.
         klass comes from the turns table so impersonate turns never trip L9.
         Returns fresh violations across [lo,hi] (director appends the best corrective)."""
+        cfg = b.request_cfg or self.cfg
         out: list = []
-        if not self.cfg.linter.enabled:
+        if not cfg.linter.enabled:
             return out
         applied_kinds = frozenset(op.get("op", "") for op in res.applied)
-        guard = self.cfg.user_guard.name or self.user_names.get(b.session_id, "")
-        aliases = tuple(self.cfg.user_guard.aliases)
+        guard = cfg.user_guard.name or self.user_names.get(b.session_id, "")
+        aliases = tuple(cfg.user_guard.aliases)
         klasses = {r["turn_index"]: r["klass"] for r in self.store.db.execute(
             "SELECT turn_index, klass FROM turns WHERE branch_id=? AND"
             " turn_index BETWEEN ? AND ?", (b.branch_id, b.lo, b.hi)).fetchall()}
@@ -471,7 +772,7 @@ class JobRunner:
             if not text.strip():
                 continue
             out.extend(linter.lint_turn(
-                self.store, self.cfg, b.session_id, b.branch_id,
+                self.store, cfg, b.session_id, b.branch_id,
                 row["turn_index"], res.state, text, applied_kinds=applied_kinds,
                 klass=klasses.get(row["turn_index"], "new_turn"),
                 user_name=guard, user_aliases=aliases,
@@ -483,6 +784,7 @@ class JobRunner:
         """Unknown-name quarantines feed the evidence counter; creation retro-applies the
         CURRENT batch's ops for that name. Fail-open: discovery errors never fail the batch."""
         try:
+            cfg = b.request_cfg or self.cfg
             if not self.store.extraction_pending_range(b.branch_id, b.lo, b.hi):
                 return 0
             by_name: dict[str, list[dict]] = {}
@@ -493,11 +795,11 @@ class JobRunner:
             requeued = 0
             for name, ops in by_name.items():
                 n = self.store.discovery_bump(b.branch_id, name, b.hi)
-                status = discovery.consider(self.store, self.cfg, b.session_id, b.branch_id,
+                status = discovery.consider(self.store, cfg, b.session_id, b.branch_id,
                                             b.hi, name, n)
                 if status == "created":
                     r = apply_delta(self.store, b.session_id, b.branch_id, b.hi, ops,
-                                    "extraction", self.cfg, turn_lo=b.lo,
+                                    "extraction", cfg, turn_lo=b.lo,
                                     required_extraction=(b.lo, b.hi))
                     requeued += len(r.applied)
             return requeued
@@ -506,9 +808,10 @@ class JobRunner:
             return 0
 
     # ------------------------------------------------------------------ context
-    def _characters(self, state: dict, session_id: str = "") -> str:
+    def _characters(self, state: dict, session_id: str = "", request_cfg=None) -> str:
         names = []
-        guard = self.cfg.user_guard.name or self.user_names.get(session_id, "")
+        cfg = request_cfg or self.cfg
+        guard = cfg.user_guard.name or self.user_names.get(session_id, "")
         for e in state.get("entities", {}).values():
             mark = " [USER]" if guard and e.get("name") == guard else ""
             al = f" ({', '.join(e['aliases'])})" if e.get("aliases") else ""
@@ -517,7 +820,7 @@ class JobRunner:
             names.append(f"{guard} [USER]")
         return "; ".join(names) if names else "(none registered yet)"
 
-    def _exchange_parts(self, b: Batch) -> tuple[str, str]:
+    def _exchange_parts(self, b: Batch, request_cfg=None) -> tuple[str, str]:
         """(context, exchange). The batch transcript always ships WHOLE (newest data is
         never truncated); leftover intake_chars budget prepends earlier turns as
         reference-only context, newest-first accumulation so recency wins (design note
@@ -531,7 +834,8 @@ class JobRunner:
             if r["assistant_text"]:
                 lines.append(r["assistant_text"])
         exchange = "\n".join(lines)
-        budget = int(getattr(self.cfg.extraction, "intake_chars", 0) or 0)
+        cfg = request_cfg or self.cfg
+        budget = int(getattr(cfg.extraction, "intake_chars", 0) or 0)
         remaining = budget - len(exchange)
         if not exchange or remaining < 400:      # no meaningful room for extra context
             return "", exchange
@@ -559,7 +863,10 @@ class JobRunner:
             " JOIN sessions s ON s.session_id=b.session_id WHERE b.status='live'").fetchall()
         for r in rows:
             if self.store.pending_extractions(r["branch_id"]) and r["branch_id"] not in self._queued:
-                if self.cfg.extraction.mode in ("off", "rules"):
+                cfg = self._config_for_session(r["session_id"])
+                if cfg is None:
+                    continue
+                if cfg.extraction.mode in ("off", "rules"):
                     continue
                 until = self._disabled_until.get(r["session_id"])   # drain respects 09 C2 too
                 if until is not None and r["head_turn"] < until:

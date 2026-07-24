@@ -75,7 +75,14 @@ def player_safe_memory_text(text: object, state: dict) -> str:
     return rendered
 
 
-def _typed_retrieval_query(state: dict, query_text: str) -> str:
+def _typed_retrieval_query(
+    state: dict,
+    query_text: str,
+    *,
+    viewer_actor_id: str = "",
+    player_actor_id: str = "",
+    experience_mode: str = "",
+) -> str:
     """Add only bounded, audience-safe typed context before relevance scoring.
 
     The returned string is an internal query, never prompt prose. Claims, epistemics, facts, and
@@ -84,7 +91,8 @@ def _typed_retrieval_query(state: dict, query_text: str) -> str:
     """
     scene = state.get("scene") or {}
     entities = state.get("entities") or {}
-    player_id = next(iter(state.get("player") or {}), None)
+    player_id = player_actor_id or next(iter(state.get("player") or {}), None)
+    viewer_id = viewer_actor_id or player_id
     context_values = [query_text, scene.get("location_id"), scene.get("phase")]
     context_values.extend(scene.get("participants") or [])
     context_values.extend(
@@ -98,8 +106,9 @@ def _typed_retrieval_query(state: dict, query_text: str) -> str:
 
         view = select_knowledge(
             state,
-            audience="narrator",
-            actor_id=player_id,
+            audience="actor" if experience_mode == "chat" else "narrator",
+            actor_id=viewer_id,
+            player_actor_id=player_id,
             query=query_text,
             limit=8,
         )
@@ -120,7 +129,7 @@ def _typed_retrieval_query(state: dict, query_text: str) -> str:
             if isinstance(row, dict) and row.get("present")
         }
         allowed = {"world", "retrieval:world", f"retrieval:{location_id}"}
-        for eid in present_ids | ({str(player_id)} if player_id else set()):
+        for eid in present_ids | ({str(viewer_id)} if viewer_id else set()):
             allowed.update({f"actor:{eid}", f"retrieval:{eid}"})
         for subject_key, fields in effective_domain(overlay, "retrieval").items():
             if subject_key not in allowed or not isinstance(fields, dict):
@@ -142,8 +151,15 @@ def _typed_retrieval_query(state: dict, query_text: str) -> str:
 
 
 # ---- index writes (cold path, post-apply) --------------------------------------------------
-def index_applied(store, session_id: str, branch_id: str, applied_ops: list,
-                  state: dict) -> int:
+def index_applied(
+    store,
+    session_id: str,
+    branch_id: str,
+    applied_ops: list,
+    state: dict,
+    *,
+    require_source_receipt: bool = False,
+) -> int:
     """Mirror APPLIED memory_event ops into the retrieval index. Idempotence comes from
     the apply path (duplicates never double-apply, 08 S7); location/scene stamped from
     the post-apply state."""
@@ -153,17 +169,36 @@ def index_applied(store, session_id: str, branch_id: str, applied_ops: list,
         if not isinstance(op, dict) or op.get("op") != "memory_event":
             continue
         turn = int(op.get("_turn", state.get("meta", {}).get("turn", 0)))
+        lifecycle = str(op.get("_lifecycle_source") or "")
+        response_id = str(op.get("_response_occurrence_id") or "")
+        journal_op_ref = str(op.get("_journal_op_ref") or "")
         tags = list(op.get("tags", []))
         mode = sc.get("mode")
         if mode in ("flashback", "dream") and mode not in tags:
             tags.append(mode)                              # 08 B4 parity with the reducer
+        source_message_fingerprint = store.turn_text_source_fingerprint(
+            branch_id,
+            turn,
+            lifecycle,
+            require_receipt=require_source_receipt,
+        )
+        if require_source_receipt and not source_message_fingerprint:
+            raise ValueError(
+                "Chat memory indexing requires an accepted-message receipt",
+            )
         store.memories_add(session_id, branch_id, tier="episodic",
                            text=player_safe_memory_text(op.get("text", ""), state),
                            participants=list(op.get("participants", [])),
                            location_id=sc.get("location_id"), tags=tags,
                            importance=max(1, min(10, int(op.get("importance", 3)))),
                            created_turn=turn,
-                           scene_index=int(sc.get("scene_index", 0)))
+                           scene_index=int(sc.get("scene_index", 0)),
+                           visibility=str(op.get("visibility") or ""),
+                           scoped_actors=list(op.get("scoped_actors") or []),
+                           journal_op_ref=journal_op_ref,
+                           lifecycle_source=lifecycle,
+                           response_occurrence_id=response_id,
+                           source_message_fingerprint=source_message_fingerprint)
         n += 1
     return n
 
@@ -237,16 +272,74 @@ def _relevance(store, cands, query_text: str, query_vec) -> list[float]:
     return _bm25ish(query_text, cands)
 
 
-def retrieve(store, cfg, branch_id: str, state: dict, query_text: str,
-             now_turn: int, query_vec=None) -> list:
+def _memory_visible_to(
+    row,
+    *,
+    viewer_actor_id: str,
+    player_actor_id: str,
+    experience_mode: str,
+) -> bool:
+    visibility = str(row["visibility"] or "")
+    if not visibility:
+        # Pre-migration rows intentionally retain no guessed audience. RPG keeps
+        # historical recall behavior; a Character-POV Chat packet fails closed.
+        return experience_mode != "chat"
+    from .knowledge import record_visible_to
+
+    return record_visible_to(
+        {
+            "visibility": visibility,
+            "scoped_actors": _loads(row["scoped_actors"], []),
+        },
+        viewer_actor_id=viewer_actor_id,
+        player_actor_id=player_actor_id,
+    )
+
+
+def retrieve(
+    store,
+    cfg,
+    branch_id: str,
+    state: dict,
+    query_text: str,
+    now_turn: int,
+    query_vec=None,
+    *,
+    viewer_actor_id: str = "",
+    player_actor_id: str = "",
+    experience_mode: str = "",
+) -> list:
     """Top-k memory rows by the composite score; bumps last_accessed_turn on the winners
     (recency is decay since last ACCESS — Proxy SS4/Park et al., not since creation)."""
     m = cfg.memory
     rows = store.memories_candidates(branch_id)
+    if viewer_actor_id or experience_mode == "chat":
+        rows = [
+            row
+            for row in rows
+            if _memory_visible_to(
+                row,
+                viewer_actor_id=viewer_actor_id,
+                player_actor_id=player_actor_id,
+                experience_mode=experience_mode,
+            )
+        ]
+    if experience_mode == "chat":
+        rows = [
+            row
+            for row in rows
+            if store.memory_artifact_lineage_current(branch_id, row)
+        ]
     cands = _prefilter(rows, state, m.prefilter_limit)
     if not cands:
         return []
-    relevance_query = _typed_retrieval_query(state, query_text)
+    relevance_query = _typed_retrieval_query(
+        state,
+        query_text,
+        viewer_actor_id=viewer_actor_id,
+        player_actor_id=player_actor_id,
+        experience_mode=experience_mode,
+    )
     rec = _norm([m.recency_decay ** max(0, now_turn - r["last_accessed_turn"]) for r in cands])
     imp = _norm([r["importance"] / 10.0 for r in cands])
     rel = _norm(_relevance(
@@ -303,20 +396,108 @@ _DIGEST_MEMBERS = 3
 _DIGEST_CHARS = 400
 
 
-def reflect(store, cfg, session_id: str, branch_id: str, state: dict) -> int:
+def _validated_artifact_lineage(
+    store,
+    branch_id: str,
+    value: object,
+) -> Optional[dict[str, object]]:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("derived artifact lineage must be a mapping")
+    try:
+        turn = int(value["turn"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("derived artifact turn is invalid") from exc
+    lifecycle = str(value.get("lifecycle_source") or "")
+    response_id = str(value.get("response_occurrence_id") or "")
+    fingerprint = str(value.get("source_message_fingerprint") or "")
+    if turn < 0 or lifecycle not in {"assistant_response", "deferred_extraction"} \
+            or not response_id or not fingerprint:
+        raise ValueError("derived Chat artifact lineage is incomplete")
+    if store.accepted_response_occurrence_id(branch_id, turn) != response_id:
+        raise ValueError("derived Chat artifact response is no longer accepted")
+    if store.turn_text_source_fingerprint(
+        branch_id,
+        turn,
+        lifecycle,
+        require_receipt=True,
+    ) != fingerprint:
+        raise ValueError("derived Chat artifact source fingerprint is stale")
+    return {
+        "turn": turn,
+        "lifecycle_source": lifecycle,
+        "response_occurrence_id": response_id,
+        "source_message_fingerprint": fingerprint,
+    }
+
+
+def _row_journal_refs(row) -> set[str]:
+    refs = {str(row["journal_op_ref"] or "")}
+    try:
+        derived = json.loads(row["source_journal_op_refs"] or "[]")
+    except (KeyError, TypeError, ValueError):
+        derived = []
+    if isinstance(derived, list):
+        refs.update(str(ref) for ref in derived if str(ref))
+    refs.discard("")
+    return refs
+
+
+def reflect(
+    store,
+    cfg,
+    session_id: str,
+    branch_id: str,
+    state: dict,
+    *,
+    artifact_lineage: Optional[dict[str, object]] = None,
+) -> int:
     """Consolidate episodic rows from scenes older than reflection_every_scenes into
     per-scene summary nodes. Deterministic; returns number of summaries created."""
     cur = int(state.get("scene", {}).get("scene_index", 0))
     horizon = cur - int(cfg.memory.reflection_every_scenes)
     if horizon < 0:
         return 0
+    lineage = _validated_artifact_lineage(store, branch_id, artifact_lineage)
     stale = store.memories_stale_episodic(branch_id, horizon)
-    by_scene: dict[int, list] = {}
+    by_scene: dict[tuple, list] = {}
     for r in stale:
-        by_scene.setdefault(r["scene_index"], []).append(r)
+        scope = tuple(sorted({
+            str(actor) for actor in _loads(r["scoped_actors"], []) if str(actor)
+        }))
+        source_key = (
+            ()
+            if lineage is not None
+            else (
+                str(r["lifecycle_source"] or ""),
+                str(r["response_occurrence_id"] or ""),
+                str(r["source_message_fingerprint"] or ""),
+            )
+        )
+        key = (int(r["scene_index"]), str(r["visibility"] or ""), scope, *source_key)
+        by_scene.setdefault(key, []).append(r)
     made = 0
-    for scene_idx in sorted(by_scene):
-        rows = by_scene[scene_idx]
+    for group in sorted(by_scene):
+        scene_idx, visibility, scope, *source_lineage = group
+        rows = by_scene[group]
+        if lineage is None:
+            lifecycle, response_id, source_fingerprint = source_lineage
+            created_turn = max(r["created_turn"] for r in rows)
+        else:
+            lifecycle = str(lineage["lifecycle_source"])
+            response_id = str(lineage["response_occurrence_id"])
+            source_fingerprint = str(lineage["source_message_fingerprint"])
+            created_turn = int(lineage["turn"])
+        source_refs = sorted({
+            ref for row in rows for ref in _row_journal_refs(row)
+        })
+        if lineage is not None and not store.journal_op_refs_current(
+            branch_id,
+            source_refs,
+            require=True,
+        ):
+            raise ValueError("derived reflection source journal lineage is stale")
         best = sorted(rows, key=lambda r: (-r["importance"], r["created_turn"]))
         digest = "; ".join(
             player_safe_memory_text(r["text"], state)
@@ -328,8 +509,14 @@ def reflect(store, cfg, session_id: str, branch_id: str, state: dict) -> int:
         sid = store.memories_add(session_id, branch_id, tier="summary", text=digest,
                                  participants=participants, location_id=loc, tags=tags,
                                  importance=max(r["importance"] for r in rows),
-                                 created_turn=max(r["created_turn"] for r in rows),
-                                 scene_index=scene_idx)
+                                 created_turn=created_turn,
+                                 scene_index=scene_idx,
+                                 visibility=visibility,
+                                 scoped_actors=list(scope),
+                                 lifecycle_source=lifecycle,
+                                 response_occurrence_id=response_id,
+                                 source_message_fingerprint=source_fingerprint,
+                                 source_journal_op_refs=source_refs)
         store.memories_set_parent([r["memory_id"] for r in rows], sid)
         made += 1
     if made:
@@ -338,12 +525,113 @@ def reflect(store, cfg, session_id: str, branch_id: str, state: dict) -> int:
 
 
 # ---- Q15 slice precompute (cold path) ------------------------------------------------------
-def precompute_recall(store, cfg, session_id: str, branch_id: str, state: dict,
-                      query_text: str, now_turn: int, query_vec=None) -> None:
+def precompute_recall(
+    store,
+    cfg,
+    session_id: str,
+    branch_id: str,
+    state: dict,
+    query_text: str,
+    now_turn: int,
+    query_vec=None,
+    *,
+    viewer_actor_id: str = "",
+    player_actor_id: str = "",
+    experience_mode: str = "",
+    artifact_lineage: Optional[dict[str, object]] = None,
+) -> None:
     """Retrieve against the just-settled exchange and stage [RECALL] lines for the NEXT
     request (hot path does one SELECT). Fail-open: any error leaves the previous row."""
     try:
-        rows = retrieve(store, cfg, branch_id, state, query_text, now_turn, query_vec)
-        store.write_recall(session_id, now_turn + 1, recall_lines(rows, now_turn))
+        lineage = _validated_artifact_lineage(
+            store,
+            branch_id,
+            artifact_lineage,
+        )
+        if experience_mode == "chat" and lineage is None:
+            raise ValueError(
+                "Chat recall requires caller-owned accepted artifact lineage",
+            )
+        rows = retrieve(
+            store,
+            cfg,
+            branch_id,
+            state,
+            query_text,
+            now_turn,
+            query_vec,
+            viewer_actor_id=viewer_actor_id,
+            player_actor_id=player_actor_id,
+            experience_mode=experience_mode,
+        )
+        for_turn = now_turn + 1
+        store.clear_recall(
+            session_id,
+            branch_id=branch_id,
+            for_turn=for_turn,
+        )
+        if experience_mode != "chat":
+            # Preserve the legacy session-scoped read surface for existing RPG callers.
+            # The live pipeline consumes the branch-owned rows below; Chat never mirrors
+            # into this provenance-free compatibility table.
+            store.write_recall(
+                session_id,
+                for_turn,
+                recall_lines(rows, now_turn),
+            )
+        if experience_mode == "chat":
+            refs = sorted({
+                ref for row in rows for ref in _row_journal_refs(row)
+            })
+            if rows and lineage is not None and store.journal_op_refs_current(
+                branch_id,
+                refs,
+                require=True,
+            ):
+                store.write_recall(
+                    session_id,
+                    for_turn,
+                    recall_lines(rows, now_turn),
+                    branch_id=branch_id,
+                    source_turn=int(lineage["turn"]),
+                    lifecycle_source=str(lineage["lifecycle_source"]),
+                    response_occurrence_id=str(
+                        lineage["response_occurrence_id"]
+                    ),
+                    source_message_fingerprint=str(
+                        lineage["source_message_fingerprint"]
+                    ),
+                    journal_op_refs=refs,
+                    replace=False,
+                )
+            return
+        groups: dict[tuple[int, str, str, str], list] = {}
+        for row in rows:
+            key = (
+                int(row["created_turn"]),
+                str(row["lifecycle_source"] or ""),
+                str(row["response_occurrence_id"] or ""),
+                str(row["source_message_fingerprint"] or ""),
+            )
+            groups.setdefault(key, []).append(row)
+        for source, grouped in sorted(groups.items()):
+            source_turn, lifecycle, response_id, source_fingerprint = source
+            refs = sorted({
+                str(row["journal_op_ref"] or "")
+                for row in grouped
+                if str(row["journal_op_ref"] or "")
+            })
+            store.write_recall(
+                session_id,
+                for_turn,
+                recall_lines(grouped, now_turn),
+                branch_id=branch_id,
+                source_turn=source_turn,
+                lifecycle_source=lifecycle,
+                response_occurrence_id=response_id,
+                source_message_fingerprint=source_fingerprint,
+                journal_op_refs=refs,
+                replace=False,
+            )
     except Exception as exc:
         log.warning("recall precompute skipped: %s", type(exc).__name__)

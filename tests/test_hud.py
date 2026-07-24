@@ -385,10 +385,60 @@ async def test_hud_route_end_to_end(client):
 async def test_hud_route_none_session_has_no_player(client):
     """Under `none` the route still answers (off the relay) but tracks no player — and the
     wire stays byte-identical (no RPG blocks in the state payload)."""
+    from tests.test_chat_mode_vertical import ORDINARY, PERSONA
+
     await client.post("/aether/session/hud-none/world", json={"world": _WORLD})
     r = await client.get("/aether/session/hud-none/hud")
     assert r.status_code == 200
     assert r.json()["spec"] == "none" and r.json()["players"] == []
+
+    admitted = await client.post(
+        "/aether/session/hud-chat/chat-core",
+        json={"card": ORDINARY, "persona": PERSONA},
+    )
+    assert admitted.status_code == 200, admitted.text
+    chat = await client.get("/aether/session/hud-chat/hud")
+    assert chat.status_code == 200
+    body = chat.json()
+    assert body["experience_mode"] == "chat"
+    assert body["continuity_available"] is True
+    assert body["persona_actor_id"] == admitted.json()["persona_actor_id"]
+    assert body["character_actor_id"] == admitted.json()["character_actor_id"]
+    assert list(body["continuity"]) == [
+        "now",
+        "relationship",
+        "open_threads",
+        "shared_history",
+        "character",
+    ]
+    assert "players" not in body
+
+    mismatched = empty_state()
+    mismatched["chat_core"] = {
+        "core": {"name": "Must not be guessed"},
+        "core_fingerprint": "sha256:" + "a" * 64,
+        "character_actor_id": "actor.character.bound",
+        "persona_actor_id": "actor.persona.bound",
+    }
+    paused = hud.chat_continuity_view(
+        mismatched,
+        persona_actor_id="actor.persona.bound",
+        character_actor_id="actor.character.other",
+        core_fingerprint="sha256:" + "a" * 64,
+    )
+    assert paused == {
+        "experience_mode": "chat",
+        "continuity_available": False,
+        "continuity_reason": "Exact Chat continuity binding is unavailable.",
+        "persona_actor_id": "actor.persona.bound",
+        "character_actor_id": "actor.character.other",
+        "player_safe_raw": {
+            "schema": "aetherstate-chat-inspection/1",
+            "experience_mode": "chat",
+            "continuity_available": False,
+            "continuity_reason": "Exact Chat continuity binding is unavailable.",
+        },
+    }
 
 
 # ---- editable HUD backing: the stat_spend op + op ids in the payload (2026-07-07) ----

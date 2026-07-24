@@ -47,6 +47,11 @@ from .semantic_narration_orchestrator import (
     resolve_narration_selection,
 )
 from .session_engine import SessionEngine
+from .experience import (
+    config_for_experience,
+    infer_legacy_experience,
+    normalize_experience_mode,
+)
 from . import memory
 from .state import (_norm_loc, apply_delta, assign_damage_effect_ids, battle_ops, combat_ops,
                     current_state, empty_state, progression_ops, reduce_state,
@@ -1128,6 +1133,9 @@ class PostContext:
     branch_id: str
     turn_index: int
     klass: str
+    experience_mode: str = ""
+    character_core_fingerprint: str = ""
+    request_cfg: Optional[Config] = None
     speaker: Optional[str] = None
     card_role: Optional[str] = None
     card: str = ""                # Q23: genesis stage-B inputs (new_session only)
@@ -1135,6 +1143,7 @@ class PostContext:
     evolutions: Optional[list] = None   # RPG-5 crossings; cold path schedules re-authoring
     enriched: bool = False              # request was enriched; feeds prompt-cache statistics
     response_key: str = ""              # exact request identity; first completed response wins
+    expected_swipe_count: int = -1       # Store-owned candidate CAS identity for Chat publication
     network_duplicate: bool = False     # observability only; response_key owns idempotence
     suppress_cold_path: bool = False    # cache-miss retry cannot attach to newer live state
     local_response: Optional[LocalResponse] = None
@@ -1468,7 +1477,12 @@ class Pipeline:
         if receipt_turn is None or not callable(rehydrate):
             return False
         try:
-            selection = rehydrate(ctx.branch_id, receipt_turn)
+            selection = rehydrate(
+                ctx.branch_id,
+                receipt_turn,
+                experience_mode=ctx.experience_mode,
+                character_core_fingerprint=ctx.character_core_fingerprint,
+            )
         except Exception as exc:
             log.warning(
                 "Player Lesson cached selection recheck unavailable (%s)",
@@ -1482,8 +1496,9 @@ class Pipeline:
         )
         return current_ids == ctx.player_lesson_ids
 
-    def _semantic_truth_gate_enabled(self) -> bool:
-        spec = getattr(self.cfg, "specialization", None)
+    def _semantic_truth_gate_enabled(self, request_cfg: Optional[Config] = None) -> bool:
+        cfg = request_cfg or self.cfg
+        spec = getattr(cfg, "specialization", None)
         return bool(
             spec is not None
             and getattr(spec, "name", "none") == "rpg"
@@ -1532,6 +1547,7 @@ class Pipeline:
         return {
             "rng_state": rng_state,
             "last_docs": OrderedDict(self._last_docs),
+            "prewarm_at": dict(self._prewarm_at),
             "request_packets": OrderedDict(self._request_packets),
             "notices": deepcopy(self._notices),
             "jobs_models": dict(jobs_models) if isinstance(jobs_models, dict) else None,
@@ -1549,7 +1565,9 @@ class Pipeline:
         self.engine.index = SessionEngine(self.store, self.engine.cfg).index
         self.engine._dedup = deepcopy(snapshot["dedup"])
 
-    def _bootstrap_semantic_new_session(self, res, body: bytes) -> None:
+    def _bootstrap_semantic_new_session(
+        self, res, body: bytes, request_cfg: Config
+    ) -> None:
         """Prove and persist deterministic T0 before a new visible turn can be reserved.
 
         The caller holds one outer Store transaction spanning SessionEngine's fresh session rows,
@@ -1588,7 +1606,7 @@ class Pipeline:
         effective = res.stamp
         genesis.seed_rules(
             self.store,
-            self.cfg,
+            request_cfg,
             res.session_id,
             res.branch_id,
             document,
@@ -1597,7 +1615,7 @@ class Pipeline:
         )
         genesis.seed_player(
             self.store,
-            self.cfg,
+            request_cfg,
             res.session_id,
             res.branch_id,
             document,
@@ -1648,6 +1666,7 @@ class Pipeline:
             except AttributeError:
                 pass
         self._last_docs = OrderedDict(snapshot["last_docs"])
+        self._prewarm_at = dict(snapshot["prewarm_at"])
         self._request_packets = OrderedDict(snapshot["request_packets"])
         self._notices = deepcopy(snapshot["notices"])
         if self.jobs is not None:
@@ -1729,12 +1748,12 @@ class Pipeline:
             semantic_contract_version=SEMANTIC_RUNTIME_CONTRACT_VERSION,
         )
 
-    def _semantic_config_fingerprint(self) -> str:
-        spec = getattr(self.cfg, "specialization", None)
+    def _semantic_config_fingerprint(self, request_cfg: Config) -> str:
+        spec = getattr(request_cfg, "specialization", None)
         spec_payload = spec.model_dump() if hasattr(spec, "model_dump") else dict(vars(spec or {}))
         spec_payload.pop("narrator_card_dir", None)
-        extraction = getattr(self.cfg, "extraction", None)
-        session = getattr(self.cfg, "session", None)
+        extraction = getattr(request_cfg, "extraction", None)
+        session = getattr(request_cfg, "session", None)
         return fingerprint({
             "schema": "semantic-runtime-config/1",
             "specialization": spec_payload,
@@ -1746,7 +1765,7 @@ class Pipeline:
                 "reserve_lost_turns": bool(getattr(session, "reserve_lost_turns", True)),
             },
             "user_identity_hash": content_hash(
-                str(getattr(getattr(self.cfg, "user_guard", None), "name", "") or "")
+                str(getattr(getattr(request_cfg, "user_guard", None), "name", "") or "")
             ),
         })
 
@@ -1815,8 +1834,14 @@ class Pipeline:
             raise ValueError("consumed opposition intent remained current")
         return consumed_id, next_intent
 
-    def _semantic_replay_context(self, res, body: bytes, replay: ReplayArtifact,
-                                  stamp: Optional[Stamp]) -> PostContext:
+    def _semantic_replay_context(
+        self,
+        res,
+        body: bytes,
+        replay: ReplayArtifact,
+        stamp: Optional[Stamp],
+        request_cfg: Config,
+    ) -> PostContext:
         effective = res.stamp or stamp
         try:
             request_model = str(json.loads(body).get("model") or "")
@@ -1827,6 +1852,8 @@ class Pipeline:
             res.branch_id,
             res.turn_index,
             res.klass.value,
+            experience_mode=self.store.experience_binding(res.session_id).mode,
+            request_cfg=request_cfg,
             speaker=(effective.speaker if effective else None),
             card_role=(effective.card_role if effective else None),
             response_key=(
@@ -1917,11 +1944,14 @@ class Pipeline:
         original_request: bytes,
         replay: ReplayArtifact,
         stamp: Optional[Stamp],
+        request_cfg: Config,
         ctx: Optional[PostContext] = None,
     ) -> tuple[bytes, PostContext]:
         """Return a sealed selector request for fallback-ready, otherwise replay only."""
         if ctx is None:
-            ctx = self._semantic_replay_context(res, original_request, replay, stamp)
+            ctx = self._semantic_replay_context(
+                res, original_request, replay, stamp, request_cfg
+            )
         else:
             self._semantic_bind_replay(ctx, replay)
         if replay.status in {"accepted", "fallback_final"}:
@@ -1938,7 +1968,7 @@ class Pipeline:
                 original_request,
                 expectation,
                 reasoning_hard_off=_narrator_reasoning_hard_off_required(
-                    self.cfg,
+                    request_cfg,
                     res.stamp or stamp,
                 ),
             )
@@ -2028,8 +2058,14 @@ class Pipeline:
         self._semantic_bind_replay(ctx, replay)
         return replay
 
-    def _process_truth_gated(self, stamp: Optional[Stamp], body: bytes, res,
-                             ) -> tuple[bytes, PostContext]:
+    def _process_truth_gated(
+        self,
+        stamp: Optional[Stamp],
+        body: bytes,
+        res,
+        experience,
+        request_cfg: Config,
+    ) -> tuple[bytes, PostContext]:
         """Atomically settle one RPG turn with its proof-complete fallback artifact."""
         if getattr(res, "replay_reason", "") == "lost_reply":
             row = self.store.db.execute(
@@ -2042,9 +2078,13 @@ class Pipeline:
             replay = self.store.turn_lifecycle.replay(
                 row["lifecycle_key"], reason="lost_reply"
             )
-            return self._semantic_route_replay(res, body, replay, stamp)
+            return self._semantic_route_replay(
+                res, body, replay, stamp, request_cfg
+            )
         if res.klass.value == "swipe":
-            return self._process_truth_gated_swipe(stamp, body, res)
+            return self._process_truth_gated_swipe(
+                stamp, body, res, request_cfg
+            )
         if res.klass.value == "continue":
             raise SemanticGateConflict(
                 "semantic continuation is disabled until it has an explicit realization contract"
@@ -2089,11 +2129,13 @@ class Pipeline:
                 attempt_index=reservation.attempt_index,
                 reason="retry",
             )
-            return self._semantic_route_replay(res, body, replay, stamp)
+            return self._semantic_route_replay(
+                res, body, replay, stamp, request_cfg
+            )
         if reservation.status != "reserved":
             raise ValueError("semantic turn reservation is not settleable")
 
-        config_hash = self._semantic_config_fingerprint()
+        config_hash = self._semantic_config_fingerprint(request_cfg)
         rng_hash = self._semantic_rng_fingerprint()
         try:
             request_doc = json.loads(body)
@@ -2105,7 +2147,13 @@ class Pipeline:
         fresh_res = replace(res, duplicate=False)
 
         def mutate() -> FencedMutationOutput:
-            packet, ctx = self._process_observed(stamp, body, fresh_res)
+            packet, ctx = self._process_observed(
+                stamp,
+                body,
+                fresh_res,
+                experience=experience,
+                request_cfg=request_cfg,
+            )
             if ctx is None:
                 raise ValueError("semantic enrichment produced no response context")
             post_state = current_state(self.store, res.branch_id)
@@ -2177,13 +2225,22 @@ class Pipeline:
         packet = holder.get("packet", body)
         ctx = holder.get("ctx")
         if not isinstance(packet, bytes) or not isinstance(ctx, PostContext):
-            ctx = self._semantic_replay_context(res, body, replay, stamp)
+            ctx = self._semantic_replay_context(
+                res, body, replay, stamp, request_cfg
+            )
         else:
             ctx.local_response = None
-        return self._semantic_route_replay(res, body, replay, stamp, ctx)
+        return self._semantic_route_replay(
+            res, body, replay, stamp, request_cfg, ctx
+        )
 
-    def _process_truth_gated_swipe(self, stamp: Optional[Stamp], body: bytes, res,
-                                    ) -> tuple[bytes, PostContext]:
+    def _process_truth_gated_swipe(
+        self,
+        stamp: Optional[Stamp],
+        body: bytes,
+        res,
+        request_cfg: Config,
+    ) -> tuple[bytes, PostContext]:
         row = self.store.db.execute(
             "SELECT * FROM semantic_turn_lifecycles"
             " WHERE branch_id=? AND turn_index=? AND status='committed'",
@@ -2214,9 +2271,13 @@ class Pipeline:
                 # An incomplete active delivery is already a proof-complete terminal artifact.
                 # Recover it byte-for-byte without reopening model selection or promoting its
                 # fallback_ready row: either would mutate durable lifecycle state during retry.
-                ctx = self._semantic_replay_context(res, body, replay, stamp)
+                ctx = self._semantic_replay_context(
+                    res, body, replay, stamp, request_cfg
+                )
                 return body, ctx
-            return self._semantic_route_replay(res, body, replay, stamp)
+            return self._semantic_route_replay(
+                res, body, replay, stamp, request_cfg
+            )
         if reservation.status != "reserved":
             raise ValueError("semantic swipe reservation was refused")
 
@@ -2239,7 +2300,9 @@ class Pipeline:
             swipe_callback=apply_swipe,
         )
         self.engine.finalize_deferred_swipe_index(res)
-        return self._semantic_route_replay(res, body, replay, stamp)
+        return self._semantic_route_replay(
+            res, body, replay, stamp, request_cfg
+        )
 
     # ------------------------------------------------------------------ hot path
     def process(self, stamp: Optional[Stamp], body: bytes) -> tuple[bytes, Optional[PostContext]]:
@@ -2247,38 +2310,173 @@ class Pipeline:
         with self._player_lessons_lifecycle_guard():
             return self._process_with_player_lessons_guard(stamp, body)
 
+    def _resolve_request_experience(self, stamp: Optional[Stamp], res):
+        """Resolve one immutable request profile only after SessionEngine owns identity."""
+        request_stamp = stamp or res.stamp
+        session_row = self.store.db.execute(
+            "SELECT * FROM sessions WHERE session_id=?", (res.session_id,)
+        ).fetchone()
+        fallback = (
+            "rpg"
+            if getattr(getattr(self.cfg, "specialization", None), "name", "none") == "rpg"
+            else "chat"
+        )
+        inferred_mode, inferred_source = infer_legacy_experience(
+            session_row,
+            current_state(self.store, res.branch_id),
+            request_stamp,
+            fallback=fallback,
+        )
+        experience = (
+            self.store.experience_binding(res.session_id)
+            if inferred_source == "explicit"
+            else self.store.experience_inference_set_unlocked(
+                res.session_id, inferred_mode, inferred_source
+            )
+        )
+        return experience, config_for_experience(self.cfg, experience.mode)
+
+    def _validate_chat_request_identity(
+        self, stamp: Optional[Stamp], res, experience
+    ) -> None:
+        """Require the browser stamp to match the one durable Chat admission exactly."""
+        if experience.mode != "chat":
+            return
+        bound = (
+            experience.core_fingerprint,
+            experience.character_actor_id,
+            experience.persona_actor_id,
+        )
+        receipt = self.store.chat_core_receipt_for_session(res.session_id)
+        request_stamp = stamp or res.stamp
+        if request_stamp is None:
+            if not any(bound) and receipt is None:
+                return
+            raise ValueError("Chat request has no identity stamp")
+        stamped = (
+            str(request_stamp.core_fingerprint or ""),
+            str(request_stamp.character_actor_id or ""),
+            str(request_stamp.persona_actor_id or ""),
+        )
+        explicit_chat_stamp = str(request_stamp.mode or "").strip().lower() == "chat"
+        if not explicit_chat_stamp and not any(stamped) and not any(bound) \
+                and receipt is None:
+            # A pre-Core legacy Character session remains a visible base Chat.
+            # It receives no Core projection or continuity writes until exact
+            # admission binds all three durable identities.
+            return
+        if normalize_experience_mode(request_stamp.mode) != "chat" \
+                or str(request_stamp.mode or "").strip().lower() != "chat":
+            raise ValueError("Chat request mode stamp is missing or mismatched")
+        if re.fullmatch(r"sha256:[0-9a-f]{64}", stamped[0]) is None \
+                or re.fullmatch(r"character:[0-9a-f]{64}", stamped[1]) is None \
+                or re.fullmatch(r"persona:[0-9a-f]{64}", stamped[2]) is None:
+            raise ValueError("Chat request identity stamp is incomplete or malformed")
+        if receipt is None:
+            raise ValueError("Chat request has no durable Core admission")
+        expected = (
+            receipt["core_fingerprint"],
+            receipt["character_actor_id"],
+            receipt["persona_actor_id"],
+        )
+        if stamped != expected or bound != expected:
+            raise ValueError("Chat request identity does not match its durable admission")
+
     def _process_with_player_lessons_guard(
         self, stamp: Optional[Stamp], body: bytes
     ) -> tuple[bytes, Optional[PostContext]]:
         """Returns (bytes to forward, tee context | None) after lifecycle ordering is held."""
-        gate_enabled = self._semantic_truth_gate_enabled()
-        gate_exempt = bool(
-            stamp is not None and stamp.gen_type == "quiet"
-        ) or self._semantic_explicit_passthrough(stamp)
-        if not gate_enabled or gate_exempt:
-            res = self.engine.observe(stamp, body)
-            if res is None:                   # quiet gen / non-chat payload: passthrough
+        if stamp is not None and stamp.mode:
+            try:
+                normalize_experience_mode(stamp.mode)
+            except ValueError:
+                log.warning("invalid stamped experience mode; request passed through")
                 return body, None
-            return self._process_observed(stamp, body, res)
+        if stamp is not None and stamp.gen_type == "quiet":
+            return body, None
 
+        spec = getattr(self.cfg, "specialization", None)
+        stamped_mode = str(getattr(stamp, "mode", "") or "").strip().lower()
+        stamped_role = str(getattr(stamp, "card_role", "") or "").strip().lower()
+        preliminary_rpg = (
+            stamped_mode == "rpg"
+            or stamped_role == "narrator"
+            or (
+                stamped_mode != "chat"
+                and stamped_role != "character"
+                and getattr(spec, "name", "none") == "rpg"
+            )
+        )
         res = None
+        experience = None
+        request_cfg = None
+        gate_enabled = bool(
+            preliminary_rpg
+            and getattr(spec, "semantic_truth_gate", False)
+            and not self._semantic_explicit_passthrough(stamp)
+        )
+        observation = self._semantic_observation_snapshot()
+        ephemeral = self._semantic_ephemeral_snapshot()
+        ordinary_result = None
         try:
-            observation = self._semantic_observation_snapshot()
             try:
                 with self.store.transaction():
                     res = self.engine.observe(stamp, body, defer_swipe=True)
                     if res is None:
-                        raise SemanticGateConflict(
-                            "visible RPG request has no canonical semantic session resolution"
+                        if gate_enabled:
+                            raise SemanticGateConflict(
+                                "visible RPG request has no canonical semantic session resolution"
+                            )
+                        return body, None
+                    experience, request_cfg = self._resolve_request_experience(stamp, res)
+                    self._validate_chat_request_identity(stamp, res, experience)
+                    gate_enabled = self._semantic_truth_gate_enabled(request_cfg)
+                    if self.store.session_mode(res.session_id) == "passthrough":
+                        return body, None
+                    if gate_enabled:
+                        self._bootstrap_semantic_new_session(
+                            res, body, request_cfg
                         )
-                    self._bootstrap_semantic_new_session(res, body)
+                    else:
+                        if res.deferred_swipe:
+                            if experience.mode == "chat":
+                                self.store.apply_deferred_chat_swipe(
+                                    branch_id=res.branch_id,
+                                    turn_index=res.turn_index,
+                                    keep=int(res.deferred_swipe_keep),
+                                    expected_swipe_count=int(
+                                        res.deferred_swipe_count
+                                    ),
+                                )
+                            else:
+                                self.engine.apply_deferred_swipe_db(res)
+                        ordinary_result = self._process_observed(
+                            stamp,
+                            body,
+                            res,
+                            experience=experience,
+                            request_cfg=request_cfg,
+                        )
+                        self.engine.finalize_deferred_swipe_index(res)
             except Exception:
                 self._restore_semantic_observation(observation)
                 raise
-            if self.store.session_mode(res.session_id) == "passthrough":
-                return body, None
-            return self._process_truth_gated(stamp, body, res)
+            if experience is None or request_cfg is None:
+                raise ValueError("request experience profile was not resolved")
+            if not gate_enabled:
+                if ordinary_result is None:
+                    raise ValueError("ordinary request processing produced no result")
+                return ordinary_result
+            return self._process_truth_gated(
+                stamp, body, res, experience, request_cfg
+            )
         except SemanticGateConflict as exc:
+            if not gate_enabled:
+                self._restore_semantic_ephemeral(ephemeral)
+                log.warning(
+                    "ordinary request processing failed open: %s", type(exc).__name__
+                )
+                return body, None
             log.warning("semantic truth gate refused conflicting turn: %s", type(exc).__name__)
             return body, self._semantic_failure_context(
                 stamp,
@@ -2286,7 +2484,27 @@ class Pipeline:
                 status=409,
                 code="semantic_turn_conflict",
             )
+        except ValueError as exc:
+            if not gate_enabled:
+                self._restore_semantic_ephemeral(ephemeral)
+                log.warning(
+                    "ordinary request processing failed open: %s", type(exc).__name__
+                )
+                return body, None
+            log.error("semantic truth gate refused turn: %s", type(exc).__name__)
+            return body, self._semantic_failure_context(
+                stamp,
+                res,
+                status=503,
+                code="semantic_turn_unavailable",
+            )
         except Exception as exc:
+            if not gate_enabled:
+                self._restore_semantic_ephemeral(ephemeral)
+                log.warning(
+                    "ordinary request processing failed open: %s", type(exc).__name__
+                )
+                return body, None
             # A gated RPG turn is deliberately fail-closed. The lifecycle transaction already
             # rolled back mechanics; never expose unchecked upstream prose here.
             log.error("semantic truth gate refused turn: %s", type(exc).__name__)
@@ -2297,14 +2515,21 @@ class Pipeline:
                 code="semantic_turn_unavailable",
             )
 
-    def _process_observed(self, stamp: Optional[Stamp], body: bytes, res,
-                          ) -> tuple[bytes, Optional[PostContext]]:
+    def _process_observed(
+        self,
+        stamp: Optional[Stamp],
+        body: bytes,
+        res,
+        *,
+        experience,
+        request_cfg: Config,
+    ) -> tuple[bytes, Optional[PostContext]]:
         """Established enrichment flow after session identity has been resolved once."""
         # The stamp parsed from this request outranks any session-resolved historical stamp.  A
         # cross-role duplicate must never inherit narrator authority from the earlier request.
         request_stamp = stamp or res.stamp
         narrator_request = request_stamp is not None and request_stamp.card_role == "narrator"
-        if getattr(self.cfg.server, "turn_trace", False):
+        if getattr(request_cfg.server, "turn_trace", False):
             trace_stamp = request_stamp
             request_trace = {
                 "event": "request", "ts": time.time(), "session": res.session_id,
@@ -2343,10 +2568,15 @@ class Pipeline:
                 # reschedule genesis/evolution side effects when its second response is teed.
                 duplicate_ctx = PostContext(
                     res.session_id, res.branch_id, res.turn_index, res.klass.value,
+                    experience_mode=cached_ctx.experience_mode,
+                    character_core_fingerprint=cached_ctx.character_core_fingerprint,
+                    request_cfg=cached_ctx.request_cfg,
                     speaker=cached_ctx.speaker, card_role=cached_ctx.card_role,
                     card=cached_ctx.card, opening=cached_ctx.opening,
                     evolutions=cached_ctx.evolutions, enriched=cached_ctx.enriched,
-                    response_key=request_key, network_duplicate=True,
+                    response_key=request_key,
+                    expected_swipe_count=cached_ctx.expected_swipe_count,
+                    network_duplicate=True,
                     local_response=cached_ctx.local_response,
                     request_model=cached_ctx.request_model,
                     semantic_replay=cached_ctx.semantic_replay,
@@ -2368,6 +2598,8 @@ class Pipeline:
             log.warning("network duplicate packet cache miss; cold path suppressed")
             return body, PostContext(
                 res.session_id, res.branch_id, res.turn_index, res.klass.value,
+                experience_mode=experience.mode,
+                request_cfg=request_cfg,
                 speaker=(res.stamp.speaker if res.stamp else None),
                 card_role=(res.stamp.card_role if res.stamp else None),
                 response_key=request_key, network_duplicate=True, suppress_cold_path=True)
@@ -2381,19 +2613,38 @@ class Pipeline:
         if res.stamp and res.stamp.card_role == "narrator" and res.stamp.speaker:
             self.store.narrator_speaker_set(res.session_id, res.stamp.speaker)
         if res.klass.value == "new_session" and not res.duplicate:   # Q23 stage A: inline
-            card, opening = genesis.card_and_prompt(doc)             # rules seed (sub-ms)
-            genesis.seed_rules(self.store, self.cfg, res.session_id, res.branch_id, doc,
-                               speaker=(res.stamp.speaker if res.stamp else "") or "",
-                               card_role=(res.stamp.card_role if res.stamp else "") or "")
-            genesis.seed_player(self.store, self.cfg, res.session_id, res.branch_id, doc)
+            if experience.mode == "rpg":
+                card, opening = genesis.card_and_prompt(doc)         # rules seed (sub-ms)
+                genesis.seed_rules(
+                    self.store,
+                    request_cfg,
+                    res.session_id,
+                    res.branch_id,
+                    doc,
+                    speaker=(res.stamp.speaker if res.stamp else "") or "",
+                    card_role=(res.stamp.card_role if res.stamp else "") or "",
+                )
+                genesis.seed_player(
+                    self.store, request_cfg, res.session_id, res.branch_id, doc,
+                )
         if not res.duplicate and res.klass.value == "swipe":
-            self._swipe_rollback_guard(res)
+            self._swipe_rollback_guard(
+                res,
+                experience_mode=(
+                    "chat"
+                    if experience.mode == "chat"
+                    and experience.core_fingerprint
+                    and experience.character_actor_id
+                    and experience.persona_actor_id
+                    else "rpg"
+                ),
+            )
         state = current_state(self.store, res.branch_id)
         # Prompt-only combat transition signal. It is computed from the clean Player request and
         # pre-turn ledger before Tier-0 can open the War Room, then carried only into composition.
         # It grants no foe, roll, hostility, or state change.
         opening_assessment = tier0.combat_opening_assessment(
-            doc, state, self.cfg, res.klass.value, duplicate=res.duplicate)
+            doc, state, request_cfg, res.klass.value, duplicate=res.duplicate)
         combat_opening = opening_assessment.prompt_signal
 
         evolutions: list = []
@@ -2404,13 +2655,15 @@ class Pipeline:
         intent_application_pending: tuple[dict, ...] = ()
         if not res.duplicate:                 # 08 S7: retries never double-apply
             clean_doc = tier0._strip_ooc(doc) or doc
-            reserved = self._reserve_lost_turn(res, doc, state)
+            reserved = self._reserve_lost_turn(
+                res, doc, state, request_cfg
+            )
             if reserved is None:
                 lesson_service = self.player_lessons_service
                 intent_selector = None
                 intent_mode = compose.current_narration_mode(
                     state,
-                    self.cfg,
+                    request_cfg,
                     combat_opening=combat_opening,
                 )
                 if lesson_service is not None \
@@ -2418,10 +2671,8 @@ class Pipeline:
                         and res.klass.value in ("new_session", "new_turn") \
                         and bool(action_hash) \
                         and bool(intent_mode) \
-                        and getattr(
-                            getattr(self.cfg, "specialization", None), "name", "none"
-                        ) == "rpg" \
-                        and not self._semantic_truth_gate_enabled():
+                        and experience.mode == "rpg" \
+                        and not self._semantic_truth_gate_enabled(request_cfg):
                     def intent_selector(semantic_turn):
                         nonlocal intent_lesson_ids, intent_receipt_frozen
                         selected = lesson_service.select_intent(
@@ -2444,7 +2695,7 @@ class Pipeline:
                     res.klass.value,
                     res.duplicate,
                     state,
-                    self.cfg,
+                    request_cfg,
                     self.rng,
                     turn=res.turn_index,
                     opening_assessment=opening_assessment,
@@ -2508,7 +2759,7 @@ class Pipeline:
                 applied_now: list = []
                 if t0.user_ops:               # user source FIRST: freeze gates the rule batch
                     r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
-                                    t0.user_ops, "user", self.cfg)
+                                    t0.user_ops, "user", request_cfg)
                     state = r.state
                     applied_now += r.applied
                     self._index_memories(res, r)
@@ -2516,7 +2767,7 @@ class Pipeline:
                     t0.rule_ops = assign_damage_effect_ids(
                         t0.rule_ops, res.branch_id, res.turn_index, "code", basis="tier0")
                     r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
-                                    t0.rule_ops, "rule", self.cfg)
+                                    t0.rule_ops, "rule", request_cfg)
                     state = r.state
                     applied_now += r.applied
                     self._index_memories(res, r)
@@ -2525,11 +2776,13 @@ class Pipeline:
                         t0.proposal_ops, res.branch_id, res.turn_index, "reply_tag",
                         basis="legacy")
                     r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
-                                    t0.proposal_ops, "extraction", self.cfg)   # clamped
+                                    t0.proposal_ops, "extraction", request_cfg)   # clamped
                     state = r.state
                     applied_now += r.applied
                     self._index_memories(res, r)
-                state, evolutions = self._progress(res, state, applied_now)   # RPG-5 (doc 10)
+                state, evolutions = self._progress(
+                    res, state, applied_now, request_cfg
+                )   # RPG-5 (doc 10)
                 # [DIRECTIVE] shows EXACTLY the checks resolved THIS request (not
                 # turn-matched): reliable delivery + no stale rolls confusing the model.
                 state["_fresh_checks"] = [o for o in applied_now
@@ -2571,17 +2824,30 @@ class Pipeline:
         player_lesson_rows: list[dict] = []
         player_lesson_receipt_turn: Optional[int] = None
         lesson_service = self.player_lessons_service
+        rpg_lesson_request = experience.mode == "rpg" and narrator_request
+        chat_lesson_request = (
+            experience.mode == "chat"
+            and bool(experience.core_fingerprint)
+            and bool(experience.character_actor_id)
+            and bool(experience.persona_actor_id)
+            and request_stamp is not None
+            and request_stamp.card_role == "character"
+            and request_stamp.gen_type != "impersonate"
+        )
         if lesson_service is not None \
-                and getattr(getattr(self.cfg, "specialization", None), "name", "none") == "rpg" \
-                and narrator_request \
-                and not self._semantic_truth_gate_enabled():
+                and (rpg_lesson_request or chat_lesson_request) \
+                and not self._semantic_truth_gate_enabled(request_cfg):
             try:
                 if res.klass.value in ("new_session", "new_turn") and reserved is None \
                         and t0 is not None and action_hash:
-                    narration_mode = compose.current_narration_mode(
-                        state,
-                        self.cfg,
-                        combat_opening=combat_opening,
+                    narration_mode = (
+                        "chat"
+                        if chat_lesson_request
+                        else compose.current_narration_mode(
+                            state,
+                            request_cfg,
+                            combat_opening=combat_opening,
+                        )
                     )
                     if narration_mode:
                         selected = lesson_service.select(
@@ -2589,7 +2855,17 @@ class Pipeline:
                             turn_index=res.turn_index,
                             user_hash=action_hash,
                             narration_mode=narration_mode,
-                            recognized_meanings=self._recognized_meanings(t0),
+                            recognized_meanings=(
+                                ()
+                                if chat_lesson_request
+                                else self._recognized_meanings(t0)
+                            ),
+                            experience_mode=experience.mode,
+                            character_core_fingerprint=(
+                                experience.core_fingerprint
+                                if chat_lesson_request
+                                else ""
+                            ),
                         )
                         player_lesson_rows = self._player_lesson_rows(selected)
                         player_lesson_receipt_turn = res.turn_index
@@ -2601,7 +2877,16 @@ class Pipeline:
                         source_turn = res.turn_index
                     if isinstance(source_turn, int) and not isinstance(source_turn, bool) \
                             and source_turn >= 0:
-                        rehydrated = lesson_service.rehydrate(res.branch_id, source_turn)
+                        rehydrated = lesson_service.rehydrate(
+                            res.branch_id,
+                            source_turn,
+                            experience_mode=experience.mode,
+                            character_core_fingerprint=(
+                                experience.core_fingerprint
+                                if chat_lesson_request
+                                else ""
+                            ),
+                        )
                         player_lesson_rows = self._player_lesson_rows(rehydrated)
                         player_lesson_receipt_turn = source_turn
             except Exception as exc:
@@ -2616,28 +2901,35 @@ class Pipeline:
 
         recall = [
             memory.player_safe_memory_text(line, state)
-            for line in self.store.read_recall(res.session_id)
+            for line in self.store.read_recall(
+                res.session_id,
+                branch_id=res.branch_id,
+                for_turn=res.turn_index,
+                experience_mode=experience.mode,
+            )
         ]                                                    # Q15: one SELECT on the hot path
         note, l9 = "", None                                  # + two tiny indexed reads (03 SS9)
         try:
             note = memory.player_safe_memory_text(
                 self.store.read_note(res.session_id), state,
             )
-            if self.cfg.user_guard.enabled and self.cfg.user_guard.mode == "prevent_and_correct":
+            if request_cfg.user_guard.enabled and request_cfg.user_guard.mode == "prevent_and_correct":
                 l9 = self.store.lint_l9_evidence(
-                    res.branch_id, res.turn_index - self.cfg.consent.guard_escalate_turns)
+                    res.branch_id, res.turn_index - request_cfg.consent.guard_escalate_turns)
         except Exception:                                    # fail-open: base guard + no note
             note, l9 = "", None
-        if getattr(self.cfg, "specialization", None) is not None \
-                and self.cfg.specialization.name == "rpg" \
+        if getattr(request_cfg, "specialization", None) is not None \
+                and request_cfg.specialization.name == "rpg" \
                 and res.stamp and res.stamp.card_role == "narrator":
             doc, contract_changed = compose.ensure_narrator_envelope(doc)
             changed = changed or contract_changed
-        out_doc, kept = compose.compose(doc, state, self.cfg, res.stamp or stamp,
+        out_doc, kept = compose.compose(doc, state, request_cfg, res.stamp or stamp,
                                         res.klass.value, recall=recall, note=note,
                                         guard_evidence=l9,
                                         combat_opening=combat_opening,
-                                        player_lessons=player_lesson_rows)
+                                        player_lessons=player_lesson_rows,
+                                        experience_mode=experience.mode,
+                                        experience_binding=experience)
         if out_doc is not None:
             doc = out_doc
             changed = True
@@ -2649,12 +2941,12 @@ class Pipeline:
             ),
             [],
         ))
-        changed = _apply_narrator_reasoning_default(doc, self.cfg, res.stamp or stamp) or changed
+        changed = _apply_narrator_reasoning_default(doc, request_cfg, res.stamp or stamp) or changed
         local_response = None
         try:
             response_stamp = res.stamp or stamp
             story = _deterministic_first_intent_story(
-                self.store, res, state, self.cfg, response_stamp
+                self.store, res, state, request_cfg, response_stamp
             )
             if story:
                 local_response = LocalResponse(
@@ -2672,12 +2964,12 @@ class Pipeline:
         except Exception:                     # slice row is observability, never load-bearing
             pass
         if changed and local_response is None \
-                and getattr(self.cfg.upstream, "cache_key", True):
+                and getattr(request_cfg.upstream, "cache_key", True):
             # Phase 0a: every turn of a conversation routes to the same warm provider
             # cache. ONLY on requests the engine already changed — an untouched request
             # stays byte-identical (transparency), so `none`-untouched wires carry nothing.
             promptcache.add_cache_key(doc, res.session_id)
-            if getattr(self.cfg.upstream, "include_usage", False):
+            if getattr(request_cfg.upstream, "include_usage", False):
                 promptcache.add_usage_probe(doc)
             if delivered_ids:
                 # Prewarm bypasses the real narrator delivery callback. Never retain or resend a
@@ -2689,7 +2981,7 @@ class Pipeline:
                 self._last_docs.move_to_end(res.session_id)
                 while len(self._last_docs) > promptcache.LAST_DOCS_MAX:
                     self._last_docs.popitem(last=False)
-        if getattr(self.cfg.server, "turn_trace", False):
+        if getattr(request_cfg.server, "turn_trace", False):
             response_provenance = {"source": "upstream"}
             if local_response is not None:
                 response_provenance = {
@@ -2714,7 +3006,7 @@ class Pipeline:
             })
         narration_guard = None
         response_stamp = res.stamp or stamp
-        spec = getattr(self.cfg, "specialization", None)
+        spec = getattr(request_cfg, "specialization", None)
         if local_response is None and spec is not None and spec.name == "rpg" \
                 and getattr(spec, "narration_pre_display_guard", True) \
                 and response_stamp is not None and response_stamp.card_role == "narrator":
@@ -2738,12 +3030,17 @@ class Pipeline:
                 log.warning("narration pre-display guard preparation unavailable: %s",
                             type(exc).__name__)
         ctx = PostContext(res.session_id, res.branch_id, res.turn_index, res.klass.value,
+                          experience_mode=experience.mode,
+                          character_core_fingerprint=experience.core_fingerprint,
+                          request_cfg=request_cfg,
                           speaker=(res.stamp.speaker if res.stamp else None),
                           card_role=(res.stamp.card_role if res.stamp else None),
                           card=card, opening=opening,
                           evolutions=evolutions or None,
-                          enriched=changed and local_response is None,
-                           response_key=request_key, local_response=local_response,
+                           enriched=changed and local_response is None,
+                           response_key=request_key,
+                           expected_swipe_count=attempt_index,
+                           local_response=local_response,
                            request_model=str(doc.get("model") or ""),
                            narration_guard=narration_guard,
                            player_lesson_receipt_turn=player_lesson_receipt_turn,
@@ -2778,14 +3075,16 @@ class Pipeline:
         self._prewarm_at[session_id] = now
         return doc
 
-    def _progress(self, res, state: dict, applied: list) -> tuple[dict, list]:
+    def _progress(
+        self, res, state: dict, applied: list, request_cfg: Config
+    ) -> tuple[dict, list]:
         """RPG-5 hot-path progression pass (µs, pure arithmetic + one apply): XP awards,
         level-ups, and defeat resolution derived from THIS turn's applied ops; also
         collects mastery-bracket crossings for the cold-path Q27 evolution hook.
         Fail-open — any error leaves state exactly as it was (invariant 1)."""
         evolutions: list = []
         try:
-            spec = getattr(self.cfg, "specialization", None)
+            spec = getattr(request_cfg, "specialization", None)
             if spec is None or spec.name != "rpg" or not state.get("player"):
                 return state, evolutions
             for op in applied:
@@ -2798,7 +3097,7 @@ class Pipeline:
                     prepare_intent=bool(getattr(spec, "enemy_rolls", True)))
                 if wr:
                     r0 = apply_delta(self.store, res.session_id, res.branch_id,
-                                     res.turn_index, wr, "rule", self.cfg)
+                                     res.turn_index, wr, "rule", request_cfg)
                     state = r0.state
                     applied = list(applied) + r0.applied
                     self._index_memories(res, r0)
@@ -2806,7 +3105,7 @@ class Pipeline:
                     bw = battle_ops(state, applied)       # defeats above have landed
                     if bw:
                         r0 = apply_delta(self.store, res.session_id, res.branch_id,
-                                         res.turn_index, bw, "rule", self.cfg)
+                                         res.turn_index, bw, "rule", request_cfg)
                         state = r0.state
                         applied = list(applied) + r0.applied
                         self._index_memories(res, r0)
@@ -2814,7 +3113,7 @@ class Pipeline:
                                   hardcore=getattr(spec, "hardcore", False))
             if pro:
                 r = apply_delta(self.store, res.session_id, res.branch_id, res.turn_index,
-                                pro, "rule", self.cfg)
+                                pro, "rule", request_cfg)
                 state = r.state
                 applied = list(applied) + r.applied
                 self._index_memories(res, r)
@@ -2825,7 +3124,7 @@ class Pipeline:
                                turn_index=res.turn_index)
                 if lw:
                     rl = apply_delta(self.store, res.session_id, res.branch_id,
-                                     res.turn_index, lw, "rule", self.cfg)
+                                     res.turn_index, lw, "rule", request_cfg)
                     state = rl.state
                     self._index_memories(res, rl)
             return state, evolutions
@@ -2841,7 +3140,9 @@ class Pipeline:
         except Exception as exc:
             log.warning("memory index skipped: %s", type(exc).__name__)
 
-    def _reserve_lost_turn(self, res, doc: dict, state: dict) -> Optional[dict]:
+    def _reserve_lost_turn(
+        self, res, doc: dict, state: dict, request_cfg: Config
+    ) -> Optional[dict]:
         """Reserve mechanics for an RPG narration retry before Tier-0 can consume RNG.
 
         A same-turn swipe always preserves the settled action, even when real prose exists. A
@@ -2849,14 +3150,14 @@ class Pipeline:
         the configured lost-reply safeguard is on. None mode remains wire-inert. Fail open.
         """
         try:
-            spec = getattr(self.cfg, "specialization", None)
+            spec = getattr(request_cfg, "specialization", None)
             if spec is None or spec.name != "rpg":
                 return None
             if res.klass.value not in ("new_turn", "swipe"):
                 return None
             kind = "swipe_replay" if res.klass.value == "swipe" else "lost_reply"
             if kind == "lost_reply" \
-                    and not getattr(self.cfg.session, "reserve_lost_turns", True):
+                    and not getattr(request_cfg.session, "reserve_lost_turns", True):
                 return None
             if res.klass.value == "swipe":
                 pt = res.turn_index
@@ -2886,7 +3187,7 @@ class Pipeline:
             if kind == "lost_reply" and text_row is not None \
                     and text_row["assistant_text"] not in (None, ""):
                 return None                    # the reply exists — a genuinely new turn
-            name = (self.cfg.user_guard.name
+            name = (request_cfg.user_guard.name
                     or (res.stamp.user if res.stamp and res.stamp.user else "") or "User")
             msgs = doc.get("messages", [])
             text = next((tier0._msg_text(m.get("content")) for m in reversed(msgs)
@@ -3013,7 +3314,7 @@ class Pipeline:
         self.store.write_turn_text(res.branch_id, res.turn_index,
                                    user_text=f"{name}: {text}")
 
-    def _swipe_rollback_guard(self, res) -> None:
+    def _swipe_rollback_guard(self, res, *, experience_mode: str = "rpg") -> None:
         """Retract only narrator extraction before a same-turn narration retry.
 
         Rule-owned mechanics survive in both extraction modes: a narration retry cannot reroll
@@ -3024,7 +3325,12 @@ class Pipeline:
             return
         # Source-scoped in every extraction mode: narrator-authored facts may be regenerated,
         # while rule-owned rolls, costs, HP receipts, enemy actions, and future intent survive.
-        self.store.retract_extraction_at(res.branch_id, res.turn_index)
+        if experience_mode == "chat":
+            self.store.retract_chat_response_at(
+                res.branch_id, res.turn_index
+            )
+        else:
+            self.store.retract_extraction_at(res.branch_id, res.turn_index)
 
     # ------------------------------------------------------------------ cold path
     def _remember_completed_response(self, response_key: str | None) -> None:
@@ -3036,7 +3342,9 @@ class Pipeline:
         while len(self._completed_responses) > 512:
             self._completed_responses.popitem(last=False)
 
-    def _on_semantic_response(self, ctx: PostContext, raw: bytes, content_type: str) -> None:
+    def _on_semantic_response(
+        self, ctx: PostContext, raw: bytes, content_type: str, request_cfg: Config
+    ) -> None:
         """Persist only the exact proof-carrying artifact; never re-extract mechanics."""
         replay = ctx.semantic_replay
         if replay is None:
@@ -3062,6 +3370,8 @@ class Pipeline:
             text = decode_chat_story(raw, verified.content_type)
             if ctx.response_key and ctx.response_key in self._completed_responses:
                 return
+            if not text or not text.strip():
+                return
             speaker = ctx.speaker or "Narrator"
             self.store.write_turn_text(
                 ctx.branch_id,
@@ -3073,7 +3383,8 @@ class Pipeline:
                 ctx.turn_index,
                 assistant_hash=content_hash(text.strip()),
             )
-            self._ingest_delivered_claims(ctx, text)
+            self._ingest_delivered_claims(ctx, text, request_cfg)
+            self.store.experience_lock(ctx.session_id, ctx.turn_index)
             self.store.mark_extraction(
                 ctx.branch_id,
                 ctx.turn_index,
@@ -3091,15 +3402,16 @@ class Pipeline:
         if ctx is None:
             return
         try:
+            request_cfg = ctx.request_cfg or self.cfg
             if ctx.suppress_cold_path:
                 return
             if ctx.semantic_gate:
-                self._on_semantic_response(ctx, raw, content_type)
+                self._on_semantic_response(ctx, raw, content_type, request_cfg)
                 return
             if ctx.narration_guard is not None:
                 # Compliance checks are cold-path diagnostics. They must never delay, replace,
                 # truncate, or otherwise corrupt the response that was already streamed.
-                self.guard_response(ctx, raw, content_type)
+                self.guard_response(ctx, raw, content_type, request_cfg)
             text = _response_text(raw, content_type)
             if ctx.response_key and text and text.strip():
                 if ctx.response_key in self._completed_responses:
@@ -3110,22 +3422,63 @@ class Pipeline:
                                    promptcache.parse_usage(raw, content_type))
             if text and text.strip():
                 speaker = ctx.speaker or "Narrator"
-                # The visible prose, its exact hash, and every recognition-only Claim Record are
-                # one publication.  A crash or failed claim write rolls the entire reply back, so
-                # the same transport delivery remains safe to retry instead of being suppressed
-                # by an in-memory completion marker with missing durable claims.
+                chat_response_id = (
+                    self._accepted_response_occurrence_id(ctx, text.strip())
+                    if ctx.experience_mode == "chat"
+                    else ""
+                )
+                # Visible Chat prose remains publishable even when optional recognition fails.
+                # Its recognition writes run in a nested savepoint below, so they are atomic
+                # among themselves without gaining authority over the already accepted reply.
                 with self.store.transaction():
-                    self.store.write_turn_text(
-                        ctx.branch_id,
-                        ctx.turn_index,
-                        assistant_text=f"{speaker}: {text.strip()}",
-                    )
-                    self.store.write_turn_hashes(
-                        ctx.branch_id,
-                        ctx.turn_index,
-                        assistant_hash=content_hash(text.strip()),
-                    )
-                    if ctx.klass == "swipe":
+                    if ctx.experience_mode == "chat":
+                        if not self.store.publish_chat_response_if_current(
+                            ctx.branch_id,
+                            ctx.turn_index,
+                            expected_swipe_count=ctx.expected_swipe_count,
+                            assistant_text=f"{speaker}: {text.strip()}",
+                            assistant_hash=content_hash(text.strip()),
+                            accepted_response_occurrence_id=chat_response_id,
+                        ):
+                            log.info(
+                                "late Chat candidate ignored after accepted lineage changed",
+                            )
+                            return
+                    else:
+                        self.store.write_turn_text(
+                            ctx.branch_id,
+                            ctx.turn_index,
+                            assistant_text=f"{speaker}: {text.strip()}",
+                        )
+                        self.store.write_turn_hashes(
+                            ctx.branch_id,
+                            ctx.turn_index,
+                            assistant_hash=content_hash(text.strip()),
+                        )
+                    if ctx.experience_mode == "chat" \
+                            and ctx.character_core_fingerprint:
+                        rows = self.store.get_turn_texts(
+                            ctx.branch_id, ctx.turn_index, ctx.turn_index
+                        )
+                        user_text = next(
+                            (str(row["user_text"] or "") for row in rows),
+                            "",
+                        )
+                        try:
+                            with self.store.transaction():
+                                self._recognize_accepted_chat_exchange(
+                                    ctx,
+                                    user_text=user_text,
+                                    assistant_text=f"{speaker}: {text.strip()}",
+                                    response_occurrence_id=chat_response_id,
+                                    request_cfg=request_cfg,
+                                )
+                        except Exception as exc:
+                            log.warning(
+                                "accepted Chat recognition failed open: %s",
+                                type(exc).__name__,
+                            )
+                    elif ctx.klass == "swipe":
                         self.store.mark_extraction(
                             ctx.branch_id,
                             ctx.turn_index,
@@ -3133,31 +3486,37 @@ class Pipeline:
                             "skipped",
                         )
                     else:
-                        self._ingest_delivered_claims(ctx, text)
+                        self._ingest_delivered_claims(ctx, text, request_cfg)
+                    self.store.experience_lock(ctx.session_id, ctx.turn_index)
                 self._remember_completed_response(ctx.response_key)
             self._transport_errors.pop(ctx.session_id, None)
-            if ctx.klass == "swipe":
+            if ctx.klass == "swipe" and ctx.experience_mode != "chat":
                 # A swipe/regenerate is narration-only.  Its final prose replaces the abandoned
                 # text for continuity, but neither inline tags nor Tier-1 may reinterpret the
                 # alternate wording as a second state/mechanics settlement.
                 log.info("same-turn narration retry stored without cold-path extraction")
                 return
-            self._ingest_reply_tags(ctx, text)   # live_recalc: newest reply's world-tags NOW
-            self._discover(ctx)               # 08 B2 Tier-0 evidence pass (fail-open)
-            self._recall_pass(ctx)            # P4/Q15: keep recall fresh in rules-only mode
-            self._lint_pass(ctx, text)        # 03 SS9 (full in off/rules; L9-only otherwise)
-            self._genesis_pass(ctx)           # Q23 stage B: assist-LLM seed (cold path)
-            self._evolve_pass(ctx)            # RPG-5: Q27 mastery re-authoring (cold path)
+            self._ingest_reply_tags(ctx, text, request_cfg)
+            self._discover(ctx, request_cfg)
+            self._recall_pass(ctx, request_cfg)
+            self._lint_pass(ctx, text, request_cfg)
+            self._genesis_pass(ctx, request_cfg)
+            self._evolve_pass(ctx, request_cfg)
             if self.jobs is not None:
                 # settle the head NOW so Tier-1 extracts the newest reply on its OWN cold path
                 # (Bean 07-07). Skip turn-0: let genesis stage-B seed the world first, exactly as
                 # before, so opening-turn extraction still lands on turn 1's cold path.
-                if _live_recalc(self.cfg) and ctx.klass != "new_session":
+                if _live_recalc(request_cfg) and ctx.klass != "new_session":
                     try:
                         self.store.settle_head(ctx.branch_id)
                     except Exception:
                         pass
-                self.jobs.notify(ctx.session_id, ctx.branch_id, ctx.turn_index)
+                self.jobs.notify(
+                    ctx.session_id,
+                    ctx.branch_id,
+                    ctx.turn_index,
+                    request_cfg=request_cfg,
+                )
         except Exception as exc:
             log.warning("response tee failed open: %s", type(exc).__name__)
 
@@ -3166,11 +3525,13 @@ class Pipeline:
         ctx: PostContext,
         raw: bytes,
         content_type: str,
+        request_cfg: Optional[Config] = None,
     ) -> tuple[bytes, str]:
         """Evaluate narration as a cold-path advisory and preserve upstream wire bytes exactly."""
         basis = ctx.narration_guard
         if basis is None:
             return raw, content_type
+        cfg = request_cfg or ctx.request_cfg or self.cfg
         reasons: tuple[str, ...] = ()
         try:
             exact_state = self.store.state_at(
@@ -3184,10 +3545,10 @@ class Pipeline:
                 basis,
                 exact_state,
                 story,
-                self.cfg,
+                cfg,
                 klass=ctx.klass,
-                user_name=str(getattr(self.cfg.user_guard, "name", "") or ""),
-                user_aliases=tuple(getattr(self.cfg.user_guard, "aliases", ()) or ()),
+                user_name=str(getattr(cfg.user_guard, "name", "") or ""),
+                user_aliases=tuple(getattr(cfg.user_guard, "aliases", ()) or ()),
             )
             if decision.accepted:
                 reasons = ()
@@ -3294,11 +3655,14 @@ class Pipeline:
         except Exception as exc:
             log.warning("response trace failed open: %s", type(exc).__name__)
 
-    def _ingest_delivered_claims(self, ctx: PostContext, text: Optional[str]) -> None:
+    def _ingest_delivered_claims(
+        self, ctx: PostContext, text: Optional[str], request_cfg: Optional[Config] = None
+    ) -> None:
         """Recognize claim structure only after one ordinary reply is durably delivered."""
+        request_cfg = request_cfg or self.cfg
         if ctx.klass not in {"new_turn", "new_session"} or not text or not text.strip():
             return
-        spec = getattr(self.cfg, "specialization", None)
+        spec = getattr(request_cfg, "specialization", None)
         if spec is None or spec.name != "rpg":
             return
         ops = claim_ops_from_text(
@@ -3315,7 +3679,7 @@ class Pipeline:
             ctx.turn_index,
             ops,
             "rule",
-            self.cfg,
+            request_cfg,
         )
         if result.quarantined:
             log.info(
@@ -3323,16 +3687,140 @@ class Pipeline:
                 len(result.quarantined),
             )
 
-    def _ingest_reply_tags(self, ctx: PostContext, text: Optional[str]) -> None:
+    @staticmethod
+    def _accepted_response_occurrence_id(
+        ctx: PostContext, candidate_text: str
+    ) -> str:
+        material = json.dumps(
+            {
+                "schema": "aetherstate-accepted-response-occurrence/1",
+                "session_id": ctx.session_id,
+                "branch_id": ctx.branch_id,
+                "turn_index": int(ctx.turn_index),
+                "request_id": ctx.response_key,
+                "candidate_sha256": hashlib.sha256(
+                    candidate_text.encode("utf-8")
+                ).hexdigest(),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return "response:" + hashlib.sha256(material).hexdigest()
+
+    def _recognize_accepted_chat_exchange(
+        self,
+        ctx: PostContext,
+        *,
+        user_text: str,
+        assistant_text: str,
+        response_occurrence_id: str,
+        request_cfg: Config,
+    ) -> None:
+        """Publish user/Character ClaimFrames atomically after this response wins."""
+        binding = self.store.experience_binding(ctx.session_id)
+        if binding.mode != "chat":
+            return
+        batches = (
+            (
+                "user_text",
+                claim_ops_from_text(
+                    user_text,
+                    ingress="player",
+                    source_id=binding.persona_actor_id,
+                    preserve_source_identity=True,
+                ),
+                "",
+                [binding.character_actor_id, binding.persona_actor_id],
+            ),
+            (
+                "assistant_response",
+                claim_ops_from_text(
+                    assistant_text,
+                    ingress="npc",
+                    source_id=binding.character_actor_id,
+                    preserve_source_identity=True,
+                ),
+                response_occurrence_id,
+                [binding.character_actor_id],
+            ),
+        )
+        for lifecycle, ops, response_id, scoped_actors in batches:
+            if not ops:
+                continue
+            source_message_fingerprint = "sha256:" + hashlib.sha256(
+                (
+                    user_text
+                    if lifecycle == "user_text"
+                    else assistant_text
+                ).encode("utf-8")
+            ).hexdigest()
+            if lifecycle == "user_text" and self.store.chat_user_text_admitted(
+                ctx.branch_id,
+                ctx.turn_index,
+                source_message_fingerprint,
+            ):
+                continue
+            ops = [
+                {
+                    **op,
+                    "visibility": "actor_scoped",
+                    "scoped_actors": list(scoped_actors),
+                }
+                if op.get("op") == "claim_record"
+                else op
+                for op in ops
+            ]
+            result = apply_delta(
+                self.store,
+                ctx.session_id,
+                ctx.branch_id,
+                ctx.turn_index,
+                ops,
+                "rule",
+                request_cfg,
+                lifecycle_source=lifecycle,
+                response_occurrence_id=response_id,
+            )
+            if result.quarantined:
+                raise ValueError(
+                    f"accepted Chat {lifecycle} recognition was not atomic"
+                )
+            if lifecycle == "user_text" and result.applied:
+                refs = [
+                    str(op.get("_journal_op_ref") or "")
+                    for op in result.applied
+                    if str(op.get("_journal_op_ref") or "")
+                ]
+                journal_ids = {
+                    int(ref.partition(":")[0])
+                    for ref in refs
+                    if ref.partition(":")[0].isdigit()
+                }
+                if len(journal_ids) != 1:
+                    raise ValueError(
+                        "accepted Chat user text did not own one exact journal row"
+                    )
+                self.store.record_chat_user_text_admission(
+                    ctx.branch_id,
+                    ctx.turn_index,
+                    source_message_fingerprint,
+                    next(iter(journal_ids)),
+                )
+
+    def _ingest_reply_tags(
+        self, ctx: PostContext, text: Optional[str], request_cfg: Optional[Config] = None
+    ) -> None:
         """live_recalc (Bean 2026-07-07): parse the DM's FRESH reply's world/effect tags
         (R9/R10) the instant its stream ends and commit them to the ledger at THIS turn
         (source='extraction'), so state reflects the NEWEST output — not the reply before it.
         rpg-gated; narration retries never call this method. Fail-open — any error leaves the
         ledger exactly as it was (invariant 3)."""
+        request_cfg = request_cfg or self.cfg
         try:
-            if not (text and text.strip()) or not _live_recalc(self.cfg):
+            if not (text and text.strip()) or not _live_recalc(request_cfg):
                 return
-            spec = getattr(self.cfg, "specialization", None)
+            spec = getattr(request_cfg, "specialization", None)
             if spec is None or spec.name != "rpg":
                 return
             state = current_state(self.store, ctx.branch_id)
@@ -3448,7 +3936,7 @@ class Pipeline:
             # spawns, while extraction still sees every freshly introduced combatant.
             if combat_tags:
                 r = apply_delta(self.store, ctx.session_id, ctx.branch_id,
-                                ctx.turn_index, combat_tags, "rule", self.cfg,
+                                ctx.turn_index, combat_tags, "rule", request_cfg,
                                 **semantic_apply)
                 state = r.state
                 applied += r.applied
@@ -3462,7 +3950,7 @@ class Pipeline:
                     ])
             if ops:
                 r = apply_delta(self.store, ctx.session_id, ctx.branch_id, ctx.turn_index,
-                                ops, "extraction", self.cfg)
+                                ops, "extraction", request_cfg)
                 state = r.state
                 applied += r.applied
                 self._index_memories(ctx, r)
@@ -3481,7 +3969,7 @@ class Pipeline:
                     prepare_intent=bool(getattr(spec, "enemy_rolls", True)))
                 if wr:                            # loot, combat_end — on the fresh reply's
                     r = apply_delta(self.store, ctx.session_id, ctx.branch_id,   # own turn
-                                    ctx.turn_index, wr, "rule", self.cfg)
+                                    ctx.turn_index, wr, "rule", request_cfg)
                     state = r.state
                     applied += r.applied
                     self._index_memories(ctx, r)
@@ -3489,7 +3977,7 @@ class Pipeline:
                     bw = battle_ops(state, applied)       # AFTER combat_ops so defeats have landed
                     if bw:
                         r = apply_delta(self.store, ctx.session_id, ctx.branch_id,
-                                        ctx.turn_index, bw, "rule", self.cfg)
+                                        ctx.turn_index, bw, "rule", request_cfg)
                         state = r.state
                         applied += r.applied
                         self._index_memories(ctx, r)
@@ -3504,42 +3992,84 @@ class Pipeline:
                                turn_index=ctx.turn_index)
                 if lw:
                     r = apply_delta(self.store, ctx.session_id, ctx.branch_id,
-                                    ctx.turn_index, lw, "rule", self.cfg)
+                                    ctx.turn_index, lw, "rule", request_cfg)
                     self._index_memories(ctx, r)
                     log.info("living world (live path): %d op(s) applied", len(r.applied))
         except Exception as exc:
             log.warning("live tag ingest failed open: %s: %s",
                         type(exc).__name__, str(exc)[:200])
 
-    def _recall_pass(self, ctx: PostContext) -> None:
+    def _recall_pass(
+        self, ctx: PostContext, request_cfg: Optional[Config] = None
+    ) -> None:
         """Cold-path recall staging when NO extraction job will run for this session
         (extraction jobs do their own precompute with the settled exchange). Fail-open."""
+        request_cfg = request_cfg or self.cfg
         try:
-            if self.cfg.extraction.mode not in ("off", "rules"):
+            if request_cfg.extraction.mode not in ("off", "rules"):
                 return                        # jobs path owns it
             state = current_state(self.store, ctx.branch_id)
             rows = self.store.get_turn_texts(ctx.branch_id, ctx.turn_index,
                                              ctx.turn_index)
             q = " ".join(t for r in rows for t in (r["user_text"], r["assistant_text"]) if t)
-            memory.reflect(self.store, self.cfg, ctx.session_id, ctx.branch_id, state)
-            memory.precompute_recall(self.store, self.cfg, ctx.session_id, ctx.branch_id,
-                                     state, q, ctx.turn_index)
+            binding = self.store.experience_binding(ctx.session_id)
+            viewer_actor_id = (
+                binding.character_actor_id
+                if ctx.experience_mode == "chat"
+                else next(iter(state.get("player") or {}), "")
+            )
+            artifact_lineage = None
+            if ctx.experience_mode == "chat":
+                response_id = self.store.accepted_response_occurrence_id(
+                    ctx.branch_id,
+                    ctx.turn_index,
+                )
+                artifact_lineage = {
+                    "turn": ctx.turn_index,
+                    "lifecycle_source": "assistant_response",
+                    "response_occurrence_id": response_id,
+                    "source_message_fingerprint":
+                        self.store.turn_text_source_fingerprint(
+                            ctx.branch_id,
+                            ctx.turn_index,
+                            "assistant_response",
+                            require_receipt=True,
+                        ),
+                }
+            memory.reflect(
+                self.store,
+                request_cfg,
+                ctx.session_id,
+                ctx.branch_id,
+                state,
+                artifact_lineage=artifact_lineage,
+            )
+            memory.precompute_recall(self.store, request_cfg, ctx.session_id, ctx.branch_id,
+                                     state, q, ctx.turn_index,
+                                     viewer_actor_id=viewer_actor_id,
+                                     player_actor_id=binding.persona_actor_id,
+                                     experience_mode=ctx.experience_mode,
+                                     artifact_lineage=artifact_lineage)
         except Exception as exc:
             log.warning("recall pass skipped: %s", type(exc).__name__)
 
-    def _genesis_pass(self, ctx: PostContext) -> None:
+    def _genesis_pass(
+        self, ctx: PostContext, request_cfg: Optional[Config] = None
+    ) -> None:
         """Q23 stage B: schedule the full-matrix LLM seed after turn 1's stream ends.
         off/rules extraction -> stage A is the whole product (mark done). Fail-open."""
+        request_cfg = request_cfg or self.cfg
         try:
-            if ctx.klass != "new_session" or not ctx.card:
+            if ctx.experience_mode != "rpg" \
+                    or ctx.klass != "new_session" or not ctx.card:
                 return
-            if self.cfg.extraction.mode in ("off", "rules") or self.jobs is None:
+            if request_cfg.extraction.mode in ("off", "rules") or self.jobs is None:
                 if self.store.genesis_state(ctx.session_id) == "rules":
                     self.store.genesis_mark(ctx.session_id, "done")
                 return
-            ep, _, _ = self.jobs.endpoint_for(ctx.session_id)
+            ep, _, _ = self.jobs.endpoint_for(ctx.session_id, request_cfg)
             t = asyncio.get_running_loop().create_task(
-                genesis.seed_llm(self.store, self.cfg, self.jobs.ladder.get_client, ep,
+                genesis.seed_llm(self.store, request_cfg, self.jobs.ladder.get_client, ep,
                                  ctx.session_id, ctx.branch_id, ctx.card, ctx.opening,
                                  speaker=ctx.speaker or "", card_role=ctx.card_role or ""))
             self.jobs._tasks.add(t)
@@ -3547,22 +4077,25 @@ class Pipeline:
         except Exception as exc:
             log.warning("genesis schedule failed open: %s", type(exc).__name__)
 
-    def _evolve_pass(self, ctx: PostContext) -> None:
+    def _evolve_pass(
+        self, ctx: PostContext, request_cfg: Optional[Config] = None
+    ) -> None:
         """RPG-5 (doc 10 §4 / Q27): a mastery bracket crossed this turn schedules a cold-path
         assist re-authoring of that skill's frozen def. Fail-open at every step — without an
         assist model the curated bracket bonus (registry.effective_mod) IS the evolution."""
+        request_cfg = request_cfg or self.cfg
         try:
             if not ctx.evolutions or self.jobs is None:
                 return
-            spec = getattr(self.cfg, "specialization", None)
+            spec = getattr(request_cfg, "specialization", None)
             if spec is None or spec.name != "rpg":
                 return
             from . import creator as _creator
-            ep, _, _ = self.jobs.endpoint_for(ctx.session_id)
+            ep, _, _ = self.jobs.endpoint_for(ctx.session_id, request_cfg)
             for (char, table, sid, bracket) in ctx.evolutions[:2]:   # bounded per turn
                 t = asyncio.get_running_loop().create_task(
                     _creator.evolve_def_snapshot(
-                        self.store, self.cfg, self.jobs.ladder.get_client, ep,
+                        self.store, request_cfg, self.jobs.ladder.get_client, ep,
                         ctx.session_id, ctx.branch_id, str(char), str(table), str(sid),
                         str(bracket), turn=ctx.turn_index))
                 self.jobs._tasks.add(t)
@@ -3570,23 +4103,26 @@ class Pipeline:
         except Exception as exc:
             log.warning("evolve schedule failed open: %s", type(exc).__name__)
 
-    def _lint_pass(self, ctx: PostContext, text: Optional[str]) -> None:
+    def _lint_pass(
+        self, ctx: PostContext, text: Optional[str], request_cfg: Optional[Config] = None
+    ) -> None:
         """Cold-path lint. off/rules extraction: the Tier-0 apply IS the post-apply
         snapshot -> full L1-L9 here. main/assist: the batch job runs the full pass
         post-extraction-apply; only L9 (prose-only, needs no snapshot) runs NOW so the
         guard can escalate on the very next turn (Q12). Cooldown dedups the overlap."""
+        request_cfg = request_cfg or self.cfg
         try:
-            if not self.cfg.linter.enabled or not (text and text.strip()):
+            if not request_cfg.linter.enabled or not (text and text.strip()):
                 return
-            name = (self.cfg.user_guard.name
+            name = (request_cfg.user_guard.name
                     or (self.jobs.user_names.get(ctx.session_id, "") if self.jobs else ""))
-            aliases = tuple(self.cfg.user_guard.aliases)
-            full = self.cfg.extraction.mode in ("off", "rules")
+            aliases = tuple(request_cfg.user_guard.aliases)
+            full = request_cfg.extraction.mode in ("off", "rules")
             state = current_state(self.store, ctx.branch_id)
-            cfg = self.cfg
+            cfg = request_cfg
             if not full:                      # L9-only quick pass (see docstring)
                 import copy
-                cfg = copy.deepcopy(self.cfg)
+                cfg = copy.deepcopy(request_cfg)
                 cfg.linter.rules_off = sorted(set(cfg.linter.rules_off)
                                               | {f"L{i}" for i in range(1, 9)})
             utext = ""
@@ -3601,7 +4137,7 @@ class Pipeline:
                                      user_name=name, user_aliases=aliases,
                                      user_text=utext)
             if full:                      # Tier-0 apply IS the post-apply snapshot (03 SS8)
-                director.stage(self.store, self.cfg, ctx.session_id, ctx.branch_id,
+                director.stage(self.store, request_cfg, ctx.session_id, ctx.branch_id,
                                ctx.turn_index, state, fresh, user_name=name,
                                user_aliases=aliases)
             else:                         # batch job owns the note; consume the stale one
@@ -3609,10 +4145,13 @@ class Pipeline:
         except Exception as exc:              # invariant 3: linter never breaks the turn
             log.warning("lint pass skipped: %s", type(exc).__name__)
 
-    def _discover(self, ctx: PostContext) -> None:
+    def _discover(
+        self, ctx: PostContext, request_cfg: Optional[Config] = None
+    ) -> None:
         """Entity discovery over this turn's captured prose (08 B2). Any error stays here."""
+        request_cfg = request_cfg or self.cfg
         try:
-            if self.cfg.extraction.mode == "off":
+            if request_cfg.extraction.mode == "off":
                 return
             rows = self.store.get_turn_texts(ctx.branch_id, ctx.turn_index, ctx.turn_index)
             text = "\n".join((r["user_text"] or "") + "\n" + (r["assistant_text"] or "")
@@ -3620,16 +4159,16 @@ class Pipeline:
             if not text.strip():
                 return
             state = current_state(self.store, ctx.branch_id)
-            guard = self.cfg.user_guard.name or \
+            guard = request_cfg.user_guard.name or \
                 (self.jobs.user_names.get(ctx.session_id, "") if self.jobs else "")
             known = discovery.known_names(state, (guard, ctx.speaker or ""))
-            discovery.observe_text(self.store, self.cfg, ctx.session_id, ctx.branch_id,
+            discovery.observe_text(self.store, request_cfg, ctx.session_id, ctx.branch_id,
                                    ctx.turn_index, text, known)
-            if getattr(self.cfg, "specialization", None) is not None \
-                    and self.cfg.specialization.name == "rpg":
+            if getattr(request_cfg, "specialization", None) is not None \
+                    and request_cfg.specialization.name == "rpg":
                 # RPG-4: places persist once too — rpg-gated so a `none` session's journal
                 # stays byte-identical (invariant: no fingerprint under none).
-                discovery.observe_locations(self.store, self.cfg, ctx.session_id,
+                discovery.observe_locations(self.store, request_cfg, ctx.session_id,
                                             ctx.branch_id, ctx.turn_index, text, state)
         except Exception as exc:
             log.warning("discovery pass failed open: %s", type(exc).__name__)

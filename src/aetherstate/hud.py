@@ -11,6 +11,7 @@ exception. By Bean (AetherState, MIT)."""
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from copy import deepcopy
 
 from .compose import (GEAR_SLOT_ORDER, GEAR_SLOTS, _VALENCE_GLYPH, _initiative_order,
@@ -1197,6 +1198,285 @@ def _player_safe_raw(view: dict, decisions: dict[str, bool], state: dict) -> dic
         if key in row
     } for row in safe.get("factions") or []]
     return _apply_surface_visibility(safe, decisions, state)
+
+
+_CHAT_RAW_KEYS = (
+    "experience_mode",
+    "continuity_available",
+    "continuity_reason",
+    "continuity",
+)
+
+
+def _chat_player_safe_raw(view: dict) -> dict:
+    safe = {key: deepcopy(view[key]) for key in _CHAT_RAW_KEYS if key in view}
+    safe["schema"] = "aetherstate-chat-inspection/1"
+    return {"schema": safe.pop("schema"), **safe}
+
+
+def _chat_change_label(dimension: object, quality: object) -> str:
+    subject = str(dimension or "Relationship").replace("_", " ").strip().title()
+    ending = {
+        "gain": "grew",
+        "growth": "grew",
+        "loss": "weakened",
+        "strain": "was strained",
+    }.get(str(quality or "").strip().lower(), "changed")
+    return f"{subject} {ending}"
+
+
+def chat_continuity_view(
+    state: dict,
+    *,
+    persona_actor_id: str,
+    character_actor_id: str,
+    core_fingerprint: str,
+    cfg=None,
+) -> dict:
+    """Whitelisted Persona-facing Chat continuity for one exact admitted Core binding."""
+    del cfg  # Reserved for presentation policy without coupling Chat to RPG specialization.
+    from .chat_card import core_fingerprint as fingerprint_core
+    from .chat_card import validate_core
+    from .chat_continuity import project_continuity
+    from .knowledge import record_visible_to
+
+    state = dict(state) if isinstance(state, dict) else {}
+    persona = str(persona_actor_id or "")
+    character = str(character_actor_id or "")
+    fingerprint = str(core_fingerprint or "")
+    core_state = state.get("chat_core")
+    core = core_state.get("core") if isinstance(core_state, Mapping) else None
+    exact_binding = bool(
+        persona
+        and character
+        and fingerprint
+        and isinstance(core_state, Mapping)
+        and core_state.get("persona_actor_id") == persona
+        and core_state.get("character_actor_id") == character
+        and core_state.get("core_fingerprint") == fingerprint
+        and isinstance(core, Mapping)
+    )
+    if exact_binding:
+        try:
+            clean_core = validate_core(core)
+            exact_binding = fingerprint_core(clean_core) == fingerprint
+        except (TypeError, ValueError):
+            exact_binding = False
+    else:
+        clean_core = {}
+
+    view = {
+        "experience_mode": "chat",
+        "continuity_available": bool(exact_binding),
+        "persona_actor_id": persona,
+        "character_actor_id": character,
+    }
+    if not exact_binding:
+        view["continuity_reason"] = "Exact Chat continuity binding is unavailable."
+        view["player_safe_raw"] = _chat_player_safe_raw(view)
+        return view
+
+    projected = project_continuity(
+        state,
+        viewer_actor_id=persona,
+        player_actor_id=persona,
+        limit=128,
+    )
+
+    possessions = []
+    character_attrs = (state.get("attributes") or {}).get(character) or {}
+    if isinstance(character_attrs, Mapping):
+        for key, row in sorted(character_attrs.items()):
+            if not str(key).startswith("chat_observable.") \
+                    or not isinstance(row, Mapping) \
+                    or not record_visible_to(
+                        row,
+                        viewer_actor_id=persona,
+                        player_actor_id=persona,
+                        blank_visibility="deny",
+                    ):
+                continue
+            possessions.append({
+                "kind": str(row.get("kind") or "detail")[:80],
+                "summary": str(row.get("summary") or "")[:600],
+            })
+            if len(possessions) >= 32:
+                break
+
+    creator_world = state.get("creator_world") or {}
+    world = creator_world.get("document") if isinstance(creator_world, Mapping) else {}
+    setting = ""
+    if isinstance(world, Mapping):
+        setting = str(world.get("setting") or world.get("summary") or world.get("name") or "")[
+            :1200
+        ].strip()
+    if not setting:
+        scene = state.get("scene") or {}
+        if isinstance(scene, Mapping):
+            setting = str(
+                scene.get("summary") or scene.get("situation") or scene.get("location") or ""
+            )[:1200].strip()
+    if not setting:
+        setting = "No authored World; continuity follows this conversation."
+
+    changes = []
+    relationship_rows = projected.get("relationships") or {}
+    if isinstance(relationship_rows, Mapping):
+        for direction in (f"{character}->{persona}", f"{persona}->{character}"):
+            relationship = relationship_rows.get(direction)
+            if not isinstance(relationship, Mapping):
+                continue
+            # Relationship causes are structural children of this exact directional
+            # aggregate, not standalone audience-scoped records.
+            for cause in relationship.get("causes") or []:
+                if not isinstance(cause, Mapping):
+                    continue
+                change = _chat_change_label(cause.get("dimension"), cause.get("quality"))
+                cause_ref = cause.get("cause_ref")
+                kind = str(cause_ref.get("kind") or "") if isinstance(cause_ref, Mapping) else ""
+                evidence = {
+                    "creator": "Accepted starting continuity",
+                    "social_occurrence": "Accepted shared moment",
+                    "relationship_agreement": "Accepted relationship agreement",
+                    "continuity_thread": "Accepted continuity thread",
+                    "claim_record": "Accepted message evidence",
+                    "fact_record": "Accepted fact",
+                }.get(kind, "Accepted continuity evidence")
+                turn = cause.get("turn")
+                changes.append({
+                    "change": change,
+                    "reason": str(cause.get("reason") or "")[:600],
+                    "turn": turn if isinstance(turn, int) and not isinstance(turn, bool) else -1,
+                    "evidence": evidence,
+                })
+    changes = changes[-32:]
+
+    agreements = []
+    agreement_rows = projected.get("agreements") or {}
+    if isinstance(agreement_rows, Mapping):
+        for revisions in agreement_rows.values():
+            if not isinstance(revisions, list) or not revisions:
+                continue
+            row = revisions[-1]
+            parties = {
+                str(ref.get("actor_id") or "")
+                for ref in row.get("parties") or []
+                if isinstance(ref, Mapping) and ref.get("kind") == "actor"
+            } if isinstance(row, Mapping) else set()
+            if not isinstance(row, Mapping) or {character, persona} - parties:
+                continue
+            exclusivity = str(row.get("exclusivity") or "").replace("_", " ").strip()
+            summary = (
+                f"{exclusivity.title()} relationship agreement"
+                if exclusivity
+                else "Relationship agreement"
+            )
+            agreements.append({
+                "summary": summary,
+                "status": str(row.get("action") or "active").replace("_", " ")[:80],
+            })
+            if len(agreements) >= 16:
+                break
+
+    open_threads = []
+    thread_rows = projected.get("open_threads") or {}
+    if isinstance(thread_rows, Mapping):
+        for revisions in thread_rows.values():
+            if not isinstance(revisions, list) or not revisions:
+                continue
+            row = revisions[-1]
+            if not isinstance(row, Mapping) or row.get("status") != "open":
+                continue
+            actors = tuple(sorted(
+                str(ref.get("actor_id") or "")
+                for ref in row.get("participants") or []
+                if isinstance(ref, Mapping) and ref.get("kind") == "actor"
+            ))
+            if {character, persona} - set(actors):
+                continue
+            turn = row.get("turn")
+            open_threads.append({
+                "kind": str(row.get("kind") or "thread").replace("_", " ")[:80],
+                "summary": str(row.get("summary") or "")[:600],
+                "status": "open",
+                **(
+                    {"turn": turn}
+                    if isinstance(turn, int) and not isinstance(turn, bool)
+                    else {}
+                ),
+            })
+            if len(open_threads) >= 32:
+                break
+
+    memories = []
+    for row in projected.get("memories") or []:
+        if not isinstance(row, Mapping):
+            continue
+        text = str(row.get("text") or "")[:800].strip()
+        if not text:
+            continue
+        turn = row.get("turn")
+        memories.append({
+            "text": text,
+            **(
+                {"turn": turn}
+                if isinstance(turn, int) and not isinstance(turn, bool)
+                else {}
+            ),
+        })
+    memories = memories[-32:]
+
+    moments = []
+    occurrence_rows = projected.get("social_occurrences") or {}
+    if isinstance(occurrence_rows, Mapping):
+        for revisions in occurrence_rows.values():
+            if not isinstance(revisions, list) or not revisions:
+                continue
+            row = revisions[-1]
+            if not isinstance(row, Mapping):
+                continue
+            refs = [row.get("agreement_actor"), *(row.get("outside_participants") or [])]
+            actors = {
+                str(ref.get("actor_id") or "")
+                for ref in refs
+                if isinstance(ref, Mapping) and ref.get("kind") == "actor"
+            }
+            if {character, persona} - actors:
+                continue
+            turn = row.get("occurred_turn")
+            summary = str(row.get("summary") or "").strip()
+            if not summary:
+                summary = str(row.get("act") or "shared moment").replace("_", " ")
+            moments.append({
+                "summary": summary[:600],
+                **(
+                    {"turn": turn}
+                    if isinstance(turn, int) and not isinstance(turn, bool)
+                    else {}
+                ),
+            })
+            if len(moments) >= 32:
+                break
+
+    relationship_summary = (
+        f"{changes[-1]['change']}." if changes else "No recorded relationship change yet."
+    )
+    view["continuity"] = {
+        "now": {"setting": setting, "possessions": possessions},
+        "relationship": {
+            "summary": relationship_summary,
+            "changes": changes,
+            "agreements": agreements,
+        },
+        "open_threads": open_threads,
+        "shared_history": {"memories": memories, "moments": moments},
+        "character": {
+            key: str(clean_core.get(key) or "")[:1200]
+            for key in ("name", "description", "personality")
+        },
+    }
+    view["player_safe_raw"] = _chat_player_safe_raw(view)
+    return view
 
 
 def hud_view(state: dict, cfg=None) -> dict:

@@ -13,6 +13,8 @@ it — there it is the parse/content floor).
 """
 from __future__ import annotations
 
+import json
+
 
 NARRATOR_ENVELOPE_VERSION = "aether-narrator/2"
 NARRATOR_ENVELOPE = (
@@ -619,7 +621,7 @@ def few_shots(assist_tier: bool = False) -> str:
 
 def user_message(state_snapshot: str, characters: str, t0: int, t1: int,
                  exchange: str, language_hint: str = "", assist_tier: bool = False,
-                 context: str = "") -> str:
+                 context: str = "", chat_coordinates: dict | None = None) -> str:
     """04 SS1.2 layout. RP prose enters ONLY inside <data> fences (untrusted input).
     `context` (2026-07-04, extraction.intake_chars): earlier, already-extracted turns
     shipped read-only so the model can resolve pronouns/callbacks — never re-extracted."""
@@ -627,10 +629,35 @@ def user_message(state_snapshot: str, characters: str, t0: int, t1: int,
             if language_hint else "")
     ctx = (f"EARLIER STORY (reference only — the state above ALREADY reflects it; "
            f"emit NO ops for events here):\n<data>\n{context}\n</data>\n" if context else "")
+    role_coordinates = ""
+    if isinstance(chat_coordinates, dict):
+        bounded = {
+            "schema": "aetherstate-chat-role-coordinates/1",
+            "user_text": {
+                "actor_id": str(chat_coordinates.get("persona_actor_id") or "")[:160],
+                "text": str(chat_coordinates.get("user_text") or ""),
+            },
+            "assistant_text": {
+                "actor_id": str(chat_coordinates.get("character_actor_id") or "")[:160],
+                "text": str(chat_coordinates.get("assistant_text") or ""),
+            },
+        }
+        role_coordinates = (
+            "CHAT ROLE COORDINATES (code-owned actor IDs; source_span offsets index"
+            " the decoded complete text value):\n<data>\n"
+            + json.dumps(
+                bounded,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n</data>\n"
+        )
     return (f"{few_shots(assist_tier)}\n\n"
             f"CURRENT STATE:\n<data>{state_snapshot}</data>\n"
             f"CHARACTERS: {characters}{hint}\n"
             f"{ctx}"
+            f"{role_coordinates}"
             f"TURN_RANGE: [{t0},{t1}]\n"
             f"NEW EXCHANGE(S) TO EXTRACT:\n<data>\n{exchange}\n</data>\n"
             f"JSON:")

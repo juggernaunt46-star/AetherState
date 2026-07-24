@@ -49,6 +49,7 @@ EXPECTED_REDUCER_OPS = frozenset(
         "contact",
         "craving",
         "creator_world_seed",
+        "chat_core_seed",
         "defeat_resolve",
         "effect_add",
         "effect_remove",
@@ -158,7 +159,7 @@ def _build(state: dict, *ops: dict) -> dict:
 
 
 def test_reducer_inventory_is_exact_and_every_kind_has_one_audited_policy():
-    assert len(_SPEC) == 82
+    assert len(_SPEC) == 83
     assert frozenset(_SPEC) == EXPECTED_REDUCER_OPS
     policies = (
         runtime._SEMANTIC_EVIDENCE_JOURNAL_OPS,
@@ -170,7 +171,7 @@ def test_reducer_inventory_is_exact_and_every_kind_has_one_audited_policy():
         assert not any(policy & later for later in policies[index + 1 :])
     audited = frozenset().union(*policies)
     assert audited <= EXPECTED_REDUCER_OPS
-    assert len(EXPECTED_REDUCER_OPS - audited) == 63
+    assert len(EXPECTED_REDUCER_OPS - audited) == 64
 
 
 @pytest.mark.parametrize(

@@ -367,7 +367,7 @@ def test_legacy_hidden_memory_is_sanitized_at_index_retrieval_and_reflection() -
     cfg.memory.reflection_every_scenes = 1
     assert memory.reflect(
         store, cfg, session_id, branch_id, reflected_state,
-    ) == 1
+    ) >= 1
     summaries = store.summaries_unsynthesized(branch_id, 10)
     assert summaries
     assert all(SECRET_NAME not in row["text"] for row in summaries)

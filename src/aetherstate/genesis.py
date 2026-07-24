@@ -191,7 +191,8 @@ def _clean_target(raw: str) -> str:
     return " ".join(words)
 
 
-def rules_ops(card: str, prompt: str, speaker: str = "", card_role: str = "") -> list[dict]:
+def rules_ops(card: str, prompt: str, speaker: str = "", card_role: str = "",
+              actor_id: str = "") -> list[dict]:
     """Stage A. Name source (2026-07-04, 3-tier): (1) the stamp's
     speaker = {{char}} — reliable on EVERY real card; (2) 'Name:' regex fallback;
     (3) optional 'Characters:'/'Cast:' line seeds the listed cast deterministically
@@ -201,9 +202,14 @@ def rules_ops(card: str, prompt: str, speaker: str = "", card_role: str = "") ->
         return []
     dm_card = narrator_role(card, card_role)  # a narrator/world card's speaker is the WORLD —
                                              # never stage its UI name as a present person
-    ops: list[dict] = [] if dm_card else [
-        {"op": "entity_add", "name": name},
-        {"op": "presence", "entity": name, "present": True}]
+    actor_ref = str(actor_id or name)
+    ops: list[dict] = [] if dm_card else (
+        [{"op": "presence", "entity": actor_ref, "present": True}]
+        if actor_id else [
+            {"op": "entity_add", "name": name},
+            {"op": "presence", "entity": name, "present": True},
+        ]
+    )
     m = _CAST_RE.search(card)
     if m:                                    # cast tracked; presence left to play
         for extra in re.split(r"[,;]", m.group(1))[:12]:
@@ -218,14 +224,14 @@ def rules_ops(card: str, prompt: str, speaker: str = "", card_role: str = "") ->
         if not target or target.lower() in seen:
             continue
         seen.add(target.lower())
-        ops.append({"op": "obsession", "char": name, "target_kind": "concept",
+        ops.append({"op": "obsession", "char": actor_ref, "target_kind": "concept",
                     "target": target, "set": 65})
     for m in _CRAVING_RE.finditer(card):
         sub = _clean_target(m.group(1))
         if not sub or sub.lower() in seen:
             continue
         seen.add(sub.lower())
-        ops.append({"op": "craving", "char": name, "substance": sub, "action": "adjust",
+        ops.append({"op": "craving", "char": actor_ref, "substance": sub, "action": "adjust",
                     "delta": _initial_level(prompt, card)})
     return ops                              # entity+presence alone is a valid seed
                                             # (turn-1 header names the character)
@@ -257,6 +263,88 @@ def seed_rules(store, cfg, session_id: str, branch_id: str, doc: dict,
     except Exception as exc:                 # empty start is always acceptable
         log.warning("genesis rules pass failed open: %s", type(exc).__name__)
         return 0
+
+
+def seed_chat_core(
+    store,
+    cfg,
+    session_id: str,
+    branch_id: str,
+    core: dict,
+    persona_key: str,
+    *,
+    world: dict | None = None,
+    turn: int = 0,
+):
+    """Atomically seed one Chat Core, optional World, and generic non-RPG Stage A."""
+    from . import creator
+    from .chat_card import (
+        chat_envelope_fingerprint,
+        core_fingerprint,
+        validate_persona_key,
+        validate_core,
+        world_fingerprint,
+    )
+
+    validated = validate_core(core)
+    persona = validate_persona_key(persona_key)
+    core_fp = core_fingerprint(validated)
+    character_actor_id = "character:" + hashlib.sha256(
+        b"chat-character\0" + core_fp.encode("utf-8"),
+    ).hexdigest()
+    persona_actor_id = "persona:" + hashlib.sha256(
+        b"chat-persona\0" + persona.encode("utf-8"),
+    ).hexdigest()
+    envelope_fp = chat_envelope_fingerprint(validated, world)
+    world_fp = world_fingerprint(world)
+    core_op = {
+        "op": "chat_core_seed",
+        "core": validated,
+        "core_fingerprint": core_fp,
+        "character_actor_id": character_actor_id,
+        "persona_actor_id": persona_actor_id,
+        "card_envelope_fingerprint": envelope_fp,
+    }
+    if world is not None:
+        core_op["world"] = world
+        core_op["world_fingerprint"] = world_fp
+
+    world_ops: list[dict] = []
+    committed_world = None
+    if world is not None:
+        committed_world, _ = creator.portable_seed_documents(world, None, cfg)
+        world_ops = creator.world_to_ops(committed_world)
+
+    card_text = "\n".join(
+        validated[field]
+        for field in ("description", "personality", "scenario")
+        if validated[field]
+    )
+    stage_a = rules_ops(
+        card_text,
+        validated["first_message"],
+        speaker=validated["name"],
+        card_role="character",
+        actor_id=character_actor_id,
+    )
+    result = apply_delta(
+        store,
+        session_id,
+        branch_id,
+        turn,
+        [core_op, *world_ops, *stage_a],
+        "genesis",
+        cfg,
+    )
+    return result, {
+        "core": validated,
+        "core_fingerprint": core_fp,
+        "character_actor_id": character_actor_id,
+        "persona_actor_id": persona_actor_id,
+        "card_envelope_fingerprint": envelope_fp,
+        "world_fingerprint": world_fp,
+        "world": committed_world,
+    }
 
 
 # ---- RPG player genesis (track 2 of two-track genesis, doc 05 §3.3 / doc 06 §2) ---------

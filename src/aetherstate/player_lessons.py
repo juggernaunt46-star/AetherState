@@ -36,8 +36,12 @@ INTENT_SELECTION_ITEM_SCHEMA = "player-lesson-intent-selection-item/1"
 INTENT_APPLICATION_SCHEMA = "player-lesson-intent-application/1"
 
 EFFECT_TYPES = frozenset({"narration_behavior", "intent_interpretation"})
-LESSON_SCOPES = frozenset({"every_rpg_turn", "exploration", "combat_opening", "combat_exchange"})
-NARRATION_MODES = frozenset({"exploration", "combat_opening", "combat_exchange"})
+RPG_LESSON_SCOPES = frozenset(
+    {"every_rpg_turn", "exploration", "combat_opening", "combat_exchange"}
+)
+LESSON_SCOPES = frozenset({*RPG_LESSON_SCOPES, "every_chat_turn"})
+RPG_NARRATION_MODES = frozenset({"exploration", "combat_opening", "combat_exchange"})
+NARRATION_MODES = frozenset({*RPG_NARRATION_MODES, "chat"})
 LEX_IDS = frozenset({"capability", "referent", "scene", "action", "claim"})
 INTENT_LEX_SLOTS = {"action": "action", "referent": "target"}
 INTENT_APPLICATION_REASONS = frozenset(
@@ -74,7 +78,7 @@ _INPUT_HASH_RE = re.compile(r"[0-9a-f]{16}\Z")
 _PLAYERLEX_APPROVAL_RE = re.compile(r"playerlex\.([0-9a-f]{32})\.r([1-9][0-9]*)\Z")
 _STABLE_VALUE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
 
-_LESSON_COLUMNS = (
+_V2_LESSON_COLUMNS = (
     "lesson_id",
     "effect_type",
     "title",
@@ -93,7 +97,12 @@ _LESSON_COLUMNS = (
     "created_at",
     "updated_at",
 )
-_RECEIPT_COLUMNS = (
+_LESSON_COLUMNS = (
+    *_V2_LESSON_COLUMNS[:4],
+    "character_core_fingerprint",
+    *_V2_LESSON_COLUMNS[4:],
+)
+_V2_RECEIPT_COLUMNS = (
     "branch_id",
     "turn_index",
     "input_hash",
@@ -102,7 +111,12 @@ _RECEIPT_COLUMNS = (
     "inherited_from_branch_id",
     "selected_at",
 )
-_ITEM_COLUMNS = (
+_RECEIPT_COLUMNS = (
+    *_V2_RECEIPT_COLUMNS[:4],
+    "character_core_fingerprint",
+    *_V2_RECEIPT_COLUMNS[4:],
+)
+_V2_ITEM_COLUMNS = (
     "branch_id",
     "turn_index",
     "position",
@@ -118,7 +132,12 @@ _ITEM_COLUMNS = (
     "delivered",
     "delivered_at",
 )
-_INTENT_RECEIPT_COLUMNS = _RECEIPT_COLUMNS
+_ITEM_COLUMNS = (
+    *_V2_ITEM_COLUMNS[:8],
+    "character_core_fingerprint",
+    *_V2_ITEM_COLUMNS[8:],
+)
+_INTENT_RECEIPT_COLUMNS = _V2_RECEIPT_COLUMNS
 _INTENT_ITEM_COLUMNS = (
     "branch_id",
     "turn_index",
@@ -454,6 +473,76 @@ _SCHEMA_STATEMENTS = (
     """,
 )
 
+# Freeze the exact second shipped schema so the only accepted upgrade route is v1 -> v2 -> v3.
+# V3 changes only narration definitions/receipts; intent selection remains RPG-only.
+_V2_SCHEMA_STATEMENTS = _SCHEMA_STATEMENTS
+
+_SCHEMA_STATEMENTS = (
+    _V2_SCHEMA_STATEMENTS[0]
+    .replace(
+        "scope IN ('every_rpg_turn', 'exploration', 'combat_opening', 'combat_exchange')",
+        "scope IN ('every_rpg_turn', 'exploration', 'combat_opening', "
+        "'combat_exchange', 'every_chat_turn')",
+        1,
+    )
+    .replace(
+        "do_text TEXT NOT NULL CHECK (length(do_text) <= 1000),",
+        """
+        character_core_fingerprint TEXT NOT NULL CHECK (
+            character_core_fingerprint = ''
+            OR (
+                length(character_core_fingerprint) = 71
+                AND substr(character_core_fingerprint, 1, 7) = 'sha256:'
+                AND substr(character_core_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+            )
+        ),
+        do_text TEXT NOT NULL CHECK (length(do_text) <= 1000),""",
+        1,
+    ),
+    _V2_SCHEMA_STATEMENTS[1]
+    .replace(
+        "narration_mode IN ('exploration', 'combat_opening', 'combat_exchange')",
+        "narration_mode IN ('exploration', 'combat_opening', 'combat_exchange', 'chat')",
+        1,
+    )
+    .replace(
+        "frozen_selected_count INTEGER NOT NULL CHECK (",
+        """
+        character_core_fingerprint TEXT NOT NULL CHECK (
+            character_core_fingerprint = ''
+            OR (
+                length(character_core_fingerprint) = 71
+                AND substr(character_core_fingerprint, 1, 7) = 'sha256:'
+                AND substr(character_core_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+            )
+        ),
+        frozen_selected_count INTEGER NOT NULL CHECK (""",
+        1,
+    ),
+    _V2_SCHEMA_STATEMENTS[2]
+    .replace(
+        "scope IN ('every_rpg_turn', 'exploration', 'combat_opening', 'combat_exchange')",
+        "scope IN ('every_rpg_turn', 'exploration', 'combat_opening', "
+        "'combat_exchange', 'every_chat_turn')",
+        1,
+    )
+    .replace(
+        "anchor_entry_id TEXT,",
+        """
+        character_core_fingerprint TEXT NOT NULL CHECK (
+            character_core_fingerprint = ''
+            OR (
+                length(character_core_fingerprint) = 71
+                AND substr(character_core_fingerprint, 1, 7) = 'sha256:'
+                AND substr(character_core_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+            )
+        ),
+        anchor_entry_id TEXT,""",
+        1,
+    ),
+    *_V2_SCHEMA_STATEMENTS[3:],
+)
+
 _EXPECTED_LESSON_COLUMNS = (
     ("lesson_id", "TEXT", 1, None, 1),
     ("effect_type", "TEXT", 1, None, 0),
@@ -533,6 +622,26 @@ _EXPECTED_INTENT_APPLICATION_COLUMNS = (
     ("applied_at", "REAL", 1, None, 0),
 )
 
+_V2_EXPECTED_LESSON_COLUMNS = _EXPECTED_LESSON_COLUMNS
+_V2_EXPECTED_RECEIPT_COLUMNS = _EXPECTED_RECEIPT_COLUMNS
+_V2_EXPECTED_ITEM_COLUMNS = _EXPECTED_ITEM_COLUMNS
+
+_EXPECTED_LESSON_COLUMNS = (
+    *_V2_EXPECTED_LESSON_COLUMNS[:4],
+    ("character_core_fingerprint", "TEXT", 1, None, 0),
+    *_V2_EXPECTED_LESSON_COLUMNS[4:],
+)
+_EXPECTED_RECEIPT_COLUMNS = (
+    *_V2_EXPECTED_RECEIPT_COLUMNS[:4],
+    ("character_core_fingerprint", "TEXT", 1, None, 0),
+    *_V2_EXPECTED_RECEIPT_COLUMNS[4:],
+)
+_EXPECTED_ITEM_COLUMNS = (
+    *_V2_EXPECTED_ITEM_COLUMNS[:8],
+    ("character_core_fingerprint", "TEXT", 1, None, 0),
+    *_V2_EXPECTED_ITEM_COLUMNS[8:],
+)
+
 
 class PlayerLessonsError(RuntimeError):
     """Base error for explicit local Player Lessons."""
@@ -582,6 +691,43 @@ def _canonical_json(value: Any) -> str:
 
 def _sha256_json(value: Any) -> str:
     return "sha256:" + hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _v2_definition_fingerprint(values: Mapping[str, Any]) -> str:
+    """Fingerprint one exact v2 definition for migration and frozen-receipt parity."""
+    if values["effect_type"] == "intent_interpretation":
+        anchor = _anchor_from_values(values)
+        return _sha256_json(
+            {
+                "schema": INTENT_LESSON_SCHEMA,
+                "lesson_id": values["lesson_id"],
+                "effect_type": values["effect_type"],
+                "title": values["title"],
+                "scope": values["scope"],
+                "misunderstanding": values["avoid_text"],
+                "correct_interpretation": values["do_text"],
+                "intent_slot": (
+                    None if anchor is None else INTENT_LEX_SLOTS.get(anchor["lex_id"])
+                ),
+                "anchor": anchor,
+                "enabled": bool(values["enabled"]),
+                "revision": values["revision"],
+            }
+        )
+    return _sha256_json(
+        {
+            "schema": LESSON_SCHEMA,
+            "lesson_id": values["lesson_id"],
+            "effect_type": values["effect_type"],
+            "title": values["title"],
+            "scope": values["scope"],
+            "do": values["do_text"],
+            "avoid": values["avoid_text"],
+            "anchor": _anchor_from_values(values),
+            "enabled": bool(values["enabled"]),
+            "revision": values["revision"],
+        }
+    )
 
 
 def _is_plain_int(value: object, *, minimum: int = 0) -> bool:
@@ -718,7 +864,8 @@ class PlayerLessons:
                     raise PlayerLessonsError("SQLite secure deletion is unavailable for Player Lessons")
                 objects_exist = self._schema_objects_exist()
                 migrate_v1 = objects_exist and self._v1_schema_matches()
-                if migrate_v1:
+                migrate_v2 = objects_exist and not migrate_v1 and self._v2_schema_matches()
+                if migrate_v1 or migrate_v2:
                     self._checkpoint_wal()
                 self._connection.execute("BEGIN IMMEDIATE")
                 try:
@@ -727,6 +874,9 @@ class PlayerLessons:
                             self._connection.execute(statement)
                     elif migrate_v1:
                         self._migrate_v1_schema()
+                        self._migrate_v2_schema()
+                    elif migrate_v2:
+                        self._migrate_v2_schema()
                     self._verify_schema()
                     self._normalize_receipt_input_hashes()
                 except BaseException:
@@ -734,7 +884,7 @@ class PlayerLessons:
                     raise
                 else:
                     self._connection.commit()
-                if migrate_v1:
+                if migrate_v1 or migrate_v2:
                     self._checkpoint_wal()
             except sqlite3.Error as exc:
                 if self._connection.in_transaction:
@@ -935,10 +1085,11 @@ class PlayerLessons:
                 self._schema_sql("index", "player_lesson_receipt_time_idx") or ""
             )
             == _normalized_schema_sql(_V1_SCHEMA_STATEMENTS[4])
-            and self._table_columns("player_lessons") == _EXPECTED_LESSON_COLUMNS
+            and self._table_columns("player_lessons") == _V2_EXPECTED_LESSON_COLUMNS
             and self._table_columns("player_lesson_selection_receipts")
-            == _EXPECTED_RECEIPT_COLUMNS
-            and self._table_columns("player_lesson_selection_items") == _EXPECTED_ITEM_COLUMNS
+            == _V2_EXPECTED_RECEIPT_COLUMNS
+            and self._table_columns("player_lesson_selection_items")
+            == _V2_EXPECTED_ITEM_COLUMNS
             and self._persistent_schema_objects() == expected_objects
             and not self._temporary_schema_objects_exist()
             and set(self._index_metadata("player_lessons").values()) == expected_lesson_indexes
@@ -948,25 +1099,185 @@ class PlayerLessons:
             == expected_item_indexes
         )
 
+    def _v2_schema_matches(self) -> bool:
+        """Recognize only the exact intent-capable predecessor eligible for v3 migration."""
+        table_names = (
+            "player_lessons",
+            "player_lesson_selection_receipts",
+            "player_lesson_selection_items",
+            "player_lesson_intent_receipts",
+            "player_lesson_intent_selection_items",
+            "player_lesson_intent_applications",
+        )
+        table_statements = (
+            *_V2_SCHEMA_STATEMENTS[:3],
+            *_V2_SCHEMA_STATEMENTS[5:8],
+        )
+        index_names = (
+            "player_lesson_receipt_lesson_idx",
+            "player_lesson_receipt_time_idx",
+            "player_lesson_intent_receipt_lesson_idx",
+            "player_lesson_intent_receipt_time_idx",
+            "player_lesson_intent_application_lesson_idx",
+        )
+        index_statements = (
+            *_V2_SCHEMA_STATEMENTS[3:5],
+            *_V2_SCHEMA_STATEMENTS[8:11],
+        )
+        expected_objects = frozenset(
+            {
+                ("table", name, name) for name in table_names
+            }
+            | {
+                ("index", f"sqlite_autoindex_{name}_{ordinal}", name)
+                for name, count in (
+                    ("player_lessons", 1),
+                    ("player_lesson_selection_receipts", 1),
+                    ("player_lesson_selection_items", 2),
+                    ("player_lesson_intent_receipts", 1),
+                    ("player_lesson_intent_selection_items", 2),
+                    ("player_lesson_intent_applications", 2),
+                )
+                for ordinal in range(1, count + 1)
+            }
+            | {
+                ("index", name, table)
+                for name, table in (
+                    ("player_lesson_receipt_lesson_idx", "player_lesson_selection_items"),
+                    ("player_lesson_receipt_time_idx", "player_lesson_selection_receipts"),
+                    (
+                        "player_lesson_intent_receipt_lesson_idx",
+                        "player_lesson_intent_selection_items",
+                    ),
+                    (
+                        "player_lesson_intent_receipt_time_idx",
+                        "player_lesson_intent_receipts",
+                    ),
+                    (
+                        "player_lesson_intent_application_lesson_idx",
+                        "player_lesson_intent_applications",
+                    ),
+                )
+            }
+        )
+        return bool(
+            all(
+                _normalized_schema_sql(self._schema_sql("table", name) or "")
+                == _normalized_schema_sql(statement)
+                for name, statement in zip(table_names, table_statements, strict=True)
+            )
+            and all(
+                _normalized_schema_sql(self._schema_sql("index", name) or "")
+                == _normalized_schema_sql(statement)
+                for name, statement in zip(index_names, index_statements, strict=True)
+            )
+            and self._table_columns("player_lessons") == _V2_EXPECTED_LESSON_COLUMNS
+            and self._table_columns("player_lesson_selection_receipts")
+            == _V2_EXPECTED_RECEIPT_COLUMNS
+            and self._table_columns("player_lesson_selection_items")
+            == _V2_EXPECTED_ITEM_COLUMNS
+            and self._table_columns("player_lesson_intent_receipts")
+            == _EXPECTED_INTENT_RECEIPT_COLUMNS
+            and self._table_columns("player_lesson_intent_selection_items")
+            == _EXPECTED_INTENT_ITEM_COLUMNS
+            and self._table_columns("player_lesson_intent_applications")
+            == _EXPECTED_INTENT_APPLICATION_COLUMNS
+            and self._persistent_schema_objects() == expected_objects
+            and not self._temporary_schema_objects_exist()
+        )
+
     def _migrate_v1_schema(self) -> None:
         rows = self._connection.execute(
-            f"SELECT {', '.join(_LESSON_COLUMNS)} FROM player_lessons"
+            f"SELECT {', '.join(_V2_LESSON_COLUMNS)} FROM player_lessons"
         ).fetchall()
         for row in rows:
-            values = self._row_values(row, _LESSON_COLUMNS)
+            values = self._row_values(row, _V2_LESSON_COLUMNS)
             if values is None or values.get("effect_type") != "narration_behavior":
                 raise PlayerLessonsError("Player Lessons v1 migration found a non-narration row")
-            self._stored_lesson(row)
+            upgraded = {**values, "character_core_fingerprint": ""}
+            self._stored_lesson(tuple(upgraded[column] for column in _LESSON_COLUMNS))
         self._connection.execute("ALTER TABLE player_lessons RENAME TO player_lessons_v1_migration")
-        self._connection.execute(_SCHEMA_STATEMENTS[0])
+        self._connection.execute(_V2_SCHEMA_STATEMENTS[0])
         self._connection.execute(
             f"""
-            INSERT INTO player_lessons({", ".join(_LESSON_COLUMNS)})
-            SELECT {", ".join(_LESSON_COLUMNS)} FROM player_lessons_v1_migration
+            INSERT INTO player_lessons({", ".join(_V2_LESSON_COLUMNS)})
+            SELECT {", ".join(_V2_LESSON_COLUMNS)} FROM player_lessons_v1_migration
             """
         )
         self._connection.execute("DROP TABLE player_lessons_v1_migration")
-        for statement in _SCHEMA_STATEMENTS[3:]:
+        for statement in _V2_SCHEMA_STATEMENTS[3:]:
+            self._connection.execute(statement)
+
+    def _migrate_v2_schema(self) -> None:
+        """Rebuild only narration tables and freeze blank Core scope for all v2 evidence."""
+        lesson_rows = self._connection.execute(
+            f"SELECT {', '.join(_V2_LESSON_COLUMNS)} FROM player_lessons"
+        ).fetchall()
+        receipt_rows = self._connection.execute(
+            f"SELECT {', '.join(_V2_RECEIPT_COLUMNS)} "
+            "FROM player_lesson_selection_receipts"
+        ).fetchall()
+        item_rows = self._connection.execute(
+            f"SELECT {', '.join(_V2_ITEM_COLUMNS)} FROM player_lesson_selection_items"
+        ).fetchall()
+        upgraded_lessons: list[dict[str, Any]] = []
+        for row in lesson_rows:
+            values = self._row_values(row, _V2_LESSON_COLUMNS)
+            if values is None or _v2_definition_fingerprint(values) != values.get("fingerprint"):
+                raise PlayerLessonsError("Player Lessons v2 migration found a malformed lesson")
+            upgraded = {**values, "character_core_fingerprint": ""}
+            self._stored_lesson(tuple(upgraded[column] for column in _LESSON_COLUMNS))
+            upgraded_lessons.append(upgraded)
+
+        self._connection.execute(
+            "ALTER TABLE player_lessons RENAME TO player_lessons_v2_migration"
+        )
+        self._connection.execute(
+            "ALTER TABLE player_lesson_selection_receipts "
+            "RENAME TO player_lesson_selection_receipts_v2_migration"
+        )
+        self._connection.execute(
+            "ALTER TABLE player_lesson_selection_items "
+            "RENAME TO player_lesson_selection_items_v2_migration"
+        )
+        for statement in _SCHEMA_STATEMENTS[:3]:
+            self._connection.execute(statement)
+        for values in upgraded_lessons:
+            self._connection.execute(
+                f"""
+                INSERT INTO player_lessons({", ".join(_LESSON_COLUMNS)})
+                VALUES({", ".join("?" for _ in _LESSON_COLUMNS)})
+                """,
+                tuple(values[column] for column in _LESSON_COLUMNS),
+            )
+        for row in receipt_rows:
+            values = self._row_values(row, _V2_RECEIPT_COLUMNS)
+            if values is None:
+                raise PlayerLessonsError("Player Lessons v2 migration found a malformed receipt")
+            upgraded = {**values, "character_core_fingerprint": ""}
+            self._connection.execute(
+                f"""
+                INSERT INTO player_lesson_selection_receipts({", ".join(_RECEIPT_COLUMNS)})
+                VALUES({", ".join("?" for _ in _RECEIPT_COLUMNS)})
+                """,
+                tuple(upgraded[column] for column in _RECEIPT_COLUMNS),
+            )
+        for row in item_rows:
+            values = self._row_values(row, _V2_ITEM_COLUMNS)
+            if values is None:
+                raise PlayerLessonsError("Player Lessons v2 migration found a malformed item")
+            upgraded = {**values, "character_core_fingerprint": ""}
+            self._connection.execute(
+                f"""
+                INSERT INTO player_lesson_selection_items({", ".join(_ITEM_COLUMNS)})
+                VALUES({", ".join("?" for _ in _ITEM_COLUMNS)})
+                """,
+                tuple(upgraded[column] for column in _ITEM_COLUMNS),
+            )
+        self._connection.execute("DROP TABLE player_lesson_selection_items_v2_migration")
+        self._connection.execute("DROP TABLE player_lesson_selection_receipts_v2_migration")
+        self._connection.execute("DROP TABLE player_lessons_v2_migration")
+        for statement in _SCHEMA_STATEMENTS[3:5]:
             self._connection.execute(statement)
 
     def _verify_schema(self) -> None:
@@ -1185,24 +1496,12 @@ class PlayerLessons:
 
     @staticmethod
     def _definition_fingerprint(values: Mapping[str, Any]) -> str:
+        core_fingerprint = str(values.get("character_core_fingerprint") or "")
+        if not core_fingerprint:
+            return _v2_definition_fingerprint(values)
         if values["effect_type"] == "intent_interpretation":
-            anchor = _anchor_from_values(values)
-            return _sha256_json(
-                {
-                    "schema": INTENT_LESSON_SCHEMA,
-                    "lesson_id": values["lesson_id"],
-                    "effect_type": values["effect_type"],
-                    "title": values["title"],
-                    "scope": values["scope"],
-                    "misunderstanding": values["avoid_text"],
-                    "correct_interpretation": values["do_text"],
-                    "intent_slot": (
-                        None if anchor is None else INTENT_LEX_SLOTS.get(anchor["lex_id"])
-                    ),
-                    "anchor": anchor,
-                    "enabled": bool(values["enabled"]),
-                    "revision": values["revision"],
-                }
+            raise PlayerLessonsValidationError(
+                "character_core_fingerprint cannot scope an intent-interpretation lesson"
             )
         return _sha256_json(
             {
@@ -1214,6 +1513,7 @@ class PlayerLessons:
                 "do": values["do_text"],
                 "avoid": values["avoid_text"],
                 "anchor": _anchor_from_values(values),
+                "character_core_fingerprint": core_fingerprint,
                 "enabled": bool(values["enabled"]),
                 "revision": values["revision"],
             }
@@ -1229,6 +1529,7 @@ class PlayerLessons:
         avoid_text: object | None,
         misunderstanding: object | None,
         correct_interpretation: object | None,
+        character_core_fingerprint: object | None = None,
     ) -> dict[str, str]:
         if effect_type not in EFFECT_TYPES:
             raise PlayerLessonsValidationError(
@@ -1242,8 +1543,12 @@ class PlayerLessons:
         )
         if not isinstance(scope, str) or scope not in LESSON_SCOPES:
             raise PlayerLessonsValidationError(
-                "scope must be every_rpg_turn, exploration, combat_opening, or combat_exchange"
+                "scope must be every_rpg_turn, exploration, combat_opening, "
+                "combat_exchange, or every_chat_turn"
             )
+        core_fingerprint = self._validate_character_core_fingerprint(
+            character_core_fingerprint
+        )
         if effect_type == "narration_behavior":
             if misunderstanding is not None or correct_interpretation is not None:
                 raise PlayerLessonsValidationError(
@@ -1263,7 +1568,19 @@ class PlayerLessons:
             )
             if not exact_do and not exact_avoid:
                 raise PlayerLessonsValidationError("at least one of do or avoid must be non-empty")
+            if core_fingerprint and scope != "every_chat_turn":
+                raise PlayerLessonsValidationError(
+                    "character_core_fingerprint requires scope every_chat_turn"
+                )
         else:
+            if scope not in RPG_LESSON_SCOPES:
+                raise PlayerLessonsValidationError(
+                    "intent_interpretation scope must be RPG-only"
+                )
+            if core_fingerprint:
+                raise PlayerLessonsValidationError(
+                    "character_core_fingerprint cannot scope an intent-interpretation lesson"
+                )
             if do_text is not None or avoid_text is not None:
                 raise PlayerLessonsValidationError(
                     "intent_interpretation accepts misunderstanding and correct_interpretation"
@@ -1284,9 +1601,25 @@ class PlayerLessons:
             "effect_type": str(effect_type),
             "title": exact_title,
             "scope": scope,
+            "character_core_fingerprint": core_fingerprint,
             "do_text": exact_do,
             "avoid_text": exact_avoid,
         }
+
+    @staticmethod
+    def _validate_character_core_fingerprint(value: object | None) -> str:
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            raise PlayerLessonsValidationError(
+                "character_core_fingerprint must be blank or one exact sha256 fingerprint"
+            )
+        fingerprint = value.strip()
+        if fingerprint and _FINGERPRINT_RE.fullmatch(fingerprint) is None:
+            raise PlayerLessonsValidationError(
+                "character_core_fingerprint must be blank or one exact sha256 fingerprint"
+            )
+        return fingerprint
 
     @staticmethod
     def _intent_slot(anchor: Mapping[str, str] | None) -> str:
@@ -1385,6 +1718,22 @@ class PlayerLessons:
                 or not isinstance(values["title"], str)
                 or not 1 <= len(values["title"]) <= MAX_TITLE_CHARS
                 or values["scope"] not in LESSON_SCOPES
+                or not isinstance(values["character_core_fingerprint"], str)
+                or (
+                    values["character_core_fingerprint"]
+                    and _FINGERPRINT_RE.fullmatch(values["character_core_fingerprint"]) is None
+                )
+                or (
+                    values["character_core_fingerprint"]
+                    and (
+                        values["effect_type"] != "narration_behavior"
+                        or values["scope"] != "every_chat_turn"
+                    )
+                )
+                or (
+                    values["effect_type"] == "intent_interpretation"
+                    and values["scope"] not in RPG_LESSON_SCOPES
+                )
                 or not isinstance(values["do_text"], str)
                 or len(values["do_text"]) > MAX_INSTRUCTION_CHARS
                 or not isinstance(values["avoid_text"], str)
@@ -1443,6 +1792,7 @@ class PlayerLessons:
             "effect_type": values["effect_type"],
             "title": values["title"],
             "scope": values["scope"],
+            "character_core_fingerprint": values["character_core_fingerprint"],
             **effect_fields,
             "enabled": enabled,
             "revision": values["revision"],
@@ -1494,6 +1844,7 @@ class PlayerLessons:
         misunderstanding: object | None = None,
         correct_interpretation: object | None = None,
         anchor_entry_id: object | None = None,
+        character_core_fingerprint: object | None = None,
     ) -> dict[str, Any]:
         definition = self._validate_definition(
             effect_type=effect_type,
@@ -1503,12 +1854,17 @@ class PlayerLessons:
             avoid_text=avoid_text,
             misunderstanding=misunderstanding,
             correct_interpretation=correct_interpretation,
+            character_core_fingerprint=character_core_fingerprint,
         )
         try:
             with self._write_transaction():
                 anchor = self._resolve_new_anchor(anchor_entry_id)
                 if definition["effect_type"] == "intent_interpretation":
                     self._intent_slot(anchor)
+                if definition["scope"] == "every_chat_turn" and anchor is not None:
+                    raise PlayerLessonsValidationError(
+                        "Chat narration lessons cannot use RPG semantic anchors"
+                    )
                 now = time.time()
                 values: dict[str, Any] = {
                     "lesson_id": "lesson_" + uuid.uuid4().hex,
@@ -1566,6 +1922,7 @@ class PlayerLessons:
         misunderstanding: object | None = None,
         correct_interpretation: object | None = None,
         anchor_entry_id: object | None = None,
+        character_core_fingerprint: object | None = None,
         expected_revision: object,
         expected_fingerprint: object,
     ) -> dict[str, Any]:
@@ -1597,10 +1954,15 @@ class PlayerLessons:
                     avoid_text=avoid_text,
                     misunderstanding=misunderstanding,
                     correct_interpretation=correct_interpretation,
+                    character_core_fingerprint=character_core_fingerprint,
                 )
                 anchor = self._resolve_new_anchor(anchor_entry_id)
                 if definition["effect_type"] == "intent_interpretation":
                     self._intent_slot(anchor)
+                if definition["scope"] == "every_chat_turn" and anchor is not None:
+                    raise PlayerLessonsValidationError(
+                        "Chat narration lessons cannot use RPG semantic anchors"
+                    )
                 now = time.time()
                 values = {
                     **current,
@@ -1764,16 +2126,63 @@ class PlayerLessons:
             )
 
     @staticmethod
-    def _scope_matches(scope: str, narration_mode: str) -> bool:
-        return scope == "every_rpg_turn" or scope == narration_mode
+    def _scope_matches(
+        scope: str,
+        narration_mode: str,
+        *,
+        experience_mode: str = "rpg",
+        lesson_core_fingerprint: str = "",
+        request_core_fingerprint: str = "",
+    ) -> bool:
+        if experience_mode == "chat":
+            return (
+                narration_mode == "chat"
+                and scope == "every_chat_turn"
+                and (
+                    not lesson_core_fingerprint
+                    or lesson_core_fingerprint == request_core_fingerprint
+                )
+            )
+        return (
+            experience_mode == "rpg"
+            and narration_mode in RPG_NARRATION_MODES
+            and not lesson_core_fingerprint
+            and (scope == "every_rpg_turn" or scope == narration_mode)
+        )
 
     @staticmethod
     def _validate_mode(value: object) -> str:
         if not isinstance(value, str) or value not in NARRATION_MODES:
             raise PlayerLessonsValidationError(
-                "narration_mode must be exploration, combat_opening, or combat_exchange"
+                "narration_mode must be exploration, combat_opening, combat_exchange, or chat"
             )
         return value
+
+    def _validate_selection_context(
+        self,
+        *,
+        experience_mode: object,
+        narration_mode: object,
+        character_core_fingerprint: object | None,
+    ) -> tuple[str, str, str]:
+        if experience_mode not in {"rpg", "chat"}:
+            raise PlayerLessonsValidationError(
+                "experience_mode must explicitly be rpg or chat"
+            )
+        mode = self._validate_mode(narration_mode)
+        core_fingerprint = self._validate_character_core_fingerprint(
+            character_core_fingerprint
+        )
+        if experience_mode == "chat":
+            if mode != "chat" or not core_fingerprint:
+                raise PlayerLessonsValidationError(
+                    "Chat lesson selection requires mode chat and one exact bound Core"
+                )
+        elif mode not in RPG_NARRATION_MODES or core_fingerprint:
+            raise PlayerLessonsValidationError(
+                "RPG lesson selection requires an RPG narration mode and no Character Core"
+            )
+        return str(experience_mode), mode, core_fingerprint
 
     def _compile_sample(self, sample_text: str) -> tuple[Any, Any]:
         fabric = load_default_semantic_fabric()
@@ -1882,6 +2291,7 @@ class PlayerLessons:
         misunderstanding: object | None = None,
         correct_interpretation: object | None = None,
         anchor_entry_id: object | None = None,
+        character_core_fingerprint: object | None = None,
         sample_text: object,
         narration_mode: object,
     ) -> dict[str, Any]:
@@ -1893,6 +2303,7 @@ class PlayerLessons:
             avoid_text=avoid_text,
             misunderstanding=misunderstanding,
             correct_interpretation=correct_interpretation,
+            character_core_fingerprint=character_core_fingerprint,
         )
         mode = self._validate_mode(narration_mode)
         sample = _clean_text(
@@ -1925,7 +2336,13 @@ class PlayerLessons:
         elif definition["effect_type"] == "intent_interpretation" and anchor_entry_id is None:
             self._intent_slot(None)
 
-        if not self._scope_matches(definition["scope"], mode):
+        if not self._scope_matches(
+            definition["scope"],
+            mode,
+            experience_mode="chat" if mode == "chat" else "rpg",
+            lesson_core_fingerprint=definition["character_core_fingerprint"],
+            request_core_fingerprint=definition["character_core_fingerprint"],
+        ):
             matched, reason = False, "scope_mismatch"
         elif anchor_entry_id is None:
             matched, reason = True, "scope_match"
@@ -2064,6 +2481,19 @@ class PlayerLessons:
             or not isinstance(values["input_hash"], str)
             or _INPUT_HASH_RE.fullmatch(values["input_hash"]) is None
             or values["narration_mode"] not in NARRATION_MODES
+            or not isinstance(values["character_core_fingerprint"], str)
+            or (
+                values["character_core_fingerprint"]
+                and _FINGERPRINT_RE.fullmatch(values["character_core_fingerprint"]) is None
+            )
+            or (
+                values["narration_mode"] == "chat"
+                and not values["character_core_fingerprint"]
+            )
+            or (
+                values["narration_mode"] != "chat"
+                and values["character_core_fingerprint"]
+            )
             or not _is_plain_int(values["frozen_selected_count"], minimum=0)
             or values["frozen_selected_count"] > MAX_SELECTED_LESSONS
             or (
@@ -2130,15 +2560,17 @@ class PlayerLessons:
         self._connection.execute(
             """
             INSERT INTO player_lesson_selection_receipts(
-                branch_id, turn_index, input_hash, narration_mode, frozen_selected_count,
+                branch_id, turn_index, input_hash, narration_mode,
+                character_core_fingerprint, frozen_selected_count,
                 inherited_from_branch_id, selected_at
-            ) VALUES(?,?,?,?,?,?,?)
+            ) VALUES(?,?,?,?,?,?,?,?)
             """,
             (
                 branch_id,
                 turn_index,
                 source["input_hash"],
                 source["narration_mode"],
+                source["character_core_fingerprint"],
                 source["frozen_selected_count"],
                 origin,
                 now,
@@ -2178,6 +2610,7 @@ class PlayerLessons:
         *,
         input_hash: str | None = None,
         narration_mode: str | None = None,
+        character_core_fingerprint: str | None = None,
     ) -> dict[str, Any] | None:
         receipt = self._receipt_values(self._receipt_row(branch_id, turn_index))
         if receipt is None:
@@ -2188,10 +2621,14 @@ class PlayerLessons:
         if (
             receipt is not None
             and input_hash is not None
-            and (receipt["input_hash"] != input_hash or receipt["narration_mode"] != narration_mode)
+            and (
+                receipt["input_hash"] != input_hash
+                or receipt["narration_mode"] != narration_mode
+                or receipt["character_core_fingerprint"] != character_core_fingerprint
+            )
         ):
             raise PlayerLessonsConflictError(
-                "Player Lesson receipt is frozen for a different input hash or narration mode"
+                "Player Lesson receipt is frozen for a different input, mode, or Character Core"
             )
         return receipt
 
@@ -2203,10 +2640,16 @@ class PlayerLessons:
         user_hash: object,
         narration_mode: object,
         recognized_meanings: object,
+        experience_mode: object = "rpg",
+        character_core_fingerprint: object | None = None,
     ) -> dict[str, Any]:
         branch_id, turn_index = self._validate_receipt_identity(branch_id, turn_index)
         input_hash = self._validate_input_hash(user_hash)
-        mode = self._validate_mode(narration_mode)
+        experience, mode, core_fingerprint = self._validate_selection_context(
+            experience_mode=experience_mode,
+            narration_mode=narration_mode,
+            character_core_fingerprint=character_core_fingerprint,
+        )
         recognized = self._recognized_meaning_set(recognized_meanings)
 
         try:
@@ -2216,6 +2659,7 @@ class PlayerLessons:
                     turn_index,
                     input_hash=input_hash,
                     narration_mode=mode,
+                    character_core_fingerprint=core_fingerprint,
                 )
                 if receipt is None:
                     rows = self._connection.execute(
@@ -2228,7 +2672,13 @@ class PlayerLessons:
                     selected: list[tuple[dict[str, Any], str, dict[str, str] | None]] = []
                     for row in rows:
                         values = self._stored_lesson(row)
-                        if values is None or not self._scope_matches(values["scope"], mode):
+                        if values is None or not self._scope_matches(
+                            values["scope"],
+                            mode,
+                            experience_mode=experience,
+                            lesson_core_fingerprint=values["character_core_fingerprint"],
+                            request_core_fingerprint=core_fingerprint,
+                        ):
                             continue
                         anchor = _anchor_from_values(values)
                         anchor_status, _stale_reason = self._anchor_state(anchor)
@@ -2254,14 +2704,16 @@ class PlayerLessons:
                         """
                         INSERT INTO player_lesson_selection_receipts(
                             branch_id, turn_index, input_hash, narration_mode,
-                            frozen_selected_count, inherited_from_branch_id, selected_at
-                        ) VALUES(?,?,?,?,?,?,?)
+                            character_core_fingerprint, frozen_selected_count,
+                            inherited_from_branch_id, selected_at
+                        ) VALUES(?,?,?,?,?,?,?,?)
                         """,
                         (
                             branch_id,
                             turn_index,
                             input_hash,
                             mode,
+                            core_fingerprint,
                             len(selected),
                             None,
                             selected_at,
@@ -2277,6 +2729,9 @@ class PlayerLessons:
                             "lesson_fingerprint": values["fingerprint"],
                             "reason": reason,
                             "scope": values["scope"],
+                            "character_core_fingerprint": values[
+                                "character_core_fingerprint"
+                            ],
                             "anchor_entry_id": None if anchor is None else anchor["entry_id"],
                             "anchor_lex_id": None if anchor is None else anchor["lex_id"],
                             "anchor_concept_id": None if anchor is None else anchor["concept_id"],
@@ -2297,7 +2752,11 @@ class PlayerLessons:
             raise PlayerLessonsConflictError(
                 "Player Lesson selection raced another frozen receipt; retry rehydration"
             ) from exc
-        result = self._rehydrate_direct(branch_id, turn_index)
+        result = self._rehydrate_direct(
+            branch_id,
+            turn_index,
+            character_core_fingerprint=core_fingerprint,
+        )
         if result is None:
             raise PlayerLessonsError("Player Lesson selection receipt was not persisted")
         return result
@@ -2320,6 +2779,15 @@ class PlayerLessons:
                 or _FINGERPRINT_RE.fullmatch(values["lesson_fingerprint"]) is None
                 or values["reason"] not in {"scope_match", "scope_and_anchor_match"}
                 or values["scope"] not in LESSON_SCOPES
+                or not isinstance(values["character_core_fingerprint"], str)
+                or (
+                    values["character_core_fingerprint"]
+                    and _FINGERPRINT_RE.fullmatch(values["character_core_fingerprint"]) is None
+                )
+                or (
+                    values["character_core_fingerprint"]
+                    and values["scope"] != "every_chat_turn"
+                )
                 or values["delivered"] not in (0, 1)
                 or (values["delivered"] == 0 and values["delivered_at"] is not None)
                 or (values["delivered"] == 1 and not _finite_timestamp(values["delivered_at"]))
@@ -2332,11 +2800,24 @@ class PlayerLessons:
             raise PlayerLessonsError("stored Player Lesson selection item is malformed") from exc
         return values
 
-    def _rehydrate_direct(self, branch_id: str, turn_index: int) -> dict[str, Any] | None:
+    def _rehydrate_direct(
+        self,
+        branch_id: str,
+        turn_index: int,
+        *,
+        character_core_fingerprint: str | None = None,
+    ) -> dict[str, Any] | None:
         with self._lock:
             receipt = self._receipt_values(self._receipt_row(branch_id, turn_index))
             if receipt is None:
                 return None
+            if (
+                character_core_fingerprint is not None
+                and receipt["character_core_fingerprint"] != character_core_fingerprint
+            ):
+                raise PlayerLessonsConflictError(
+                    "Player Lesson receipt belongs to a different Character Core"
+                )
             item_rows = self._connection.execute(
                 f"""
                 SELECT {", ".join(_ITEM_COLUMNS)} FROM player_lesson_selection_items
@@ -2360,6 +2841,8 @@ class PlayerLessons:
                     or lesson["fingerprint"] != item["lesson_fingerprint"]
                     or not bool(lesson["enabled"])
                     or lesson["scope"] != item["scope"]
+                    or lesson["character_core_fingerprint"]
+                    != item["character_core_fingerprint"]
                     or anchor != item_anchor
                     or anchor_status in {"stale", "unavailable"}
                 ):
@@ -2376,6 +2859,9 @@ class PlayerLessons:
                         "avoid": lesson["avoid_text"],
                         "reason": item["reason"],
                         "scope": item["scope"],
+                        "character_core_fingerprint": item[
+                            "character_core_fingerprint"
+                        ],
                         "anchor": anchor,
                         "delivered": bool(item["delivered"]),
                     }
@@ -2386,6 +2872,7 @@ class PlayerLessons:
             "turn_index": receipt["turn_index"],
             "input_hash": receipt["input_hash"],
             "narration_mode": receipt["narration_mode"],
+            "character_core_fingerprint": receipt["character_core_fingerprint"],
             "frozen_selected_count": receipt["frozen_selected_count"],
             "available_count": len(selected),
             "omitted_count": receipt["frozen_selected_count"] - len(selected),
@@ -2394,13 +2881,46 @@ class PlayerLessons:
             "selected": selected,
         }
 
-    def rehydrate(self, branch_id: object, turn_index: object) -> dict[str, Any] | None:
+    def rehydrate(
+        self,
+        branch_id: object,
+        turn_index: object,
+        *,
+        experience_mode: object = "rpg",
+        character_core_fingerprint: object | None = None,
+    ) -> dict[str, Any] | None:
         branch_id, turn_index = self._validate_receipt_identity(branch_id, turn_index)
+        if experience_mode == "chat":
+            core_fingerprint = self._validate_character_core_fingerprint(
+                character_core_fingerprint
+            )
+            if not core_fingerprint:
+                raise PlayerLessonsValidationError(
+                    "Chat lesson rehydration requires one exact bound Core"
+                )
+        elif experience_mode == "rpg":
+            core_fingerprint = ""
+            if character_core_fingerprint not in (None, ""):
+                raise PlayerLessonsValidationError(
+                    "RPG lesson rehydration cannot use a Character Core"
+                )
+        else:
+            raise PlayerLessonsValidationError(
+                "experience_mode must explicitly be rpg or chat"
+            )
         with self._write_transaction():
-            receipt = self._ensure_receipt(branch_id, turn_index)
+            receipt = self._ensure_receipt(
+                branch_id,
+                turn_index,
+                character_core_fingerprint=core_fingerprint,
+            )
         if receipt is None:
             return None
-        return self._rehydrate_direct(branch_id, turn_index)
+        return self._rehydrate_direct(
+            branch_id,
+            turn_index,
+            character_core_fingerprint=core_fingerprint,
+        )
 
     def mark_delivered(
         self,
@@ -2466,7 +2986,9 @@ class PlayerLessons:
                 f"""
                 SELECT
                     {", ".join(f"i.{column}" for column in _ITEM_COLUMNS)},
-                    r.input_hash, r.narration_mode, r.selected_at
+                    r.input_hash, r.narration_mode,
+                    r.character_core_fingerprint AS request_character_core_fingerprint,
+                    r.selected_at
                 FROM player_lesson_selection_items AS i
                 JOIN player_lesson_selection_receipts AS r
                   ON r.branch_id=i.branch_id AND r.turn_index=i.turn_index
@@ -2477,7 +2999,13 @@ class PlayerLessons:
             ).fetchall()
         result: list[dict[str, Any]] = []
         seen: set[str] = set()
-        columns = (*_ITEM_COLUMNS, "input_hash", "narration_mode", "selected_at")
+        columns = (
+            *_ITEM_COLUMNS,
+            "input_hash",
+            "narration_mode",
+            "request_character_core_fingerprint",
+            "selected_at",
+        )
         for row in rows:
             values = self._row_values(row, columns)
             if values is None or values["lesson_id"] in seen:
@@ -2493,6 +3021,12 @@ class PlayerLessons:
                     "turn_index": item["turn_index"],
                     "input_hash": values["input_hash"],
                     "narration_mode": values["narration_mode"],
+                    "character_core_fingerprint": item[
+                        "character_core_fingerprint"
+                    ],
+                    "request_character_core_fingerprint": values[
+                        "request_character_core_fingerprint"
+                    ],
                     "selected_at": values["selected_at"],
                     "lesson_id": item["lesson_id"],
                     "lesson_revision": item["lesson_revision"],
@@ -2575,7 +3109,28 @@ class PlayerLessons:
     def _intent_receipt_values(
         self, row: sqlite3.Row | tuple[Any, ...] | None
     ) -> dict[str, Any] | None:
-        return self._receipt_values(row)
+        values = self._row_values(row, _INTENT_RECEIPT_COLUMNS)
+        if values is None:
+            return None
+        if (
+            not isinstance(values["branch_id"], str)
+            or not values["branch_id"]
+            or not _is_plain_int(values["turn_index"], minimum=0)
+            or not isinstance(values["input_hash"], str)
+            or _INPUT_HASH_RE.fullmatch(values["input_hash"]) is None
+            or values["narration_mode"] not in RPG_NARRATION_MODES
+            or not _is_plain_int(values["frozen_selected_count"], minimum=0)
+            or values["frozen_selected_count"] > MAX_SELECTED_LESSONS
+            or (
+                values["inherited_from_branch_id"] is not None
+                and not isinstance(values["inherited_from_branch_id"], str)
+            )
+            or not _finite_timestamp(values["selected_at"])
+        ):
+            raise PlayerLessonsError(
+                "stored Player Lesson intent selection receipt is malformed"
+            )
+        return values
 
     def _intent_item_values(
         self, row: sqlite3.Row | tuple[Any, ...] | None
@@ -2798,6 +3353,10 @@ class PlayerLessons:
         branch_id, turn_index = self._validate_receipt_identity(branch_id, turn_index)
         input_hash = self._validate_input_hash(user_hash)
         mode = self._validate_mode(narration_mode)
+        if mode not in RPG_NARRATION_MODES:
+            raise PlayerLessonsValidationError(
+                "intent-interpretation selection is RPG-only"
+            )
         recognized = self._recognized_intent_meanings(recognized_meanings)
         try:
             with self._write_transaction():
@@ -2818,7 +3377,14 @@ class PlayerLessons:
                     selected: list[tuple[dict[str, Any], dict[str, str], dict[str, Any]]] = []
                     for row in rows:
                         values = self._stored_lesson(row)
-                        if values is None or not self._scope_matches(values["scope"], mode):
+                        if values is None or not self._scope_matches(
+                            values["scope"],
+                            mode,
+                            experience_mode="rpg",
+                            lesson_core_fingerprint=values[
+                                "character_core_fingerprint"
+                            ],
+                        ):
                             continue
                         anchor = _anchor_from_values(values)
                         anchor_status, _stale_reason = self._anchor_state(anchor)

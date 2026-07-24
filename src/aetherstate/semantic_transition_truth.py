@@ -61,7 +61,9 @@ SEMANTIC_EVIDENCE_OPS = frozenset(
         "semantic_frame_commit",
     }
 )
-SILENT_BOOKKEEPING_OPS = frozenset({"clock_tick", "stagnation", "creator_world_seed"})
+SILENT_BOOKKEEPING_OPS = frozenset({
+    "chat_core_seed", "clock_tick", "stagnation", "creator_world_seed",
+})
 SILENT_OPS = SEMANTIC_EVIDENCE_OPS | SILENT_BOOKKEEPING_OPS
 # Cold indexing remains deliberately unavailable until the caller can supply the exact persisted
 # terminal artifact, complete delivery proof, accepted visible graph, and a code-derived index plan.
@@ -98,6 +100,7 @@ EXPECTED_REDUCER_OPS = frozenset(
         "clock_tick", "clothing", "combat_end", "combatant_defeat", "combatant_hp",
         "combatant_spawn", "consent_set", "consent_signal", "contact", "craving",
         "creator_world_seed",
+        "chat_core_seed",
         "defeat_resolve", "effect_add", "effect_remove", "effect_update", "enemy_intent_set",
         "entity_add", "evolve_def", "fact_admit", "fact_retire", "freeze", "front_add", "front_reveal",
         "front_tick", "goal", "hp_adj", "item_consume", "item_equip", "item_gain",
@@ -162,6 +165,7 @@ POLICY_FAMILIES: dict[str, frozenset[str]] = {
     "atomic_settlement": frozenset({"mechanic_settlement_commit"}),
     "world_capability_authoring": frozenset({"world_identity_set", "capability_assign"}),
     "creator_lore_authoring": frozenset({"creator_world_seed"}),
+    "character_core_authoring": frozenset({"chat_core_seed"}),
     "world_event_authoring": frozenset({"world_event_admit"}),
     "scene_identity_placement": frozenset(
         {"set_attribute", "move_entity", "presence", "entity_add", "scene_set", "scene_mode"}
@@ -229,6 +233,7 @@ def _allowed_roots(kind: str) -> frozenset[str]:
         })),
         (frozenset({"world_identity_set"}), frozenset({"world_identity", "meta"})),
         (frozenset({"creator_world_seed"}), frozenset({"creator_world", "meta"})),
+        (frozenset({"chat_core_seed"}), frozenset({"chat_core", "entities", "meta"})),
         (frozenset({"capability_assign"}), frozenset({"capability_assignments", "meta"})),
         (frozenset({"world_event_admit"}), frozenset({"world_events", "world_overlay", "meta"})),
         (frozenset({"entity_add", "move_entity", "presence"}), frozenset({"entities", "meta"})),

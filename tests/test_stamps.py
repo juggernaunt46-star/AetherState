@@ -36,6 +36,14 @@ def test_sentinel_message_stripped_and_dropped():
     assert MARKER not in out
 
 
+def test_sentinel_parses_experience_mode():
+    body = _body([
+        {"role": "system", "content": "<<AETHER:session=chat-abc;mode=chat>>"}
+    ])
+    stamp, _ = parse_and_strip({}, body)
+    assert stamp.mode == "chat"
+
+
 def test_sentinel_merged_into_other_content():
     """Strict/single-user post-processing merges roles (06 B.4) — strip from WITHIN content."""
     merged = f"You are a narrator.\n{SENT}\nStay in character."

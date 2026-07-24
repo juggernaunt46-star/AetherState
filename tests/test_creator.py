@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from aetherstate import creator, narrator
+from aetherstate import chat_card, creator, narrator
 from aetherstate.compose import render_header
 from aetherstate.config import AssistEndpointConfig, Config
 from aetherstate.state import (_SPEC, apply_delta, current_state, empty_state,
@@ -330,6 +330,111 @@ async def test_author_player_preserves_typed_custom_rank_across_model_defs(monke
         "cur": 3, "max": 7, "name": "Resolve", "color": "#77aaff",
     }
     assert p["defs"]["skills"]["spearline_bind"]["cost"] == {"resolve": 2}
+
+
+async def test_chat_character_authoring_is_world_optional_and_rpg_free(monkeypatch):
+    authored = {
+        "schema": "aetherstate-character-core/1",
+        "revision": 1,
+        "name": "Model Mara",
+        "description": "A night-shift paramedic who notices what others overlook.",
+        "personality": "Direct, observant, private, and protective.",
+        "scenario": "Mara and the Persona talk after her shift.",
+        "first_message": "You are still awake?",
+        "example_dialogue": "Mara: I noticed. I just did not want to corner you.",
+        "anchors": ["Does not pretend to know facts she has not learned."],
+        "boundaries": ["Never speaks or acts for the Persona."],
+    }
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(authored), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    private_direction = "PRIVATE CHAT CREATOR DIRECTION"
+    out = await creator.author_chat_character(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {
+            "schema": "aetherstate-character-core/1",
+            "revision": 1,
+            "name": "Player Mara",
+            "description": "",
+            "personality": "",
+            "scenario": "",
+            "first_message": "",
+            "example_dialogue": "",
+            "anchors": [],
+            "boundaries": ["Never speaks or acts for the Persona."],
+            "notes": private_direction,
+        },
+    )
+
+    assert out["source"] == "llm"
+    assert out["doc"] == chat_card.validate_core({
+        **authored,
+        "name": "Player Mara",
+        "boundaries": ["Never speaks or acts for the Persona."],
+    })
+    encoded = json.dumps(out["doc"], sort_keys=True)
+    assert private_direction not in encoded
+    assert not {
+        "player", "stats", "skills", "abilities", "resources", "gear",
+        "opening_quest", "fronts", "loot", "routes", "world_id",
+    }.intersection(out["doc"])
+    assert len(calls) == 1
+    assert calls[0]["max_tokens"] == 32768
+    assert "Character Core" in calls[0]["system"]
+
+
+async def test_chat_world_authoring_returns_generic_fields_only(monkeypatch):
+    authored = {
+        "name": "Rainline",
+        "genre": "modern_drama",
+        "setting": "A rain-soaked coastal city where night shifts overlap.",
+        "date": "2026-11-14",
+        "time": "night",
+        "tone": "intimate and grounded",
+        "factions": ["Harbor Mutual Aid — volunteers who cover overnight emergencies."],
+        "locations": ["Night Ferry — the last route across the bay after midnight."],
+        "npcs": [{
+            "name": "Inez Vale",
+            "role": "dispatcher",
+            "desc": "She coordinates late calls and remembers every voice.",
+            "home": "Harbor Dispatch",
+        }],
+        "aspects": ["Rain regularly delays the last ferry."],
+        "extras": [{"label": "Local custom", "text": "Night workers leave porch lights on."}],
+    }
+    calls = []
+
+    async def fake_chat(*_args, **kwargs):
+        calls.append(kwargs)
+        return creator._CreatorReply(json.dumps(authored), "stop")
+
+    monkeypatch.setattr(creator, "_creator_chat", fake_chat)
+    out = await creator.author_world(
+        None,
+        Config(),
+        SimpleNamespace(base_url="http://main", model="main-model", api_key=""),
+        {"name": "Rainline", "notes": "Keep this non-RPG and grounded."},
+        experience_mode="chat",
+    )
+
+    assert out["source"] == "llm"
+    assert out["doc"] == authored
+    assert set(out["doc"]) == {
+        "name", "genre", "setting", "date", "time", "tone",
+        "factions", "locations", "npcs", "aspects", "extras",
+    }
+    assert not {
+        "world_id", "opening_scene", "opening_quest", "fronts", "loot", "routes",
+        "combat", "travel",
+    }.intersection(out["doc"])
+    assert len(calls) == 1
+    assert "generic identity and lore" in calls[0]["system"]
 
 
 def test_deterministic_creator_docs_preserve_instruction_notes_without_runtime_promotion():
@@ -1245,7 +1350,7 @@ async def test_author_route_offline_fills_templates_on_request(client):
     invalid = await client.post("/aether/session/route-missing/author",
                                 json={"mode": "typo", "offline": 1, "doc": {}})
     assert invalid.status_code == 422
-    assert invalid.json() == {"error": "mode must be world|player"}
+    assert invalid.json() == {"error": "mode must be world|player|chat_character"}
 
     malformed_cases = [
         ([], "request body must be an object"),

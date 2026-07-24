@@ -14,14 +14,24 @@ import os
 import secrets
 import tempfile
 from contextlib import nullcontext
+from copy import deepcopy
 from pathlib import Path
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from .config import record_runtime_config_overrides
+from .experience import (
+    ExperienceModeLocked,
+    config_for_experience,
+    infer_legacy_experience,
+    normalize_experience_mode,
+)
+from .stamps import Stamp
 from .state import apply_delta, current_state, state_summary, translate_path, validate_op
 from . import creator as _creator
+from . import chat_card as _chat_card
 from . import narrator as _narrator
 from . import hud as _hud
 from .extraction import Endpoint
@@ -625,7 +635,10 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         if effect_type == "narration_behavior":
             definition = {"effect_type", "title", "scope", "do", "avoid"}
             required = definition | (extra_required or set())
-            allowed = required | {"anchor_entry_id"}
+            allowed = required | {
+                "anchor_entry_id",
+                "character_core_fingerprint",
+            }
         elif effect_type == "intent_interpretation":
             definition = {
                 "effect_type",
@@ -680,6 +693,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 {
                     "do_text": payload.get("do"),
                     "avoid_text": payload.get("avoid"),
+                    "character_core_fingerprint": payload.get(
+                        "character_core_fingerprint"
+                    ),
                 }
             )
         return values
@@ -1101,7 +1117,462 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             cfg.manual_override.enabled = bool(payload.get("enabled"))
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        record_runtime_config_overrides(
+            cfg, "manual_override", {"enabled": cfg.manual_override.enabled}
+        )
         return {"enabled": bool(cfg.manual_override.enabled)}
+
+    def _chat_core_response(receipt: dict, state: dict, *, applied: int,
+                            already_present: bool, warning: str = "",
+                            replaced_provisional: bool = False,
+                            continuity_results: list[dict] | None = None) -> dict:
+        core = state.get("chat_core") or {}
+        return {
+            "session_id": receipt["session_id"],
+            "mode": "chat",
+            "complete": bool(
+                core.get("core_fingerprint") == receipt["core_fingerprint"]
+                and core.get("character_actor_id") == receipt["character_actor_id"]
+                and core.get("persona_actor_id") == receipt["persona_actor_id"]
+            ),
+            "core_fingerprint": receipt["core_fingerprint"],
+            "character_actor_id": receipt["character_actor_id"],
+            "persona_actor_id": receipt["persona_actor_id"],
+            "card_envelope_fingerprint": receipt["card_envelope_fingerprint"],
+            "world_fingerprint": receipt["world_fingerprint"],
+            "world_seeded": bool(receipt["world_fingerprint"]),
+            "already_present": bool(already_present),
+            "replaced_provisional": bool(replaced_provisional),
+            "applied": int(applied),
+            "warning": str(warning or ""),
+            **(
+                {"continuity_results": continuity_results}
+                if continuity_results is not None
+                else {}
+            ),
+        }
+
+    def _chat_core_sources(
+        payload: object,
+    ) -> tuple[dict, dict | None, object | None, str, str]:
+        if not isinstance(payload, dict):
+            raise ValueError("request body must be an object")
+        raw = payload.get("card", payload)
+        if not isinstance(raw, dict):
+            raise ValueError("card must be an object")
+        ordinary = _chat_card.ordinary_core(raw)
+        persona = _chat_card.validate_persona_key(payload.get("persona"))
+        metadata = payload.get("aetherstate")
+        if metadata is None:
+            world = payload.get("world")
+            if world is not None and not isinstance(world, dict):
+                raise ValueError("world must be an object")
+            return ordinary, world, payload.get("continuity"), persona, ""
+        warning = ""
+        try:
+            if not isinstance(metadata, dict) \
+                    or metadata.get("role") != "character" \
+                    or metadata.get("mode") != "chat":
+                raise ValueError("metadata is not a coded Chat character")
+            coded = _chat_card.validate_core(metadata.get("core"))
+            if metadata.get("core_fingerprint") != _chat_card.core_fingerprint(coded):
+                raise ValueError("coded Core fingerprint is invalid")
+            seed = metadata.get("seed")
+            if not isinstance(seed, dict):
+                raise ValueError("coded seed must be an object")
+            if set(seed) - {"world", "continuity"}:
+                raise ValueError("coded seed contains unsupported fields")
+            world = seed.get("world")
+            if world is not None and not isinstance(world, dict):
+                raise ValueError("coded World must be an object")
+            if metadata.get("core_envelope_fingerprint") != \
+                    _chat_card.chat_envelope_fingerprint(coded, world):
+                raise ValueError("coded Core envelope fingerprint is invalid")
+            return coded, world, seed.get("continuity"), persona, ""
+        except ValueError as exc:
+            warning = f"Invalid coded Chat Core; admitted the whole ordinary fallback ({exc})."
+            return ordinary, None, None, persona, warning
+
+    def _admit_chat_continuity(
+        *,
+        continuity: object | None,
+        session_id: str,
+        branch_id: str,
+        turn: int,
+        character_actor_id: str,
+        persona_actor_id: str,
+        request_cfg,
+    ) -> list[dict] | None:
+        if continuity is None:
+            return None
+        from . import chat_continuity as _chat_continuity
+
+        if not isinstance(continuity, dict) \
+                or continuity.get("schema") \
+                != _chat_continuity.STARTING_CONTINUITY_SCHEMA:
+            return [{
+                "family": "continuity",
+                "accepted": False,
+                "record_fingerprint": "",
+                "receipt_fingerprint": "",
+                "error": (
+                    "starting continuity schema must be "
+                    f"{_chat_continuity.STARTING_CONTINUITY_SCHEMA}"
+                ),
+            }]
+        families = (
+            "memories",
+            "player_visible_possessions_conditions",
+            "character_knowledge",
+            "relationship_causes",
+            "agreement_revisions",
+            "open_threads",
+        )
+        prior = {
+            receipt["record_fingerprint"]: receipt
+            for receipt in store.chat_continuity_seed_receipts(session_id)
+        }
+        results: list[dict] = []
+        for family in families:
+            rows = continuity.get(family, [])
+            if not isinstance(rows, list) or len(rows) > 64:
+                results.append({
+                    "family": family,
+                    "accepted": False,
+                    "record_fingerprint": "",
+                    "receipt_fingerprint": "",
+                    "error": f"{family} must be an independently bounded record list",
+                })
+                continue
+            for portable in rows:
+                record_fingerprint = ""
+                try:
+                    with store.transaction():
+                        op = _chat_continuity.starting_continuity_op(
+                            family,
+                            portable,
+                            character_actor_id=character_actor_id,
+                            persona_actor_id=persona_actor_id,
+                        )
+                        marker = op["_continuity_seed"]
+                        record_fingerprint = str(marker["record_fingerprint"])
+                        existing = prior.get(record_fingerprint)
+                        if existing is not None:
+                            if existing["family"] != family \
+                                    or existing["record"] != marker["record"]:
+                                raise ValueError(
+                                    "continuity seed fingerprint conflicts with prior bytes"
+                                )
+                            receipt = existing
+                            applied = 0
+                            already_present = True
+                        else:
+                            before = store.journal_high_water()
+                            applied_result = apply_delta(
+                                store,
+                                session_id,
+                                branch_id,
+                                turn,
+                                [op],
+                                "genesis",
+                                request_cfg,
+                                lifecycle_source="creator_starting_continuity",
+                            )
+                            if applied_result.quarantined or len(applied_result.applied) != 1:
+                                reason = (
+                                    applied_result.quarantined[0]["reason"]
+                                    if applied_result.quarantined
+                                    else "continuity record was not admitted"
+                                )
+                                raise ValueError(reason)
+                            journal_rows = store.journal_window(
+                                branch_id,
+                                after_id=before,
+                                through_id=store.journal_high_water(),
+                            )
+                            matching = [
+                                journal_row for journal_row in journal_rows
+                                if any(
+                                    isinstance(candidate, dict)
+                                    and candidate.get("_continuity_seed") == marker
+                                    for candidate in journal_row["ops"]
+                                )
+                            ]
+                            if len(matching) != 1:
+                                raise ValueError(
+                                    "continuity admission did not produce one exact journal op"
+                                )
+                            receipt = store.persist_chat_continuity_seed_receipt(
+                                session_id=session_id,
+                                record_fingerprint=record_fingerprint,
+                                branch_id=branch_id,
+                                family=family,
+                                record=marker["record"],
+                                admitted_turn=turn,
+                                journal_op_id=matching[0]["id"],
+                                lifecycle_source="creator_starting_continuity",
+                                response_occurrence_id="",
+                            )
+                            prior[record_fingerprint] = receipt
+                            applied = 1
+                            already_present = False
+                    results.append({
+                        "family": family,
+                        "accepted": True,
+                        "record_fingerprint": record_fingerprint,
+                        "receipt_fingerprint": receipt["receipt_fingerprint"],
+                        "journal_op_id": receipt["journal_op_id"],
+                        "applied": applied,
+                        "already_present": already_present,
+                    })
+                except (KeyError, TypeError, ValueError) as exc:
+                    results.append({
+                        "family": family,
+                        "accepted": False,
+                        "record_fingerprint": record_fingerprint,
+                        "receipt_fingerprint": "",
+                        "error": str(exc),
+                    })
+        return results
+
+    def _chat_core_status_sync(sid: str) -> tuple[dict, int]:
+        row = _session(store, sid)
+        if row is None:
+            return {"error": "unknown session"}, 404
+        try:
+            receipt = store.chat_core_receipt_for_session(row["session_id"])
+        except ValueError:
+            return {
+                "error": "Chat Core proof is invalid; start a new chat",
+                "complete": False,
+            }, 409
+        if receipt is None:
+            return {"error": "Chat Core has not been admitted", "complete": False}, 404
+        state = current_state(store, receipt["branch_id"])
+        body = _chat_core_response(
+            receipt, state, applied=0, already_present=True,
+        )
+        if not body["complete"]:
+            body["error"] = "Chat Core proof no longer matches state; start a new chat"
+            return body, 409
+        return body, 200
+
+    def _chat_core_admit_sync(sid: str, payload: object) -> tuple[dict, int]:
+        from . import genesis as _genesis
+
+        if isinstance(payload, dict) and payload.get("bound") is True:
+            row = _session(store, sid)
+            if row is None:
+                return {"error": "unknown session", "complete": False}, 404
+            try:
+                binding = store.experience_binding(row["session_id"])
+                receipt = store.chat_core_receipt_for_session(row["session_id"])
+                core = _chat_card.validate_core(payload.get("core"))
+                if binding.mode != "chat" or not binding.source or receipt is None:
+                    raise ValueError("the selected session has no bound Chat Core")
+                if _chat_card.core_fingerprint(core) != binding.core_fingerprint:
+                    raise ValueError("Chat Core identity is locked; start a new chat")
+                state = current_state(store, row["active_branch"])
+                if (state.get("chat_core") or {}).get("core") != core:
+                    raise ValueError("Chat Core identity is locked; start a new chat")
+                if payload.get("world") is not None:
+                    raise ValueError(
+                        "an attached Chat World is immutable; build a new card and start a new chat"
+                    )
+                continuity_results = _admit_chat_continuity(
+                    continuity=payload.get("continuity"),
+                    session_id=str(row["session_id"]),
+                    branch_id=str(row["active_branch"]),
+                    turn=int(receipt["admitted_turn"]),
+                    character_actor_id=binding.character_actor_id,
+                    persona_actor_id=binding.persona_actor_id,
+                    request_cfg=config_for_experience(cfg, "chat"),
+                )
+                state = current_state(store, row["active_branch"])
+                return _chat_core_response(
+                    receipt,
+                    state,
+                    applied=sum(
+                        int(result.get("applied") or 0)
+                        for result in (continuity_results or [])
+                    ),
+                    already_present=not any(
+                        int(result.get("applied") or 0)
+                        for result in (continuity_results or [])
+                    ),
+                    continuity_results=continuity_results,
+                ), 200
+            except (KeyError, TypeError, ValueError) as exc:
+                return {"error": str(exc), "complete": False}, 409
+        try:
+            core, world, continuity, persona, warning = _chat_core_sources(payload)
+        except ValueError as exc:
+            return {"error": str(exc), "complete": False}, 422
+        request_cfg = config_for_experience(cfg, "chat")
+        expected_core = _chat_card.core_fingerprint(core)
+        expected_character = "character:" + hashlib.sha256(
+            b"chat-character\0" + expected_core.encode("utf-8"),
+        ).hexdigest()
+        expected_persona = "persona:" + hashlib.sha256(
+            b"chat-persona\0" + persona.encode("utf-8"),
+        ).hexdigest()
+        expected_envelope = _chat_card.chat_envelope_fingerprint(core, world)
+        replaced = False
+        try:
+            with store.transaction():
+                row = _session(store, sid)
+                if row is None:
+                    session_id, _ = store.create_session(external_id=sid)
+                    row = _session(store, session_id)
+                session_id = str(row["session_id"])
+                binding = store.experience_binding(session_id)
+                try:
+                    prior = store.chat_core_receipt_for_session(session_id)
+                except ValueError as exc:
+                    raise ExperienceModeLocked(binding) from exc
+                current_identity = (
+                    str(row["core_fingerprint"] or ""),
+                    str(row["character_actor_id"] or ""),
+                    str(row["persona_actor_id"] or ""),
+                )
+                expected_identity = (
+                    expected_core, expected_character, expected_persona,
+                )
+                if prior is not None and current_identity == expected_identity \
+                        and prior["card_envelope_fingerprint"] == expected_envelope:
+                    continuity_results = _admit_chat_continuity(
+                        continuity=continuity,
+                        session_id=session_id,
+                        branch_id=str(prior["branch_id"]),
+                        turn=int(prior["admitted_turn"]),
+                        character_actor_id=expected_character,
+                        persona_actor_id=expected_persona,
+                        request_cfg=request_cfg,
+                    )
+                    state = current_state(store, prior["branch_id"])
+                    return _chat_core_response(
+                        prior,
+                        state,
+                        applied=0,
+                        already_present=True,
+                        warning=warning,
+                        continuity_results=continuity_results,
+                    ), 200
+                has_identity = prior is not None or any(current_identity)
+                accepted = store.db.execute(
+                    "SELECT 1 FROM turn_texts tt JOIN branches b ON b.branch_id=tt.branch_id"
+                    " WHERE b.session_id=? AND COALESCE(tt.assistant_text,'')<>'' LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+                if has_identity and (binding.locked or accepted is not None):
+                    raise ExperienceModeLocked(binding)
+                if has_identity:
+                    store.reset_unlocked_experience(session_id, "chat")
+                    replaced = True
+                    row = _session(store, session_id)
+                binding = store.experience_inference_set_unlocked(
+                    session_id, "chat", "card:character",
+                )
+                if binding.mode != "chat":
+                    raise ExperienceModeLocked(binding)
+                branch_id = str(row["active_branch"])
+                turn = _next_turn(store, branch_id)
+                before = store.journal_high_water()
+                result, identity = _genesis.seed_chat_core(
+                    store,
+                    request_cfg,
+                    session_id,
+                    branch_id,
+                    core,
+                    persona,
+                    world=world,
+                    turn=turn,
+                )
+                if result.quarantined or not any(
+                    op.get("op") == "chat_core_seed" for op in result.applied
+                ):
+                    reason = result.quarantined[0]["reason"] if result.quarantined \
+                        else "Chat Core operation was not admitted"
+                    raise ValueError(reason)
+                rows = store.journal_window(
+                    branch_id, after_id=before, through_id=store.journal_high_water(),
+                )
+                matching = [
+                    row for row in rows
+                    if any(
+                        isinstance(op, dict) and op.get("op") == "chat_core_seed"
+                        for op in row["ops"]
+                    )
+                ]
+                if len(matching) != 1:
+                    raise ValueError("Chat Core admission did not produce one journal operation")
+                receipt = store.persist_chat_core_receipt(
+                    session_id=session_id,
+                    branch_id=branch_id,
+                    journal_op_id=matching[0]["id"],
+                    core_fingerprint=identity["core_fingerprint"],
+                    world_fingerprint=identity["world_fingerprint"],
+                    card_envelope_fingerprint=identity["card_envelope_fingerprint"],
+                    character_actor_id=identity["character_actor_id"],
+                    persona_actor_id=identity["persona_actor_id"],
+                    admitted_turn=turn,
+                )
+                store.db.execute(
+                    "UPDATE sessions SET experience_mode='chat',"
+                    " experience_mode_source=CASE"
+                    " WHEN experience_mode_source='explicit' THEN 'explicit'"
+                    " ELSE 'card:character' END,"
+                    " core_fingerprint=?, character_actor_id=?, persona_actor_id=?"
+                    " WHERE session_id=? AND experience_mode_locked_turn IS NULL",
+                    (
+                        identity["core_fingerprint"],
+                        identity["character_actor_id"],
+                        identity["persona_actor_id"],
+                        session_id,
+                    ),
+                )
+                if store.genesis_state(session_id) == "":
+                    store.genesis_mark(session_id, "rules")
+                continuity_results = _admit_chat_continuity(
+                    continuity=continuity,
+                    session_id=session_id,
+                    branch_id=branch_id,
+                    turn=turn,
+                    character_actor_id=identity["character_actor_id"],
+                    persona_actor_id=identity["persona_actor_id"],
+                    request_cfg=request_cfg,
+                )
+                state = current_state(store, branch_id)
+                return _chat_core_response(
+                    receipt,
+                    state,
+                    applied=len(result.applied),
+                    already_present=False,
+                    warning=warning,
+                    replaced_provisional=replaced,
+                    continuity_results=continuity_results,
+                ), 200
+        except ExperienceModeLocked:
+            return {
+                "error": "Chat Core or Persona identity is locked; start a new chat",
+                "complete": False,
+            }, 409
+        except (KeyError, TypeError, ValueError) as exc:
+            return {"error": str(exc), "complete": False}, 409
+
+    @router.post("/session/{sid}/chat-core")
+    async def chat_core_admit(sid: str, request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        body, status = await run_in_threadpool(_chat_core_admit_sync, sid, payload)
+        return JSONResponse(body, status_code=status)
+
+    @router.get("/session/{sid}/chat-core-status")
+    async def chat_core_status(sid: str):
+        body, status = await run_in_threadpool(_chat_core_status_sync, sid)
+        return JSONResponse(body, status_code=status)
 
     @router.post("/session/{sid}/genesis")
     async def genesis_seed(sid: str, request: Request, force: int = 0, ifearly: int = 0):
@@ -1124,6 +1595,16 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             payload = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        try:
+            if str(payload.get("mode", "") or "").strip():
+                normalize_experience_mode(payload.get("mode"))
+        except ValueError:
+            return {
+                "session_id": None,
+                "applied": 0,
+                "scheduled": False,
+                "skipped": "invalid experience mode",
+            }
         speaker = str(payload.get("speaker", ""))[:80]
         card_role = str(payload.get("card_role", "")).strip().lower()[:32]
         structured_seed_fingerprint = _seed_fingerprint_text(
@@ -1150,12 +1631,34 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 if row is None:
                     session_id, _branch = store.create_session(external_id=sid)
                     row = _session(store, session_id)
+                fallback = (
+                    "rpg"
+                    if getattr(getattr(cfg, "specialization", None), "name", "none") == "rpg"
+                    else "chat"
+                )
+                experience_stamp = Stamp(
+                    session=sid,
+                    speaker=speaker or None,
+                    card_role=card_role or None,
+                    mode=str(payload.get("mode", "") or "").strip().lower() or None,
+                )
+                inferred_mode, inferred_source = infer_legacy_experience(
+                    row,
+                    current_state(store, row["active_branch"]),
+                    experience_stamp,
+                    fallback=fallback,
+                )
+                binding = store.experience_inference_set_unlocked(
+                    row["session_id"], inferred_mode, inferred_source
+                )
+                request_cfg = config_for_experience(cfg, binding.mode)
                 if ifearly and _head(store, row["active_branch"]) >= 1:
                     return {
                         "row": dict(row),
                         "applied": 0,
                         "prior": store.genesis_state(row["session_id"]),
                         "structured_seed": False,
+                        "request_cfg": request_cfg,
                         "skipped": "session already has real turns (ifearly)",
                     }
                 prior = store.genesis_state(row["session_id"])
@@ -1167,7 +1670,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                     )
                 applied = _genesis.seed_rules(
                     store,
-                    cfg,
+                    request_cfg,
                     row["session_id"],
                     row["active_branch"],
                     doc,
@@ -1175,10 +1678,10 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                     card_role=card_role,
                 )
                 _genesis.seed_player(
-                    store, cfg, row["session_id"], row["active_branch"], doc,
+                    store, request_cfg, row["session_id"], row["active_branch"], doc,
                 )
                 finish_without_stage_b = structured_seed or jobs is None \
-                    or cfg.extraction.mode in ("off", "rules")
+                    or request_cfg.extraction.mode in ("off", "rules")
                 if structured_seed:
                     # Exact Creator authority supersedes even an older Stage-B provider call that
                     # has already claimed this session but has not yet published its result.
@@ -1191,6 +1694,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                     "applied": applied,
                     "prior": prior,
                     "structured_seed": structured_seed,
+                    "request_cfg": request_cfg,
                     "skipped": "",
                 }
 
@@ -1199,6 +1703,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         applied = stage_a["applied"]
         prior = stage_a["prior"]
         structured_seed = stage_a["structured_seed"]
+        request_cfg = stage_a["request_cfg"]
         if stage_a["skipped"]:
             return {
                 "session_id": row["session_id"],
@@ -1208,17 +1713,17 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             }
         scheduled = False
         if not structured_seed and jobs is not None \
-                and cfg.extraction.mode not in ("off", "rules"):
+                and request_cfg.extraction.mode not in ("off", "rules"):
             try:
                 import asyncio
 
                 card, opening = _genesis.card_and_prompt(doc)
                 if card.strip():
-                    ep, _, _ = jobs.endpoint_for(row["session_id"])
+                    ep, _, _ = jobs.endpoint_for(row["session_id"], request_cfg)
                     t = asyncio.get_running_loop().create_task(
                         _genesis.seed_llm(
                             store,
-                            cfg,
+                            request_cfg,
                             jobs.ladder.get_client,
                             ep,
                             row["session_id"],
@@ -1322,6 +1827,66 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         store.session_mode_set(row["session_id"], mode)
         return {"session_id": row["session_id"], "mode": mode}
 
+    @router.get("/session/{sid}/experience-mode")
+    async def get_experience_mode(sid: str):
+        row = _session(store, sid)
+        if not row:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        binding = store.experience_binding(row["session_id"])
+        if not binding.source:
+            fallback = (
+                "rpg"
+                if getattr(getattr(cfg, "specialization", None), "name", "none") == "rpg"
+                else "chat"
+            )
+            mode, source = infer_legacy_experience(row, {}, None, fallback=fallback)
+            binding = store.experience_inference_set_unlocked(
+                row["session_id"], mode, source
+            )
+        return {
+            "session_id": row["session_id"],
+            "mode": binding.mode,
+            "source": binding.source,
+            "locked": binding.locked,
+            "locked_turn": binding.locked_turn,
+            "core_fingerprint": binding.core_fingerprint,
+            "character_actor_id": binding.character_actor_id,
+        }
+
+    @router.post("/session/{sid}/experience-mode")
+    async def set_experience_mode(sid: str, request: Request):
+        row = _session(store, sid)
+        if not row:
+            return JSONResponse({"error": "unknown session"}, status_code=404)
+        try:
+            payload = await request.json()
+            mode = normalize_experience_mode(payload.get("mode", ""))
+        except (AttributeError, TypeError, ValueError):
+            return JSONResponse(
+                {"error": "mode must be chat|rpg|none"}, status_code=422
+            )
+        try:
+            binding = store.reset_unlocked_experience(row["session_id"], mode)
+        except ExperienceModeLocked as exc:
+            binding = exc.binding
+            return JSONResponse(
+                {
+                    "locked": True,
+                    "locked_turn": binding.locked_turn,
+                    "mode": binding.mode,
+                },
+                status_code=409,
+            )
+        return {
+            "session_id": row["session_id"],
+            "mode": binding.mode,
+            "source": binding.source,
+            "locked": False,
+            "locked_turn": None,
+            "core_fingerprint": binding.core_fingerprint,
+            "character_actor_id": binding.character_actor_id,
+        }
+
     @router.get("/session/{sid}/writeback")
     async def writeback(sid: str, cursor: int = 0):
         """05 SS6 v1: chat-metadata patch only. world_info/authors_note stay empty until
@@ -1363,22 +1928,27 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             p = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        changed: dict[str, object] = {}
         if "cadence_turns" in p:
             try:
                 cfg.extraction.cadence_turns = min(50, max(1, int(p["cadence_turns"])))
+                changed["cadence_turns"] = cfg.extraction.cadence_turns
             except (TypeError, ValueError):
                 return JSONResponse({"error": "cadence_turns must be 1-50"}, status_code=422)
         if "intake_chars" in p:
             try:
                 cfg.extraction.intake_chars = min(200000, max(0, int(p["intake_chars"])))
+                changed["intake_chars"] = cfg.extraction.intake_chars
             except (TypeError, ValueError):
                 return JSONResponse({"error": "intake_chars must be 0-200000"}, status_code=422)
         if "debounce_s" in p:
             try:
                 cfg.extraction.debounce_s = min(600.0, max(3.0, float(p["debounce_s"])))
+                changed["debounce_s"] = cfg.extraction.debounce_s
             except (TypeError, ValueError):
                 return JSONResponse({"error": "debounce_s must be 3-600"}, status_code=422)
         e = cfg.extraction
+        record_runtime_config_overrides(cfg, "extraction", changed)
         log.info(
             "extraction settings: cadence=%d intake=%d debounce=%.0fs",
             e.cadence_turns,
@@ -1418,6 +1988,12 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 name = str(name or "").strip()
                 setattr(ge, group, name if name in names else "")  # blank/unknown -> clear
                 eps_out[group] = getattr(ge, group)
+        changed_assist: dict[str, object] = {}
+        if out:
+            changed_assist["groups"] = cfg.assist.groups
+        if eps_out:
+            changed_assist["group_endpoints"] = cfg.assist.group_endpoints
+        record_runtime_config_overrides(cfg, "assist", changed_assist)
         persisted = _persist_config(cfg)
         return {"applied": out, "endpoints": eps_out, "persisted": persisted}
 
@@ -1517,6 +2093,14 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             return JSONResponse(
                 {"error": "connection settings could not be saved"}, status_code=500
             )
+        record_runtime_config_overrides(
+            cfg,
+            "assist",
+            {
+                "endpoints": cfg.assist.endpoints,
+                "group_endpoints": cfg.assist.group_endpoints,
+            },
+        )
         retained_refs = {e.credential_ref for e in new_eps if e.credential_ref}
         for endpoint in old_list:
             reference = str(endpoint.credential_ref or "")
@@ -1568,20 +2152,25 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             payload = await request.json()
         except Exception:
             return JSONResponse({"error": "invalid JSON"}, status_code=400)
+        changed: dict[str, object] = {}
         if "name" in payload:
             name = str(payload.get("name", "")).strip().lower()
             if name not in ("none", "rpg"):
                 return JSONResponse({"error": "name must be none|rpg"}, status_code=422)
             cfg.specialization.name = name
+            changed["name"] = name
             log.info("specialization set: %s", name)
         for k in _SPEC_BOOL_KNOBS:  # bool knobs — the visible opt-in switches
             if k in payload:
                 setattr(cfg.specialization, k, bool(payload[k]))
+                changed[k] = bool(payload[k])
                 log.info("specialization %s = %s", k, bool(payload[k]))
         if "contract" in payload:
             c = str(payload.get("contract", "")).strip().lower()
             if c in ("full", "compact"):
                 cfg.specialization.contract = c
+                changed["contract"] = c
+        record_runtime_config_overrides(cfg, "specialization", changed)
         return {**_spec_view(), "persisted": _persist_config(cfg)}
 
     def _connection_view() -> dict:
@@ -1737,6 +2326,17 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 credential_store.delete(old_ref)
             except CredentialStoreError:
                 log.warning("retired provider credential could not be removed")
+        if target == "upstream":
+            changed_upstream = {
+                key: getattr(cfg.upstream, key)
+                for key in ("base_url", "model", "credential_ref")
+                if key in p or (key == "credential_ref" and bool(new_ref))
+            }
+            record_runtime_config_overrides(cfg, "upstream", changed_upstream)
+        else:
+            record_runtime_config_overrides(
+                cfg, "assist", {"endpoints": cfg.assist.endpoints}
+            )
         return {"ok": True, "persisted": True, **_connection_view()}
 
     @router.get("/sessions")
@@ -1766,6 +2366,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             st = None
             try:
                 st = current_state(store, r["active_branch"])
+                binding = store.experience_binding(session_id)
+                d["experience_mode"] = binding.mode if binding.source else ""
+                d["experience_locked"] = binding.locked
                 players = st.get("player") or {}
                 pkey = next(iter(players), None)
                 if pkey:
@@ -1775,6 +2378,16 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                     )
                 if _world_seeded(st):
                     d["world_name"] = _creator.world_from_state(st).get("name") or ""
+                if binding.source and binding.mode == "chat":
+                    chat_state = st.get("chat_core") or {}
+                    core = chat_state.get("core") or {}
+                    d["player_name"] = str(core.get("name") or "")
+                    digest = str(chat_state.get("core_fingerprint") or "").removeprefix(
+                        "sha256:",
+                    )
+                    if len(digest) == 64 \
+                            and all(ch in "0123456789abcdef" for ch in digest):
+                        d["card_revision"] = digest[:16]
             except Exception:
                 pass  # fail-open: a legible-name miss is cosmetic
             states[session_id] = st
@@ -1856,6 +2469,33 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 "world_flags": {},
             }
         state = current_state(store, row["active_branch"])
+        binding = store.experience_binding(row["session_id"])
+        if binding.source and binding.mode == "chat":
+            view = _hud.chat_continuity_view(
+                state,
+                persona_actor_id=binding.persona_actor_id,
+                character_actor_id=binding.character_actor_id,
+                core_fingerprint=binding.core_fingerprint,
+                cfg=cfg,
+            )
+            view["session_id"] = row["session_id"]
+            view["external_id"] = row["external_id"]
+            view["head_turn"] = _head(store, row["active_branch"])
+            try:
+                view["notices"] = (
+                    pipeline.recent_notices(row["session_id"])
+                    if pipeline is not None else []
+                )
+            except Exception:
+                view["notices"] = []
+            try:
+                view["transport_error"] = (
+                    pipeline.transport_error(row["session_id"])
+                    if pipeline is not None else None
+                )
+            except Exception:
+                view["transport_error"] = None
+            return view
         view = _hud.hud_view(state, cfg)
         view["session_id"] = row["session_id"]
         view["external_id"] = row["external_id"]
@@ -1882,6 +2522,87 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
     async def unfreeze(sid: str):  # unfreeze is user-only by design (02 SS6)
         return _user_ops(sid, [{"op": "unfreeze"}])
 
+    def _portable_creator_continuity(receipts: list[dict], binding) -> dict | None:
+        """Rebuild only validated Creator starting continuity from exact durable receipts."""
+        if not receipts:
+            return None
+        from . import chat_continuity as _chat_continuity
+
+        families = (
+            "memories",
+            "player_visible_possessions_conditions",
+            "character_knowledge",
+            "relationship_causes",
+            "agreement_revisions",
+            "open_threads",
+        )
+        portable: dict[str, object] = {
+            "schema": _chat_continuity.STARTING_CONTINUITY_SCHEMA,
+            **{family: [] for family in families},
+        }
+        character = str(binding.character_actor_id or "")
+        persona = str(binding.persona_actor_id or "")
+        if not character or not persona:
+            raise ValueError("bound Chat actors are incomplete")
+
+        def role_ref(value: object) -> dict:
+            if not isinstance(value, dict) or value.get("kind") != "actor":
+                raise ValueError("stored Creator continuity lost its exact actor reference")
+            actor_id = str(value.get("actor_id") or "")
+            if actor_id == character:
+                return {"role": "character"}
+            if actor_id == persona:
+                return {"role": "current_persona"}
+            raise ValueError("stored Creator continuity names an actor outside the binding")
+
+        def portable_visibility(record: dict) -> str:
+            scoped = {
+                str(actor)
+                for actor in record.pop("scoped_actors", [])
+                if str(actor)
+            }
+            record.pop("visibility", None)
+            if scoped == {character}:
+                return "character_private"
+            if scoped == {character, persona}:
+                return "shared"
+            raise ValueError("stored Creator continuity has no exact portable audience")
+
+        for receipt in receipts:
+            family = str(receipt.get("family") or "")
+            if family not in families or not isinstance(receipt.get("record"), dict):
+                raise ValueError("stored Creator continuity receipt is malformed")
+            record = deepcopy(receipt["record"])
+            if family == "memories":
+                record["visibility"] = portable_visibility(record)
+            elif family == "player_visible_possessions_conditions":
+                if portable_visibility(record) != "shared":
+                    raise ValueError("stored Creator observable lost its shared audience")
+                record.pop("entity", None)
+            elif family == "character_knowledge":
+                record["visibility"] = portable_visibility(record)
+                record.pop("holder", None)
+            elif family == "relationship_causes":
+                record["from"] = role_ref(record.get("from"))
+                record["to"] = role_ref(record.get("to"))
+            elif family == "agreement_revisions":
+                record["parties"] = [
+                    role_ref(party) for party in record.get("parties", [])
+                ]
+                if record.get("acting_party") is not None:
+                    record["acting_party"] = role_ref(record["acting_party"])
+                record.pop("visibility", None)
+                record.pop("scoped_actors", None)
+            else:
+                record["participants"] = [
+                    role_ref(participant)
+                    for participant in record.get("participants", [])
+                ]
+                record.pop("visibility", None)
+                record.pop("scoped_actors", None)
+            portable[family].append(record)
+        return _chat_continuity.validate_starting_continuity(portable)
+
     @router.get("/session/{sid}/creator")
     async def creator_prefill(sid: str):
         """Prefill the creator window: current Player Card + the committed world doc (best
@@ -1905,6 +2626,41 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                 "world_seeded": False,
             }
         state = current_state(store, row["active_branch"])
+        binding = store.experience_binding(row["session_id"])
+        chat_state = state.get("chat_core") or {}
+        core = chat_state.get("core") \
+            if isinstance(chat_state.get("core"), dict) else None
+        if binding.source and binding.mode == "chat" and core is not None:
+            has_world = bool(chat_state.get("world_fingerprint"))
+            receipts = store.chat_continuity_seed_receipts(row["session_id"])
+            continuity = _portable_creator_continuity(receipts, binding)
+            continuity_results = [{
+                "family": str(receipt.get("family") or ""),
+                "accepted": True,
+                "record_fingerprint": str(receipt.get("record_fingerprint") or ""),
+                "receipt_fingerprint": str(receipt.get("receipt_fingerprint") or ""),
+            } for receipt in receipts]
+            world = _creator.world_source_from_state(state) if has_world else None
+            return {
+                "session_id": row["session_id"],
+                "experience_mode": "chat",
+                "experience_locked": binding.locked,
+                "experience_locked_turn": binding.locked_turn,
+                "specialization": spec,
+                "persona": persona,
+                "core": core,
+                "chat_core": core,
+                "core_fingerprint": str(chat_state.get("core_fingerprint") or ""),
+                "continuity": continuity,
+                "continuity_results": continuity_results,
+                "player": None,
+                "player_live": None,
+                "effects_live": {},
+                "player_name": str((core or {}).get("name") or ""),
+                "world": world,
+                "world_live": _creator.world_from_state(state) if has_world else None,
+                "world_seeded": has_world,
+            }
         players = state.get("player") or {}
         pkey = next(iter(players), None)
         seeded = _world_seeded(state)
@@ -1912,6 +2668,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         player_live = _creator.player_from_state(state) if pkey else None
         return {
             "session_id": row["session_id"],
+            "experience_mode": binding.mode if binding.source else "",
+            "experience_locked": binding.locked,
+            "experience_locked_turn": binding.locked_turn,
             "specialization": spec,
             "persona": persona,
             "player": pcard,
@@ -1987,14 +2746,26 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             return JSONResponse({"error": "world must be an object"}, status_code=422)
         if payload.get("model") is not None and not isinstance(payload.get("model"), str):
             return JSONResponse({"error": "model must be a string"}, status_code=422)
+        raw_experience = payload.get("experience_mode", "rpg")
+        if not isinstance(raw_experience, str):
+            return JSONResponse({"error": "experience_mode must be a string"}, status_code=422)
+        experience_mode = raw_experience.strip().lower()
+        if experience_mode not in {"chat", "rpg"}:
+            return JSONResponse(
+                {"error": "experience_mode must be chat|rpg"},
+                status_code=422,
+            )
         mode = raw_mode.strip().lower()
         if mode == "character":
             mode = "player"
-        if mode not in {"world", "player"}:
-            return JSONResponse({"error": "mode must be world|player"}, status_code=422)
+        if mode not in {"world", "player", "chat_character"}:
+            return JSONResponse(
+                {"error": "mode must be world|player|chat_character"},
+                status_code=422,
+            )
         seed = payload.get("doc") if isinstance(payload.get("doc"), dict) else {}
         world = payload.get("world") if isinstance(payload.get("world"), dict) else None
-        if mode == "world":
+        if mode == "world" and experience_mode != "chat":
             try:
                 seed = _creator.ensure_world_identity(seed)
             except ValueError as exc:
@@ -2005,6 +2776,17 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=422)
         if payload.get("offline"):  # explicit template fill — never an LLM call
+            if mode == "chat_character":
+                try:
+                    doc = _chat_card.validate_core(seed)
+                except ValueError as exc:
+                    return JSONResponse({"error": str(exc)}, status_code=422)
+                return {
+                    "source": "deterministic",
+                    "mode": mode,
+                    "doc": doc,
+                    "detail": "validated current Chat Character Core (offline, by request)",
+                }
             if mode != "world":  # ranks on genre-pack ids must freeze into defs
                 seed = _creator._inject_pack_defs(seed, _creator._pack_for(world))
             try:
@@ -2050,8 +2832,16 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
         try:
             if mode == "player":
                 out = await _creator.author_player(get_client, cfg, ep, seed, world)
+            elif mode == "chat_character":
+                out = await _creator.author_chat_character(get_client, cfg, ep, seed)
             else:
-                out = await _creator.author_world(get_client, cfg, ep, seed)
+                out = await _creator.author_world(
+                    get_client,
+                    cfg,
+                    ep,
+                    seed,
+                    experience_mode=experience_mode,
+                )
         except Exception as exc:
             out = {"source": "error", "detail": f"authoring failed: {type(exc).__name__}"}
         out["mode"] = mode
@@ -2876,7 +3666,38 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
             branch = row["active_branch"]
             state = current_state(store, branch)
             now = state.get("meta", {}).get("turn", -1)
-            rows = _memory.retrieve(store, cfg, branch, state, q.strip(), max(0, now))
+            binding = store.experience_binding(row["session_id"])
+            bound_chat = bool(
+                binding.source
+                and binding.mode == "chat"
+                and binding.core_fingerprint
+                and binding.character_actor_id
+                and binding.persona_actor_id
+            )
+            player_actor_id = (
+                binding.persona_actor_id
+                if bound_chat
+                else next(iter(state.get("player") or {}), "")
+            )
+            viewer_actor_id = (
+                binding.character_actor_id
+                if bound_chat
+                else player_actor_id
+            )
+            rows = _memory.retrieve(
+                store,
+                cfg,
+                branch,
+                state,
+                q.strip(),
+                max(0, now),
+                viewer_actor_id=viewer_actor_id,
+                player_actor_id=player_actor_id,
+                experience_mode=(
+                    "chat" if bound_chat
+                    else ("rpg" if binding.source and binding.mode == "rpg" else "")
+                ),
+            )
             hits = [
                 {
                     "text": r["text"],
@@ -2965,6 +3786,65 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                     temporary.unlink(missing_ok=True)
                 except OSError:
                     pass
+
+    @router.post("/chat-card")
+    async def chat_card_build(request: Request):
+        """Build a portable Chat Character Card without creating a session."""
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                raise ValueError("request body must be an object")
+            core = _chat_card.validate_core(payload.get("core"))
+            world = payload.get("world")
+            if world is not None and not isinstance(world, dict):
+                raise ValueError("world must be an object")
+            continuity = payload.get("continuity")
+            if continuity is not None and not isinstance(continuity, dict):
+                raise ValueError("continuity must be an object")
+            card = _chat_card.build_card(core, world=world, continuity=continuity)
+            png = _narrator.card_png(card, world)
+        except (AttributeError, TypeError, ValueError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
+        metadata = card["data"]["extensions"]["aetherstate"]
+        return {
+            "name": card["data"]["name"],
+            "bytes": len(png),
+            "core_fingerprint": metadata["core_fingerprint"],
+            "core_envelope_fingerprint": metadata["core_envelope_fingerprint"],
+            "world_fingerprint": _chat_card.world_fingerprint(world),
+            "png_b64": base64.b64encode(png).decode("ascii"),
+            "metadata": metadata,
+        }
+
+    @router.post("/chat-card/inspect")
+    async def chat_card_inspect(request: Request):
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                raise ValueError("request body must be an object")
+            filename = str(payload.get("filename") or "")
+            if len(filename) > 255:
+                raise ValueError("filename exceeds 255 characters")
+            if filename.lower().endswith(".png"):
+                encoded = payload.get("data_b64")
+                if not isinstance(encoded, str) or len(encoded) > 5_500_000:
+                    raise ValueError("data_b64 is required for PNG inspection")
+                try:
+                    raw = base64.b64decode(encoded, validate=True)
+                except (ValueError, TypeError) as exc:
+                    raise ValueError("data_b64 is invalid") from exc
+                content_type = "image/png"
+            elif filename.lower().endswith(".json"):
+                text = payload.get("text")
+                if not isinstance(text, str) or len(text) > 1_000_000:
+                    raise ValueError("text is required for JSON inspection")
+                raw = text.encode("utf-8")
+                content_type = "application/json"
+            else:
+                raise ValueError("filename must end in .png or .json")
+            return _chat_card.inspect_card_json_or_png(raw, content_type)
+        except (AttributeError, TypeError, ValueError) as exc:
+            return JSONResponse({"error": str(exc)}, status_code=422)
 
     @router.post("/narrator-card")
     async def narrator_card_build(request: Request):

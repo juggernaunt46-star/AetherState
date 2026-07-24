@@ -75,8 +75,9 @@ class SessionEngine:
         # 08 S7 dedup keys the REQUEST, and the stamp is part of the request: a swipe whose
         # payload equals the original after sentinel-strip is NOT a retry (P3 fixture catch —
         # dedup used to short-circuit before the stamp's type=swipe was ever consulted).
-        stamp_key = (f"{stamp.session}|{stamp.turn}|{stamp.gen_type}|"
-                     f"{stamp.parent}|{stamp.fork_pos}".encode()
+        stamp_key = (f"{stamp.session}|{stamp.turn}|{stamp.gen_type}|{stamp.mode}|"
+                     f"{stamp.parent}|{stamp.fork_pos}|{stamp.core_fingerprint}|"
+                     f"{stamp.character_actor_id}|{stamp.persona_actor_id}".encode()
                      if stamp else b"")
         key = hashlib.blake2b(body + stamp_key, digest_size=8).hexdigest()
         now = time.time()
@@ -463,10 +464,12 @@ class SessionEngine:
                 self.index.add_branch(parent_view)
             sid, empty_branch = self.store.create_session(
                 external_id=stamp.session, frontend="stamped-explicit-branch")
-            if not self.store.inherit_session_settings(parent["session_id"], sid):
-                return None
             self._fork(parent_view, fork_pos, new_session_id=sid, kill_source=False,
                        discard_empty_branch=empty_branch)
+            # Core/receipt inheritance validates the child's copied journal operation, so it
+            # must run only after the explicit fork has produced that exact replayable prefix.
+            if not self.store.inherit_session_settings(parent["session_id"], sid):
+                return None
         log.info("explicit branch from session %s at canonical position %d",
                  parent["session_id"], fork_pos)
         return self.store.db.execute(
@@ -485,6 +488,10 @@ class SessionEngine:
         match = self._match(canon) if len(canon) >= self.cfg.adopt_min_lcp else None
         if match and match.lcp_branch >= self.cfg.adopt_min_lcp:
             view = match.branch
+            if self._session_has_chat_identity(view.session_id):
+                # Transcript resemblance is not Character/Persona lineage authority. Only the
+                # explicit parent+fork-position proof above may inherit a Chat Core.
+                return self.store.get_or_create_session(external_id)
             if match.lcp_branch >= len(view.msgs):     # full-prefix match -> chat rename (S4)
                 with self.store.apply_guard():
                     if not self._fork_prefix_ready(view, len(view.msgs)):
@@ -519,6 +526,8 @@ class SessionEngine:
         match = self._match(canon)
 
         if match is None or self._too_shallow(match):
+            return self._new_session(canon)
+        if self._session_has_chat_identity(match.branch.session_id):
             return self._new_session(canon)
 
         view, L = match.branch, match.lcp_branch
@@ -618,6 +627,19 @@ class SessionEngine:
         if match is None:                        # index-0 miss: window slide? (08 B1/S3)
             match = self.index.align(canon, k=self.cfg.align_k)
         return match
+
+    def _session_has_chat_identity(self, session_id: str) -> bool:
+        """Treat any Chat binding/receipt row as exact identity that heuristics cannot copy."""
+        row = self.store.db.execute(
+            "SELECT core_fingerprint FROM sessions WHERE session_id=?",
+            (session_id,),
+        ).fetchone()
+        if row is not None and str(row["core_fingerprint"] or ""):
+            return True
+        return self.store.db.execute(
+            "SELECT 1 FROM chat_core_receipts WHERE session_id=? LIMIT 1",
+            (session_id,),
+        ).fetchone() is not None
 
     def _too_shallow(self, match: Match) -> bool:
         """min_anchor guards against trivial-overlap merges ('hi'), but a match covering the

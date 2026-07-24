@@ -104,8 +104,16 @@ def visibility_allows(
     audience: str,
     actor_id: str | None = None,
     scoped_actors: object = None,
+    player_actor_id: str | None = None,
+    blank_visibility: str = "public",
 ) -> bool:
-    visibility = str(visibility or "public")
+    visibility = str(visibility or "")
+    if not visibility:
+        if blank_visibility == "deny":
+            return False
+        if blank_visibility != "public":
+            return False
+        visibility = "public"
     if visibility not in _VISIBILITIES:
         return False
     if audience in {"engine", "narrator_internal", "creator"}:
@@ -115,11 +123,40 @@ def visibility_allows(
     if visibility == "hidden":
         return False
     if visibility == "player":
-        return audience in {"player", "narrator"}
+        if audience in {"player", "narrator"}:
+            return True
+        return (
+            audience == "actor"
+            and normalize_actor_id(actor_id) is not None
+            and normalize_actor_id(actor_id) == normalize_actor_id(player_actor_id)
+        )
     normalized_actor = normalize_actor_id(actor_id)
     if normalized_actor is None:
         return False
     return normalized_actor in normalize_actor_scope(scoped_actors)
+
+
+def record_visible_to(
+    record: Mapping[str, Any],
+    *,
+    viewer_actor_id: str,
+    player_actor_id: str = "",
+    blank_visibility: str = "public",
+) -> bool:
+    """Apply the one typed-record visibility policy for an exact actor viewer."""
+    if not isinstance(record, Mapping):
+        return False
+    scoped = record.get("scoped_actors")
+    if scoped is None:
+        scoped = record.get("audience")
+    return visibility_allows(
+        record.get("visibility"),
+        audience="actor",
+        actor_id=viewer_actor_id,
+        scoped_actors=scoped,
+        player_actor_id=player_actor_id,
+        blank_visibility=blank_visibility,
+    )
 
 
 def _tokens(value: object) -> frozenset[str]:
@@ -265,6 +302,7 @@ def select_knowledge(
     *,
     audience: str = "player",
     actor_id: str | None = None,
+    player_actor_id: str | None = None,
     query: str = "",
     limit: int = 12,
     include_history: bool = False,
@@ -289,7 +327,11 @@ def select_knowledge(
         frame = _frame_from_claim(raw)
         visibility, scoped = _claim_visibility(raw, frame)
         if not visibility_allows(
-            visibility, audience=audience, actor_id=actor_id, scoped_actors=scoped
+            visibility,
+            audience=audience,
+            actor_id=actor_id,
+            scoped_actors=scoped,
+            player_actor_id=player_actor_id,
         ):
             continue
         claim_pid = str(frame.get("proposition_id") or raw.get("proposition_id") or "")
@@ -344,7 +386,11 @@ def select_knowledge(
         visibility = raw.get("visibility") or "actor_scoped"
         scoped = raw.get("scoped_actors") or [holder]
         if not visibility_allows(
-            visibility, audience=audience, actor_id=actor_id, scoped_actors=scoped
+            visibility,
+            audience=audience,
+            actor_id=actor_id,
+            scoped_actors=scoped,
+            player_actor_id=player_actor_id,
         ):
             continue
         pid = str(raw.get("proposition_id") or raw.get("fact") or "")
@@ -368,6 +414,8 @@ def select_knowledge(
             "stance": raw.get("stance"),
             "source": raw.get("source"),
             "claim_id": raw.get("claim_id"),
+            "evidence_ref": raw.get("evidence_ref"),
+            "source_occurrence_id": raw.get("source_occurrence_id"),
             "turn": turn,
             "status": raw.get("status", "current"),
         }
@@ -384,6 +432,7 @@ def select_knowledge(
             audience=audience,
             actor_id=actor_id,
             scoped_actors=raw.get("scoped_actors"),
+            player_actor_id=player_actor_id,
         ):
             continue
         pid = str(raw.get("proposition_id") or "")
@@ -438,6 +487,7 @@ def select_knowledge(
             audience=audience,
             actor_id=actor_id,
             scoped_actors=raw.get("cause_audience"),
+            player_actor_id=player_actor_id,
         ):
             continue
         visible_cause = visibility_allows(
@@ -446,6 +496,7 @@ def select_knowledge(
             actor_id=actor_id,
             scoped_actors=_event_cause_scope(raw)
             if cause_visibility == "actor_scoped" else raw.get("cause_audience"),
+            player_actor_id=player_actor_id,
         )
         cause, visible_cause = _project_event_cause(
             state,
@@ -488,13 +539,19 @@ def render_knowledge_context(
     *,
     audience: str = "narrator_internal",
     actor_id: str | None = None,
+    player_actor_id: str | None = None,
     query: str = "",
     limit: int = 10,
     char_cap: int = 2400,
 ) -> str:
     """Render a compact typed briefing; never include untyped conversation prose."""
     view = select_knowledge(
-        state, audience=audience, actor_id=actor_id, query=query, limit=limit
+        state,
+        audience=audience,
+        actor_id=actor_id,
+        player_actor_id=player_actor_id,
+        query=query,
+        limit=limit,
     )
     lines: list[str] = []
     for row in view["facts"]:

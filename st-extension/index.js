@@ -1,3 +1,5 @@
+import { user_avatar } from "../../../personas.js";
+
 /* AetherState Companion — thin SillyTavern extension (deliverable 05).
  * Responsibilities (05 §1): stamp identity (header L1 + sentinel L2), capture gen type,
  * quick panel (status chip, freeze/resume, override toggle, console link), slash cmds.
@@ -7,9 +9,10 @@
 (() => {
   "use strict";
   const MODULE = "aetherstate";
+  const AETHERSTATE_BUILD = "release-1.24.0";
   let ctx = null;
   try { ctx = SillyTavern.getContext(); } catch (e) { console.warn("[AetherState] no ST context", e); return; }
-  console.log("[AetherState] Companion loaded — combat-reference/composer build + world-overlay (2026-07-17) + HUD clarity (2026-07-18) + card-seed reliability (2026-07-21)");
+  console.log(`[AetherState] Companion loaded — ${AETHERSTATE_BUILD} + combat-reference/composer build + world-overlay (2026-07-17) + HUD clarity (2026-07-18) + card-seed reliability (2026-07-21)`);
   // ST reassigns chatMetadata/characterId on chat/char switch, so a context captured once
   // goes stale. C() always returns the CURRENT context for per-chat/character reads.
   const C = () => { try { return SillyTavern.getContext() || ctx; } catch (e) { return ctx; } };
@@ -172,11 +175,248 @@
       return String(ext?.role || "").trim().toLowerCase().replace(/[^a-z_-]/g, "").slice(0, 32);
     } catch (e) { return ""; }
   };
+  function rawCardCore(character) {
+    const ch = character || {};
+    const data = ch?.data || {};
+    const pick = (key, legacy = key) => {
+      const value = data[key] ?? ch[legacy] ?? "";
+      return typeof value === "string" ? value : "";
+    };
+    return {
+      name: pick("name"),
+      description: pick("description"),
+      personality: pick("personality"),
+      scenario: pick("scenario"),
+      first_mes: pick("first_mes"),
+      mes_example: pick("mes_example"),
+    };
+  }
+  function activePersonaId() {
+    try {
+      const locked = C().chatMetadata?.persona;
+      const valid = (value) => typeof value === "string" && value.length > 0
+        && value.length <= 512 && /\S/.test(value) && !/[\u0000-\u001f\u007f]/.test(value);
+      // A present chat lock outranks the live global Persona even when malformed: reject it
+      // locally instead of silently aliasing this chat to another identity.
+      if (typeof locked === "string") return valid(locked) ? locked : "";
+      if (valid(user_avatar)) return user_avatar;
+    } catch (e) {}
+    return "";
+  }
+  const chatCoreStructuralToken = (character) => {
+    try {
+      const core = rawCardCore(character);
+      const aes = character?.data?.extensions?.aetherstate
+        || character?.extensions?.aetherstate || {};
+      return JSON.stringify([
+        core,
+        String(aes?.role || ""), String(aes?.mode || ""),
+        aes?.core ?? null,
+        aes?.seed ?? null,
+        String(aes?.core_fingerprint || ""),
+        String(aes?.core_envelope_fingerprint || ""),
+      ]);
+    } catch (e) { return ""; }
+  };
+  const isChatExperienceCard = () => {
+    try {
+      const c = C(), ch = c.characters?.[c.characterId];
+      return Boolean(ch) && cardRole() !== "narrator";
+    } catch (e) { return false; }
+  };
+  let admittedChatIdentity = null;
+  let admittedChatToken = "";
+  let admittedPersona = "";
+  let chatAdmissionPromise = null;
+  let chatAdmissionRevision = 0;
+  const reportedMissingPersona = new Set();
+  const reportedChatIdentityConflict = new Set();
+  function reportMissingPersona(S) {
+    if (reportedMissingPersona.has(S)) return;
+    reportedMissingPersona.add(S);
+    try {
+      toastr?.info?.(
+        "Select a Persona to enable Chat continuity",
+        "AetherState Chat continuity",
+      );
+    } catch (e) {}
+  }
+  function reportChatIdentityConflict(S) {
+    if (reportedChatIdentityConflict.has(S)) return;
+    reportedChatIdentityConflict.add(S);
+    try {
+      toastr?.warning?.(
+        "This Character Core or Persona differs from the locked continuity. Start a new chat.",
+        "AetherState continuity is locked",
+      );
+    } catch (e) {}
+  }
+  function clearChatAdmission() {
+    chatAdmissionRevision += 1;
+    admittedChatIdentity = null;
+    admittedChatToken = "";
+    admittedPersona = "";
+  }
+  function cacheChatIdentity(value) {
+    const c = C(), meta = c.chatMetadata || (c.chatMetadata = {});
+    const current = meta.aetherstate || {};
+    meta.aetherstate = {
+      ...current,
+      core_fingerprint: String(value.core_fingerprint || ""),
+      character_actor_id: String(value.character_actor_id || ""),
+      persona_actor_id: String(value.persona_actor_id || ""),
+    };
+    delete meta.aetherstate.core;
+    try { c.saveMetadataDebounced(); } catch (e) {}
+  }
+  function validChatIdentity(value) {
+    return value?.complete === true && value?.mode === "chat"
+      && /^sha256:[0-9a-f]{64}$/.test(String(value?.core_fingerprint || ""))
+      && /^character:[0-9a-f]{64}$/.test(String(value?.character_actor_id || ""))
+      && /^persona:[0-9a-f]{64}$/.test(String(value?.persona_actor_id || ""));
+  }
+  function currentChatAdmissionInput(origin) {
+    const ch = bindCardLifecycleCharacter(origin) || origin?.character;
+    if (!ch || !cardLifecycleIsCurrent(origin)) return null;
+    const persona = activePersonaId();
+    if (!persona) return null;
+    const aes = ch?.data?.extensions?.aetherstate || ch?.extensions?.aetherstate;
+    const body = { card: rawCardCore(ch), persona };
+    if (aes && typeof aes === "object") body.aetherstate = aes;
+    return { token: chatCoreStructuralToken(ch), persona, body };
+  }
+  function sameChatAdmissionInput(origin, snapshot) {
+    const current = currentChatAdmissionInput(origin);
+    return Boolean(current && snapshot
+      && current.token === snapshot.token && current.persona === snapshot.persona);
+  }
+  async function boundedChatFetch(url, options, deadline) {
+    const remaining = Math.max(0, deadline - Date.now());
+    if (!remaining) {
+      const error = new Error("Chat admission deadline elapsed");
+      error.name = "AbortError";
+      throw error;
+    }
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), remaining);
+    try {
+      return await fetch(url, { ...options, signal: ac.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  async function boundedChatJson(response, deadline) {
+    const remaining = Math.max(0, deadline - Date.now());
+    if (!remaining) return {};
+    let timer = null;
+    try {
+      return await Promise.race([
+        response.json().catch(() => ({})),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve({}), remaining);
+        }),
+      ]);
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
+  }
+  async function ensureChatAdmission(identity = null) {
+    if (!settings.enabled || !isChatExperienceCard()) return true;
+    const origin = captureCardLifecycleContext(identity || ensureChatIdentity());
+    const initial = currentChatAdmissionInput(origin);
+    if (!initial) {
+      clearChatAdmission();
+      reportMissingPersona(origin.session);
+      return false;
+    }
+    if (admittedChatIdentity && admittedChatToken === initial.token
+        && admittedPersona === initial.persona)
+      return true;
+    if (chatAdmissionPromise) {
+      await chatAdmissionPromise;
+      const current = currentChatAdmissionInput(origin);
+      if (current && admittedChatIdentity && admittedChatToken === current.token
+          && admittedPersona === current.persona)
+        return true;
+    }
+    const revision = chatAdmissionRevision;
+    chatAdmissionPromise = (async () => {
+      const base = settings.proxy_url.replace(/\/$/, "");
+      const deadline = Date.now() + 8000;
+      for (let attempt = 0; attempt < 4 && Date.now() < deadline; attempt++) {
+        const snapshot = currentChatAdmissionInput(origin);
+        if (!snapshot || revision !== chatAdmissionRevision
+            || !cardLifecycleIsCurrent(origin)) return false;
+        let status;
+        // Status is a restart cache rehydration only. The POST below still revalidates the
+        // currently selected raw card and exact Persona against backend authority.
+        try {
+          status = await boundedChatFetch(
+            `${base}/aether/session/${origin.session}/chat-core-status`,
+            { method: "GET" },
+            deadline,
+          );
+        } catch (e) {
+          return false;
+        }
+        const statusBody = await boundedChatJson(status, deadline);
+        if (Date.now() >= deadline) return false;
+        if (!sameChatAdmissionInput(origin, snapshot)) continue;
+        if (status.ok && validChatIdentity(statusBody)) cacheChatIdentity(statusBody);
+
+        let response;
+        try {
+          response = await boundedChatFetch(
+            `${base}/aether/session/${origin.session}/chat-core`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(snapshot.body),
+            },
+            deadline,
+          );
+        } catch (e) {
+          return false;
+        }
+        const data = await boundedChatJson(response, deadline);
+        if (Date.now() >= deadline) return false;
+        if (revision !== chatAdmissionRevision || !cardLifecycleIsCurrent(origin)) return false;
+        if (!sameChatAdmissionInput(origin, snapshot)) continue;
+        if (response.status === 409) {
+          reportChatIdentityConflict(origin.session);
+          return false;
+        }
+        if (!response.ok || !validChatIdentity(data)) return false;
+        admittedChatIdentity = {
+          mode: "chat",
+          core_fingerprint: data.core_fingerprint,
+          character_actor_id: data.character_actor_id,
+          persona_actor_id: data.persona_actor_id,
+        };
+        admittedChatToken = snapshot.token;
+        admittedPersona = snapshot.persona;
+        cacheChatIdentity(data);
+        return true;
+      }
+      return false;
+    })();
+    try {
+      return await chatAdmissionPromise;
+    } finally {
+      chatAdmissionPromise = null;
+    }
+  }
   const sentinel = () => {
     const identity = ensureChatIdentity();
     const lineage = identity.parent && identity.forkPos !== null
       ? `parent=${identity.parent};fork=${identity.forkPos};` : "";
+    const chatIdentity = admittedChatIdentity
+      ? `mode=chat;core_fingerprint=${admittedChatIdentity.core_fingerprint};`
+        + `character_actor_id=${admittedChatIdentity.character_actor_id};`
+        + `persona_actor_id=${admittedChatIdentity.persona_actor_id};`
+      : (cardRole() === "narrator" ? "mode=rpg;" : "");
     return `<<AETHER:v=1;session=${identity.session};${lineage}` +
+      chatIdentity +
       `turn=${turnCounter};type=${lastGenType};speaker=${speaker()};` +
       `card_role=${cardRole()};user=${guardName()}>>`;
   };
@@ -206,6 +446,11 @@
   async function doGenesis(reason, force = false, ifearly = false,
                            structuredSeed = false, seedFingerprint = "", lifecycleContext = null) {
     if (!settings.enabled) return { error: "extension disabled" };
+    if (isChatExperienceCard()) {
+      const complete = await ensureChatAdmission().catch(() => false);
+      return complete ? { complete: true, mode: "chat", applied: 0 }
+        : { error: "Chat Core admission unavailable" };
+    }
     const origin = lifecycleContext || captureCardLifecycleContext();
     if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
     const sub = (t) => { try { return C().substituteParams(t || ""); } catch (e) { return t || ""; } };
@@ -239,6 +484,8 @@
         method: "POST", headers: { "content-type": "application/json" }, signal: ac.signal,
         body: JSON.stringify({ card, greeting, speaker: ch.name || "", card_role: cardRole(),
                                user: guardName(), opening: "",
+                               mode: admittedChatIdentity ? "chat"
+                                 : (cardRole() === "narrator" ? "rpg" : ""),
                                structured_seed: Boolean(verifiedFingerprint),
                                seed_fingerprint: verifiedFingerprint }),
       });
@@ -252,9 +499,27 @@
       console.warn("[AetherState] genesis fetch failed", e); return { error: String(e) };
     }
   }
-  function genesisAtChatOpen(identity = null) {
+  async function genesisAtChatOpen(identity = null) {
     const origin = captureCardLifecycleContext(identity);
     if (origin.derived) return;
+    // CHAT_CHANGED can expose a bare character shell briefly before SillyTavern attaches
+    // data.extensions. Give that bounded hydration race the same chance as Narrator seed
+    // admission, then choose the product path from the resolved raw card.
+    let ch = bindCardLifecycleCharacter(origin) || origin.character;
+    const hasExtensionContainer = () => Boolean(
+      ch?.data?.extensions && typeof ch.data.extensions === "object"
+      || ch?.extensions && typeof ch.extensions === "object"
+    );
+    for (let i = 0; i < 8 && !hasExtensionContainer(); i++) {
+      if (!cardLifecycleIsCurrent(origin)) return;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      ch = bindCardLifecycleCharacter(origin) || origin.character;
+    }
+    if (!cardLifecycleIsCurrent(origin)) return;
+    if (isChatExperienceCard()) {
+      await ensureChatAdmission(identity).catch(() => false);
+      return;
+    }
     seedThenGenesis("chat_open", false, false, origin).catch(() => {});
   }
   // 2026-07-06: swiping the FIRST message picks a different opening — re-seed so state
@@ -269,6 +534,10 @@
       if (Number(i) !== first || first < 0) return;
       setTimeout(() => {
         if (!cardLifecycleIsCurrent(origin)) return;
+        if (isChatExperienceCard()) {
+          ensureChatAdmission().catch(() => {});
+          return;
+        }
         seedThenGenesis("greeting_swipe", true, true, origin).catch(() => {});
       }, 400);
     } catch (e) {}
@@ -520,6 +789,11 @@
     }
   }
   async function seedThenGenesis(reason, force = false, ifearly = false, lifecycleContext = null) {
+    if (isChatExperienceCard()) {
+      const complete = await ensureChatAdmission().catch(() => false);
+      return complete ? { complete: true, mode: "chat", applied: 0 }
+        : { error: "Chat Core admission unavailable" };
+    }
     const origin = lifecycleContext || captureCardLifecycleContext();
     if (!cardLifecycleIsCurrent(origin)) return staleCardLifecycle();
     const seeded = await seedFromCard(origin);
@@ -923,18 +1197,21 @@
       narratorEventDetachers.push(detach);
       return detach;
     };
-    on("CHAT_COMPLETION_PROMPT_READY", (data) => {          // 05 §4.3
+    on("CHAT_COMPLETION_PROMPT_READY", async (data) => {    // 05 §4.3
       try {
         if (data?.dryRun) return;
         recoverCurrentPlayerMessage(data);
         if (!settings.enabled || !settings.stamp.sentinel) return;
+        if (isChatExperienceCard() && !await ensureChatAdmission()) return;
         data.chat.unshift({ role: "system", content: sentinel() });
       } catch (e) { /* fail-open: header or LCP fallback still identifies (03 §2) */ }
     });
     on("CHAT_CHANGED", () => {                              // 05 §5
       retireNarratorPulse();
+      clearChatAdmission();
       const identity = ensureChatIdentity();
       turnCounter = 0; stampHeader(); hint("chat_changed"); refreshChip();
+      refreshExperienceControls();
       if (!identity.derived) {
         genesisAtChatOpen(identity);                       // verified card seed FIRST,
         //                                           then turn-0 genesis (both proxy-idempotent)
@@ -945,6 +1222,10 @@
         if (a) a.href = settings.proxy_url                  // chat's session — copy-link or
           + "/aether/creator?session=" + encodeURIComponent(sid());   // middle-click then saved
       } catch (e) { /* fail-open */ }                       // the world to the WRONG session
+    });
+    on("PERSONA_CHANGED", () => {
+      clearChatAdmission();
+      if (isChatExperienceCard()) ensureChatAdmission().catch(() => {});
     });
     on("GENERATION_STARTED", (type, opts, dryRun) => {
       try {
@@ -1034,11 +1315,62 @@
     if (pollSkip()) return;                 // offline → the shared 20 s probe covers recovery
     try {
       const d = await api("/aether/status");
-      let spec = "";
-      try { const sp = await api("/aether/specialization"); spec = sp && sp.name ? ` · ${sp.name.toUpperCase()}` : ""; } catch (e) {}
+      let experience = "";
+      try {
+        const selected = await api(`/aether/session/${sid()}/experience-mode`);
+        experience = selected && selected.mode === "rpg" ? "RPG" : "Chat";
+      } catch (e) {}
       el.className = "aes-chip";
-      el.textContent = `AetherState ${d.version} · ${d.mode} · ${d.extraction.mode}${spec}`;
+      el.textContent = `AetherState ${d.version} · ${d.mode} · ${d.extraction.mode}` +
+        (experience ? ` · ${experience}` : "");
     } catch (e) { el.className = "aes-chip bad"; el.textContent = "AetherState: offline"; }
+  }
+  function setExperienceControls(selected) {
+    const mode = selected && selected.mode === "rpg" ? "rpg" : "chat";
+    const locked = Boolean(selected && selected.locked);
+    const control = document.getElementById("aes_experience");
+    const state = document.getElementById("aes_experience_state");
+    const help = document.getElementById("aes_experience_help");
+    if (control) {
+      control.value = mode;
+      control.disabled = locked;
+    }
+    if (state) state.textContent = mode === "rpg" ? "RPG" : "Chat";
+    if (help) {
+      help.textContent = locked
+        ? "Start a new chat to change modes."
+        : (mode === "rpg"
+          ? "RPG includes the Player sheet, mechanics, and RPG HUD."
+          : "Chat uses Character continuity without RPG mechanics or a Player sheet.");
+    }
+    return mode;
+  }
+  function applyExperienceControls(sp, experienceMode) {
+    if (!sp) return;
+    const row = document.getElementById("aes_intent_row");
+    const box = document.getElementById("aes_intent_floor");
+    if (row && box) {
+      row.style.display = experienceMode === "rpg" ? "" : "none";
+      if (typeof sp.intent_floor === "boolean") box.checked = sp.intent_floor;
+    }
+    const compactRow = document.getElementById("aes_compact_row");
+    const compactBox = document.getElementById("aes_compact_contract");
+    if (compactRow && compactBox) {
+      compactRow.style.display = experienceMode === "rpg" ? "" : "none";
+      if (typeof sp.auto_compact_contract === "boolean") {
+        compactBox.checked = sp.auto_compact_contract;
+      }
+    }
+  }
+  async function refreshExperienceControls() {
+    if (!document.getElementById("aes_experience")) return;
+    try {
+      const [selected, sp] = await Promise.all([
+        api(`/aether/session/${sid()}/experience-mode`),
+        api("/aether/specialization"),
+      ]);
+      applyExperienceControls(sp, setExperienceControls(selected));
+    } catch (e) {}
   }
   async function drawPanel() {
     try {
@@ -1067,11 +1399,11 @@
               <a id="aes_hud_open" class="aes-link" href="#">🎛 player HUD</a>
             </div>
             <div class="aes-row">
-              <label class="aes-inline">narrative mode
-                <select id="aes_spec"><option value="none">none (chat RP)</option><option value="rpg">rpg (DM mode)</option></select></label>
-              <span id="aes_spec_state" class="aes-chip">spec: …</span>
+              <label class="aes-inline">session experience
+                <select id="aes_experience"><option value="chat">Chat</option><option value="rpg">RPG</option></select></label>
+              <span id="aes_experience_state" class="aes-chip">…</span>
             </div>
-            <div class="aes-help" id="aes_spec_help"></div>
+            <div class="aes-help" id="aes_experience_help"></div>
             <div class="aes-row" id="aes_intent_row" style="display:none">
               <label class="aes-check" title="Pure-code semantic reflex floor: natural phrasings map to the skill they mean (sweet-talk -> persuasion, sneaked -> stealth), and a strike targets a REAL on-scene character, not a stray word. No model, no network.">
                 <input type="checkbox" id="aes_intent_floor"> semantic intent floor</label>
@@ -1116,34 +1448,19 @@
       $("aes_creator").href = creatorHref();
       $("aes_creator").onclick = () => { $("aes_creator").href = creatorHref(); };
       $("aes_hud_open").onclick = (e) => { e.preventDefault(); openHud(); };
-      const setSpecHelp = (name) => { const el = $("aes_spec_help"); if (!el) return;
-        el.innerHTML = name === "rpg"
-          ? "<b>RPG (DM mode):</b> the card runs the world as your Dungeon Master. Full engine — dice &amp; skill checks, a Player sheet, gear &amp; inventory, statuses, quests, XP &amp; mastery. Use the 🎛 player HUD and the Creator."
-          : "<b>Chat RP:</b> casual roleplay with silent state-tracking only — no dice, no DM framing, no Player sheet. Byte-identical to plain AetherState 1.0."; };
-      const applyIntent = (sp) => {            // rpg-gated toggles: reflex floor + auto-compact contract
-        if (!sp) return;
-        const row = $("aes_intent_row"), box = $("aes_intent_floor");
-        if (row && box) {
-          row.style.display = (sp.name === "rpg") ? "" : "none";
-          if (typeof sp.intent_floor === "boolean") box.checked = sp.intent_floor;
+      await refreshExperienceControls();
+      $("aes_experience").onchange = async (e) => {
+        const d = await api(`/aether/session/${sid()}/experience-mode`, { method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mode: e.target.value }) }).catch(() => null);
+        if (d && d.mode) {
+          const mode = setExperienceControls(d);
+          let sp = null;
+          try { sp = await api("/aether/specialization"); } catch (err) {}
+          applyExperienceControls(sp, mode);
+          await refreshChip();
+          try { if (hudVisible()) hudRefresh(); } catch (err) {}
         }
-        const crow = $("aes_compact_row"), cbox = $("aes_compact_contract");
-        if (crow && cbox) {
-          crow.style.display = (sp.name === "rpg") ? "" : "none";
-          if (typeof sp.auto_compact_contract === "boolean") cbox.checked = sp.auto_compact_contract;
-        }
-      };
-      try {                                    // narrative mode: show it + let the user switch it
-        const sp = await api("/aether/specialization");
-        if (sp && sp.name) { $("aes_spec").value = sp.name; $("aes_spec_state").textContent = "spec: " + sp.name; setSpecHelp(sp.name); }
-        applyIntent(sp);                        // reflex-floor toggle: reflect + show under rpg
-      } catch (e) {}
-      $("aes_spec").onchange = async (e) => {
-        setSpecHelp(e.target.value);
-        const d = await api("/aether/specialization", { method: "POST",
-          headers: { "content-type": "application/json" }, body: JSON.stringify({ name: e.target.value }) }).catch(() => null);
-        if (d && d.name) { $("aes_spec_state").textContent = "spec: " + d.name; setSpecHelp(d.name); refreshChip();
-          applyIntent(d); try { if (hudVisible()) hudRefresh(); } catch (err) {} }
       };
       $("aes_intent_floor").onchange = async (e) => {   // the semantic reflex floor, flipped live
         await api("/aether/specialization", { method: "POST",
@@ -1315,7 +1632,7 @@
     hud.id = "aes_hud"; hud.className = "aes-hud hidden t-" + (settings.hud.theme || "neutral");
     hud.innerHTML = `
       <div class="aes-hud-bar" id="aes_hud_bar">
-        <span class="aes-hud-title">◈ AetherState</span>
+        <span class="aes-hud-title" id="aes_hud_title">AetherState</span>
         <span class="aes-hud-spec none" id="aes_hud_spec">…</span>
         <span class="aes-hud-grow"></span>
         <select id="aes_hud_theme" title="theme">${Object.entries(HUD_THEMES).map(
@@ -1412,8 +1729,18 @@
     let v = null; try { v = await api(`/aether/session/${sid()}/hud`); } catch (e) {}
     const spec = document.getElementById("aes_hud_spec");
     const hud = document.getElementById("aes_hud");
+    const title = document.getElementById("aes_hud_title");
     if (!v) { body.innerHTML = `<div class="aes-hud-empty aes-hud-off">AetherState proxy offline.</div>`; return; }
-    if (spec) { spec.textContent = v.spec || "none"; spec.className = "aes-hud-spec" + (v.spec === "rpg" ? "" : " none"); }
+    const chat = v.experience_mode === "chat";
+    if (hud) {
+      if (chat) hud.classList.add("mode-chat");
+      else hud.classList.remove("mode-chat");
+    }
+    if (title) title.textContent = chat ? "Chat Continuity" : "AetherState";
+    if (spec) {
+      spec.textContent = chat ? "Chat" : (v.spec || "none");
+      spec.className = "aes-hud-spec" + (!chat && v.spec === "rpg" ? "" : " none");
+    }
     lastHudView = v;
     const _ae = document.activeElement;
     if (_ae && _ae.id === "aes_roll_custom") return;   // don't clobber a custom roll being typed
@@ -1452,7 +1779,88 @@
       ? String(impact.text).trim() : "Impact not recorded";
     return `<div class="aes-lastroll ${tc}">\uD83C\uDFB2 ${esc(lr.label || lr.skill || "roll")} \u2192 <b>${esc(lr.tier_label)}</b> <span class="m">(${esc(lr.result)})</span><span class="aes-lastroll-impact">${esc(impactText)}</span></div>`;
   }
+  function renderChatPaused(v) {
+    return `<div class="aes-chat-paused"><b>Continuity paused</b>` +
+      `<span>${esc(v && v.continuity_reason
+        ? v.continuity_reason
+        : "Exact Chat continuity is not available for this conversation.")}</span></div>`;
+  }
+  function renderChatCompact(v) {
+    if (!v || v.continuity_available === false) return renderChatPaused(v);
+    const continuity = v.continuity && typeof v.continuity === "object" ? v.continuity : {};
+    const now = continuity.now && typeof continuity.now === "object" ? continuity.now : {};
+    const relationship = continuity.relationship && typeof continuity.relationship === "object"
+      ? continuity.relationship : {};
+    const possessions = Array.isArray(now.possessions) ? now.possessions : [];
+    let h = `<div class="aes-chat-compact">`;
+    h += `<div class="aes-chat-mini"><b>Now</b><span>${esc(now.setting || "This conversation is continuing.")}</span></div>`;
+    if (possessions.length) {
+      h += `<div class="aes-chat-list">${possessions.map((row) =>
+        `<div class="aes-chat-row"><b>${esc(humanLabel(row && row.kind || "detail"))}</b>` +
+        `<span>${esc(row && row.summary || "")}</span></div>`).join("")}</div>`;
+    }
+    h += `<div class="aes-chat-mini"><b>Relationship</b>` +
+      `<span>${esc(relationship.summary || "No recorded relationship change yet.")}</span></div>`;
+    h += `<button class="aes-expand" onclick="window.aetherHudExpand()" ` +
+      `title="show all five Chat continuity sections">▣ Expand Chat Continuity</button></div>`;
+    return h;
+  }
+  function renderChatContinuity(v) {
+    if (!v || v.continuity_available === false) return renderChatPaused(v);
+    const continuity = v.continuity && typeof v.continuity === "object" ? v.continuity : {};
+    const now = continuity.now && typeof continuity.now === "object" ? continuity.now : {};
+    const relationship = continuity.relationship && typeof continuity.relationship === "object"
+      ? continuity.relationship : {};
+    const threads = Array.isArray(continuity.open_threads) ? continuity.open_threads : [];
+    const history = continuity.shared_history && typeof continuity.shared_history === "object"
+      ? continuity.shared_history : {};
+    const character = continuity.character && typeof continuity.character === "object"
+      ? continuity.character : {};
+    const possessions = Array.isArray(now.possessions) ? now.possessions : [];
+    const changes = Array.isArray(relationship.changes) ? relationship.changes : [];
+    const agreements = Array.isArray(relationship.agreements) ? relationship.agreements : [];
+    const memories = Array.isArray(history.memories) ? history.memories : [];
+    const moments = Array.isArray(history.moments) ? history.moments : [];
+    const section = (key, title, html) =>
+      `<section class="aes-chat-section" data-chat-section="${key}">` +
+      `<h3>${esc(title)}</h3>${html || '<div class="aes-chat-empty">Nothing recorded yet.</div>'}</section>`;
+    const nowHtml = `<div class="aes-chat-setting">${esc(now.setting || "This conversation is continuing.")}</div>` +
+      possessions.map((row) => `<div class="aes-chat-row"><b>${esc(humanLabel(row && row.kind || "detail"))}</b>` +
+        `<span>${esc(row && row.summary || "")}</span></div>`).join("");
+    const relationshipHtml = `<div class="aes-chat-summary">${esc(
+      relationship.summary || "No recorded relationship change yet.",
+    )}</div>` +
+      changes.map((row) => `<div class="aes-chat-cause"><b>${esc(row && row.change || "Relationship changed")}</b>` +
+        `<span>${esc(row && row.reason || "")}</span>` +
+        `<small>${esc(row && row.evidence || "Accepted continuity evidence")}` +
+        `${Number.isInteger(row && row.turn) && row.turn >= 0 ? ` · Turn ${esc(row.turn)}` : ""}</small></div>`).join("") +
+      agreements.map((row) => `<div class="aes-chat-row"><b>${esc(row && row.summary || "Relationship agreement")}</b>` +
+        `<span>${esc(humanLabel(row && row.status || "active"))}</span></div>`).join("");
+    const threadsHtml = threads.map((row) =>
+      `<div class="aes-chat-row"><b>${esc(humanLabel(row && row.kind || "thread"))}</b>` +
+      `<span>${esc(row && row.summary || "")}</span></div>`).join("");
+    const historyHtml = memories.map((row) =>
+      `<div class="aes-chat-row"><b>Memory</b><span>${esc(row && row.text || "")}</span>` +
+      `${Number.isInteger(row && row.turn) && row.turn >= 0 ? `<small>Turn ${esc(row.turn)}</small>` : ""}</div>`).join("") +
+      moments.map((row) => `<div class="aes-chat-row"><b>Shared moment</b>` +
+        `<span>${esc(humanLabel(row && row.summary || ""))}</span>` +
+        `${Number.isInteger(row && row.turn) && row.turn >= 0 ? `<small>Turn ${esc(row.turn)}</small>` : ""}</div>`).join("");
+    const characterHtml = [
+      ["Name", character.name],
+      ["Description", character.description],
+      ["Personality", character.personality],
+    ].filter(([, value]) => String(value || "").trim()).map(([label, value]) =>
+      `<div class="aes-chat-row"><b>${label}</b><span>${esc(value)}</span></div>`).join("");
+    return `<div class="aes-chat-continuity">` +
+      section("now", "Now", nowHtml) +
+      section("relationship", "Relationship", relationshipHtml) +
+      section("open_threads", "Open Threads", threadsHtml) +
+      section("shared_history", "Shared History", historyHtml) +
+      section("character", "Character", characterHtml) +
+      `</div>`;
+  }
   function renderCompact(v) {
+    if (v && v.experience_mode === "chat") return renderChatCompact(v);
     const p = (v.players || [])[0], s = v.scene || {};
     const loc = s.location ? esc(String(s.location).replace(/_/g, " ")) : "—";
     let h = `<div class="aes-kv" style="margin:2px 0">📍 ${loc}${s.time_of_day ? " · " + esc(s.time_of_day) : ""}</div>`;
@@ -1547,6 +1955,7 @@
   // is organized, not dumped in one scroll. Char · Skills · Abilities · Gear (paper-doll) ·
   // Status · World. The player always sees vitals; the detail lives one tap away.
   function renderHud(v) {
+    if (v && v.experience_mode === "chat") return renderChatContinuity(v);
     const p = (v.players || [])[0];
     const tab = HUD_TABS.some((t) => t[0] === settings.hud.tab) ? settings.hud.tab : "char";
     const playerImpacts = v.war_room && Array.isArray(v.war_room.player_impacts)
@@ -2332,7 +2741,8 @@
         }));
       cmd("aether-status", async () => {
         try { const d = await api("/aether/status");
-              return `${d.name} ${d.version} · ${d.mode} · extraction ${d.extraction.mode}`; }
+              return `${d.name} ${d.version} · ${d.mode} · extraction ${d.extraction.mode}` +
+                ` · build ${AETHERSTATE_BUILD}`; }
         catch (e) { return "AetherState: offline"; }
       }, "Show AetherState proxy status.");
       cmd("aether-freeze", async () => {
@@ -2362,6 +2772,20 @@
         return d.mode ? `mode: ${d.mode}` : "usage: /aether-mode enriched|passthrough";
       }, "Turn AetherState enrichment on (enriched) or off (passthrough) for this chat.",
          "enriched|passthrough", true);
+      cmd("aether-experience", async (_n, value) => {
+        const mode = String(value || "").trim().toLowerCase();
+        if (mode !== "chat" && mode !== "rpg") {
+          return "usage: /aether-experience chat|rpg";
+        }
+        const d = await api(`/aether/session/${sid()}/experience-mode`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mode }),
+        });
+        if (!d || !d.mode) return "failed to set session experience";
+        return `experience: ${d.mode === "rpg" ? "RPG" : "Chat"}` +
+          (d.locked ? " · Start a new chat to change modes." : "");
+      }, "Choose Chat or RPG for this session. The choice locks when the conversation starts.",
+         "chat|rpg", true);
       cmd("aether-genesis", async () => {
         // explicit user intent -> force=1: re-seeds even if an earlier (pre-fix)
         // attempt marked this session done/skipped with an empty result.
@@ -2391,7 +2815,7 @@
         const name = String(value || "").trim().toLowerCase();
         if (!name) {                                   // no arg -> report current
           try { const d = await api("/aether/specialization");
-                return `specialization: ${d.name}`; }
+                return `global fallback specialization: ${d.name}`; }
           catch (e) { return "AetherState: offline"; }
         }
         if (name !== "none" && name !== "rpg") return "usage: /aether-spec none|rpg";
@@ -2399,8 +2823,10 @@
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ name }),
         });
-        return d && d.name ? `specialization: ${d.name}` : "failed to set specialization";
-      }, "Switch narrative mode: none (default chat-RP) or rpg (Dungeon-Master mode).",
+        return d && d.name
+          ? `global fallback specialization: ${d.name}`
+          : "failed to set global fallback specialization";
+      }, "Advanced global fallback default only: none or rpg. Use /aether-experience per chat.",
          "none|rpg", false);
       cmd("aether-creator", async () => {
         const url = settings.proxy_url + "/aether/creator?session=" + encodeURIComponent(sid());

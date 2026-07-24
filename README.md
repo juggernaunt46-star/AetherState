@@ -4,21 +4,23 @@
 
 AetherState is a local-first companion for AI roleplay. It sits between SillyTavern and the model you already use, quietly keeping a structured record of the story so characters stop forgetting who is present, what happened, what people own, how relationships changed, and which parts of the world should still matter later.
 
-Use it as a continuity tracker for ordinary freeform roleplay, or turn on RPG mode for real dice, character sheets, gear, conditions, quests, factions, combat, progression, and a Player HUD.
+Choose **Chat** for a first-class Living Character experience built around the exact Character card and SillyTavern Persona you selected; a World is optional. Choose **RPG** for real dice, character sheets, gear, conditions, quests, factions, combat, progression, and a Player HUD.
 
 **The simple idea:** the AI tells the story. AetherState remembers the details and handles the game rules that should not change just because the model forgot them.
 
-Current version: **1.23.0**. Requires Python **3.10 or newer**.
+Current version: **1.24.0**. Requires Python **3.10 or newer**.
 
 ## What you get
 
 - **Automatic story tracking:** people, locations, clothing, possessions, moods, relationships, arousal, consent, goals, secrets, injuries, scene time, quests, and more.
+- **First-class Chat and Living Characters:** ordinary SillyTavern cards work without conversion. AetherState keeps the Character's stable Core, your exact selected Persona, and their shared continuity tied to the right chat.
+- **Chat Continuity:** see **Now**, **Relationship**, **Open Threads**, **Shared History**, and **Character** in a compact Player-safe HUD, without RPG controls or Character-private information.
 - **A living story bible:** relevant information is sent back to the model each turn so it can continue from established details.
-- **Character-card seeding:** a new chat can begin with the character, world, opening scene, equipment, and relationships already in place.
+- **Character-card starts:** Chat Character cards can carry an immutable Core, optional starting continuity, and an optional World; RPG Narrator cards can still carry the World, Player, opening scene, equipment, and relationships.
 - **Memory that stays useful:** older events can become summaries and durable facts instead of filling every prompt forever.
-- **A visual World and Character Creator:** build or generate a setting, Player character, NPCs, factions, locations, fronts, routes, gear, skills, abilities, and a SillyTavern Narrator card.
+- **A visual Creator for both experiences:** build or enhance a Chat Character JSON/PNG, or build a full RPG World, Player, cast, factions, locations, gear, skills, abilities, and Narrator card.
 - **A browser Console:** inspect sessions, correct mistakes, configure models, edit state, and see what AetherState currently remembers.
-- **A SillyTavern companion panel and HUD:** everyday controls, character information, gear, rolls, status, world information, Claims & Events, and the combat War Room.
+- **A SillyTavern companion panel and experience-specific HUDs:** choose Chat or RPG for each new chat, open Chat Continuity in Chat, or use the Player HUD and combat War Room in RPG.
 - **Optional RPG mode:** real checks, resources, abilities, enemies, loot, XP, mastery, quests, factions, relationships, travel, and living-world changes.
 - **Safer retries and swipes:** committed damage, items, rolls, claims, and world changes are protected from casual duplication.
 - **Fail-open behavior:** if AetherState has an internal problem, the original chat request or reply is allowed through instead of destroying the conversation.
@@ -47,7 +49,9 @@ Then:
 4. Set the base URL to <code>http://127.0.0.1:9130/v1</code>.
 5. Do not duplicate the provider key in that SillyTavern profile; use a non-secret placeholder if
    the connection requires a value.
-6. Keep the AetherState terminal open while you play.
+6. Before the first reply, confirm **Session experience** is **Chat** for a Character card or **RPG**
+   for a Narrator card.
+7. Keep the AetherState terminal open while you play.
 
 The backend-only launcher is <code>Start-AetherState.bat</code>. The extension-only fallback is <code>Install-ST-Extension.bat</code>.
 
@@ -86,22 +90,38 @@ The backend-only fallback is <code>./start-aetherstate.sh</code>.
 
 ## Your first game
 
-You have two easy starting points:
+Choose the experience you want before the first reply. After the conversation starts, that chat stays
+in the selected experience; start a new chat to switch.
 
-### Use an existing character card
+### Chat with a Character
 
-Open a new SillyTavern chat while AetherState is running. AetherState reads the card and greeting, creates the starting state, and continues updating it as you play.
+1. Select the exact SillyTavern Persona you want to use.
+2. Open a new chat with an ordinary JSON/PNG Character card or an AetherState Chat Character card.
+3. In the AetherState panel, confirm **Session experience: Chat**.
+4. Talk normally. Open the HUD whenever you want to see **Chat Continuity**.
 
-### Build a new campaign
+A World is optional. Chat does not create a Player sheet or enable dice, combat, progression,
+inventory grids, or the War Room.
 
-1. Open the AetherState panel in SillyTavern.
-2. Select **Creator**, or use <code>/aether-creator</code>.
-3. Describe the world and Player character you want.
+### Build a Chat Character
+
+1. Open the AetherState panel and select **Creator**, or use <code>/aether-creator</code>.
+2. Set **Card draft** to **Chat Character**.
+3. Start from blank fields or import an ordinary JSON/PNG card to enhance it.
+4. Define the Character Core and, if wanted, add starting continuity and a World.
+5. Auto-fill blank Core fields with the configured main model, or edit everything yourself.
+6. Generate the Chat Character card, import it into SillyTavern, and open a new Chat.
+
+### Build an RPG campaign
+
+1. Open the AetherState panel and select **Creator**, or use <code>/aether-creator</code>.
+2. Set **Card draft** to **RPG Narrator**.
+3. Describe the World and Player character you want.
 4. Generate or edit the details.
 5. Generate the Narrator card.
-6. Import that card into SillyTavern and open a new chat.
+6. Import that card into SillyTavern, open a new chat, and confirm **Session experience: RPG**.
 
-The new chat begins with the selected world, opening situation, and Player sheet already attached.
+The RPG chat begins with the selected World, opening situation, and Player sheet already attached.
 
 ## What AetherState remembers
 
@@ -125,9 +145,35 @@ A background helper can read new turns and suggest updates. Those updates become
 
 Sensitive or naturally changing values such as arousal, relationships, and drives are protected from casual manual editing unless you enable manual override.
 
-## Creator: build the campaign you want
+## Chat and Living Characters
 
-The World and Character Creator supports:
+Chat is its own experience, not RPG with the controls hidden. The selected SillyTavern Character card is the Character, the exact selected Persona is you, and a World is optional.
+
+AetherState keeps two parts separate:
+
+- **Character Core:** who the Character is—their authored identity, personality, behavioral anchors, boundaries, scenario, and first message.
+- **Lived continuity:** what has happened since—the current situation, shared memories, relationship changes, open promises, possessions, conditions, and unfinished conversations.
+
+The Chat Continuity HUD shows only the Player-safe view: **Now**, **Relationship**, **Open Threads**, **Shared History**, and **Character**. Character-private beliefs, motives, affairs, memories, and undisclosed events stay private.
+
+Accepted replies become continuity. If you replace a reply with a swipe, its assistant-derived continuity is retired. Forks inherit only their accepted shared history. Changing the selected Persona or materially changing the Character Core starts separate continuity in a new chat instead of rewriting established history.
+
+## Creator: build the Character or campaign you want
+
+The **Card draft** selector chooses **Chat Character** or **RPG Narrator**. It controls what Creator builds; it does not silently change an attached live session.
+
+For a Chat Character, Creator can:
+
+- start blank or import an ordinary JSON/PNG card for enhancement;
+- define an immutable Character Core with behavioral anchors and boundaries;
+- add optional shared memories, Character knowledge, possessions, non-RPG conditions, open threads, and a starting relationship;
+- add an optional World or leave it blank for worldless Chat;
+- use the configured main model to fill blank Core fields;
+- generate a portable Chat Character card.
+
+Private Creator direction can guide the AI fill but never enters the portable card. A worldless Chat does not invent a placeholder World, Player Card, or RPG setup.
+
+For RPG Narrator drafts, the World and Character Creator supports:
 
 - premise, genre, tone, themes, writing style, and campaign rules;
 - locations, factions, NPCs, relationships, fronts, rumors, loot, and travel routes;
@@ -204,7 +250,7 @@ Event duration uses story and turn time, not the computer's real-world clock.
 
 ## Optional RPG / Dungeon-Master mode
 
-Choose RPG in the SillyTavern panel or use <code>/aether-spec rpg</code>.
+Choose **RPG** under **Session experience** before the first reply, or use <code>/aether-experience rpg</code>. The older <code>/aether-spec rpg</code> setting is only an advanced global fallback.
 
 You can still write actions naturally. AetherState handles the parts that need dependable rules, then gives the result to the AI to narrate.
 
@@ -292,15 +338,19 @@ Current direct Player damage is single-target. Complete area-of-effect and unres
 Use it for everyday controls:
 
 - enable or disable AetherState for a chat;
-- switch between ordinary and RPG mode;
-- open the Creator, HUD, Console, or War Room;
+- choose Chat or RPG for a new chat;
+- open the Creator, current experience HUD, Console, or RPG War Room;
 - choose update cadence and context intake;
 - freeze or resume state changes;
 - see whether the proxy is connected.
 
-### Player HUD
+### Chat Continuity
 
-The movable HUD includes character information, skills, abilities, rolls, gear, inventory, status, world information, and Claims & Events. It explains costs, cooldowns, dice rules, current resources, and why an option is unavailable.
+In Chat, the movable HUD becomes **Chat Continuity**. Its compact view shows the current situation and relationship summary; Expand reveals **Now**, **Relationship**, **Open Threads**, **Shared History**, and **Character**. RPG sheets, rules, rolls, and War Room controls stay out of this view.
+
+### RPG Player HUD
+
+In RPG, the movable Player HUD includes character information, skills, abilities, rolls, gear, inventory, status, World information, and Claims & Events. It explains costs, cooldowns, dice rules, current resources, and why an option is unavailable.
 
 ### Browser Console
 
@@ -320,10 +370,10 @@ Raw tracking instructions and internal tags are hidden from ordinary story text.
 
 | Control | What it does |
 |---|---|
-| <code>/aether-creator</code> | Open the World and Character Creator |
-| <code>/aether-hud</code> | Open the Player HUD |
+| <code>/aether-creator</code> | Open the Chat Character / RPG Creator |
+| <code>/aether-hud</code> | Open Chat Continuity or the RPG Player HUD for this chat |
 | <code>/aether-genesis</code> | Seed or reseed the chat from its card |
-| <code>/aether-spec rpg</code> | Turn on RPG mode for this chat |
+| <code>/aether-experience chat\|rpg</code> | Choose this new chat's experience before it locks |
 | <code>/aether-cadence 3</code> | Update state every three turns |
 | <code>/aether-status</code> | Show the current AetherState status |
 | <code>/aether-mode</code> | Enable or disable AetherState for the chat |
@@ -388,7 +438,7 @@ Settings live in <code>aetherstate-data/config.toml</code> and can also be chang
 | <code>[manual_override] enabled</code> | false | Allow direct editing of naturally changing values |
 | <code>[user_guard] name</code> | empty | Your persona name, used to protect your voice |
 | <code>[consent] safewords</code> | empty | Player messages that immediately freeze state escalation |
-| <code>[specialization] name</code> | none | Set to rpg to enable RPG mode |
+| <code>[specialization] name</code> | none | Advanced global fallback only; normally choose Chat or RPG per chat in the SillyTavern panel |
 
 Your provider base URL normally includes its version suffix, such as <code>/v1</code>.
 
@@ -431,7 +481,7 @@ This is off by default. A local NLI helper is available under <code>nli-shim/</c
 - Unsupported world-event effects remain story information rather than inventing mechanics.
 - Direct Player damage is currently single-target; complete area-of-effect and unrestricted multi-target mechanics remain future work.
 - There is no built-in cloud sync or cross-user learning.
-- Full Creator, panel, HUD, and War Room support currently requires SillyTavern.
+- Full Creator, panel, Chat Continuity, RPG Player HUD, and War Room support currently requires SillyTavern.
 
 ## For maintainers and curious Players
 

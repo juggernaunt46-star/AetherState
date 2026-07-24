@@ -28,6 +28,8 @@ STYLE = ROOT / "st-extension" / "style.css"
 _MARKERS = (
     "function renderHud",
     "function renderCompact",
+    "function renderChatCompact",
+    "function renderChatContinuity",
     "function renderVitals",
     "function renderKnowledge",
     "function renderWarRoom",
@@ -62,7 +64,13 @@ _MARKERS = (
     "WHAT YOU DID",                    # current-turn Player impacts in the War Room
     "HUD clarity (2026-07-18)",        # tooltip/discoverability/density pass
     "card-seed reliability (2026-07-21)", # verified portable seed precedes genesis
+    "function rawCardCore",          # Chat uses raw, pre-substitution Character Core bytes
+    "function activePersonaId",      # exact Persona avatar key, never display name
+    "PERSONA_CHANGED",               # Persona changes invalidate Chat admission
+    "/chat-core-status",             # browser cache rehydrates from backend authority
+    "/chat-core",                    # raw Core + exact Persona admission
     "Consent boundaries",              # explicit boundaries live under Status
+    "release-1.24.0",                  # public release build identity
 )
 
 
@@ -101,6 +109,8 @@ def test_war_room_theme_and_viewport_contract():
     assert ".aes-world-pulse" in css
     assert ".aes-tab-badge" in css
     assert ".aes-help" in css
+    assert ".mode-chat #aes_hud_edit" in css
+    assert ".aes-chat-section" in css
 
 
 def test_installed_copy_not_stale():

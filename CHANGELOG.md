@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 1.24.0 — 2026-07-24
+
+- Added first-class per-session **Chat** and **RPG** experiences. Chat uses the exact selected
+  Character card and SillyTavern Persona, supports an optional World, and locks independently from
+  the separate relay setting after the first accepted reply.
+- Added Living Character relationship and continuity records tied to accepted replies, with
+  swipe, fork, reopen, and actor-relative privacy safeguards.
+- Added the Player-safe **Chat Continuity** HUD with **Now**, **Relationship**, **Open Threads**,
+  **Shared History**, and **Character**, without RPG controls or Character-private information.
+- Added Chat Character creation and ordinary JSON/PNG card enhancement, main-model fill for blank
+  Core fields, portable card generation, and worldless Chat. The existing RPG Creator, Narrator
+  cards, Player Cards, mechanics, Player HUD, and War Room remain first-class.
+- Updated the public player guide, maintainer map, data model, configuration/API reference, and
+  regression coverage for both experiences.
 - Fixed stale Console tabs so owner/debug access refreshes after a service restart instead of
   crashing Overview, and made the session picker prefer readable world and Player names.
 - Kept a literal narrator-introduced foe when its optional faction is explicitly uncertain; the

@@ -1043,6 +1043,8 @@ def build_claim_record(
     occurrence_index: int = 1,
     visibility: str = "public",
     scoped_actors: tuple[str, ...] | list[str] = (),
+    lifecycle_source: str = "",
+    response_occurrence_id: str = "",
 ) -> dict[str, Any]:
     """Seal one recognized frame to its exact branch/turn occurrence."""
     checked = validate_claim_frame(frame)
@@ -1056,6 +1058,20 @@ def build_claim_record(
             or isinstance(occurrence_index, bool) or not isinstance(occurrence_index, int) \
             or occurrence_index <= 0:
         raise ValueError("Claim Record occurrence is invalid")
+    lifecycle = str(lifecycle_source or "")
+    response_id = str(response_occurrence_id or "")
+    if lifecycle and _ID.fullmatch(lifecycle) is None:
+        raise ValueError("Claim Record lifecycle source is invalid")
+    if response_id and (
+        not lifecycle
+        or re.fullmatch(r"response:[0-9a-f]{64}", response_id) is None
+    ):
+        raise ValueError("Claim Record response occurrence is invalid")
+    if lifecycle in {"assistant_response", "deferred_extraction"} \
+            and not response_id:
+        raise ValueError("Claim Record response occurrence is required")
+    if lifecycle == "user_text" and response_id:
+        raise ValueError("Claim Record user-text response occurrence must be empty")
     occurrence = {
         "session_id": session_id,
         "branch_id": branch_id,
@@ -1066,6 +1082,9 @@ def build_claim_record(
         "frame_id": checked["frame_id"],
         "frame_fingerprint": checked["fingerprint"],
     }
+    if lifecycle:
+        occurrence["lifecycle_source"] = lifecycle
+        occurrence["response_occurrence_id"] = response_id
     occurrence_id = content_fingerprint(occurrence)
     payload: dict[str, Any] = {
         "schema": CLAIM_RECORD_SCHEMA,
@@ -1088,6 +1107,9 @@ def build_claim_record(
         "authorizes_mechanics": False,
         "admits_world_event": False,
     }
+    if lifecycle:
+        payload["lifecycle_source"] = lifecycle
+        payload["response_occurrence_id"] = response_id
     payload["fingerprint"] = content_fingerprint(payload)
     return validate_claim_record(payload)
 
@@ -1113,6 +1135,20 @@ def validate_claim_record(value: object) -> dict[str, Any]:
         raise ValueError("Claim Record visibility is malformed")
     if not all(_ID.fullmatch(str(row.get(key) or "")) for key in ("session_id", "branch_id", "source")):
         raise ValueError("Claim Record ledger/source identity is malformed")
+    lifecycle = str(row.get("lifecycle_source") or "")
+    response_id = str(row.get("response_occurrence_id") or "")
+    if lifecycle and _ID.fullmatch(lifecycle) is None:
+        raise ValueError("Claim Record lifecycle source is malformed")
+    if response_id and (
+        not lifecycle
+        or re.fullmatch(r"response:[0-9a-f]{64}", response_id) is None
+    ):
+        raise ValueError("Claim Record response occurrence is malformed")
+    if lifecycle in {"assistant_response", "deferred_extraction"} \
+            and not response_id:
+        raise ValueError("Claim Record response occurrence is required")
+    if lifecycle == "user_text" and response_id:
+        raise ValueError("Claim Record user-text response occurrence must be empty")
     if row.get("world_id") != "world_unbound" \
             and not _WORLD.fullmatch(str(row.get("world_id") or "")):
         raise ValueError("Claim Record world identity is malformed")
@@ -1126,6 +1162,9 @@ def validate_claim_record(value: object) -> dict[str, Any]:
         "frame_id": frame["frame_id"],
         "frame_fingerprint": frame["fingerprint"],
     }
+    if lifecycle:
+        occurrence["lifecycle_source"] = lifecycle
+        occurrence["response_occurrence_id"] = response_id
     expected_occurrence = content_fingerprint(occurrence)
     expected_claim = "claim:" + expected_occurrence.removeprefix("sha256:")
     if row.get("occurrence_id") != expected_occurrence or row.get("claim_id") != expected_claim:

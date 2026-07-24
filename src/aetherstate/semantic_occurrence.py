@@ -166,11 +166,11 @@ def is_target_coordination_bridge(value: str) -> bool:
     """
     return target_coordination_bridge_kind(value) is not None
 _HYPOTHETICAL_RE = re.compile(
-    r"^\s*(?:if|unless|suppose|supposing|assuming|imagine|imagining|"
+    r"^\s*(?:if|unless|provided|providing|suppose|supposing|assuming|imagine|imagining|"
     r"hypothetically|maybe|perhaps|in\s+case)\b|"
-    r"^\s*(?:were|had|should)\s+(?:i|we)\b|"
+    r"^\s*(?:were|had|should)\s+(?:i|you|we|he|she|they|it)\b|"
     r"^\s*(?:(?:i|we)\s+|let(?:'s|\s+us)\s+)?"
-    r"(?:imagine|suppose|assume|pretend|consider)\b|"
+    r"(?:imagine|suppose|assume|pretend)\b|"
     r"\b(?:would|could|might)\b",
     re.IGNORECASE,
 )
@@ -919,6 +919,141 @@ def _relation(gap: str) -> str:
     return "sequence"
 
 
+_DIALOGUE_CHANNELS = frozenset({"player_input", "narrator_reply"})
+_DISCOURSE_CONDITIONAL_HEADS = frozenset({
+    "assuming", "if", "provided", "providing", "suppose", "supposing",
+    "unless",
+})
+_DISCOURSE_REPRESENTATION_HEADS = frozenset({
+    "dream", "dreamed", "dreaming", "dreams", "dreamt",
+    "imagine", "imagined", "imagines", "imagining", "imaginary",
+    "pretend", "pretended", "pretending", "pretends",
+    "roleplay", "roleplayed", "roleplaying", "roleplays",
+    "simulate", "simulated", "simulates", "simulating",
+    "suppose", "supposed", "supposes", "supposing",
+})
+_DISCOURSE_CORRECTION_HEADS = _DISCOURSE_REPRESENTATION_HEADS | frozenset({
+    "fabricate", "fabricated", "fabricating", "fabrication",
+    "invent", "invented", "inventing", "invention",
+})
+_DISCOURSE_DEICTICS = frozenset({"it", "that", "this"})
+_DISCOURSE_SUBJECT_RE = (
+    r"(?:i|you|we|he|she|they|it|"
+    r"(?-i:[A-Z])[A-Za-z0-9'\u2019-]{0,79})"
+)
+_DISCOURSE_NONSELF_SUBJECT_RE = (
+    r"(?:you|he|she|they|it|"
+    r"(?!(?:i|we)\b)(?-i:[A-Z])[A-Za-z0-9'\u2019-]{0,79})"
+)
+_DISCOURSE_SPEAKER_HANDOFF_RE = re.compile(
+    rf"^\s*(?:"
+    rf"(?:speaking|talking)\s+as\s+(?P<as_name>{_DISCOURSE_SUBJECT_RE})"
+    rf"|(?:this\s+is\s+)?(?P<verb_name>{_DISCOURSE_NONSELF_SUBJECT_RE})\s+"
+    r"(?:is\s+)?(?:speaking|talking|says?|said|speaks?)\b"
+    rf"|(?P<label_name>{_DISCOURSE_SUBJECT_RE})\s*:"
+    r")",
+    re.IGNORECASE,
+)
+_DISCOURSE_INLINE_CONDITIONAL_RE = re.compile(
+    r"(?:,\s*|\b)(?:if|unless|provided|providing)\b|"
+    r"\bas\s+long\s+as\b",
+    re.IGNORECASE,
+)
+
+
+def _dialogue_control_kind(text: str) -> str | None:
+    """Classify one discourse-control node by grammatical role."""
+    words = _prefix_words(text)
+    if not words:
+        return None
+    if _DISCOURSE_SPEAKER_HANDOFF_RE.match(text):
+        return "speaker_handoff"
+    first = words[0]
+    if first in _DISCOURSE_CONDITIONAL_HEADS \
+            or words[:2] == ("only", "if") \
+            or words[:3] == ("as", "long", "as") \
+            or (
+                first in {"were", "had", "should"}
+                and len(words) > 1
+                and re.fullmatch(r"[a-z][a-z'-]*", words[1]) is not None
+            ):
+        return "conditional"
+    if any(word in _DISCOURSE_REPRESENTATION_HEADS for word in words):
+        return "representation"
+    return None
+
+
+def _dialogue_retroactive_correction(text: str) -> bool:
+    """Return whether this node structurally retracts the preceding event."""
+    words = _prefix_words(text)
+    if not words or not (_DISCOURSE_DEICTICS & set(words)):
+        return False
+    represented = bool(_DISCOURSE_CORRECTION_HEADS & set(words))
+    made_up = "made" in words and "up" in words \
+        and words.index("made") < words.index("up")
+    did_not_happen = (
+        "happen" in words or "happened" in words
+    ) and bool({"not", "never"} & set(words))
+    return represented or made_up or did_not_happen
+
+
+def _mark_dialogue_nonactual(node: dict[str, Any]) -> None:
+    if node["actuality"] == "actual":
+        node["actuality"] = "unknown"
+    if node["actuality"] == "unknown":
+        node["unresolved_reasons"] = sorted(set(node["unresolved_reasons"]) | {
+            "occurrence.actuality_unbound",
+        })
+
+
+def _apply_dialogue_discourse_scope(
+    nodes: list[dict[str, Any]],
+    *,
+    detector: str,
+    channel: str,
+) -> None:
+    """Bind complete-role-message control to the same nodes Tier 0 owns."""
+    if channel not in _DIALOGUE_CHANNELS:
+        return
+    pending_nonactual = False
+    foreign_speaker_active = False
+    for index, node in enumerate(nodes):
+        start, end = node["source_span"]
+        node_text = detector[start:end]
+        control = _dialogue_control_kind(node_text)
+
+        if pending_nonactual:
+            _mark_dialogue_nonactual(node)
+        if foreign_speaker_active:
+            _mark_dialogue_nonactual(node)
+
+        if control == "speaker_handoff":
+            _mark_dialogue_nonactual(node)
+            foreign_speaker_active = True
+        elif control in {"conditional", "representation"}:
+            _mark_dialogue_nonactual(node)
+            if not node["actions"] and not node["capabilities"]:
+                # A standalone control clause governs the remaining supported
+                # actions and typed subclaims in this complete role message.
+                pending_nonactual = True
+
+        semantic_ends = [
+            int(binding["span"][1])
+            for field in ("actions", "capabilities")
+            for binding in node[field]
+        ]
+        if semantic_ends:
+            tail = detector[max(semantic_ends):end]
+            if _DISCOURSE_INLINE_CONDITIONAL_RE.search(tail):
+                _mark_dialogue_nonactual(node)
+
+        if _dialogue_retroactive_correction(node_text):
+            for prior in reversed(nodes[:index]):
+                if prior["actions"] or prior["capabilities"]:
+                    _mark_dialogue_nonactual(prior)
+                    break
+
+
 def build_occurrence_graph(
     source_text: str,
     *,
@@ -1238,6 +1373,11 @@ def build_occurrence_graph(
             right["unresolved_reasons"] = sorted(set(right["unresolved_reasons"]) | {
                 "occurrence.actuality_unbound",
             })
+    _apply_dialogue_discourse_scope(
+        nodes,
+        detector=detector,
+        channel=channel,
+    )
     payload = {
         "schema": OCCURRENCE_GRAPH_SCHEMA,
         "source_fingerprint": content_fingerprint(source),
@@ -1381,3 +1521,113 @@ def occurrence_for_span(graph: Mapping[str, Any], start: int, end: int) -> dict[
         and end <= node.get("source_span", [0, 0])[1]
     ]
     return dict(matches[0]) if len(matches) == 1 else None
+
+
+def chat_context_allows_actual_span(
+    graph: Mapping[str, Any],
+    source_text: str,
+    start: int,
+    end: int,
+    *,
+    content_start: int = 0,
+    expected_speaker_label: str = "",
+    complete_support_spans: Iterable[tuple[int, int]] | None = None,
+) -> bool:
+    """Require one actual node and, when supplied, a fully classified local discourse segment."""
+    source = str(source_text or "")
+    if not 0 <= content_start <= start < end <= len(source):
+        return False
+    owned_start, owned_end = start, end
+    while owned_start < owned_end and source[owned_start].isspace():
+        owned_start += 1
+    while owned_end > owned_start and (
+        source[owned_end - 1].isspace() or source[owned_end - 1] in ".!?;"
+    ):
+        owned_end -= 1
+    node = occurrence_for_span(graph, owned_start, owned_end)
+    if node is None \
+            or node.get("polarity") != "affirmative" \
+            or node.get("actuality") != "actual":
+        return False
+    unresolved = {
+        str(reason) for reason in node.get("unresolved_reasons") or ()
+        if not str(reason).startswith("occurrence.authority.")
+    }
+    if unresolved:
+        return False
+    if complete_support_spans is None:
+        return True
+
+    nodes = [
+        candidate
+        for candidate in graph.get("occurrences") or ()
+        if isinstance(candidate, Mapping)
+    ]
+    selected_index = next(
+        (
+            index
+            for index, candidate in enumerate(nodes)
+            if candidate.get("occurrence_id") == node.get("occurrence_id")
+        ),
+        -1,
+    )
+    if selected_index < 0:
+        return False
+
+    normalized_supports: list[tuple[int, int]] = []
+    for support_start, support_end in complete_support_spans:
+        if isinstance(support_start, bool) or isinstance(support_end, bool) \
+                or not isinstance(support_start, int) \
+                or not isinstance(support_end, int) \
+                or not content_start <= support_start < support_end <= len(source):
+            return False
+        while support_start < support_end and source[support_start].isspace():
+            support_start += 1
+        while support_end > support_start and (
+            source[support_end - 1].isspace()
+            or source[support_end - 1] in ".!?;"
+        ):
+            support_end -= 1
+        if support_end <= support_start:
+            return False
+        normalized_supports.append((support_start, support_end))
+
+    classified_indices = {
+        index
+        for index, candidate in enumerate(nodes)
+        if any(
+            candidate.get("source_span", [0, 0])[0] <= support_start
+            and support_end <= candidate.get("source_span", [0, 0])[1]
+            for support_start, support_end in normalized_supports
+        )
+    }
+    if selected_index not in classified_indices:
+        return False
+
+    node_start, node_end = node.get("source_span", [0, 0])
+    node_start = max(node_start, content_start)
+    while node_start < node_end and source[node_start].isspace():
+        node_start += 1
+    while node_end > node_start and (
+        source[node_end - 1].isspace() or source[node_end - 1] in ".!?;"
+    ):
+        node_end -= 1
+    if (owned_start, owned_end) != (node_start, node_end):
+        # A model-selected action cannot leave an unclassified inline condition,
+        # attribution, correction, or second action in its owning clause.
+        return False
+
+    previous = max(
+        (index for index in classified_indices if index < selected_index),
+        default=-1,
+    )
+    following = min(
+        (index for index in classified_indices if index > selected_index),
+        default=len(nodes),
+    )
+    # Any meaningful unclassified node between this action and the nearest
+    # code-classified action/support leaves discourse scope unresolved.
+    return all(
+        index in classified_indices
+        for index in range(previous + 1, following)
+    )

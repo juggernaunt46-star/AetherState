@@ -47,6 +47,7 @@ def claim_ops_from_text(
     *,
     ingress: str,
     source_id: str,
+    preserve_source_identity: bool = False,
     genre_ids: tuple[str, ...] = (),
     recognition_overlay: Callable[[str], Mapping] | None = None,
 ) -> list[dict]:
@@ -80,7 +81,18 @@ def claim_ops_from_text(
         return []
     return [
         {"op": "semantic_meaning_commit", "meaning": meaning.receipt_dict()},
-        *({"op": "claim_record", "frame": frame} for frame in frames),
+        *(
+            {
+                "op": "claim_record",
+                "frame": frame,
+                **(
+                    {"_exact_source_identity": source_id}
+                    if preserve_source_identity
+                    else {}
+                ),
+            }
+            for frame in frames
+        ),
     ]
 
 

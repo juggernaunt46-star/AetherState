@@ -26,6 +26,10 @@ class Stamp:
     parent: Optional[str] = None    # explicit branch parent external session id
     fork_pos: Optional[int] = None  # canonical transcript position inherited from parent
     source: str = "header"        # header | sentinel | both
+    mode: Optional[str] = None       # product experience hint: chat|rpg|none
+    core_fingerprint: Optional[str] = None
+    character_actor_id: Optional[str] = None
+    persona_actor_id: Optional[str] = None
 
 
 def _parse_kv(kv: str) -> dict:
@@ -105,6 +109,10 @@ def parse_and_strip(headers: dict, body: bytes, header_name: str = "x-aetherstat
             gen_type=kv.get("type", "normal"),
             speaker=kv.get("speaker") or None,
             card_role=(kv.get("card_role") or "").strip().lower()[:32] or None,
+            mode=(kv.get("mode") or "").strip().lower()[:16] or None,
+            core_fingerprint=(kv.get("core_fingerprint") or "").strip()[:96] or None,
+            character_actor_id=(kv.get("character_actor_id") or "").strip()[:96] or None,
+            persona_actor_id=(kv.get("persona_actor_id") or "").strip()[:96] or None,
             user=kv.get("user") or None,
             parent=kv.get("parent") or None,
             fork_pos=int(kv["fork"]) if kv.get("fork", "").isdigit() else None,

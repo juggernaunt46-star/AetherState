@@ -724,8 +724,8 @@ def test_none_specialization_never_arms_pre_display_guard() -> None:
         Stamp(
             session="narration-guard-none",
             turn=1,
-            speaker="Narrator",
-            card_role="narrator",
+            speaker="Character",
+            card_role="character",
             user="Kael",
         ),
         body,

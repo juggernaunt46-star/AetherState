@@ -36,8 +36,9 @@ import httpx
 from pydantic import BaseModel, Field
 
 from . import prompts
-from .secret_store import resolve_api_key
+from .chat_continuity import OCCURRENCE_ACTIONS, SOCIAL_SPEECH_ACTS
 from .narrator_realization import narrator_realization_owns_turn
+from .secret_store import resolve_api_key
 from .state import _SPEC as OP_SPEC          # required-field sets (02 SS11)
 from .state import OP_FIELD_ENUMS            # per-op vocabularies (single source of truth)
 
@@ -46,6 +47,7 @@ log = logging.getLogger("aetherstate.extraction")
 DELTA_SCHEMA_ID = "aetherstate/delta/2"
 LEGACY_DELTA_SCHEMA_ID = "aetherstate/delta/1"
 ACCEPTED_DELTA_SCHEMA_IDS = frozenset({DELTA_SCHEMA_ID, LEGACY_DELTA_SCHEMA_ID})
+SOCIAL_ACTION_CODES = tuple(sorted(OCCURRENCE_ACTIONS | SOCIAL_SPEECH_ACTS))
 
 
 class StateDelta(BaseModel):
@@ -53,6 +55,7 @@ class StateDelta(BaseModel):
     schema_: str = Field(default=DELTA_SCHEMA_ID, alias="schema")
     turn_range: list = Field(default_factory=lambda: [0, 0])
     ops: list = Field(default_factory=list)
+    social_occurrence_proposals: list = Field(default_factory=list)
 
     model_config = dict(populate_by_name=True, extra="ignore")
 
@@ -77,6 +80,7 @@ _OP_FIELDS: dict[str, list[str]] = {
     "evidence_source": ["string", "null"], "source": ["string", "null"],
     "teller": ["string", "null"], "text": ["string", "null"],
     "importance": ["integer", "null"], "tags": ["array", "null"], "goal": ["string", "null"],
+    "visibility": ["string", "null"], "scoped_actors": ["array", "null"],
     "minutes": ["integer", "null"], "to_time_of_day": ["string", "null"],
     "target_kind": ["string", "null"], "target": ["string", "null"], "flavor": ["string", "null"],
     "behavior_note": ["string", "null"], "substance": ["string", "null"],
@@ -302,9 +306,152 @@ def _derive_flat_enums() -> dict[str, list]:
 
 
 _OP_ENUMS: dict[str, list] = _derive_flat_enums()
+_CHAT_SOCIAL_PROPOSAL_INSTRUCTION = f"""CHAT SOCIAL PROPOSALS are untrusted proposals, never
+ledger authority. Add social_occurrence_proposals:[] beside ops. Propose only an explicit Persona
+self-action from user_text or the Chat Character's visible first-person self-action from
+assistant_text. Use the exact opaque subject_actor_id supplied in CHAT ROLE COORDINATES. Every row
+must carry exact source_span offsets into that complete role-specific source string. Supported
+action_code values are: {", ".join(SOCIAL_ACTION_CODES)}. Do not classify source_segment or choose
+visibility; code derives both from the complete accepted message. Omit denied, hypothetical,
+imagined, quoted, conditional, third-party, summarized, accused, rumored, or merely intended acts.
+Leave evidence arrays empty unless each value has its own exact typed evidence; never reuse the
+parent action span to infer consent, voluntariness, or disclosure. Evidence rows name participant,
+status, and source_span; consent also names act and channel, while disclosure names agreement_id.
+Use source_span:null only with status unknown."""
 
 
-def delta_json_schema(rpg: bool = False) -> dict:
+def _social_occurrence_proposal_schema() -> dict:
+    source_span = {
+        "type": "object",
+        "properties": {
+            "source": {
+                "type": "string",
+                "enum": ["user_text", "assistant_text"],
+            },
+            "start": {"type": "integer"},
+            "end": {"type": "integer"},
+        },
+        "required": ["source", "start", "end"],
+        "additionalProperties": False,
+    }
+    participant = {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["actor"]},
+            "actor_id": {"type": "string"},
+        },
+        "required": ["kind", "actor_id"],
+        "additionalProperties": False,
+    }
+    optional_span = {
+        **source_span,
+        "type": ["object", "null"],
+    }
+    voluntariness_item = {
+        "type": "object",
+        "properties": {
+            "participant": participant,
+            "status": {
+                "type": "string",
+                "enum": ["voluntary", "coerced", "assaulted", "unknown"],
+            },
+            "source_span": optional_span,
+        },
+        "required": ["participant", "status", "source_span"],
+        "additionalProperties": False,
+    }
+    consent_item = {
+        "type": "object",
+        "properties": {
+            "participant": participant,
+            "act": {"type": "string"},
+            "status": {
+                "type": "string",
+                "enum": ["granted", "refused", "unknown"],
+            },
+            "channel": {
+                "type": "string",
+                "enum": ["in_fiction", "ooc_content"],
+            },
+            "source_span": optional_span,
+        },
+        "required": [
+            "participant", "act", "status", "channel", "source_span",
+        ],
+        "additionalProperties": False,
+    }
+    disclosure_item = {
+        "type": "object",
+        "properties": {
+            "agreement_id": {"type": "string"},
+            "participant": participant,
+            "status": {
+                "type": "string",
+                "enum": ["timely", "late", "unknown"],
+            },
+            "source_span": optional_span,
+        },
+        "required": [
+            "agreement_id", "participant", "status", "source_span",
+        ],
+        "additionalProperties": False,
+    }
+    return {
+        "type": "object",
+        "properties": {
+            "source_span": source_span,
+            "subject_actor_id": {"type": "string"},
+            "action_code": {
+                "type": "string",
+                "enum": list(SOCIAL_ACTION_CODES),
+            },
+            "polarity": {
+                "type": "string",
+                "enum": ["positive", "negative"],
+            },
+            "modality": {
+                "type": "string",
+                "enum": [
+                    "actual",
+                    "conditional",
+                    "hypothetical",
+                    "imagined",
+                    "quoted",
+                ],
+            },
+            "participants": {"type": "array", "items": participant},
+            "voluntariness": {
+                "type": "array", "items": voluntariness_item,
+            },
+            "consent": {"type": "array", "items": consent_item},
+            "disclosure": {"type": "array", "items": disclosure_item},
+            "motive_claim_ref": {
+                "type": ["object", "null"],
+                "properties": {
+                    "claim_id": {"type": "string"},
+                    "fingerprint": {"type": "string"},
+                },
+                "required": ["claim_id", "fingerprint"],
+                "additionalProperties": False,
+            },
+        },
+        "required": [
+            "source_span",
+            "subject_actor_id",
+            "action_code",
+            "polarity",
+            "modality",
+            "participants",
+            "voluntariness",
+            "consent",
+            "disclosure",
+            "motive_claim_ref",
+        ],
+        "additionalProperties": False,
+    }
+
+
+def delta_json_schema(rpg: bool = False, chat: bool = False) -> dict:
     op_fields = {**_OP_FIELDS, **_RPG_OP_FIELDS} if rpg else _OP_FIELDS
     op_props: dict = {}
     for k, v in op_fields.items():
@@ -318,25 +465,39 @@ def delta_json_schema(rpg: bool = False) -> dict:
         elif rpg and k == "kind":        # RPG-3: single-contributor field -> safe flat enum
             prop["enum"] = ["condition", "status", None]
         op_props[k] = prop
+    properties = {
+        "schema": {"type": "string"},
+        "turn_range": {"type": "array", "items": {"type": "integer"}},
+        "ops": {"type": "array", "items": {
+            "type": "object", "properties": op_props,
+            "required": list(op_fields), "additionalProperties": False}},
+    }
+    required = ["schema", "turn_range", "ops"]
+    if chat:
+        properties["social_occurrence_proposals"] = {
+            "type": "array",
+            "items": _social_occurrence_proposal_schema(),
+        }
+        required.append("social_occurrence_proposals")
     return {
-        "name": "aetherstate_delta_rpg" if rpg else "aetherstate_delta",
+        "name": (
+            "aetherstate_delta_chat"
+            if chat
+            else "aetherstate_delta_rpg"
+            if rpg
+            else "aetherstate_delta"
+        ),
         "strict": True,
         "schema": {
             "type": "object",
-            "properties": {
-                "schema": {"type": "string"},
-                "turn_range": {"type": "array", "items": {"type": "integer"}},
-                "ops": {"type": "array", "items": {
-                    "type": "object", "properties": op_props,
-                    "required": list(op_fields), "additionalProperties": False}},
-            },
-            "required": ["schema", "turn_range", "ops"],
+            "properties": properties,
+            "required": required,
             "additionalProperties": False,
         },
     }
 
 
-def delta_json_schema_anyof(rpg: bool = False) -> dict:
+def delta_json_schema_anyof(rpg: bool = False, chat: bool = False) -> dict:
     """Q18 addendum: per-op-type branches — a branch only HAS its own fields, so filling
     another op's fields is structurally impossible (mega-op filler dies at the schema
     level; the token win goes to budget/thinking-off tiers, Q16). Venice strict verified
@@ -371,17 +532,31 @@ def delta_json_schema_anyof(rpg: bool = False) -> dict:
             props[f] = prop
         branches.append({"type": "object", "properties": props,
                          "required": ["op"] + fields, "additionalProperties": False})
+    properties = {
+        "schema": {"type": "string"},
+        "turn_range": {"type": "array", "items": {"type": "integer"}},
+        "ops": {"type": "array", "items": {"anyOf": branches}},
+    }
+    required = ["schema", "turn_range", "ops"]
+    if chat:
+        properties["social_occurrence_proposals"] = {
+            "type": "array",
+            "items": _social_occurrence_proposal_schema(),
+        }
+        required.append("social_occurrence_proposals")
     return {
-        "name": "aetherstate_delta_v2_rpg" if rpg else "aetherstate_delta_v2",
+        "name": (
+            "aetherstate_delta_v2_chat"
+            if chat
+            else "aetherstate_delta_v2_rpg"
+            if rpg
+            else "aetherstate_delta_v2"
+        ),
         "strict": True,
         "schema": {
             "type": "object",
-            "properties": {
-                "schema": {"type": "string"},
-                "turn_range": {"type": "array", "items": {"type": "integer"}},
-                "ops": {"type": "array", "items": {"anyOf": branches}},
-            },
-            "required": ["schema", "turn_range", "ops"],
+            "properties": properties,
+            "required": required,
             "additionalProperties": False,
         },
     }
@@ -391,6 +566,63 @@ def delta_json_schema_anyof(rpg: bool = False) -> dict:
 _FENCE = re.compile(r"```(?:json)?\s*|\s*```", re.IGNORECASE)
 _TRAILING_COMMA = re.compile(r",(\s*[}\]])")
 _UNQUOTED_KEY = re.compile(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)")
+
+
+def _matches_closed_schema(value: object, schema: dict) -> bool:
+    """Apply the production Chat proposal shape even on non-schema rungs."""
+    alternatives = schema.get("anyOf")
+    if isinstance(alternatives, list):
+        return any(
+            isinstance(option, dict)
+            and _matches_closed_schema(value, option)
+            for option in alternatives
+        )
+    kind = schema.get("type")
+    kinds = kind if isinstance(kind, list) else [kind]
+    type_matches = False
+    for candidate in kinds:
+        if candidate == "null" and value is None:
+            type_matches = True
+        elif candidate == "object" and isinstance(value, dict):
+            type_matches = True
+        elif candidate == "array" and isinstance(value, list):
+            type_matches = True
+        elif candidate == "string" and isinstance(value, str):
+            type_matches = True
+        elif candidate == "integer" and isinstance(value, int) \
+                and not isinstance(value, bool):
+            type_matches = True
+        elif candidate == "number" and isinstance(value, (int, float)) \
+                and not isinstance(value, bool):
+            type_matches = True
+        elif candidate == "boolean" and isinstance(value, bool):
+            type_matches = True
+    if not type_matches:
+        return False
+    if "enum" in schema and value not in schema["enum"]:
+        return False
+    if isinstance(value, dict):
+        properties = schema.get("properties")
+        required = schema.get("required")
+        if not isinstance(properties, dict) or not isinstance(required, list):
+            return False
+        if any(key not in value for key in required):
+            return False
+        if schema.get("additionalProperties") is False \
+                and any(key not in properties for key in value):
+            return False
+        return all(
+            key not in value
+            or _matches_closed_schema(value[key], field_schema)
+            for key, field_schema in properties.items()
+            if isinstance(field_schema, dict)
+        )
+    if isinstance(value, list):
+        item_schema = schema.get("items")
+        return isinstance(item_schema, dict) and all(
+            _matches_closed_schema(item, item_schema) for item in value
+        )
+    return True
 
 
 def strip_fences_and_prose(text: str) -> str:
@@ -475,7 +707,9 @@ _OP_ALLOWED: dict[str, set[str]] = {
     "consent_signal": {"from_char", "to_char", "category", "signal", "max_intensity"},
     "relationship_adj": {"from_char", "to_char", "dimension", "delta", "reason"},
     "belief_acquire": {"holder", "statement", "stance", "evidence_source", "teller"},
-    "memory_event": {"text", "participants", "importance", "tags"},
+    "memory_event": {
+        "text", "participants", "importance", "tags", "visibility", "scoped_actors",
+    },
     "goal": {"char", "action", "text"},
     "time_advance": {"minutes", "to_time_of_day", "calendar_note"},
     "obsession": {"char", "target_kind", "target", "delta", "set", "flavor",
@@ -595,6 +829,13 @@ def parse_and_validate(text: str) -> Optional[StateDelta]:
         normalized.append(enum_salvage(scrub_op(op)))
     delta.schema_ = DELTA_SCHEMA_ID
     delta.ops = normalized
+    proposal_schema = _social_occurrence_proposal_schema()
+    delta.social_occurrence_proposals = [
+        dict(proposal)
+        for proposal in delta.social_occurrence_proposals[:64]
+        if isinstance(proposal, dict)
+        and _matches_closed_schema(proposal, proposal_schema)
+    ]
     return delta
 
 
@@ -721,6 +962,9 @@ class TransientUpstreamError(Exception):
 class Ladder:
     """Capability-aware extraction against one endpoint. Probe once, cache, demote on strikes."""
 
+    request_local_config = True
+    chat_role_coordinates = True
+
     def __init__(self, store, cfg, get_client) -> None:
         self.store, self.cfg = store, cfg
         self.get_client = get_client
@@ -732,12 +976,13 @@ class Ladder:
         self.retry_sleep = asyncio.sleep                       # injectable for tests
 
     # -- probing --
-    async def rung_for(self, ep: Endpoint) -> int:
-        force = self.cfg.upstream.force_rung
+    async def rung_for(self, ep: Endpoint, request_cfg=None) -> int:
+        cfg = request_cfg or self.cfg
+        force = cfg.upstream.force_rung
         if force:                                # 06 A.2: force_rung ALWAYS wins, probe skipped
             rung = max(1, min(4, force))
             if rung == 1 and (ep.base_url, ep.model) not in self._forced_native:
-                engine = await self._fingerprint(ep)
+                engine = await self._fingerprint(ep, cfg)
                 dialect = engine if engine in _NATIVE else "llamacpp"
                 if engine not in _NATIVE:
                     log.warning("force_rung=1 at unfingerprinted endpoint %s — assuming "
@@ -745,26 +990,26 @@ class Ladder:
                 self._forced_native[(ep.base_url, ep.model)] = dialect
             return rung
         row = self.store.caps_get(ep.base_url, ep.model)
-        ttl = self.cfg.upstream.probe_ttl_days * 86400
+        ttl = cfg.upstream.probe_ttl_days * 86400
         if row and (time.time() - row["probed_at"]) < ttl:
             # Q18: an anyof verdict left unprobed (e.g. transient 429 during the probe)
             # is retried here even within TTL — one tiny call, then cached like the rest.
             if (row["rung"] == 2 and row["anyof"] == -1
-                    and self.cfg.extraction.use_anyof):
-                verdict = await self._probe_anyof(ep)
+                    and cfg.extraction.use_anyof):
+                verdict = await self._probe_anyof(ep, cfg)
                 if verdict is not None:
                     self.store.caps_set(ep.base_url, ep.model, row["rung"], anyof=verdict)
             return row["rung"]
-        rung, engine = await self._probe(ep)
+        rung, engine = await self._probe(ep, cfg)
         anyof = None
-        if rung == 2 and self.cfg.extraction.use_anyof:
-            anyof = await self._probe_anyof(ep)          # alongside P2/P3 (Q18 addendum)
+        if rung == 2 and cfg.extraction.use_anyof:
+            anyof = await self._probe_anyof(ep, cfg)     # alongside P2/P3 (Q18 addendum)
         self.store.caps_set(ep.base_url, ep.model, rung, native=engine, anyof=anyof)
         log.info("probe: %s %s -> rung %d (engine=%s, anyof=%s)", ep.base_url, ep.model,
                  rung, engine or "unknown", {1: "yes", 0: "no"}.get(anyof, "unprobed"))
         return rung
 
-    async def _fingerprint(self, ep: Endpoint) -> str:
+    async def _fingerprint(self, ep: Endpoint, request_cfg=None) -> str:
         """06 A.2 step 1 — engine tag or ''. Zero generation cost, and only ever attempted
         against local/self-hosted hosts: hosted APIs and unknown remotes never see P1."""
         if not is_local_host(ep.base_url):
@@ -773,7 +1018,8 @@ class Ladder:
         try:
             client = self.get_client()
             headers = {}
-            key = resolve_api_key(ep) or resolve_api_key(self.cfg.upstream)
+            cfg = request_cfg or self.cfg
+            key = resolve_api_key(ep) or resolve_api_key(cfg.upstream)
             if key:
                 headers["Authorization"] = f"Bearer {key}"
             resp = await client.get(ep.base_url.rstrip("/") + "/models", headers=headers)
@@ -786,10 +1032,11 @@ class Ladder:
                 return engine
         return _PORT_HINTS.get(urlparse(ep.base_url).port or 0, "")
 
-    async def _probe(self, ep: Endpoint) -> tuple[int, str]:
+    async def _probe(self, ep: Endpoint, request_cfg=None) -> tuple[int, str]:
         """P1 (fingerprinted locals only) -> P2 json_schema -> P3 json_object -> 4.
         Cost: unknown/hosted endpoints see at most 2 tiny calls, once per TTL (06 A.2)."""
-        engine = await self._fingerprint(ep)
+        cfg = request_cfg or self.cfg
+        engine = await self._fingerprint(ep, cfg)
         if engine in _NATIVE:
             fld, kind = _NATIVE[engine]
             try:
@@ -797,7 +1044,11 @@ class Ladder:
                         "temperature": 0,
                         fld: _PROBE_SCHEMA["schema"] if kind == "schema" else GBNF_JSON}
                 doc = json.loads(strip_fences_and_prose(
-                    await self._post(ep, _vendor_params(body, ep, thinking=False))))
+                    await self._post(
+                        ep,
+                        _vendor_params(body, ep, thinking=False),
+                        request_cfg=cfg,
+                    )))
                 if isinstance(doc, dict) and isinstance(doc.get("ok"), bool):
                     return 1, engine
             except Exception as exc:
@@ -807,7 +1058,11 @@ class Ladder:
             try:
                 body = {"model": ep.model, "messages": _PROBE_MSGS, "max_tokens": 30,
                         "temperature": 0, "response_format": rf}
-                text = await self._post(ep, _vendor_params(body, ep, thinking=False))
+                text = await self._post(
+                    ep,
+                    _vendor_params(body, ep, thinking=False),
+                    request_cfg=cfg,
+                )
                 doc = json.loads(strip_fences_and_prose(text))
                 if isinstance(doc, dict) and isinstance(doc.get("ok"), bool):
                     return rung, engine
@@ -816,14 +1071,15 @@ class Ladder:
         return 4, engine
 
     # -- calling --
-    async def _post(self, ep: Endpoint, body: dict) -> str:
+    async def _post(self, ep: Endpoint, body: dict, *, request_cfg=None) -> str:
         """One generation. 429/5xx retried with backoff (Retry-After honored) — if they
         persist, TransientUpstreamError: NOT a capability failure (06 A.2 strikes are for
         validation failures only; live eval #1: one heavy call tripped Venice's limiter
         and the old path burned every remaining rung AND case on instant 429s)."""
         client = self.get_client()
         headers = {"content-type": "application/json"}
-        key = resolve_api_key(ep) or resolve_api_key(self.cfg.upstream)
+        cfg = request_cfg or self.cfg
+        key = resolve_api_key(ep) or resolve_api_key(cfg.upstream)
         if key:
             headers["Authorization"] = f"Bearer {key}"
         url = ep.base_url.rstrip("/") + "/chat/completions"
@@ -859,7 +1115,7 @@ class Ladder:
             content = msg["reasoning_content"]
         return content
 
-    async def _probe_anyof(self, ep: Endpoint) -> Optional[int]:
+    async def _probe_anyof(self, ep: Endpoint, request_cfg=None) -> Optional[int]:
         """ONE tiny call (06 A.2 cost discipline). 1 = accepted (branch-conformant
         reply), 0 = rejected/nonconforming, None = transient upstream — verdict stays
         unprobed and rung_for retries it next time. Probes are always thinking-off."""
@@ -867,7 +1123,11 @@ class Ladder:
                 "temperature": 0,
                 "response_format": {"type": "json_schema", "json_schema": _ANYOF_PROBE}}
         try:
-            text = await self._post(ep, _vendor_params(body, ep, thinking=False))
+            text = await self._post(
+                ep,
+                _vendor_params(body, ep, thinking=False),
+                request_cfg=request_cfg,
+            )
             doc = json.loads(strip_fences_and_prose(text))
             ops = doc.get("ops") if isinstance(doc, dict) else None
             ok = (isinstance(ops, list) and bool(ops) and isinstance(ops[0], dict)
@@ -879,22 +1139,30 @@ class Ladder:
             log.debug("anyof probe rejected: %s", type(exc).__name__)
             return 0
 
-    def _rpg(self) -> bool:
+    def _rpg(self, request_cfg=None, experience_mode: str = "") -> bool:
         """RPG wire vocabulary gate (doc 07 §4.1): item ops are offered only under rpg so a
         `none` session's extraction requests stay byte-identical to 1.0."""
-        spec = getattr(self.cfg, "specialization", None)
+        if experience_mode:
+            return experience_mode == "rpg"
+        cfg = request_cfg or self.cfg
+        spec = getattr(cfg, "specialization", None)
         return spec is not None and getattr(spec, "name", "none") == "rpg"
 
-    def _wire_schema(self, ep: Endpoint) -> dict:
+    def _wire_schema(
+        self, ep: Endpoint, request_cfg=None, experience_mode: str = ""
+    ) -> dict:
         """Rung-2 schema selection: anyOf per-op branches where the endpoint's strict
         mode verified them (caps.anyof == 1), flat otherwise. Fail-safe is always flat;
         a lying endpoint (probe ok, real calls fail) is handled by the EXISTING
         strike/demotion machinery — anyOf adds no new failure mode."""
-        if self.cfg.extraction.use_anyof:
+        cfg = request_cfg or self.cfg
+        rpg = self._rpg(cfg, experience_mode)
+        chat = experience_mode == "chat"
+        if cfg.extraction.use_anyof:
             row = self.store.caps_get(ep.base_url, ep.model)
             if row is not None and row["anyof"] == 1:
-                return delta_json_schema_anyof(self._rpg())
-        return delta_json_schema(self._rpg())
+                return delta_json_schema_anyof(rpg, chat=chat)
+        return delta_json_schema(rpg, chat=chat)
 
     def _native_dialect(self, ep: Endpoint) -> str:
         d = self._forced_native.get((ep.base_url, ep.model))
@@ -903,20 +1171,34 @@ class Ladder:
         row = self.store.caps_get(ep.base_url, ep.model)
         return (row["native"] if row else "") or "llamacpp"
 
-    def _body(self, ep: Endpoint, rung: int, system: str, user: str) -> dict:
-        thinking = thinking_active(self.cfg, ep)
+    def _body(
+        self,
+        ep: Endpoint,
+        rung: int,
+        system: str,
+        user: str,
+        *,
+        request_cfg=None,
+        experience_mode: str = "",
+    ) -> dict:
+        cfg = request_cfg or self.cfg
+        rpg = self._rpg(cfg, experience_mode)
+        chat = experience_mode == "chat"
+        thinking = thinking_active(cfg, ep)
         body = {"model": ep.model, "temperature": 0,
-                "max_tokens": (self.cfg.extraction.thinking_max_tokens if thinking
-                               else self.cfg.extraction.max_tokens),
+                "max_tokens": (cfg.extraction.thinking_max_tokens if thinking
+                               else cfg.extraction.max_tokens),
                 "messages": [{"role": "system", "content": system},
                              {"role": "user", "content": user}]}
         if rung == 1:
             fld, kind = _NATIVE.get(self._native_dialect(ep), _NATIVE["llamacpp"])
-            body[fld] = delta_json_schema(self._rpg())["schema"] if kind == "schema" \
+            body[fld] = delta_json_schema(rpg, chat=chat)["schema"] if kind == "schema" \
                 else GBNF_JSON
         elif rung == 2:
             body["response_format"] = {"type": "json_schema",
-                                       "json_schema": self._wire_schema(ep)}
+                                       "json_schema": self._wire_schema(
+                                           ep, cfg, experience_mode
+                                       )}
         elif rung == 3:
             body["response_format"] = {"type": "json_object"}
         return _vendor_params(body, ep, thinking)
@@ -924,20 +1206,39 @@ class Ladder:
     # -- the ladder (03 SS5) --
     async def extract(self, ep: Endpoint, state_snapshot: str, characters: str,
                       t0: int, t1: int, exchange: str,
-                      context: str = "") -> Optional[StateDelta]:
-        seed = await self.rung_for(ep)
+                      context: str = "", *, request_cfg=None,
+                      experience_mode: str = "",
+                      chat_coordinates: dict | None = None) -> Optional[StateDelta]:
+        cfg = request_cfg or self.cfg
+        seed = await self.rung_for(ep, cfg)
+        chat = experience_mode == "chat"
         self.last_raw = None
         self.last_failure_kind = None
         self.last_failure_attempts = []
         user = prompts.user_message(state_snapshot, characters, t0, t1, exchange,
-                                    self.cfg.extraction.language_hint, ep.assist_tier,
-                                    context=context)
-        include_card = not self.cfg.extraction.trim_op_card
+                                    cfg.extraction.language_hint, ep.assist_tier,
+                                    context=context,
+                                    chat_coordinates=chat_coordinates if chat else None)
+        include_card = not cfg.extraction.trim_op_card
+        rpg = self._rpg(cfg, experience_mode)
         for rung in range(seed, 5):
             system = prompts.system_prompt(rung, ep.assist_tier, include_card,
-                                           rpg=self._rpg())
+                                           rpg=rpg)
+            if chat:
+                system += "\n\n" + _CHAT_SOCIAL_PROPOSAL_INSTRUCTION
             try:
-                raw = await self._post(ep, self._body(ep, rung, system, user))
+                raw = await self._post(
+                    ep,
+                    self._body(
+                        ep,
+                        rung,
+                        system,
+                        user,
+                        request_cfg=cfg,
+                        experience_mode=experience_mode,
+                    ),
+                    request_cfg=cfg,
+                )
                 self.last_raw = raw
             except TransientUpstreamError as exc:       # 429/5xx: abort, no strike, retry later
                 log.warning("rung %d aborted (transient upstream %d — no strike): %s",
@@ -968,8 +1269,18 @@ class Ladder:
             delta = parse_and_validate(raw)
             if delta is None:                           # ONE repair pass per rung (03 SS5)
                 try:
-                    fixed = await self._post(ep, self._body(
-                        ep, rung, system, prompts.repair_prompt("invalid JSON", raw[:2000])))
+                    fixed = await self._post(
+                        ep,
+                        self._body(
+                            ep,
+                            rung,
+                            system,
+                            prompts.repair_prompt("invalid JSON", raw[:2000]),
+                            request_cfg=cfg,
+                            experience_mode=experience_mode,
+                        ),
+                        request_cfg=cfg,
+                    )
                     self.last_raw = fixed
                     delta = parse_and_validate(fixed)
                 except Exception:

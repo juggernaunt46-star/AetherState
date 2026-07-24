@@ -194,6 +194,7 @@ def test_reserve_knob_off_restores_reroll():
 def test_reserve_none_session_stays_inert():
     cfg = Config()
     store, sid, bid = _seeded(cfg)
+    store.experience_mode_set_unlocked(sid, "chat")
     pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg,
                     rng=random.Random(11))
     body = _body("A quiet night.", "Vex pushes.")

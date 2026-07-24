@@ -157,7 +157,7 @@ let tab="Player",sid="",S=null,editOp="scene_set",timer=null,PL=[],PL_EDIT="",
  PL_CONCEPT=null,PL_CHOICES=[],PL_NEXT_CURSOR=null,PL_SEARCH_TIMER=null,PL_SEARCH_SEQ=0,
  LESSONS=[],LESSON_EDIT="",LESSON_ANCHORS=[],LESSON_SELECTIONS=[],LESSON_SELECTION_ERROR="",
  LESSON_APPLICATIONS=[],LESSON_APPLICATION_ERROR="",
- LESSON_LOAD_SEQ=0,
+ LESSON_CHAT_BINDING=null,LESSON_LOAD_SEQ=0,
   RENDER_SEQ=0,UI_VIEW="guided";
 try{UI_VIEW=localStorage.getItem(CONSOLE_VIEW_KEY)==="expert"?"expert":"guided"}catch(e){}
 const $=q=>document.querySelector(q);
@@ -803,9 +803,9 @@ async function playerLexTest(){const text=$("#pltest").value;const d=await j("/a
  const out=$("#plresult");if(d.error){out.textContent=d.error;return}
  out.textContent=JSON.stringify({matches:d.matches||[],refused:d.refused||[]},null,2)}
 /* ---------- Player Lessons: explicit local narration and interpretation lessons ---------- */
-const LESSON_SCOPES={every_rpg_turn:"Every RPG turn",exploration:"Exploration",
+const LESSON_SCOPES={every_rpg_turn:"Every RPG turn",every_chat_turn:"Every Chat turn",exploration:"Exploration",
  combat_opening:"Combat opening",combat_exchange:"Combat exchange"};
-const LESSON_MODES=["exploration","combat_opening","combat_exchange"];
+const LESSON_MODES=["chat","exploration","combat_opening","combat_exchange"];
 const LESSON_TYPES={narration_behavior:"Narration behavior",intent_interpretation:"Intent interpretation"};
 const playerLessonId=e=>e?.lesson_id||e?.id||"";
 const playerLessonType=e=>e?.effect_type||"narration_behavior";
@@ -838,8 +838,19 @@ function playerLessonAnchorChanged(){const type=$("#lessontype")?.value||"narrat
  anchor=LESSON_ANCHORS.find(a=>a.entry_id===value),role=playerLessonIntentRole(anchor),out=$("#lessonintentrole");
  if(out)out.textContent=type==="intent_interpretation"?(role?`This lesson corrects the ${role}.`:
   "Choose an ActionLex meaning to correct the action or a ReferentLex meaning to correct the target."):""}
+function playerLessonScopeChanged(){const type=$("#lessontype")?.value||"narration_behavior",
+ scope=$("#lessonscope")?.value||"",field=$("#lessoncorefield"),select=$("#lessoncore"),
+ show=type==="narration_behavior"&&scope==="every_chat_turn";if(field)field.style.display=show?"block":"none";
+ if(!select)return;const previous=select.value||"",core=LESSON_CHAT_BINDING?.core_fingerprint||"";
+ select.innerHTML='<option value="">All Chat characters</option>'+
+  (core?`<option value="${esc(core)}">Current Chat character</option>`:"");
+ if(show&&previous&&previous!==core)select.insertAdjacentHTML("beforeend",
+  `<option value="${esc(previous)}">Saved Chat character Core</option>`);
+ select.value=show&&[...select.options].some(option=>option.value===previous)?previous:""}
 function playerLessonTypeChanged(){const type=$("#lessontype")?.value||"narration_behavior",intent=type==="intent_interpretation",
  anchor=$("#lessonanchor"),previous=anchor?.value||"";if($("#lessonnarrationfields"))$("#lessonnarrationfields").style.display=intent?"none":"block";
+ if(intent&&$("#lessonscope")?.value==="every_chat_turn")$("#lessonscope").value="exploration";
+ if(intent&&$("#lessontestscope")?.value==="chat")$("#lessontestscope").value="exploration";
  if($("#lessonintentfields"))$("#lessonintentfields").style.display=intent?"block":"none";
  if($("#lessonscopelabel"))$("#lessonscopelabel").textContent=intent?"Application scope":"Narration scope";
  if($("#lessonanchorlabel"))$("#lessonanchorlabel").textContent=intent?"Exact PlayerLex meaning (required)":"Optional PlayerLex meaning";
@@ -856,7 +867,7 @@ function playerLessonTypeChanged(){const type=$("#lessontype")?.value||"narratio
   "Saving is your explicit consent to store this lesson locally. When relevant on a real narrator turn, its title and narration instructions may be sent to your configured model provider. You can disable, revise, or securely remove the lesson later.";
  if($("#lessontitle"))$("#lessontitle").placeholder=intent?'Correct how "I duck behind Varo" is understood':"Keep combat prose concise";
  if(anchor){anchor.innerHTML=playerLessonAnchorOptions(type);if(playerLessonEligibleAnchors(type).some(a=>a.entry_id===previous))anchor.value=previous}
- playerLessonAnchorChanged()}
+ playerLessonAnchorChanged();playerLessonScopeChanged()}
 function playerLessonChosenAnchor(effectType){const value=$("#lessonanchor")?.value||"",intent=effectType==="intent_interpretation";
  if(value==="__stale__"){toast(intent?"choose a current ActionLex or ReferentLex anchor before testing or saving":
   "choose a current PlayerLex anchor or choose no anchor before testing or saving",1);return false}
@@ -877,21 +888,23 @@ function playerLessonFormPayload(){const effect_type=$("#lessontype")?.value||"n
  const do_text=$("#lessondo")?.value.trim()||"",avoid_text=$("#lessonavoid")?.value.trim()||"";
  if(!do_text&&!avoid_text){toast("say what AetherState should do, avoid, or both",1);return null}
  return {effect_type,title,scope,anchor_entry_id:anchor?.entry_id||null,
-  do:do_text,avoid:avoid_text}}
+  character_core_fingerprint:$("#lessoncore")?.value||"",do:do_text,avoid:avoid_text}}
 function playerLessonSelections(data){const rows=data?.selections||data?.items||data?.selection_items||[];
  if(Array.isArray(rows))return rows;return rows&&typeof rows==="object"?Object.values(rows):[]}
 function playerLessonApplications(data){const rows=data?.applications||data?.items||data?.application_items||[];
  if(Array.isArray(rows))return rows;return rows&&typeof rows==="object"?Object.values(rows):[]}
 async function playerLessonsTab(){LESSON_EDIT="";const seq=++LESSON_LOAD_SEQ,safe=url=>j(url).catch(e=>({error:String(e)}));
- const [data,playerlex,selections,applications]=await Promise.all([safe("/aether/player-lessons"),safe("/aether/playerlex"),
+ const [data,playerlex,selections,applications,binding]=await Promise.all([safe("/aether/player-lessons"),safe("/aether/playerlex"),
   sid?safe(`/aether/player-lessons/selections?session_id=${encodeURIComponent(sid)}`):Promise.resolve({selections:[]}),
-  sid?safe(`/aether/player-lessons/applications?session_id=${encodeURIComponent(sid)}`):Promise.resolve({applications:[]})]);
+  sid?safe(`/aether/player-lessons/applications?session_id=${encodeURIComponent(sid)}`):Promise.resolve({applications:[]}),
+  sid?safe(`/aether/session/${encodeURIComponent(sid)}/experience-mode`):Promise.resolve(null)]);
  if(seq!==LESSON_LOAD_SEQ||tab!=="Player Lessons")return "";const error=playerLessonError(data);
  if(error)return `<div class="card"><span class="pill bad">Player Lessons unavailable</span> ${esc(error)}</div>`;
  LESSONS=Array.isArray(data)?data:(data.lessons||data.entries||[]);
  LESSON_ANCHORS=(playerlex.entries||[]).map(playerLessonAnchorFromEntry).filter(Boolean);
  LESSON_SELECTIONS=playerLessonSelections(selections);LESSON_SELECTION_ERROR=playerLessonError(selections);
  LESSON_APPLICATIONS=playerLessonApplications(applications);LESSON_APPLICATION_ERROR=playerLessonError(applications);
+ LESSON_CHAT_BINDING=binding?.mode==="chat"&&binding?.core_fingerprint?binding:null;
  return playerLessonsView(playerLessonError(playerlex))}
 function playerLessonLatest(e){if(e.latest_selection)return e.latest_selection;const id=playerLessonId(e);
  return LESSON_SELECTIONS.filter(s=>(s.lesson_id||s.id)===id).sort((a,b)=>
@@ -942,9 +955,10 @@ function playerLessonsView(playerLexError=""){let h=`<div class="card"><h3>${UI_
  <div class="formgrid"><label class="field">Lesson type<select id="lessontype" onchange="playerLessonTypeChanged()">${Object.entries(LESSON_TYPES).map(([value,label])=>
   `<option value="${value}">${label}</option>`).join("")}</select></label>
  <label class="field">Title<input id="lessontitle" maxlength="120" placeholder="Keep combat prose concise"></label>
- <label class="field"><span id="lessonscopelabel">Narration scope</span><select id="lessonscope">${Object.entries(LESSON_SCOPES).map(([value,label])=>
+ <label class="field"><span id="lessonscopelabel">Narration scope</span><select id="lessonscope" onchange="playerLessonScopeChanged()">${Object.entries(LESSON_SCOPES).map(([value,label])=>
   `<option value="${value}">${label}</option>`).join("")}</select></label>
- <label class="field"><span id="lessonanchorlabel">Optional PlayerLex meaning</span><select id="lessonanchor" onchange="playerLessonAnchorChanged()">${playerLessonAnchorOptions()}</select></label></div>
+ <label class="field"><span id="lessonanchorlabel">Optional PlayerLex meaning</span><select id="lessonanchor" onchange="playerLessonAnchorChanged()">${playerLessonAnchorOptions()}</select></label>
+ <label class="field" id="lessoncorefield" style="display:none">Chat character<select id="lessoncore"><option value="">All Chat characters</option></select></label></div>
  ${playerLexError?`<p class="hint"><span class="pill warn">PlayerLex unavailable</span> Current anchors cannot be chosen right now: ${esc(playerLexError)} Narration lessons without anchors remain available; intent lessons cannot be saved or tested.</p>`:
  `<p class="hint" id="lessonanchorhelp">An anchor uses one exact current PlayerLex meaning. The lesson stores its identity, not the approved phrase.</p>`}
  ${playerLexError?`<p class="hint" id="lessonanchorhelp">An exact current anchor is required for intent interpretation.</p>`:""}
@@ -962,7 +976,7 @@ function playerLessonsView(playerLexError=""){let h=`<div class="card"><h3>${UI_
  evaluated in memory only; it is never stored, added to a turn, or sent to a narrator model.</p>
  <textarea class="lessoncopy" id="lessonsample" maxlength="2000" placeholder="Type a sample Player turn."></textarea>
  <div class="row"><label class="field"><span id="lessontestscopeLabel">Sample narration mode</span><select id="lessontestscope">${LESSON_MODES.map(value=>
-  `<option value="${value}">${LESSON_SCOPES[value]}</option>`).join("")}</select></label>
+  `<option value="${value}">${value==="chat"?"Chat":LESSON_SCOPES[value]}</option>`).join("")}</select></label>
  <button class="act" id="lessontestbutton" onclick="playerLessonTest()">Test with sample turn</button></div>
  <pre id="lessonresult">No sample test run. No sample has been stored.</pre></div>`;
  if(LESSONS.length){h+=`<div class="card"><h3>Saved local lessons</h3>`+LESSONS.map(e=>{const id=playerLessonId(e),
@@ -974,6 +988,7 @@ function playerLessonsView(playerLexError=""){let h=`<div class="card"><h3>${UI_
   return `<div class="lessonitem"><div class="row"><b>${esc(e.title||"Untitled lesson")}</b>
    <span class="pill vio">${esc(LESSON_TYPES[effect]||effect)}</span><span class="pill ${enabled&&!stale?"ok":stale?"warn":"dim"}">${esc(status)}</span>
    <span class="hint">Scope: ${esc(playerLessonScopeLabel(e.scope))} · revision ${esc(rev??"?")}</span></div>
+   ${!intent&&e.scope==="every_chat_turn"?`<div class="row"><span class="hint">Chat character:</span> <span class="pill dim">${e.character_core_fingerprint?"One exact Character Core":"All Chat characters"}</span></div>`:""}
    <div class="row"><span class="hint">Anchor:</span>${playerLessonAnchorView(e)}${intent&&anchorRole?` <span class="pill dim">corrects ${anchorRole}</span>`:""}</div>
    ${intent?(e.misunderstanding?`<div class="lessoncopy"><span class="hint">Misunderstanding:</span> ${esc(e.misunderstanding)}</div>`:""):
     (e.do?`<div class="lessoncopy"><span class="hint">Do:</span> ${esc(e.do)}</div>`:"")}
@@ -995,6 +1010,10 @@ function playerLessonEdit(id,testing=false){const e=LESSONS.find(x=>playerLesson
  if(!e)return toast("Player Lesson not found; reload the tab",1);LESSON_EDIT=id;const effect=playerLessonType(e),type=$("#lessontype");
  type.value=effect;playerLessonTypeChanged();type.disabled=true;$("#lessontitle").value=e.title||"";
  $("#lessonscope").value=e.scope||"every_rpg_turn";$("#lessondo").value=e.do||"";$("#lessonavoid").value=e.avoid||"";
+ playerLessonScopeChanged();const core=$("#lessoncore"),coreFingerprint=e.character_core_fingerprint||"";
+ if(coreFingerprint&&![...core.options].some(option=>option.value===coreFingerprint))
+  core.insertAdjacentHTML("beforeend",`<option value="${esc(coreFingerprint)}">Saved Chat character Core</option>`);
+ core.value=coreFingerprint;
  $("#lessonmisunderstanding").value=e.misunderstanding||"";$("#lessonunderstanding").value=e.correct_interpretation||"";
  const select=$("#lessonanchor"),a=playerLessonAnchor(e);
  select.querySelector('option[value="__stale__"]')?.remove();

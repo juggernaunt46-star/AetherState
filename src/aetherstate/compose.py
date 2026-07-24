@@ -2108,6 +2108,64 @@ def render_header(state: dict, cfg) -> str:
     return "\n".join(lines)
 
 
+def render_chat_packet(state: dict, binding, cfg) -> str:
+    """Render the non-RPG Character-POV packet for one bound Chat lineage."""
+    from .chat_card import validate_core
+    from .chat_continuity import project_continuity
+
+    core_state = state.get("chat_core") or {}
+    character_actor_id = str(
+        getattr(binding, "character_actor_id", "")
+        or core_state.get("character_actor_id")
+        or ""
+    )
+    persona_actor_id = str(
+        getattr(binding, "persona_actor_id", "")
+        or core_state.get("persona_actor_id")
+        or ""
+    )
+    if not character_actor_id:
+        return ""
+    try:
+        core = validate_core(core_state.get("core"))
+        projection = project_continuity(
+            state,
+            viewer_actor_id=character_actor_id,
+            player_actor_id=persona_actor_id,
+        )
+    except (TypeError, ValueError):
+        return ""
+
+    lines = [
+        "[CHARACTER CORE — immutable identity]",
+        json.dumps(core, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+    ]
+    sections = (
+        ("OBSERVABLE CHARACTER STATE", projection["observables"]),
+        ("CHARACTER POV MEMORIES", projection["memories"]),
+        ("CHARACTER KNOWLEDGE", projection["knowledge"]),
+        ("RELATIONSHIP CONTINUITY", projection["relationships"]),
+        ("RELATIONSHIP AGREEMENTS", projection["agreements"]),
+        ("SOCIAL OCCURRENCES", projection["social_occurrences"]),
+        ("OPEN THREADS", projection["open_threads"]),
+        ("SHARED WORLD", projection["world"]),
+    )
+    for label, value in sections:
+        if value and value != {"authored": {}, "events": []}:
+            lines.extend((
+                f"[{label}]",
+                json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            ))
+    # Chat has no mechanics/rules packet.  The normal injection governor owns
+    # final token clipping after this deterministic actor-safe projection.
+    return "\n".join(lines)
+
+
 # ------------------------------ guard note (04 SS3.2, Q12) --------------------------
 def render_guard(cfg, stamp, klass: str, evidence: Optional[str] = None) -> str:
     if not cfg.user_guard.enabled:
@@ -2461,9 +2519,22 @@ def compose(doc: dict, state: dict, cfg, stamp, klass: str,
             recall: Optional[list] = None, note: str = "",
             guard_evidence: Optional[str] = None,
             combat_opening: bool = False,
-            player_lessons: Optional[list[dict]] = None) -> tuple[Optional[dict], list]:
+            player_lessons: Optional[list[dict]] = None,
+            experience_mode: str = "",
+            experience_binding=None) -> tuple[Optional[dict], list]:
     """Returns (modified doc | None if nothing to inject, kept components for the slice row)."""
-    header = render_header(state, cfg)
+    bound_chat = bool(
+        experience_mode == "chat"
+        and experience_binding is not None
+        and getattr(experience_binding, "core_fingerprint", "")
+        and getattr(experience_binding, "character_actor_id", "")
+        and getattr(experience_binding, "persona_actor_id", "")
+    )
+    header = (
+        render_chat_packet(state, experience_binding, cfg)
+        if bound_chat
+        else render_header(state, cfg)
+    )
     guard = render_guard(cfg, stamp, klass, evidence=guard_evidence)
     joined = "\n".join(t for t in (header, guard) if t)   # guard rides the header class (04 SS3.2)
     comps = [Component("state_header", joined, cfg.injection.priorities.get("state_header", 100))
@@ -2500,12 +2571,15 @@ def compose(doc: dict, state: dict, cfg, stamp, klass: str,
             text = prompts.rules_contract(cfg, force_compact=True)   # D7: degrade, never drop
         comps.append(Component("rules_contract", text,
                                cfg.injection.priorities.get("rules_contract", 72)))
-        lesson_text, lesson_component_ids = _player_lessons_block(player_lessons or [])
-        if lesson_text:
-            comps.append(Component(
-                "player_lessons", lesson_text,
-                cfg.injection.priorities.get("player_lessons", 71),
-            ))
+    lesson_text, lesson_component_ids = _player_lessons_block(player_lessons or [])
+    if lesson_text and (
+        getattr(getattr(cfg, "specialization", None), "name", "none") == "rpg"
+        or bound_chat
+    ):
+        comps.append(Component(
+            "player_lessons", lesson_text,
+            cfg.injection.priorities.get("player_lessons", 71),
+        ))
     if recall:                                             # Q15 precomputed lines (04 SS3.5)
         from . import memory as _memory
         who = stamp.speaker if (stamp and getattr(stamp, "speaker", None)) else None

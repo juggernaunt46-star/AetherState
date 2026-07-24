@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 
+from aetherstate.__main__ import _apply_runtime_overrides
 from aetherstate.config import Config, load_config
 
 
@@ -111,3 +112,91 @@ def test_creator_generation_config_loads_read_only_without_mutating_source(tmp_p
     assert cfg.creator.validation_retries == 1
     assert _file_snapshot(source) == before
     assert not (tmp_path / "config.toml.bak").exists()
+
+
+def test_experience_profiles_use_sanitized_explicit_overrides(tmp_path):
+    try:
+        from aetherstate.config import finalize_experience_profile_base
+        from aetherstate.experience import config_for_experience
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise AssertionError(f"experience profile contract is missing: {exc}") from exc
+
+    source = tmp_path / "config.toml"
+    source.write_text(
+        "[upstream]\n"
+        'base_url = "https://provider.test"\n'
+        'api_key = "must-not-survive"\n'
+        'credential_ref = "vault:test"\n'
+        "[injection]\n"
+        "max_tokens = 1777\n"
+        "[specialization]\n"
+        'name = "rpg"\n',
+        encoding="utf-8",
+    )
+    cfg = load_config(source)
+    cfg.upstream.api_key = ""
+    _apply_runtime_overrides(cfg, port=19131)
+    finalize_experience_profile_base(cfg)
+
+    chat_cfg = config_for_experience(cfg, "chat")
+    rpg_cfg = config_for_experience(cfg, "rpg")
+
+    for effective in (chat_cfg, rpg_cfg):
+        assert effective.server.port == 19131
+        assert effective.injection.max_tokens == 1777
+        assert effective.upstream.base_url == "https://provider.test"
+        assert effective.upstream.credential_ref == "vault:test"
+        assert effective.upstream.api_key == ""
+    assert chat_cfg.specialization.name == "none"
+    assert rpg_cfg.specialization.name == "rpg"
+    assert cfg.specialization.name == "rpg"
+    assert cfg.upstream.api_key == ""
+    assert "must-not-survive" not in repr(cfg._experience_profile_base)
+
+
+def test_experience_profile_finalization_keeps_transient_key_only_at_transport_boundary():
+    from aetherstate.config import finalize_experience_profile_base
+    from aetherstate.experience import config_for_experience
+
+    cfg = Config()
+    cfg.upstream.api_key = "synthetic-runtime-key"
+
+    finalize_experience_profile_base(cfg)
+
+    assert cfg.upstream.api_key == "synthetic-runtime-key"
+    assert config_for_experience(cfg, "chat").upstream.api_key == ""
+    assert config_for_experience(cfg, "rpg").upstream.api_key == ""
+    assert "synthetic-runtime-key" not in repr(cfg._experience_profile_base)
+
+
+def test_programmatic_config_overrides_survive_experience_profile_finalization():
+    from aetherstate.config import finalize_experience_profile_base
+    from aetherstate.experience import config_for_experience
+
+    cfg = Config()
+    cfg.server.turn_trace = True
+    cfg.user_guard.name = "Configured Player"
+    cfg.specialization.name = "rpg"
+
+    finalize_experience_profile_base(cfg)
+
+    chat_cfg = config_for_experience(cfg, "chat")
+    rpg_cfg = config_for_experience(cfg, "rpg")
+    for effective in (chat_cfg, rpg_cfg):
+        assert effective.server.turn_trace is True
+        assert effective.user_guard.name == "Configured Player"
+    assert chat_cfg.specialization.name == "none"
+    assert rpg_cfg.specialization.name == "rpg"
+
+
+def test_direct_runtime_config_change_reaches_later_experience_requests():
+    from aetherstate.config import finalize_experience_profile_base
+    from aetherstate.experience import config_for_experience
+
+    cfg = Config()
+    finalize_experience_profile_base(cfg)
+
+    cfg.injection.max_tokens = 1777
+
+    assert config_for_experience(cfg, "chat").injection.max_tokens == 1777
+    assert config_for_experience(cfg, "rpg").injection.max_tokens == 1777

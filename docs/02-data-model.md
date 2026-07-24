@@ -1,5 +1,36 @@
 # AetherState — Data Model, Op Vocabulary & DB Schema
 
+## Chat mode bindings and continuity records
+
+`sessions` keeps the product experience separate from relay transport mode. Its six
+experience-binding columns are:
+
+| Column | Meaning |
+|---|---|
+| `experience_mode` | Persisted `chat` or `rpg` product experience. |
+| `experience_mode_source` | `explicit`, card/default inference, or inherited source that selected the mode. |
+| `experience_mode_locked_turn` | First accepted-response turn that locks the session experience. |
+| `core_fingerprint` | Immutable bound Chat Core fingerprint; blank outside an admitted Chat Core. |
+| `character_actor_id` | Opaque actor id derived from that exact Core. |
+| `persona_actor_id` | Opaque actor id derived from the exact selected Persona key. |
+
+`chat_core_receipts` binds the Core, optional World fingerprint, both actor ids, branch, admission
+journal operation, and admitted turn. The reducer keeps the immutable Core in `chat_core`; it is
+not a Player Card. Participant references remain scope-only in `social_referent_bindings` and never
+turn an anonymous, group, or category reference into an actor.
+
+Chat relationship continuity is revisioned state, not a simulator: `relationship_agreements`
+stores agreement revisions, `social_occurrences` stores admitted occurrences, and
+`continuity_threads` stores open/resolved thread transitions. Records retain lifecycle provenance
+(`user_text`, `assistant_response`, or `deferred_extraction`) and the accepted-response occurrence
+where required; operation authority remains independently `user`, `genesis`, `rule`, or
+`extraction`.
+
+The player-facing projection is `hud.chat_continuity_view`: it exposes only the bounded
+player-safe continuity surface and denies absent, malformed, or explicitly empty audience scope.
+These relationship and continuity rules are normative for the public data model; no private design
+document is required at runtime.
+
 The canonical state (`state.py`), the op vocabulary that mutates it, the mutation-authority
 matrix, and the local SQLite schemas (`store.py`, WorldLex, PlayerLex, and Player Lessons). This is
 the reference a skill consults before touching state.
