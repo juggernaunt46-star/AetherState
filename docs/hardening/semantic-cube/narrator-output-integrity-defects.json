@@ -1,0 +1,100 @@
+{
+  "schema": "semantic-cube-narrator-output-integrity-defects/1",
+  "defects": [
+    {
+      "id": "SC-NOI-001",
+      "summary": "Markdown example tags were recognized as actual current narrator proposals.",
+      "first_boundary": "recognition",
+      "violated_invariant": "Recognition must preserve actuality and scope before any proposal reaches code-owned admission.",
+      "affected_row_ids": [
+        "cube-recognition"
+      ],
+      "producer_paths": [
+        "src/aetherstate/tier0.py"
+      ],
+      "consumer_paths": [
+        "src/aetherstate/pipeline.py",
+        "src/aetherstate/semantic_ingress.py",
+        "src/aetherstate/state.py"
+      ],
+      "evidence_ids": [
+        "task-3-quoted-tag-red",
+        "task-3-scope-green-12",
+        "task-3-parser-consumer-green-31"
+      ],
+      "repair_commit": "6ea63f5da71a1ab2730e9ef36f47723aedb2d9fe"
+    },
+    {
+      "id": "SC-NOI-002",
+      "summary": "World-alignment admission first accepted stale world evidence, then its initial repair over-rejected fresh Tier0 receipts built before same-batch turn bookkeeping.",
+      "first_boundary": "world_alignment",
+      "violated_invariant": "Fresh production and reducer admission must compare one apply-turn world projection while still rejecting real entity, item, clock, or world drift.",
+      "affected_row_ids": [
+        "cube-binding-world-alignment"
+      ],
+      "producer_paths": [
+        "src/aetherstate/semantic_binding.py",
+        "src/aetherstate/tier0.py"
+      ],
+      "consumer_paths": [
+        "src/aetherstate/state.py"
+      ],
+      "evidence_ids": [
+        "task-4-stale-alignment-red",
+        "task-4-stale-alignment-green-10",
+        "repair-f22d3d3b631ca187d47263f4b07fbccb1dbdba8b",
+        "task-9-terminal-root-v-red",
+        "task-9-apply-turn-world-alignment-green-3",
+        "task-9-binding-world-alignment-owning-green-43",
+        "task-9-binding-world-alignment-matrix-green-7",
+        "repair-72e6c6739c4c9badfe59db889fedfadebfd84a42"
+      ],
+      "repair_commit": "72e6c6739c4c9badfe59db889fedfadebfd84a42"
+    },
+    {
+      "id": "SC-NOI-003",
+      "summary": "Ambiguous foe actor and faction display names could receive insertion-order identity bindings.",
+      "first_boundary": "world_alignment",
+      "violated_invariant": "World alignment must preserve ambiguous actor and faction identity as abstention rather than select an insertion-order match.",
+      "affected_row_ids": [
+        "cube-binding-world-alignment"
+      ],
+      "producer_paths": [
+        "src/aetherstate/tier0.py"
+      ],
+      "consumer_paths": [
+        "src/aetherstate/state.py"
+      ],
+      "evidence_ids": [
+        "task-4-ambiguous-foe-identity-red",
+        "task-4-ambiguous-foe-identity-green-52"
+      ],
+      "repair_commit": "ccb7d74ad888de4c2812b312452157d7f14bd1ff"
+    },
+    {
+      "id": "SC-NOI-004",
+      "summary": "The public and configuration contract falsely described the post-stream advisory narration guard as pre-display buffering and replacement.",
+      "first_boundary": "narrator_transfer",
+      "violated_invariant": "A post-stream advisory cannot be represented as buffering, blocking, or replacement before display.",
+      "affected_row_ids": [
+        "cube-narrator-transfer-model-compliance"
+      ],
+      "producer_paths": [
+        "docs/03-config-and-api.md",
+        "src/aetherstate/config.py"
+      ],
+      "consumer_paths": [
+        "src/aetherstate/proxy.py",
+        "src/aetherstate/pipeline.py",
+        "src/aetherstate/narration_pre_display_guard.py"
+      ],
+      "evidence_ids": [
+        "task-6-narrator-transfer-model-compliance-audit",
+        "task-6-pre-display-contract-red",
+        "task-6-pre-display-contract-green",
+        "repair-ca4447055824d2b6fa64a8a3fc0371f58e9b505b"
+      ],
+      "repair_commit": "ca4447055824d2b6fa64a8a3fc0371f58e9b505b"
+    }
+  ]
+}

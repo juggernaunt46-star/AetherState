@@ -370,6 +370,48 @@ def test_foe_tag_parses_tier_armament_and_tracked_names():
     assert ops[1]["char"] == "vex" and ops[1]["tier"] == "elite"   # known NPC: tracked
 
 
+def test_foe_tag_ambiguous_actor_and_faction_names_abstain_without_order_binding():
+    """Narrator display names never select existing identity by entity insertion order."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seeded(cfg)
+    added = apply_delta(store, sid, bid, 1, [
+        {"op": "entity_add", "entity": "north_iven", "name": "Iven", "kind": "npc"},
+        {"op": "entity_add", "entity": "south_iven", "name": "Iven", "kind": "npc"},
+        {"op": "entity_add", "entity": "north_cinder", "name": "Cinder Court", "kind": "faction"},
+        {"op": "entity_add", "entity": "south_cinder", "name": "Cinder Court", "kind": "faction"},
+        {"op": "entity_add", "entity": "gale_watch", "name": "Gale Watch", "kind": "faction"},
+    ], "genesis", cfg)
+    assert added.applied
+    st = current_state(store, bid)
+
+    ambiguous_actor = tier0.parse_foe_tags("[foe | Iven | standard | spear]", st)[0]
+    ambiguous_faction = tier0.parse_foe_tags(
+        "[foe | Ash Raider | standard | hooked blade | faction: Cinder Court]", st
+    )[0]
+    stable_ids = tier0.parse_foe_tags(
+        "[foe | north_iven | elite | spear | faction: north_cinder]", st
+    )[0]
+    unique_names = tier0.parse_foe_tags(
+        "[foe | Vex | elite | knife | faction: Gale Watch]", st
+    )[0]
+
+    assert ambiguous_actor["name"] == "Iven" and "char" not in ambiguous_actor
+    assert ambiguous_faction["name"] == "Ash Raider" and "faction" not in ambiguous_faction
+    assert stable_ids["char"] == "north_iven" and stable_ids["faction"] == "north_cinder"
+    assert unique_names["char"] == "vex" and unique_names["faction"] == "gale_watch"
+
+    stored = apply_delta(store, sid, bid, 2, [
+        {"op": "set_attribute", "entity": "north_iven", "key": "faction",
+         "value": "Cinder Court"},
+    ], "user", cfg)
+    assert stored.applied
+    legacy = apply_delta(store, sid, bid, 3, [
+        {"op": "combatant_spawn", "name": "Iven", "side": "enemy", "char": "north_iven"},
+    ], "rule", cfg)
+    assert not legacy.applied
+    assert "faction" in legacy.quarantined[0]["reason"]
+
+
 def test_clash_tag_records_on_real_rows_only():
     cfg = _rpg_cfg()
     store, sid, bid = _seeded(cfg)

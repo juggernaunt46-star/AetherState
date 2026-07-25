@@ -282,12 +282,12 @@ class SpecializationConfig(BaseModel):
     #                                  playable RPG default. Non-RPG relay transparency remains
     #                                  byte-exact.
     narration_pre_display_guard: bool = True
-    #                                  Default-on, RPG-only contradiction prevention. Current
-    #                                  mechanically authoritative narrator turns are buffered and
-    #                                  checked before visibility; truthful rich prose is released
-    #                                  unchanged, while definite uncommitted roll/harm/death claims
-    #                                  become a code-authored safe result. Pure RP and `none` keep
-    #                                  the ordinary transparent stream.
+    #                                  Legacy name. Default-on, RPG-only post-stream advisory:
+    #                                  authoritative upstream bytes are already streamed unchanged.
+    #                                  The evaluator records definite roll/harm/death contradiction
+    #                                  reasons and never buffers, blocks, or replaces current response bytes.
+    #                                  Pure RP and `none` keep the ordinary
+    #                                  transparent stream.
     blocks: list[str] = ["PLAYER", "EFFECTS", "GEAR", "INVENTORY", "FACTIONS",
                          "RELATIONS", "NEARBY", "QUEST", "WORLD", "DIRECTIVE"]   # doc 05 §6
     #                      catalog (+ NEARBY: 0b home anchors, 2026-07-09)
