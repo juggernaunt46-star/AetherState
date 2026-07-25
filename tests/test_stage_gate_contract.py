@@ -912,6 +912,16 @@ def test_proof_fingerprint_changes_for_every_tracked_input_except_stage_2_plan(
         assert contract.proof_input_sha256(repo, "HEAD") != before
 
 
+def test_proof_fingerprint_is_independent_of_checkout_eol_config(tmp_path: Path) -> None:
+    repo = _clone(tmp_path)
+    _git(repo, "config", "core.autocrlf", "true")
+    windows_checkout = contract.proof_input_sha256(repo, "HEAD")
+    _git(repo, "config", "core.autocrlf", "input")
+    linux_checkout = contract.proof_input_sha256(repo, "HEAD")
+
+    assert windows_checkout == linux_checkout
+
+
 def test_only_exact_stage_2_plan_descendant_can_reuse_a_pass_report(
     tmp_path: Path,
 ) -> None:

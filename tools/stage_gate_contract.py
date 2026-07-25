@@ -361,7 +361,15 @@ def tracked_paths(repo: Path, candidate: str) -> list[str]:
 
 def proof_input_sha256(repo: Path, candidate: str) -> str:
     commit = resolve_commit(repo, candidate)
-    archive = _git(repo, "archive", "--format=tar", commit, text=False)
+    archive = _git(
+        repo,
+        "-c",
+        "core.autocrlf=input",
+        "archive",
+        "--format=tar",
+        commit,
+        text=False,
+    )
     assert isinstance(archive, bytes)
     digest = hashlib.sha256()
     try:
