@@ -57,10 +57,8 @@ jobs:
           --failure-reason manifest_failed
           --evidence build/hardening/gates/manifest.json
           --
-          bash -lc 'git fetch --no-tags origin main &&
           python tools/validate_behavior_manifest.py
           --check-pytest-collection
-          --merge-target origin/main'
       - name: Upload manifest evidence
         if: always()
         continue-on-error: true

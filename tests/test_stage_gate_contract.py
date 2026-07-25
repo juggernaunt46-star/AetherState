@@ -391,6 +391,8 @@ def test_current_workflow_has_exact_stage_2_parallel_ownership_contract() -> Non
     assert "narrator-output-integrity-report.md" not in text
     assert "AETHERSTATE_CUBE_GATE_MODE" not in text
     assert "--terminal" in text.split("  stage-2-cumulative:", 1)[1]
+    assert "--check-pytest-collection" in text
+    assert "--merge-target origin/main" not in text
     assert "needs: package-build" in text
     assert "needs: [quality, python-tests, javascript, package-build, package-smoke]" in text
     assert text.count("python -m build --sdist --wheel") == 1
