@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Mapping, NoReturn, Sequence
+from typing import Callable, Mapping, NoReturn, Sequence, TypedDict, cast
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +28,11 @@ class SmokeFailure(RuntimeError):
         self.code = code
         self.detail = detail
         super().__init__(f"{code}: {detail}" if detail else code)
+
+
+class ProcessGroupOptions(TypedDict):
+    creationflags: int
+    start_new_session: bool
 
 
 def _fail(code: str, detail: str = "") -> NoReturn:
@@ -300,7 +305,7 @@ def _wheel_dir(artifact_dir: Path) -> None:
 
 
 def _installed_distribution() -> tuple[str, Path]:
-    import aetherstate
+    import aetherstate  # type: ignore[import-untyped]
 
     module_path = Path(aetherstate.__file__).resolve()
     environment_root = Path(sys.prefix).resolve()
@@ -331,7 +336,7 @@ def _free_loopback_port() -> int:
         return int(listener.getsockname()[1])
 
 
-def _process_group_options(platform_name: str) -> dict[str, int | bool]:
+def _process_group_options(platform_name: str) -> ProcessGroupOptions:
     if platform_name == "nt":
         return {
             "creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200),
@@ -366,7 +371,8 @@ def _shutdown(process: subprocess.Popen[bytes]) -> None:
         if os.name == "nt":
             process.send_signal(signal.CTRL_BREAK_EVENT)
         else:
-            os.killpg(process.pid, signal.SIGINT)
+            killpg = cast(Callable[[int, int], None], getattr(os, "killpg"))
+            killpg(process.pid, signal.SIGINT)
     except (OSError, ValueError):
         pass
     try:

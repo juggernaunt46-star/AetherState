@@ -99,7 +99,7 @@ def route_decorator_count(tree: ast.AST) -> int:
     return count
 
 
-def state_dispatch_count(tree: ast.AST) -> int:
+def state_dispatch_count(tree: ast.Module) -> int:
     apply_op = next(
         (
             node

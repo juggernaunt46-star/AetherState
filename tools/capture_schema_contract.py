@@ -326,10 +326,10 @@ def _capture_connection(db: sqlite3.Connection) -> dict[str, Any]:
 
 
 def _capture_child(capture_dir: Path) -> None:
-    import aetherstate
-    from aetherstate.app import create_app
-    from aetherstate.config import Config
-    from aetherstate.store import Store
+    import aetherstate  # type: ignore[import-untyped]
+    from aetherstate.app import create_app  # type: ignore[import-untyped]
+    from aetherstate.config import Config  # type: ignore[import-untyped]
+    from aetherstate.store import Store  # type: ignore[import-untyped]
 
     exported_source = (Path.cwd() / "src").resolve()
     import_origin = Path(aetherstate.__file__).resolve()
