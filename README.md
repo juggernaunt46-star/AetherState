@@ -530,6 +530,7 @@ ledger; private evidence is never copied into it. Public contributors can use it
 
 ~~~bash
 python tools/proofbook/engineering_learning.py validate
+python tools/proofbook/publication_attestations.py validate
 python tools/proofbook/engineering_learning.py status
 python tools/proofbook/engineering_learning.py brief --task "describe the change" --path "relative/path.py"
 ~~~

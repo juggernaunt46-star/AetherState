@@ -206,6 +206,7 @@ Before nontrivial work, run:
 
 ```powershell
 python tools/proofbook/engineering_learning.py validate
+python tools/proofbook/publication_attestations.py validate
 python tools/proofbook/engineering_learning.py brief --task "bounded task" --path "relative/path.py"
 ```
 
@@ -225,9 +226,15 @@ normal pull request, then run:
 
 ```powershell
 python tools/proofbook/engineering_learning.py validate
+python tools/proofbook/publication_attestations.py validate
 python tools/proofbook/engineering_learning.py status
-python -m pytest -q tests/test_public_proofbook.py tests/test_public_code_learning_skill.py
+python -m pytest -q tests/test_public_proofbook.py tests/test_public_proofbook_attestations.py tests/test_public_code_learning_skill.py
 ```
+
+After appending reviewed lessons, create one canonical public review artifact beneath
+`proofbook/reviews/`, then seal the exact complete ledger with
+`python tools/proofbook/publication_attestations.py attest --input <review-path>`. An unattested
+tail must not be published.
 
 The repository also ships the optional public Codex skill at
 `skills/aetherstate-code-learning/`. Keep its commands, publication boundary, and authority wording

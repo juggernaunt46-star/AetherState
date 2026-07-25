@@ -12,7 +12,8 @@ data, and never model-training data. Source and tests outrank lessons.
 
 Read [references/ledger-contract.md](references/ledger-contract.md) before adding, revising,
 invalidating, or publishing a lesson. Also read the repository's `proofbook/CONTRACT.md` and
-`proofbook/PUBLICATION_POLICY.md` for the machine contract and publication boundary.
+`proofbook/PUBLICATION_POLICY.md` for the machine contract and publication boundary. Read
+`proofbook/ATTESTATIONS.md` before sealing a publication.
 
 ## Classify before evidence
 
@@ -57,11 +58,14 @@ Use an explicit strict JSON input for admission:
 ```text
 python tools/proofbook/engineering_learning.py add --input "candidate.json"
 python tools/proofbook/engineering_learning.py validate
+python tools/proofbook/publication_attestations.py validate
 python tools/proofbook/engineering_learning.py status
 ```
 
 Do not rewrite or reorder prior ledger rows. Corrections append a valid revision under the public
-contract.
+contract. Before publication, bind approved engineering and privacy metadata to one public review
+artifact, attest the exact complete ledger, and require both validators to pass. An unattested tail
+is review work in progress, not a publication.
 
 ## Authority and privacy
 

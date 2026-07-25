@@ -173,8 +173,8 @@ Grouped by plane and role. Full detail per module in `01-module-reference.md`.
 
 | Path | Role |
 |---|---|
-| `proofbook/` | Curated public engineering lessons, publication policy, tags, and canonical ledger; never runtime or Player authority. |
-| `tools/proofbook/` | Standard-library validation, currentness, append, and deterministic briefing commands for the Public Proofbook. |
+| `proofbook/` | Curated public engineering lessons, canonical ledger, and chained complete-ledger publication attestations; never runtime or Player authority. |
+| `tools/proofbook/` | Standard-library lesson validation, publication sealing, currentness, append, and deterministic briefing commands for the Public Proofbook. |
 | `skills/aetherstate-code-learning/` | Optional public Codex skill that routes lessons to public, private, or abstain before admission. |
 
 ## 5. Where-to-change-what (fast index)
@@ -202,7 +202,7 @@ Grouped by plane and role. Full detail per module in `01-module-reference.md`.
 | Change **assist groups** (embeddings / reflection / NLI) or per-group routing | `assist.py` (cold-path sidecar) + `config.AssistGroupsConfig` | `control.py` (`POST /aether/groups`), `config.example.toml [assist.groups]` |
 | Change **entity discovery** (evidence → privileged create) | `discovery.py` | `tier0.py` evidence + `jobs.py` feed; extraction can never create entities |
 | Change the **ST extension** behavior | `st-extension/index.js` | `control.py` routes it calls |
-| Add or revise a **public engineering lesson** | `proofbook/LEDGER.jsonl` via `tools/proofbook/engineering_learning.py` | `proofbook/PUBLICATION_POLICY.md`, exact owner/regression/evidence hashes, `tests/test_public_proofbook.py`; abstain if any evidence is private or unavailable |
+| Add or revise a **public engineering lesson** | `proofbook/LEDGER.jsonl` via `tools/proofbook/engineering_learning.py` | `proofbook/PUBLICATION_POLICY.md`, exact owner/regression/evidence hashes, `tools/proofbook/publication_attestations.py`, `tests/test_public_proofbook*.py`; attest the complete reviewed ledger or abstain |
 
 ## 6. Runtime shape
 
