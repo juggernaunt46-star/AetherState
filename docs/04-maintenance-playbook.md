@@ -196,6 +196,43 @@ credentials, traces, private evidence, or an entire development workspace wholes
   exact owners, regressions, evidence, supported scope, and non-support, or record a deliberate
   abstention. A green report by itself is not a lesson.
 
+#### Public Proofbook contributor workflow
+
+The repository-owned **Public Proofbook** is in `proofbook/`; its standard-library CLI is
+`tools/proofbook/engineering_learning.py`. It is distinct from any private development ledger and
+does not enter the runtime or wheel.
+
+Before nontrivial work, run:
+
+```powershell
+python tools/proofbook/engineering_learning.py validate
+python tools/proofbook/engineering_learning.py brief --task "bounded task" --path "relative/path.py"
+```
+
+A valid no-match completes the briefing attempt. Current source and tests still outrank every
+lesson.
+
+After a proven causal repair, classify the destination before building a record:
+
+1. **Public** only if every owner, regression, evidence file, and sentence is present and safe in
+   the public repository, and a clean clone can validate it.
+2. **Private** if any evidence is private or unavailable publicly. Keep it out of this repository.
+3. **Abstain** when the destination, privacy, cause, or falsifier is ambiguous.
+
+Never copy a private lesson or private history into the Public Proofbook. A public lesson receives
+a new independently reviewed public identity derived only from public bytes. Add or revise it in a
+normal pull request, then run:
+
+```powershell
+python tools/proofbook/engineering_learning.py validate
+python tools/proofbook/engineering_learning.py status
+python -m pytest -q tests/test_public_proofbook.py tests/test_public_code_learning_skill.py
+```
+
+The repository also ships the optional public Codex skill at
+`skills/aetherstate-code-learning/`. Keep its commands, publication boundary, and authority wording
+in parity with `proofbook/CONTRACT.md` and `proofbook/PUBLICATION_POLICY.md`.
+
 ---
 
 ## 11. Test map

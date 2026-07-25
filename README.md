@@ -523,6 +523,21 @@ short name is **Proofbook**. It is a separate developer-only lesson ledger: it i
 runtime or public package, does not read Player sessions, and cannot grant mechanics, establish
 truth, settle outcomes, or train the narrator.
 
+This repository also includes a separate **Public Proofbook** in
+[`proofbook/`](proofbook/README.md). It is a curated, clean-clone-safe engineering reference built
+only from public repository files. Its history and identities are independent from the private
+ledger; private evidence is never copied into it. Public contributors can use it directly:
+
+~~~bash
+python tools/proofbook/engineering_learning.py validate
+python tools/proofbook/engineering_learning.py status
+python tools/proofbook/engineering_learning.py brief --task "describe the change" --path "relative/path.py"
+~~~
+
+The optional public [`aetherstate-code-learning`](skills/aetherstate-code-learning/SKILL.md) skill
+teaches Codex the same public/private/abstain boundary. Proofbook remains developer-only: it is not
+imported by AetherState, included in the wheel, used as Player data, or used as model-training data.
+
 For development:
 
 ~~~bash

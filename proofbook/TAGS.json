@@ -1,0 +1,319 @@
+{
+  "schema": "aetherstate/engineering-tags/1",
+  "tags": [
+    {
+      "id": "boundary:admission",
+      "aliases": ["mechanic admission", "receipt admission", "authority kernel"]
+    },
+    {
+      "id": "boundary:binding",
+      "aliases": ["semantic binding", "event construction"]
+    },
+    {
+      "id": "boundary:narrator_transfer",
+      "aliases": ["narrator transfer", "packet transfer", "resolution packet"]
+    },
+    {
+      "id": "boundary:recognition",
+      "aliases": [
+        "semantic recognition",
+        "glossary recognition",
+        "perception ladder",
+        "lexfabric"
+      ]
+    },
+    {
+      "id": "boundary:world_alignment",
+      "aliases": ["world alignment", "current world authority", "world grounder"]
+    },
+    {
+      "id": "boundary:model_compliance",
+      "aliases": ["model obedience boundary", "model realization boundary"]
+    },
+    {
+      "id": "boundary:hud_visibility",
+      "aliases": ["hud surface boundary", "visible hud boundary"]
+    },
+    {
+      "id": "boundary:lifecycle",
+      "aliases": ["retry identity", "reopen identity", "swipe identity"]
+    },
+    {
+      "id": "boundary:complete_settlement",
+      "aliases": ["atomic settlement", "mechanic settlement", "outcome resolver"]
+    },
+    {
+      "id": "domain:semantic_cube",
+      "aliases": [
+        "semantic cube",
+        "rubik cube",
+        "parity map",
+        "semantic atlas",
+        "cube coverage",
+        "semantic world fabric",
+        "proofbook"
+      ]
+    },
+    {
+      "id": "domain:persistence",
+      "aliases": [
+        "local persistence",
+        "sqlite storage",
+        "durable local data"
+      ]
+    },
+    {
+      "id": "domain:retrieval",
+      "aliases": [
+        "recognition matching",
+        "literal matching",
+        "pattern matching"
+      ]
+    },
+    {
+      "id": "domain:tooling",
+      "aliases": [
+        "proof tooling",
+        "stage gate",
+        "bounded gate",
+        "ci proof"
+      ]
+    },
+    {
+      "id": "domain:environment",
+      "aliases": [
+        "process containment",
+        "listener liveness",
+        "port release",
+        "cross platform"
+      ]
+    },
+    {
+      "id": "domain:worldlex",
+      "aliases": [
+        "worldlex",
+        "translation memory",
+        "capabilitylex",
+        "concept facets",
+        "concept kind",
+        "domain shelf"
+      ]
+    },
+    {
+      "id": "failure:delivery",
+      "aliases": ["packet delivery", "delivery failure"]
+    },
+    {
+      "id": "failure:settlement",
+      "aliases": ["partial settlement", "settlement failure"]
+    },
+    {
+      "id": "policy:abstain_on_ambiguity",
+      "aliases": ["abstain", "preserve ambiguity"]
+    },
+    {
+      "id": "risk:false_pass",
+      "aliases": ["false pass", "partial proof"]
+    },
+    {
+      "id": "risk:false_negative",
+      "aliases": ["false negative", "silently skipped eligible work"]
+    },
+    {
+      "id": "scale:single_target",
+      "aliases": ["single target", "not aoe"]
+    },
+    {
+      "id": "scale:multi_target_detection",
+      "aliases": ["multi target detection", "written patient slots"]
+    },
+    {
+      "id": "scale:future_runtime",
+      "aliases": ["future runtime vertical", "runtime not implemented"]
+    },
+    {
+      "id": "topic:aoe_boundary",
+      "aliases": [
+        "aoe",
+        "area damage",
+        "several enemies",
+        "typed target set",
+        "target set",
+        "targetset"
+      ]
+    },
+    {
+      "id": "topic:authority_stages",
+      "aliases": [
+        "authority stages",
+        "recognized versus authorized",
+        "recognized aligned admitted settled",
+        "authority chain"
+      ]
+    },
+    {
+      "id": "topic:capability_axes",
+      "aliases": [
+        "capability severity",
+        "power ceiling",
+        "world scope",
+        "duration axis",
+        "scale profile",
+        "formline"
+      ]
+    },
+    {
+      "id": "topic:cohort_identity",
+      "aliases": ["cohort ordinal", "base number identity"]
+    },
+    {
+      "id": "topic:cooldown_sentinel",
+      "aliases": [
+        "first use cooldown",
+        "missing timestamp",
+        "monotonic clock",
+        "prompt cache prewarm"
+      ]
+    },
+    {
+      "id": "topic:delivery_layers",
+      "aliases": [
+        "packet correctness",
+        "model compliance",
+        "hud visibility",
+        "context compiler",
+        "narrator boundary",
+        "witness layer"
+      ]
+    },
+    {
+      "id": "topic:local_consent",
+      "aliases": [
+        "playerlex",
+        "player approval",
+        "explicit reapproval",
+        "local semantic learning",
+        "complete consent correction",
+        "versioned reapproval"
+      ]
+    },
+    {
+      "id": "topic:optimistic_concurrency",
+      "aliases": [
+        "expected revision",
+        "stale correction",
+        "compare and swap",
+        "complete replacement proof"
+      ]
+    },
+    {
+      "id": "topic:player_lessons",
+      "aliases": [
+        "player lessons",
+        "narration behavior lesson",
+        "intent interpretation lesson",
+        "recurring player correction",
+        "player preference lifecycle"
+      ]
+    },
+    {
+      "id": "topic:proof_integrity",
+      "aliases": [
+        "evidence fingerprint",
+        "direct derivation",
+        "public tree completeness",
+        "bootstrap freeze",
+        "terminal ownership",
+        "candidate bound proof"
+      ]
+    },
+    {
+      "id": "topic:occurrence_polarity",
+      "aliases": ["event polarity", "past action", "quoted action", "hypothetical action"]
+    },
+    {
+      "id": "topic:patient_cardinality",
+      "aliases": ["target count", "multiple targets", "patient slots"]
+    },
+    {
+      "id": "topic:pattern_partition",
+      "aliases": [
+        "adjacent slots",
+        "ambiguous capture",
+        "pattern slot partition"
+      ]
+    },
+    {
+      "id": "topic:reference_authority",
+      "aliases": ["narrator pronoun", "neutral pronoun", "competing antecedents"]
+    },
+    {
+      "id": "topic:record_quarantine",
+      "aliases": [
+        "corrupt row",
+        "malformed stored record",
+        "untrusted record json",
+        "authority shaped facets",
+        "opaque row version",
+        "stale locator",
+        "non reusable incarnation",
+        "aba reincarnation",
+        "identity replacement"
+      ]
+    },
+    {
+      "id": "topic:schema_initialization",
+      "aliases": [
+        "outer transaction schema",
+        "lazy schema installation",
+        "verified service cache",
+        "lookalike schema",
+        "exact schema verification",
+        "verify before repair",
+        "complete trigger inventory"
+      ]
+    },
+    {
+      "id": "topic:sqlite_privacy",
+      "aliases": [
+        "secure delete",
+        "wal truncation",
+        "removable local data",
+        "checkpoint retry",
+        "idempotent removal",
+        "immutable tombstone",
+        "retired storage token"
+      ]
+    },
+    {
+      "id": "topic:terminal_identity",
+      "aliases": ["retry reopen", "exact terminal", "swipe replay identity"]
+    },
+    {
+      "id": "topic:unicode_matching",
+      "aliases": [
+        "combining mark",
+        "unicode boundary",
+        "literal continuation",
+        "nfkc casefold",
+        "hangul jamo",
+        "unicode source offsets"
+      ]
+    },
+    {
+      "id": "topic:worldlex_authority",
+      "aliases": ["definition assignment", "adapter receipt", "eligibility separation"]
+    },
+    {
+      "id": "topic:world_event_overlay",
+      "aliases": [
+        "world event",
+        "world overlay",
+        "zombie apocalypse",
+        "world event record",
+        "world overlay stack",
+        "worldoverlay"
+      ]
+    }
+  ]
+}
