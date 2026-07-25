@@ -4,11 +4,14 @@
 
 - `proofbook/CONTRACT.md`: record schema, authority, lifecycle, privacy, and currentness.
 - `proofbook/PUBLICATION_POLICY.md`: public evidence and destination policy.
+- `proofbook/ATTESTATIONS.md`: complete-ledger seal and public review binding.
 - `proofbook/TAGS.json`: reviewed tag identifiers and aliases.
 - `proofbook/GENESIS.json`: immutable seal over the ordered initial public prefix.
 - `proofbook/LEDGER.jsonl`: append-only public lesson revisions.
+- `proofbook/ATTESTATIONS.jsonl`: chained reviewed publication heads.
 - `tools/proofbook/engineering_learning_core.py`: strict validation and record identities.
 - `tools/proofbook/engineering_learning.py`: validation, status, briefing, and explicit admission.
+- `tools/proofbook/publication_attestations.py`: complete-ledger publication validation and sealing.
 
 ## Authority
 
@@ -64,13 +67,16 @@ Run from the repository root:
 
 ```text
 python tools/proofbook/engineering_learning.py validate
+python tools/proofbook/publication_attestations.py validate
 python tools/proofbook/engineering_learning.py status
 python tools/proofbook/engineering_learning.py brief --task "bounded task" --path "src/aetherstate/owner.py"
 python tools/proofbook/engineering_learning.py add --input "candidate.json"
 ```
 
 Treat a valid no-match as complete. Before admission, inspect the candidate directly; after
-admission, validate the complete ledger and report fresh status.
+admission, validate the lesson ledger and report fresh status. Before publication, create a
+canonical public review artifact with approved engineering and privacy metadata, append a
+complete-ledger attestation, and require both validators to pass.
 
 ## Privacy abstention
 

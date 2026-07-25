@@ -54,6 +54,8 @@ record is created. It is a correct outcome, not a validation failure.
 6. Validate the candidate and run its regression in a clean checkout.
 7. Obtain public-maintainer engineering and privacy approval.
 8. Append through the Proofbook command and submit the record through normal code review.
+9. Record both approvals in a canonical public review artifact beneath `proofbook/reviews/`.
+10. Append a publication attestation over the exact complete ledger and review artifact.
 
 Never mine test output, diffs, task text, logs, chat, model responses, or private ledgers directly
 into the public ledger. Automation may validate structure and hashes; it does not decide provenance
@@ -68,6 +70,12 @@ not reach outside that directory or depend on a specially named remote.
 The ordered initial public history must also match `GENESIS.json`. New reviewed records append after
 that sealed prefix; maintainers never rewrite the seal to hide deletion, reordering, or changed
 initial bytes.
+
+Every published ledger head must also pass
+`python tools/proofbook/publication_attestations.py validate`. The latest attestation covers the
+complete ledger bytes, links to the preceding publication head, names the exact newly covered
+record IDs, and hashes an inspectable public review artifact with approved engineering and privacy
+metadata. An unattested ledger tail is review work in progress, not a valid publication.
 
 If a referenced file changes, the lesson becomes stale until a maintainer reviews the semantic
 change. Never refresh a hash merely to make status green.

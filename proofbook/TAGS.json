@@ -50,8 +50,7 @@
         "parity map",
         "semantic atlas",
         "cube coverage",
-        "semantic world fabric",
-        "proofbook"
+        "semantic world fabric"
       ]
     },
     {
@@ -73,6 +72,7 @@
     {
       "id": "domain:tooling",
       "aliases": [
+        "proofbook",
         "proof tooling",
         "stage gate",
         "bounded gate",
