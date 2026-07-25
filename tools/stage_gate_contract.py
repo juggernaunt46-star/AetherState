@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import subprocess
 import tarfile
 from pathlib import Path
@@ -64,6 +65,43 @@ OVERALL_STATUSES = frozenset({"PASS", "HOLD", "TEST_BUDGET_HOLD", "INVALID"})
 GATE_STATUSES = frozenset(
     {"PASS", "HOLD", "NOT_RUN", "TEST_BUDGET_HOLD", "INVALID"}
 )
+GATE_STATUS_REASON_CODES = {
+    "PASS": frozenset({"command_passed", "covered_by_source_gate"}),
+    "HOLD": frozenset(
+        {
+            "architecture_characterization_failed",
+            "dependency_or_runtime_gate_failed",
+            "full_suite_failed",
+            "historical_schema_hold",
+            "javascript_contract_failed",
+            "manifest_failed",
+            "package_build_failed",
+            "package_smoke_failed",
+            "privacy_contract_failed",
+            "public_scope_invalid",
+            "runtime_diff_detected",
+            "scoped_static_failed",
+            "stage_2_cumulative_failed",
+        }
+    ),
+    "NOT_RUN": frozenset({"gate_not_run"}),
+    "TEST_BUDGET_HOLD": frozenset(
+        {"gate_timeout", "terminal_serial_budget_exhausted"}
+    ),
+    "INVALID": frozenset(
+        {
+            "evidence_commit_mismatch",
+            "invalid_gate_evidence",
+            "source_gate_invalid",
+        }
+    ),
+}
+DERIVATION_SOURCES = {
+    "installer-linux": frozenset({"linux-py310-full"}),
+    "installer-windows": frozenset(
+        {"windows-py312-full", "local-windows-py310-full"}
+    ),
+}
 STATUS_PRECEDENCE = {
     "PASS": 0,
     "NOT_RUN": 1,
@@ -79,6 +117,21 @@ BUDGET = {
     "terminal_target_seconds": 2700,
     "terminal_hold_seconds": 5400,
 }
+
+QUALITY_GATE_IDS = frozenset(
+    {
+        "architecture-characterization",
+        "historical-schema",
+        "manifest",
+        "privacy",
+        "scoped-static",
+    }
+)
+QUALITY_JOB_TIMEOUT_MINUTES = 25
+QUALITY_GATE_TIMEOUT_SECONDS = {
+    gate_id: 240 for gate_id in QUALITY_GATE_IDS
+}
+QUALITY_UPLOAD_MARGIN_SECONDS = 300
 
 UMBRELLA_PATH = (
     "docs/superpowers/specs/2026-07-24-post-1.24-engineering-hardening-design.md"
@@ -180,6 +233,7 @@ DIRECT_EVIDENCE_FIELDS = frozenset(
     }
 )
 DERIVED_EVIDENCE_FIELDS = DIRECT_EVIDENCE_FIELDS | {"source_gate"}
+_NO_SOURCE_GATE = object()
 
 
 class ContractError(RuntimeError):
@@ -341,6 +395,68 @@ def overall_status(statuses: Iterable[str]) -> str:
             return "INVALID"
         highest = max(highest, STATUS_PRECEDENCE[status])
     return {0: "PASS", 1: "HOLD", 2: "TEST_BUDGET_HOLD", 3: "INVALID"}[highest]
+
+
+def gate_status_reason_is_valid(
+    gate_id: str,
+    status: object,
+    reason_code: object,
+    source_gate: object = _NO_SOURCE_GATE,
+) -> bool:
+    if not isinstance(status, str) or not isinstance(reason_code, str):
+        return False
+    if reason_code not in GATE_STATUS_REASON_CODES.get(status, frozenset()):
+        return False
+    if source_gate is _NO_SOURCE_GATE:
+        return reason_code != "covered_by_source_gate"
+    return (
+        isinstance(source_gate, str)
+        and status == "PASS"
+        and reason_code == "covered_by_source_gate"
+        and source_gate in DERIVATION_SOURCES.get(gate_id, frozenset())
+    )
+
+
+def elapsed_seconds_is_valid(value: object) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        elapsed = float(value)
+    except (OverflowError, ValueError):
+        return False
+    return (
+        math.isfinite(elapsed)
+        and elapsed >= 0
+        and round(elapsed, 3) == value
+    )
+
+
+def derivation_source_row_is_valid(
+    target_gate: str,
+    source_gate: str,
+    rows_by_id: Mapping[str, Mapping[str, object]],
+    evidence_commit: str,
+) -> bool:
+    if source_gate not in DERIVATION_SOURCES.get(target_gate, frozenset()):
+        return False
+    source = rows_by_id.get(source_gate)
+    return (
+        source is not None
+        and frozenset(source)
+        == frozenset(
+            {
+                "id",
+                "status",
+                "elapsed_seconds",
+                "reason_code",
+                "evidence_commit",
+            }
+        )
+        and source.get("id") == source_gate
+        and source.get("status") == "PASS"
+        and source.get("reason_code") == "command_passed"
+        and source.get("evidence_commit") == evidence_commit
+    )
 
 
 def report_reason(

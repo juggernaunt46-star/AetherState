@@ -28,6 +28,9 @@ from stage_gate_contract import (
     ContractError,
     candidate_file_sha256,
     check_public_safe_history,
+    derivation_source_row_is_valid,
+    elapsed_seconds_is_valid,
+    gate_status_reason_is_valid,
     proof_input_sha256,
     report_reason,
     resolve_commit,
@@ -74,43 +77,45 @@ def _load_evidence(
     if not isinstance(value, dict):
         return _invalid_row(expected_id, evidence_commit)
     commit = value.get("evidence_commit")
-    preserved_commit = (
-        str(commit)
-        if isinstance(commit, str) and COMMIT_RE.fullmatch(commit)
-        else evidence_commit
-    )
+    if not isinstance(commit, str) or not COMMIT_RE.fullmatch(commit):
+        return _invalid_row(expected_id, evidence_commit)
+    if commit != evidence_commit:
+        return _invalid_row(
+            expected_id,
+            evidence_commit,
+            "evidence_commit_mismatch",
+        )
     fields = frozenset(value)
     if fields not in {DIRECT_EVIDENCE_FIELDS, DERIVED_EVIDENCE_FIELDS}:
-        return _invalid_row(expected_id, preserved_commit)
+        return _invalid_row(expected_id, evidence_commit)
     elapsed = value.get("elapsed_seconds")
     if (
         value.get("schema") != GATE_EVIDENCE_SCHEMA
         or value.get("id") != expected_id
         or value.get("status") not in GATE_STATUSES
-        or not isinstance(elapsed, (int, float))
-        or isinstance(elapsed, bool)
-        or elapsed < 0
-        or round(float(elapsed), 3) != elapsed
+        or not elapsed_seconds_is_valid(elapsed)
         or value.get("reason_code") not in STABLE_REASON_CODES
-        or not isinstance(commit, str)
-        or not COMMIT_RE.fullmatch(commit)
     ):
-        return _invalid_row(expected_id, preserved_commit)
-    if "source_gate" in value:
-        if (
-            value.get("status") != "PASS"
-            or value.get("reason_code") != "covered_by_source_gate"
-            or not isinstance(value.get("source_gate"), str)
-        ):
-            return _invalid_row(expected_id, preserved_commit)
-    elif value.get("reason_code") == "covered_by_source_gate":
-        return _invalid_row(expected_id, preserved_commit)
+        return _invalid_row(expected_id, evidence_commit)
+    status_reason_valid = (
+        gate_status_reason_is_valid(
+            expected_id,
+            value.get("status"),
+            value.get("reason_code"),
+            value.get("source_gate"),
+        )
+        if "source_gate" in value
+        else gate_status_reason_is_valid(
+            expected_id,
+            value.get("status"),
+            value.get("reason_code"),
+        )
+    )
+    if not status_reason_valid:
+        return _invalid_row(expected_id, evidence_commit)
     row = {key: value[key] for key in DIRECT_EVIDENCE_FIELDS if key != "schema"}
     if "source_gate" in value:
         row["source_gate"] = value["source_gate"]
-    if preserved_commit != evidence_commit:
-        row["status"] = "INVALID"
-        row["reason_code"] = "evidence_commit_mismatch"
     return row
 
 
@@ -160,6 +165,28 @@ def build_report(
         _load_evidence(seen_files[gate_id], gate_id, evidence_commit)
         for gate_id in sorted(LOCAL_DIAGNOSTIC_GATES)
         if gate_id in seen_files
+    ]
+    rows_by_id = {
+        str(row["id"]): row
+        for row in gates + diagnostics
+    }
+    gates = [
+        (
+            row
+            if "source_gate" not in row
+            or derivation_source_row_is_valid(
+                str(row["id"]),
+                str(row["source_gate"]),
+                rows_by_id,
+                evidence_commit,
+            )
+            else _invalid_row(
+                str(row["id"]),
+                evidence_commit,
+                "source_gate_invalid",
+            )
+        )
+        for row in gates
     ]
 
     umbrella_hash = candidate_file_sha256(repo, evidence_commit, UMBRELLA_PATH)

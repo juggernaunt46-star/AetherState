@@ -48,6 +48,13 @@ MATRIX_MARKERS = {
     "package-linux-py312",
     "package-windows-py312",
 }
+QUALITY_GATE_ORDER = (
+    "scoped-static",
+    "manifest",
+    "architecture-characterization",
+    "historical-schema",
+    "privacy",
+)
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -163,6 +170,12 @@ def _pass_report(tmp_path: Path, *, cwd: Path = ROOT) -> Path:
     return report
 
 
+def _report_gate(report: dict[str, object], gate_id: str) -> dict[str, object]:
+    gates = report["gates"]
+    assert isinstance(gates, list)
+    return next(row for row in gates if row["id"] == gate_id)
+
+
 def _clone(tmp_path: Path) -> Path:
     clone = tmp_path / "repo"
     subprocess.run(
@@ -209,6 +222,10 @@ def _assert_workflow_contract(text: str) -> None:
         assert "build/hardening/gates/stage-2-cumulative.json" not in stage_2_block
 
 
+def _quality_workflow(text: str) -> str:
+    return text.split("  quality:", 1)[1].split("\n  python-tests:", 1)[0]
+
+
 def test_shared_contract_is_the_single_exact_source_of_stage_values() -> None:
     assert contract.REQUIRED_STAGE_1_GATES == EXPECTED_GATES
     assert contract.SHARED_CI_JOB_IDS == frozenset(SHARED_JOBS)
@@ -247,6 +264,49 @@ def test_shared_contract_is_the_single_exact_source_of_stage_values() -> None:
     assert contract.SEMANTIC_CUBE_SHA256 == (
         "d9a7c374f45f9c57353615ae00dd60b0ff1f672c8ac9e8b26b826d1ae1a00c97"
     )
+    assert contract.GATE_STATUS_REASON_CODES == {
+        "PASS": frozenset({"command_passed", "covered_by_source_gate"}),
+        "HOLD": frozenset(
+            {
+                "architecture_characterization_failed",
+                "dependency_or_runtime_gate_failed",
+                "full_suite_failed",
+                "historical_schema_hold",
+                "javascript_contract_failed",
+                "manifest_failed",
+                "package_build_failed",
+                "package_smoke_failed",
+                "privacy_contract_failed",
+                "public_scope_invalid",
+                "runtime_diff_detected",
+                "scoped_static_failed",
+                "stage_2_cumulative_failed",
+            }
+        ),
+        "NOT_RUN": frozenset({"gate_not_run"}),
+        "TEST_BUDGET_HOLD": frozenset(
+            {"gate_timeout", "terminal_serial_budget_exhausted"}
+        ),
+        "INVALID": frozenset(
+            {
+                "evidence_commit_mismatch",
+                "invalid_gate_evidence",
+                "source_gate_invalid",
+            }
+        ),
+    }
+    assert contract.DERIVATION_SOURCES == {
+        "installer-linux": frozenset({"linux-py310-full"}),
+        "installer-windows": frozenset(
+            {"windows-py312-full", "local-windows-py310-full"}
+        ),
+    }
+    assert contract.QUALITY_GATE_IDS == frozenset(QUALITY_GATE_ORDER)
+    assert contract.QUALITY_JOB_TIMEOUT_MINUTES == 25
+    assert contract.QUALITY_GATE_TIMEOUT_SECONDS == {
+        gate_id: 240 for gate_id in QUALITY_GATE_ORDER
+    }
+    assert contract.QUALITY_UPLOAD_MARGIN_SECONDS == 300
 
 
 @pytest.mark.parametrize(
@@ -274,6 +334,53 @@ def test_bootstrap_workflow_has_exact_parallel_ownership_contract() -> None:
     assert text.count("node tests/creator_resource_contract.mjs") == 1
     assert "fail-fast: false" in text
     assert "if: always()" in text
+
+
+def test_quality_lane_watchdogs_have_bounded_aggregate_upload_margin() -> None:
+    section = _quality_workflow(WORKFLOW.read_text(encoding="utf-8"))
+    timeout_match = re.search(r"runs-on: ubuntu-latest\s+timeout-minutes: (\d+)", section)
+    assert timeout_match is not None
+    job_seconds = int(timeout_match.group(1)) * 60
+    gate_seconds: dict[str, int] = {}
+    for gate_id in QUALITY_GATE_ORDER:
+        match = re.search(
+            rf"--gate-id {re.escape(gate_id)}\s+--timeout-seconds (\d+)",
+            section,
+        )
+        assert match is not None
+        gate_seconds[gate_id] = int(match.group(1))
+    assert gate_seconds == contract.QUALITY_GATE_TIMEOUT_SECONDS
+    assert (
+        job_seconds - sum(gate_seconds.values())
+        >= contract.QUALITY_UPLOAD_MARGIN_SECONDS
+    )
+
+
+def test_quality_lane_uploads_each_gate_immediately_under_unique_name() -> None:
+    section = _quality_workflow(WORKFLOW.read_text(encoding="utf-8"))
+    command_positions = [
+        section.index(f"--gate-id {gate_id}") for gate_id in QUALITY_GATE_ORDER
+    ]
+    assert command_positions == sorted(command_positions)
+    for index, gate_id in enumerate(QUALITY_GATE_ORDER):
+        start = command_positions[index]
+        end = (
+            command_positions[index + 1]
+            if index + 1 < len(command_positions)
+            else len(section)
+        )
+        window = section[start:end]
+        artifact_name = f"name: gate-quality-{gate_id}"
+        evidence_path = f"path: build/hardening/gates/{gate_id}.json"
+        assert f"--timeout-seconds {contract.QUALITY_GATE_TIMEOUT_SECONDS[gate_id]}" in window
+        assert "if: always()" in window
+        assert artifact_name in window
+        assert evidence_path in window
+        assert window.index(artifact_name) < window.index(evidence_path)
+    assert section.count("uses: actions/upload-artifact@v4") == len(
+        QUALITY_GATE_ORDER
+    )
+    assert "pattern: gate-*" in WORKFLOW.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
@@ -466,6 +573,205 @@ def test_builder_derives_all_non_pass_precedence_and_never_accepts_a_claim(
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["status"] == overall
     assert report["status"] != "PASS"
+
+
+def test_builder_rejects_direct_pass_with_timeout_reason(tmp_path: Path) -> None:
+    evidence = tmp_path / "evidence"
+    commit = _head()
+    _write_all_pass(evidence, commit=commit)
+    _write_evidence(
+        evidence,
+        "privacy",
+        commit=commit,
+        status="PASS",
+        reason_code="gate_timeout",
+    )
+
+    built, report_path = _build(tmp_path, evidence_dir=evidence)
+
+    assert built.returncode == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "INVALID"
+    assert _report_gate(report, "privacy")["status"] == "INVALID"
+
+
+def test_builder_rejects_non_finite_elapsed_seconds(tmp_path: Path) -> None:
+    evidence = tmp_path / "evidence"
+    commit = _head()
+    _write_all_pass(evidence, commit=commit)
+    _write_evidence(
+        evidence,
+        "privacy",
+        commit=commit,
+        elapsed=float("inf"),
+    )
+
+    built, report_path = _build(tmp_path, evidence_dir=evidence)
+
+    assert built.returncode == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "INVALID"
+    assert _report_gate(report, "privacy")["status"] == "INVALID"
+    assert _validate(report_path).returncode == 0
+
+
+@pytest.mark.parametrize(
+    ("target_gate", "source_gate"),
+    [
+        ("installer-linux", "linux-py310-full"),
+        ("installer-windows", "windows-py312-full"),
+        ("installer-windows", "local-windows-py310-full"),
+    ],
+)
+def test_builder_and_validator_accept_only_exact_direct_derivation_sources(
+    tmp_path: Path,
+    target_gate: str,
+    source_gate: str,
+) -> None:
+    evidence = tmp_path / "evidence"
+    commit = _head()
+    _write_all_pass(evidence, commit=commit)
+    if source_gate in contract.LOCAL_DIAGNOSTIC_GATES:
+        _write_evidence(evidence, source_gate, commit=commit)
+    _write_evidence(
+        evidence,
+        target_gate,
+        commit=commit,
+        status="PASS",
+        reason_code="covered_by_source_gate",
+        source_gate=source_gate,
+    )
+
+    built, report_path = _build(tmp_path, evidence_dir=evidence)
+
+    assert built.returncode == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "PASS"
+    assert _report_gate(report, target_gate)["source_gate"] == source_gate
+    assert _validate(report_path, require_pass=True).returncode == 0
+
+
+@pytest.mark.parametrize(
+    ("source_gate", "remove_source"),
+    [
+        ("javascript", False),
+        ("local-public-scope", False),
+        ("linux-py310-full", True),
+    ],
+)
+def test_builder_requires_present_exact_source_for_derived_pass(
+    tmp_path: Path,
+    source_gate: str,
+    remove_source: bool,
+) -> None:
+    evidence = tmp_path / "evidence"
+    commit = _head()
+    _write_all_pass(evidence, commit=commit)
+    if source_gate == "local-public-scope":
+        _write_evidence(evidence, source_gate, commit=commit)
+    if remove_source:
+        (evidence / f"{source_gate}.json").unlink()
+    _write_evidence(
+        evidence,
+        "installer-linux",
+        commit=commit,
+        status="PASS",
+        reason_code="covered_by_source_gate",
+        source_gate=source_gate,
+    )
+
+    built, report_path = _build(tmp_path, evidence_dir=evidence)
+
+    assert built.returncode == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert report["status"] == "INVALID"
+    assert _report_gate(report, "installer-linux")["status"] == "INVALID"
+
+
+@pytest.mark.parametrize(
+    ("gate_id", "reason_code", "source_gate"),
+    [
+        ("privacy", "command_passed", None),
+        ("installer-linux", "covered_by_source_gate", "linux-py310-full"),
+    ],
+)
+def test_builder_normalizes_mismatched_commit_to_valid_invalid_row(
+    tmp_path: Path,
+    gate_id: str,
+    reason_code: str,
+    source_gate: str | None,
+) -> None:
+    evidence = tmp_path / "evidence"
+    commit = _head()
+    previous_commit = _git(ROOT, "rev-parse", "HEAD^")
+    _write_all_pass(evidence, commit=commit)
+    _write_evidence(
+        evidence,
+        gate_id,
+        commit=previous_commit,
+        status="PASS",
+        reason_code=reason_code,
+        source_gate=source_gate,
+    )
+
+    built, report_path = _build(tmp_path, evidence_dir=evidence)
+
+    assert built.returncode == 0
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    assert _report_gate(report, gate_id) == {
+        "id": gate_id,
+        "status": "INVALID",
+        "elapsed_seconds": 0.0,
+        "reason_code": "evidence_commit_mismatch",
+        "evidence_commit": commit,
+    }
+    structural = _validate(report_path)
+    assert structural.returncode == 0
+    assert structural.stdout.strip() == (
+        "INVALID stage-1-safety-baseline evidence_commit_mismatch"
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda report: _report_gate(report, "privacy").update(
+            {"reason_code": "gate_timeout"}
+        ),
+        lambda report: _report_gate(report, "privacy").update(
+            {"elapsed_seconds": float("inf")}
+        ),
+        lambda report: _report_gate(report, "installer-linux").update(
+            {"source_gate": "javascript"}
+        ),
+        lambda report: _report_gate(report, "installer-linux").update(
+            {"source_gate": "stage-2-cumulative"}
+        ),
+        lambda report: _report_gate(report, "installer-linux").update(
+            {"source_gate": "local-public-scope"}
+        ),
+        lambda report: _report_gate(report, "linux-py310-full").update(
+            {
+                "reason_code": "covered_by_source_gate",
+                "source_gate": "javascript",
+            }
+        ),
+    ],
+)
+def test_validator_rejects_impossible_pass_reason_or_forged_derivation(
+    tmp_path: Path,
+    mutation,
+) -> None:
+    original_path = _pass_report(tmp_path)
+    report = json.loads(original_path.read_text(encoding="utf-8"))
+    mutation(report)
+    forged = tmp_path / "forged-report.json"
+    forged.write_text(json.dumps(report), encoding="utf-8")
+
+    result = _validate(forged, require_pass=True)
+
+    assert result.returncode != 0
+    assert result.stdout.strip() == "INVALID stage-1-safety-baseline invalid_report"
 
 
 @pytest.mark.parametrize(

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Mapping, Sequence, cast
 
 from stage_gate_contract import (
-    ALL_GATE_IDS,
     BUDGET,
     GATE_STATUSES,
     LOCAL_DIAGNOSTIC_GATES,
@@ -27,6 +26,9 @@ from stage_gate_contract import (
     ContractError,
     candidate_file_sha256,
     check_public_safe_history,
+    derivation_source_row_is_valid,
+    elapsed_seconds_is_valid,
+    gate_status_reason_is_valid,
     is_ancestor,
     proof_input_sha256,
     report_reason,
@@ -87,22 +89,24 @@ def _validate_row(
     _require(row.get("id") in allowed_ids)
     _require(row.get("status") in GATE_STATUSES)
     elapsed = row.get("elapsed_seconds")
-    _require(
-        isinstance(elapsed, (int, float))
-        and not isinstance(elapsed, bool)
-        and elapsed >= 0
-        and round(float(elapsed), 3) == elapsed
-    )
+    _require(elapsed_seconds_is_valid(elapsed))
     _require(row.get("reason_code") in STABLE_REASON_CODES)
     _require(row.get("evidence_commit") == evidence_commit)
-    if "source_gate" in row:
-        _require(
-            row.get("status") == "PASS"
-            and row.get("reason_code") == "covered_by_source_gate"
-            and row.get("source_gate") in ALL_GATE_IDS
+    status_reason_valid = (
+        gate_status_reason_is_valid(
+            str(row["id"]),
+            row.get("status"),
+            row.get("reason_code"),
+            row.get("source_gate"),
         )
-    else:
-        _require(row.get("reason_code") != "covered_by_source_gate")
+        if "source_gate" in row
+        else gate_status_reason_is_valid(
+            str(row["id"]),
+            row.get("status"),
+            row.get("reason_code"),
+        )
+    )
+    _require(status_reason_valid)
     return row
 
 
@@ -139,6 +143,20 @@ def _validate_rows(
         diagnostic_ids == sorted(diagnostic_ids)
         and len(diagnostic_ids) == len(set(diagnostic_ids))
     )
+    rows_by_id = {
+        str(row["id"]): row
+        for row in gates + diagnostics
+    }
+    for row in gates + diagnostics:
+        if "source_gate" in row:
+            _require(
+                derivation_source_row_is_valid(
+                    str(row["id"]),
+                    str(row["source_gate"]),
+                    rows_by_id,
+                    evidence_commit,
+                )
+            )
     return gates, diagnostics
 
 

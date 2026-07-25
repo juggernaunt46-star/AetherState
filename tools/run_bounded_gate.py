@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
 import signal
@@ -8,19 +9,226 @@ import subprocess
 import threading
 import time
 from collections import deque
+from ctypes import wintypes
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from stage_gate_contract import (
     ALL_GATE_IDS,
-    DERIVED_EVIDENCE_FIELDS,
+    DERIVATION_SOURCES,
     DIRECT_EVIDENCE_FIELDS,
     GATE_EVIDENCE_SCHEMA,
-    STABLE_REASON_CODES,
+    GATE_STATUS_REASON_CODES,
+    elapsed_seconds_is_valid,
 )
 
 OUTPUT_TAIL_LINES = 100
 SIGNAL_GRACE_SECONDS = 1.0
+POLL_SECONDS = 0.02
+
+CREATE_SUSPENDED = 0x00000004
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+TH32CS_SNAPTHREAD = 0x00000004
+THREAD_SUSPEND_RESUME = 0x00000002
+PROCESS_TERMINATE = 0x00000001
+PROCESS_SET_QUOTA = 0x00000100
+JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+
+class _JobObjectBasicLimitInformation(ctypes.Structure):
+    _fields_ = [
+        ("PerProcessUserTimeLimit", ctypes.c_longlong),
+        ("PerJobUserTimeLimit", ctypes.c_longlong),
+        ("LimitFlags", wintypes.DWORD),
+        ("MinimumWorkingSetSize", ctypes.c_size_t),
+        ("MaximumWorkingSetSize", ctypes.c_size_t),
+        ("ActiveProcessLimit", wintypes.DWORD),
+        ("Affinity", ctypes.c_size_t),
+        ("PriorityClass", wintypes.DWORD),
+        ("SchedulingClass", wintypes.DWORD),
+    ]
+
+
+class _IoCounters(ctypes.Structure):
+    _fields_ = [
+        ("ReadOperationCount", ctypes.c_ulonglong),
+        ("WriteOperationCount", ctypes.c_ulonglong),
+        ("OtherOperationCount", ctypes.c_ulonglong),
+        ("ReadTransferCount", ctypes.c_ulonglong),
+        ("WriteTransferCount", ctypes.c_ulonglong),
+        ("OtherTransferCount", ctypes.c_ulonglong),
+    ]
+
+
+class _JobObjectExtendedLimitInformation(ctypes.Structure):
+    _fields_ = [
+        ("BasicLimitInformation", _JobObjectBasicLimitInformation),
+        ("IoInfo", _IoCounters),
+        ("ProcessMemoryLimit", ctypes.c_size_t),
+        ("JobMemoryLimit", ctypes.c_size_t),
+        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+        ("PeakJobMemoryUsed", ctypes.c_size_t),
+    ]
+
+
+class _ThreadEntry32(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("cntUsage", wintypes.DWORD),
+        ("th32ThreadID", wintypes.DWORD),
+        ("th32OwnerProcessID", wintypes.DWORD),
+        ("tpBasePri", wintypes.LONG),
+        ("tpDeltaPri", wintypes.LONG),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
+def _windows_kernel32() -> Any:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+    ]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [
+        wintypes.HANDLE,
+        wintypes.HANDLE,
+    ]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.OpenProcess.argtypes = [
+        wintypes.DWORD,
+        wintypes.BOOL,
+        wintypes.DWORD,
+    ]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Thread32First.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_ThreadEntry32),
+    ]
+    kernel32.Thread32First.restype = wintypes.BOOL
+    kernel32.Thread32Next.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(_ThreadEntry32),
+    ]
+    kernel32.Thread32Next.restype = wintypes.BOOL
+    kernel32.OpenThread.argtypes = [
+        wintypes.DWORD,
+        wintypes.BOOL,
+        wintypes.DWORD,
+    ]
+    kernel32.OpenThread.restype = wintypes.HANDLE
+    kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+    kernel32.ResumeThread.restype = wintypes.DWORD
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    return kernel32
+
+
+def _windows_error(operation: str) -> OSError:
+    return OSError(ctypes.get_last_error(), operation)
+
+
+def _close_windows_handle(kernel32: Any, handle: int) -> None:
+    if not kernel32.CloseHandle(handle):
+        raise _windows_error("CloseHandle")
+
+
+def _primary_thread_handle(kernel32: Any, pid: int) -> int:
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)
+    if not snapshot or snapshot == INVALID_HANDLE_VALUE:
+        raise _windows_error("CreateToolhelp32Snapshot")
+    thread_ids: list[int] = []
+    try:
+        entry = _ThreadEntry32()
+        entry.dwSize = ctypes.sizeof(_ThreadEntry32)
+        found = bool(kernel32.Thread32First(snapshot, ctypes.byref(entry)))
+        while found:
+            if entry.th32OwnerProcessID == pid:
+                thread_ids.append(int(entry.th32ThreadID))
+            found = bool(kernel32.Thread32Next(snapshot, ctypes.byref(entry)))
+    finally:
+        _close_windows_handle(kernel32, int(snapshot))
+    if len(thread_ids) != 1:
+        raise OSError("suspended_primary_thread_not_unique")
+    thread = kernel32.OpenThread(
+        THREAD_SUSPEND_RESUME,
+        False,
+        thread_ids[0],
+    )
+    if not thread:
+        raise _windows_error("OpenThread")
+    return int(thread)
+
+
+class _WindowsJob:
+    def __init__(self) -> None:
+        self._kernel32 = _windows_kernel32()
+        self._handle: int | None = None
+        handle = self._kernel32.CreateJobObjectW(None, None)
+        if not handle:
+            raise _windows_error("CreateJobObjectW")
+        self._handle = int(handle)
+        limits = _JobObjectExtendedLimitInformation()
+        limits.BasicLimitInformation.LimitFlags = (
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        )
+        if not self._kernel32.SetInformationJobObject(
+            self._handle,
+            JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            ctypes.byref(limits),
+            ctypes.sizeof(limits),
+        ):
+            error = _windows_error("SetInformationJobObject")
+            try:
+                self.close()
+            except OSError:
+                pass
+            raise error
+
+    def assign_and_resume(self, pid: int) -> None:
+        if self._handle is None:
+            raise OSError("job_closed")
+        process = self._kernel32.OpenProcess(
+            PROCESS_SET_QUOTA | PROCESS_TERMINATE,
+            False,
+            pid,
+        )
+        if not process:
+            raise _windows_error("OpenProcess")
+        try:
+            if not self._kernel32.AssignProcessToJobObject(
+                self._handle,
+                process,
+            ):
+                raise _windows_error("AssignProcessToJobObject")
+        finally:
+            _close_windows_handle(self._kernel32, int(process))
+
+        thread = _primary_thread_handle(self._kernel32, pid)
+        try:
+            previous_suspend_count = self._kernel32.ResumeThread(thread)
+            if previous_suspend_count != 1:
+                raise _windows_error("ResumeThread")
+        finally:
+            _close_windows_handle(self._kernel32, thread)
+
+    def close(self) -> None:
+        handle = self._handle
+        if handle is None:
+            return
+        _close_windows_handle(self._kernel32, handle)
+        self._handle = None
 
 
 def _head() -> str:
@@ -67,25 +275,24 @@ def _evidence(
     return value
 
 
-def _source_is_same_commit_pass(value: object, head: str) -> bool:
+def _source_is_same_commit_pass(
+    target_gate: str,
+    value: object,
+    head: str,
+) -> bool:
     if not isinstance(value, dict):
         return False
     fields = frozenset(value)
-    if fields not in {DIRECT_EVIDENCE_FIELDS, DERIVED_EVIDENCE_FIELDS}:
+    if fields != DIRECT_EVIDENCE_FIELDS:
         return False
+    elapsed = value.get("elapsed_seconds")
     return (
         value.get("schema") == GATE_EVIDENCE_SCHEMA
-        and value.get("id") in ALL_GATE_IDS
+        and value.get("id") in DERIVATION_SOURCES.get(target_gate, frozenset())
         and value.get("status") == "PASS"
-        and isinstance(value.get("elapsed_seconds"), (int, float))
-        and not isinstance(value.get("elapsed_seconds"), bool)
-        and value.get("reason_code") in STABLE_REASON_CODES
+        and elapsed_seconds_is_valid(elapsed)
+        and value.get("reason_code") == "command_passed"
         and value.get("evidence_commit") == head
-        and (
-            "source_gate" not in value
-            or isinstance(value.get("source_gate"), str)
-            and value.get("source_gate") in ALL_GATE_IDS
-        )
     )
 
 
@@ -94,7 +301,7 @@ def _derive(gate_id: str, source: Path, evidence_path: Path, head: str) -> int:
         value = json.loads(source.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         value = None
-    if not _source_is_same_commit_pass(value, head):
+    if not _source_is_same_commit_pass(gate_id, value, head):
         _write_evidence(
             evidence_path,
             _evidence(
@@ -144,46 +351,76 @@ def _wait(process: subprocess.Popen[str], timeout: float) -> bool:
     return True
 
 
-def _stop_process_group(process: subprocess.Popen[str]) -> None:
-    if process.poll() is not None:
-        return
+def _wait_full_grace(process: subprocess.Popen[str], timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        process.poll()
+        time.sleep(min(POLL_SECONDS, max(0.0, deadline - time.monotonic())))
+
+
+def _posix_group_exists(process_group: int) -> bool:
+    kill_group = getattr(os, "killpg")
+    try:
+        kill_group(process_group, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_posix_group_gone(
+    process: subprocess.Popen[str],
+    process_group: int,
+    timeout: float,
+) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        process.poll()
+        if not _posix_group_exists(process_group):
+            return True
+        time.sleep(min(POLL_SECONDS, max(0.0, deadline - time.monotonic())))
+    process.poll()
+    return not _posix_group_exists(process_group)
+
+
+def _stop_process_group(
+    process: subprocess.Popen[str],
+    windows_job: _WindowsJob | None,
+) -> None:
     if os.name == "nt":
+        if windows_job is None:
+            raise RuntimeError("windows_job_missing")
         try:
             process.send_signal(signal.CTRL_BREAK_EVENT)
         except (OSError, ValueError):
             pass
-        if _wait(process, SIGNAL_GRACE_SECONDS):
-            return
-        try:
-            process.terminate()
-        except OSError:
-            pass
-        if _wait(process, SIGNAL_GRACE_SECONDS):
-            return
-        try:
-            process.kill()
-        except OSError:
-            pass
+        _wait_full_grace(process, SIGNAL_GRACE_SECONDS)
+        windows_job.close()
         _wait(process, SIGNAL_GRACE_SECONDS)
         return
+    process_group = process.pid
     kill_group = getattr(os, "killpg")
-    try:
-        kill_group(process.pid, signal.SIGINT)
-    except (OSError, ProcessLookupError):
-        pass
-    if _wait(process, SIGNAL_GRACE_SECONDS):
-        return
-    try:
-        kill_group(process.pid, signal.SIGTERM)
-    except (OSError, ProcessLookupError):
-        pass
-    if _wait(process, SIGNAL_GRACE_SECONDS):
-        return
-    try:
-        kill_group(process.pid, getattr(signal, "SIGKILL"))
-    except (OSError, ProcessLookupError):
-        pass
+    for group_signal in (
+        signal.SIGINT,
+        signal.SIGTERM,
+        getattr(signal, "SIGKILL"),
+    ):
+        if _posix_group_exists(process_group):
+            try:
+                kill_group(process_group, group_signal)
+            except ProcessLookupError:
+                pass
+        if _wait_posix_group_gone(
+            process,
+            process_group,
+            SIGNAL_GRACE_SECONDS,
+        ):
+            _wait(process, SIGNAL_GRACE_SECONDS)
+            return
     _wait(process, SIGNAL_GRACE_SECONDS)
+    if _posix_group_exists(process_group):
+        raise RuntimeError("process_group_survived")
 
 
 def _execute(
@@ -211,8 +448,11 @@ def _execute(
         print("INVALID command")
         return 2
     started = time.monotonic()
+    windows_job: _WindowsJob | None = None
+    process: subprocess.Popen[str] | None = None
     try:
         if os.name == "nt":
+            windows_job = _WindowsJob()
             process = subprocess.Popen(
                 list(command),
                 stdin=subprocess.DEVNULL,
@@ -222,12 +462,9 @@ def _execute(
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
-                creationflags=getattr(
-                    subprocess,
-                    "CREATE_NEW_PROCESS_GROUP",
-                    0x00000200,
-                ),
+                creationflags=CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED,
             )
+            windows_job.assign_and_resume(process.pid)
         else:
             process = subprocess.Popen(
                 list(command),
@@ -241,12 +478,30 @@ def _execute(
                 start_new_session=True,
             )
     except OSError:
+        cleanup_failed = False
+        if process is not None:
+            try:
+                process.kill()
+            except OSError:
+                cleanup_failed = True
+        if windows_job is not None:
+            try:
+                windows_job.close()
+            except OSError:
+                cleanup_failed = True
+        if process is not None and not _wait(process, SIGNAL_GRACE_SECONDS):
+            cleanup_failed = True
+        if process is not None and process.stdout is not None:
+            process.stdout.close()
+        if cleanup_failed:
+            raise RuntimeError("containment_setup_cleanup_failed")
         _write_evidence(
             evidence_path,
             _evidence(gate_id, "HOLD", 0.0, failure_reason, head),
         )
         print(f"HOLD {gate_id} {failure_reason}")
         return 1
+    assert process is not None
     assert process.stdout is not None
     tail: deque[str] = deque(maxlen=OUTPUT_TAIL_LINES)
     reader = threading.Thread(
@@ -255,9 +510,15 @@ def _execute(
         daemon=True,
     )
     reader.start()
-    timed_out = not _wait(process, float(timeout_seconds))
-    if timed_out:
-        _stop_process_group(process)
+    try:
+        timed_out = not _wait(process, float(timeout_seconds))
+        if timed_out:
+            _stop_process_group(process, windows_job)
+        elif windows_job is not None:
+            windows_job.close()
+    finally:
+        if windows_job is not None:
+            windows_job.close()
     reader.join(timeout=SIGNAL_GRACE_SECONDS)
     elapsed = time.monotonic() - started
     if timed_out:
@@ -297,7 +558,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.timeout_seconds is None or args.timeout_seconds < 0:
             print("INVALID timeout_seconds")
             return 2
-        if args.failure_reason not in STABLE_REASON_CODES:
+        failure_reason_is_valid = (
+            args.failure_reason == "terminal_serial_budget_exhausted"
+            if args.timeout_seconds == 0
+            else args.failure_reason in GATE_STATUS_REASON_CODES["HOLD"]
+        )
+        if not failure_reason_is_valid:
             print("INVALID reason_code")
             return 2
     elif (
