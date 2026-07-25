@@ -509,6 +509,20 @@ The sealed Semantic Atlas currently contains **327 meanings**:
 
 Those meanings help recognize language. They do not grant powers or establish truth.
 
+### Maintainer proof and learning boundaries
+
+The public repository carries two named hardening proof sets:
+
+- **Stage 1 Post-1.24 Safety Baseline** preserves the known public behavior surface, package and
+  installer shape, schema history, cross-platform checks, and bounded terminal evidence.
+- **Stage 2 Semantic Cube Narrator-Output Integrity** adds the narrator-output integrity matrix,
+  defect ledger, focused regressions, and cumulative terminal gate.
+
+The private development workspace may also use **AetherState Engineering Learning**, whose stable
+short name is **Proofbook**. It is a separate developer-only lesson ledger: it is not part of the
+runtime or public package, does not read Player sessions, and cannot grant mechanics, establish
+truth, settle outcomes, or train the narrator.
+
 For development:
 
 ~~~bash

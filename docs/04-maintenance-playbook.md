@@ -176,6 +176,26 @@ credentials, traces, private evidence, or an entire development workspace wholes
 `src/aetherstate/__init__.py` reads it in a source checkout. Keep that version aligned with
 `st-extension/manifest.json`, the README, and the public `CHANGELOG.md` entry.
 
+### Hardening evidence and developer learning
+
+- **Stage 1 Post-1.24 Safety Baseline** is the cumulative preservation proof set. Keep its public
+  behavior manifest monotonic, bind proof identity to the exact candidate, and accept derived PASS
+  evidence only from an exact reviewed direct source gate.
+- **Stage 2 Semantic Cube Narrator-Output Integrity** owns the narrator-output integrity matrix,
+  defect ledger, focused regression selectors, and cumulative terminal job. Keep the terminal
+  dependency-closed in the public tree; private coordination reports must never select required CI
+  behavior.
+- Transfer terminal ownership explicitly when a finite bootstrap stage is consumed. Retire only the
+  moving bootstrap equality freeze; retain the stable manifest, schema, baseline, collection,
+  preservation, and protected-branch checks.
+- A private development workspace may use **AetherState Engineering Learning**, or **Proofbook**, as
+  a developer-only verified lesson ledger. It is not part of the runtime or public package, cannot
+  grant mechanics or establish truth, and must never receive Player sessions, credentials, model
+  responses, or gameplay authority.
+- After a durable causal repair, perform an explicit lesson review. Admit one bounded rule with
+  exact owners, regressions, evidence, supported scope, and non-support, or record a deliberate
+  abstention. A green report by itself is not a lesson.
+
 ---
 
 ## 11. Test map
