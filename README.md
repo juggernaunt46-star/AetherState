@@ -229,6 +229,12 @@ AetherState can keep those as four different pieces of information. The **Claims
 
 Recognizing a sentence does **not** automatically make it true. Ordinary AI narration cannot secretly declare itself objective world truth, and hidden causes stay hidden from the Player.
 
+Quoted text and code examples remain non-authoritative. Before a recognized action can change
+mechanics, AetherState aligns it with the exact current world and turn, rejects stale world
+evidence, and leaves ambiguous names unresolved instead of choosing the first apparent match.
+Only a complete admitted result can change the ledger, and reopen or replay reconstructs that same
+committed result.
+
 ## A world that can keep changing
 
 AetherState can preserve lasting and temporary world changes instead of relying on the model to remember them.
@@ -387,6 +393,9 @@ In-chat AetherState commands are removed before the story model sees them.
 
 AetherState checks for narration that decides your character's actions or speaks dialogue for them. If the model crosses that boundary, a correction can be prepared for the following turn.
 
+This check runs after the visible response has streamed. It never silently blocks or replaces prose
+that the Player has already seen; it is an advisory for what should happen next.
+
 You can intentionally open the door by writing a clear action or quoted line yourself. Text you wrote in quotation marks should remain your text rather than being rewritten as different dialogue.
 
 ## PlayerLex and Player Lessons
@@ -478,6 +487,9 @@ This is off by default. A local NLI helper is available under <code>nli-shim/</c
 - The RPG truth gate remains off by default.
 - Recognizing a claim does not prove it is true, prove that someone lied, or create a world-changing event.
 - A saved narration preference can be delivered to the model, but AetherState cannot guarantee that every model follows it perfectly.
+- A normal Continue does not advance mechanics or create a new state-changing turn.
+- Run only one Continue or regeneration against a given assistant reply at a time; simultaneous
+  generations for the same reply do not yet have a stable external identity for exact correlation.
 - Unsupported world-event effects remain story information rather than inventing mechanics.
 - Direct Player damage is currently single-target; complete area-of-effect and unrestricted multi-target mechanics remain future work.
 - There is no built-in cloud sync or cross-user learning.

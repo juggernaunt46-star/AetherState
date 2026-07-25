@@ -19,6 +19,7 @@ from aetherstate.semantic import ACTION_FRAME_SCHEMA
 from aetherstate.semantic_binding import (
     validate_meaning_binding,
     validate_world_alignment,
+    world_alignment_snapshot,
 )
 from aetherstate.state import apply_delta, current_state, empty_state
 from aetherstate.store import Store
@@ -1214,6 +1215,10 @@ def test_root_v_frame_admits_worldlex_enemy_and_replays_exactly_after_reopen(tmp
         random.Random(7),
         turn=1,
     )
+    alignment = _ops(result, "semantic_world_alignment_commit")[0]["alignment"]
+    projected = {**state, "meta": {**state["meta"], "turn": 1}}
+    assert state["meta"]["turn"] == 0
+    assert alignment["world_snapshot_ref"] == world_alignment_snapshot(projected)
     settled = apply_delta(store, sid, branch, 1, result.rule_ops, "rule", cfg)
     assert not settled.quarantined
 

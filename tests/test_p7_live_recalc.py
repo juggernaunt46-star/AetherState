@@ -176,6 +176,93 @@ def test_live_recalc_ingests_fresh_reply_tags_at_this_turn():
                for q in (st.get("quests") or {}).values())
 
 
+@pytest.mark.parametrize(
+    ("wrapper", "accepted"),
+    [
+        (lambda block: block, True),
+        (lambda block: "\n".join("> " + line for line in block.splitlines()), False),
+        (lambda block: "```text\n" + block + "\n```", False),
+        (lambda block: "\n".join("    " + line for line in block.splitlines()), False),
+        (lambda block: "\n".join("\t" + line for line in block.splitlines()), False),
+    ],
+    ids=("live", "blockquote", "fenced", "four-space-code", "tab-code"),
+)
+def test_live_recalc_accepts_only_current_exact_tag_blocks(wrapper, accepted):
+    """Quoted and code-example tags are nonactual evidence, never live proposals."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    apply_delta(store, sid, bid, 0, [
+        {"op": "entity_add", "name": "Mira", "kind": "npc"},
+        {"op": "entity_add", "name": "Orr", "kind": "npc"},
+    ], "genesis", cfg)
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    ctx = PostContext(sid, bid, 1, "new_turn", speaker="Narrator")
+    block = "\n".join((
+        "[status gained | Mira | Scope Mark | neutral]",
+        "[scene | lantern_vault | rising]",
+        "[item gained | Rune | scope token]",
+        "[quest | Scope Ledger | new]",
+        "[affinity | Mira | +1]",
+        "[hp | Rune | -4 | tag proof]",
+        "[time | night]",
+        "[clash | Mira vs Orr | duel | stalemate]",
+    ))
+    reply = wrapper(block)
+    pipe.on_response(ctx, _json_reply(reply), "application/json")
+
+    state = current_state(store, bid)
+    replay = store.state_at(bid, 10**9, reduce_state, empty=empty_state())
+    extraction_rows = store.db.execute(
+        "SELECT COUNT(*) AS n FROM ops_journal WHERE branch_id=? AND source='extraction'",
+        (bid,),
+    ).fetchone()["n"]
+    assert state["player"]["rune"]["hp"]["cur"] == (26 if accepted else 30)
+    assert bool(state["effects"]) is accepted
+    assert bool(state["items"]) is accepted
+    assert bool(state.get("quests")) is accepted
+    assert not state.get("combat", {}).get("active")
+    assert bool(extraction_rows) is accepted
+    assert store.get_turn_texts(bid, 1, 1)[0]["assistant_text"] == f"Narrator: {reply.strip()}"
+    assert replay["player"]["rune"]["hp"] == state["player"]["rune"]["hp"]
+    assert replay["effects"] == state["effects"]
+    assert replay["items"] == state["items"]
+    assert replay.get("quests") == state.get("quests")
+    assert replay.get("combat") == state.get("combat")
+
+
+@pytest.mark.parametrize(
+    ("wrapper", "accepted"),
+    [
+        (lambda block: block, True),
+        (lambda block: "> " + block, False),
+        (lambda block: "```text\n" + block + "\n```", False),
+        (lambda block: "    " + block, False),
+        (lambda block: "\t" + block, False),
+    ],
+    ids=("live", "blockquote", "fenced", "four-space-code", "tab-code"),
+)
+def test_live_recalc_scope_gate_covers_ordinary_combat_tags(wrapper, accepted):
+    """Ordinary combat declarations obey the same actual-current scope gate."""
+    cfg = _rpg_cfg()
+    store, sid, bid = _seed_player(cfg)
+    pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
+    ctx = PostContext(sid, bid, 1, "new_turn", speaker="Narrator")
+    reply = wrapper("[foe | Ash Husk | standard | claws]")
+
+    pipe.on_response(ctx, _json_reply(reply), "application/json")
+
+    state = current_state(store, bid)
+    replay = store.state_at(bid, 10**9, reduce_state, empty=empty_state())
+    rule_rows = store.db.execute(
+        "SELECT COUNT(*) AS n FROM ops_journal WHERE branch_id=? AND source='rule'",
+        (bid,),
+    ).fetchone()["n"]
+    assert bool(state.get("combat", {}).get("active")) is accepted
+    assert bool(rule_rows) is accepted
+    assert store.get_turn_texts(bid, 1, 1)[0]["assistant_text"] == f"Narrator: {reply.strip()}"
+    assert replay.get("combat") == state.get("combat")
+
+
 def test_live_recalc_pickup_transfers_exact_world_instance_without_minting_substitute():
     cfg = _rpg_cfg()
     store, sid, bid = _seed_player(cfg)
@@ -438,17 +525,30 @@ def test_live_recalc_rejects_noncontiguous_cohort_with_visible_notice(caplog):
 def test_live_recalc_never_authorizes_markdown_quoted_cohort_blocks():
     blocks = (
         (
-            "The narrator quotes an example:\n```text\n"
-            "[foe | Ash Wretch x6 | minion | claws]\n"
-            "[battle | Hollow Road Assault | Ash Wretch host | minion]\n```"
+            (
+                "> [foe | Ash Wretch x6 | minion | claws]\n"
+                "> [battle | Hollow Road Assault | Ash Wretch host | minion]"
+            ),
+            0,
         ),
         (
-            "The narrator quotes an indented example:\n"
-            "    [foe | Ash Wretch x6 | minion | claws]\n"
-            "    [battle | Hollow Road Assault | Ash Wretch host | minion]"
+            (
+                "The narrator quotes an example:\n```text\n"
+                "[foe | Ash Wretch x6 | minion | claws]\n"
+                "[battle | Hollow Road Assault | Ash Wretch host | minion]\n```"
+            ),
+            0,
+        ),
+        (
+            (
+                "The narrator quotes an indented example:\n"
+                "    [foe | Ash Wretch x6 | minion | claws]\n"
+                "    [battle | Hollow Road Assault | Ash Wretch host | minion]"
+            ),
+            0,
         ),
     )
-    for reply in blocks:
+    for reply, expected_notices in blocks:
         cfg = _rpg_cfg()
         store, sid, bid = _seed_player(cfg)
         pipe = Pipeline(store, SessionEngine(store, cfg.session), cfg)
@@ -459,7 +559,7 @@ def test_live_recalc_never_authorizes_markdown_quoted_cohort_blocks():
         state = current_state(store, bid)
         assert not state.get("battle", {}).get("active")
         assert not state.get("combat", {}).get("active")
-        assert len(pipe.recent_notices(sid)) == 1
+        assert len(pipe.recent_notices(sid)) == expected_notices
 
 
 def test_live_recalc_inert_under_none():

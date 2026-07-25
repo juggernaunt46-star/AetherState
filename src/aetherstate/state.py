@@ -3808,7 +3808,7 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
         _trim_receipt_ledger(bindings, turn)
     elif kind == "semantic_world_alignment_commit":
         try:
-            from .semantic_binding import validate_world_alignment
+            from .semantic_binding import validate_world_alignment, world_alignment_snapshot
 
             alignment = validate_world_alignment(op.get("alignment"))
         except (TypeError, ValueError) as exc:
@@ -3852,6 +3852,8 @@ def _apply_op(state: dict, op: dict) -> None:  # noqa: C901 — one dispatch tab
             if prior.get("alignment") != alignment:
                 raise OpReject("semantic world alignment identity conflicts with prior state")
             return
+        if alignment["world_snapshot_ref"] != world_alignment_snapshot(state):
+            raise OpReject("semantic world alignment snapshot does not match current state")
         alignments.append({"turn": turn, "alignment": json.loads(json.dumps(alignment))})
         _trim_receipt_ledger(alignments, turn)
     elif kind == "semantic_frame_commit":
@@ -6933,9 +6935,9 @@ def _enrich(op: dict, turn: int, cfg, state: Optional[dict] = None,
         stored_faction = (((state or {}).get("attributes") or {}).get(entity_id) or {}).get(
             "faction"
         ) if entity_id else None
-        supplied_faction_id = resolve_entity_ref(state or {}, supplied_faction) \
+        supplied_faction_id = resolve_unique_entity_ref(state or {}, supplied_faction) \
             if supplied_faction else None
-        stored_faction_id = resolve_entity_ref(state or {}, stored_faction) \
+        stored_faction_id = resolve_unique_entity_ref(state or {}, stored_faction) \
             if stored_faction else None
         for faction_id in (supplied_faction_id, stored_faction_id):
             if faction_id is not None and (((state or {}).get("entities") or {}).get(

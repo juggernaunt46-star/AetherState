@@ -1,0 +1,440 @@
+{
+  "schema": "semantic-cube-narrator-output-integrity-matrix/1",
+  "audit_targets": [
+    "recognition",
+    "binding_world_alignment",
+    "admission_complete_settlement",
+    "narrator_transfer_model_compliance",
+    "visibility_lifecycle"
+  ],
+  "diagnostic_boundaries": [
+    "recognition",
+    "binding",
+    "world_alignment",
+    "admission",
+    "complete_settlement",
+    "narrator_transfer",
+    "model_compliance",
+    "visibility",
+    "lifecycle"
+  ],
+  "modes": [
+    "exploration",
+    "combat_opening",
+    "combat_exchange"
+  ],
+  "lifecycles": [
+    "fresh_response",
+    "duplicate_transport",
+    "retry",
+    "lost_reply",
+    "swipe_regeneration",
+    "continue",
+    "reopen",
+    "branch",
+    "replay"
+  ],
+  "statuses": [
+    "PASS",
+    "HOLD",
+    "NOT_APPLICABLE",
+    "INVALID"
+  ],
+  "rows": [
+    {
+      "id": "cube-recognition",
+      "invariant": "Recognition preserves exact actor, capability, target, actuality, time, and scope without granting authority.",
+      "audit_target": "recognition",
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "status": "PASS",
+      "diagnostic_boundary": "recognition",
+      "pass_reason": "Supported live narrator tags remain proposals while blockquoted, fenced, and indented examples are excluded before recognition; journal and replay controls pass.",
+      "owner_paths": [
+        "src/aetherstate/tier0.py"
+      ],
+      "selectors": [
+        "tests/test_semantic_fabric.py::test_declared_polysemy_remains_unresolved"
+      ],
+      "prerequisite_row_ids": [],
+      "evidence_ids": [
+        "task-3-recognition-audit",
+        "task-3-quoted-tag-red",
+        "task-3-scope-green-12",
+        "task-3-parser-consumer-green-31",
+        "repair-6ea63f5da71a1ab2730e9ef36f47723aedb2d9fe"
+      ],
+      "defect_ids": [
+        "SC-NOI-001"
+      ]
+    },
+    {
+      "id": "cube-binding-world-alignment",
+      "invariant": "Bindings and world alignments remain explicit, deterministic, and separate from recognized language.",
+      "audit_target": "binding_world_alignment",
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "status": "PASS",
+      "diagnostic_boundary": "world_alignment",
+      "pass_reason": "Fresh Tier0 receipts fingerprint the exact apply-turn world projection without mutating input state; real stale-world drift is rejected before persistence, and ambiguous foe actor or faction display names abstain without insertion-order identity binding.",
+      "owner_paths": [
+        "src/aetherstate/semantic_binding.py",
+        "src/aetherstate/tier0.py",
+        "src/aetherstate/state.py"
+      ],
+      "selectors": [
+        "tests/test_semantic_binding.py::test_reported_event_binding_preserves_recognition_and_derives_nonexecution",
+        "tests/test_semantic_binding_state.py::test_stale_positive_world_alignment_cannot_admit_frame_or_settlement",
+        "tests/test_semantic_action_vertical.py::test_root_v_frame_admits_worldlex_enemy_and_replays_exactly_after_reopen",
+        "tests/test_p12_combat.py::test_foe_tag_ambiguous_actor_and_faction_names_abstain_without_order_binding"
+      ],
+      "prerequisite_row_ids": [
+        "cube-recognition"
+      ],
+      "evidence_ids": [
+        "task-4-binding-world-alignment-audit",
+        "task-4-stale-alignment-red",
+        "task-4-stale-alignment-green-10",
+        "task-4-ambiguous-foe-identity-red",
+        "task-4-ambiguous-foe-identity-green-52",
+        "repair-f22d3d3b631ca187d47263f4b07fbccb1dbdba8b",
+        "repair-ccb7d74ad888de4c2812b312452157d7f14bd1ff",
+        "task-9-terminal-root-v-red",
+        "task-9-apply-turn-world-alignment-green-3",
+        "task-9-binding-world-alignment-owning-green-43",
+        "task-9-binding-world-alignment-matrix-green-7",
+        "repair-72e6c6739c4c9badfe59db889fedfadebfd84a42"
+      ],
+      "defect_ids": [
+        "SC-NOI-002",
+        "SC-NOI-003"
+      ]
+    },
+    {
+      "id": "cube-admission-complete-settlement",
+      "invariant": "Only admitted complete settlements mutate mechanics, and replay reconstructs the same committed result.",
+      "audit_target": "admission_complete_settlement",
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "status": "PASS",
+      "pass_reason": "Complete settlement wrappers admit all members or none; duplicate/retry, lost-reply, swipe, reopen, branch, and replay paths preserve one frozen receipt; narrator/extraction input cannot mint unsupported mechanics.",
+      "owner_paths": [
+        "src/aetherstate/state.py",
+        "src/aetherstate/store.py",
+        "src/aetherstate/mechanic_settlement.py",
+        "src/aetherstate/tier0.py"
+      ],
+      "selectors": [
+        "tests/test_weapon_settlement_tier0.py::test_hit_becomes_one_fixed_contract_wrapper_plus_exact_top_level_projections",
+        "tests/test_weapon_settlement_tier0.py::test_unresolved_weapon_attack_drops_all_frame_bound_mutations",
+        "tests/test_weapon_settlement_state.py::test_opening_and_member_failure_are_all_or_none",
+        "tests/test_weapon_settlement_state.py::test_exact_retry_is_duplicate_without_journal_and_changed_retry_conflicts",
+        "tests/test_weapon_settlement_state.py::test_reopen_replays_wrapper_once_and_later_occurrence_of_same_prose_is_distinct",
+        "tests/test_skill_check_settlement_state.py::test_exact_retry_is_duplicate_and_changed_same_ref_conflicts_without_mutation",
+        "tests/test_mechanic_settlement_store.py::test_fork_and_rollback_follow_the_receipt_turn_boundary",
+        "tests/test_semantic_settlement_window_cardinality.py::test_combat_opening_atomically_admits_one_to_three_grounded_enemies"
+      ],
+      "prerequisite_row_ids": [
+        "cube-binding-world-alignment"
+      ],
+      "evidence_ids": [
+        "task-5-admission-complete-settlement-audit",
+        "task-5-baseline-10",
+        "task-5-atomicity-adversarial-18",
+        "task-5-lifecycle-5",
+        "task-5-unsupported-minting-opening-22"
+      ]
+    },
+    {
+      "id": "cube-narrator-transfer-model-compliance",
+      "invariant": "Narrator transfer exposes only settled qualitative truth and model output cannot overrule code-owned mechanics.",
+      "audit_target": "narrator_transfer_model_compliance",
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "status": "HOLD",
+      "diagnostic_boundary": "narrator_transfer",
+      "hold_reason": "Automated narrator-transfer mode, packet, route, selection, and delivery evidence passed; VENICE_MAIN_ROUTE_HOLD: Task 8 could not positively prove the exact saved https://api.venice.ai/api/v1 main route, so no configured-model compliance proof was claimed.",
+      "owner_paths": [
+        "src/aetherstate/narrator_realization.py",
+        "src/aetherstate/compose.py",
+        "src/aetherstate/narration_plan_runtime.py",
+        "src/aetherstate/semantic_selection_transport.py",
+        "src/aetherstate/semantic_narration_orchestrator.py",
+        "src/aetherstate/narration_truth_gate.py",
+        "src/aetherstate/narration_pre_display_guard.py",
+        "src/aetherstate/pipeline.py",
+        "src/aetherstate/proxy.py",
+        "src/aetherstate/turn_lifecycle.py",
+        "src/aetherstate/response_wire.py"
+      ],
+      "selectors": [
+        "tests/test_narrator_realization_runtime.py::test_state_builder_projects_only_qualitative_settled_truth",
+        "tests/test_narrator_realization_runtime.py::test_candidate_without_a_complete_receipt_is_explicitly_unresolved",
+        "tests/test_narrator_realization_runtime.py::test_final_packet_and_adjacent_request_receive_the_same_realization_directive",
+        "tests/test_narrator_realization.py::test_pending_intent_can_only_be_a_visible_tell_without_impact",
+        "tests/test_narration_truth_gate.py::test_required_enemy_action_is_exactly_consumed_once",
+        "tests/test_narration_truth_gate.py::test_missing_or_misattributed_enemy_action_falls_back",
+        "tests/test_narration_truth_gate.py::test_retry_equivalent_failures_have_identical_code_fallback_and_hash",
+        "tests/test_semantic_narration_orchestrator.py::test_valid_buffered_selection_builds_one_proof_complete_candidate_envelope",
+        "tests/test_semantic_proxy_selection.py::test_selection_is_fully_buffered_before_claim_and_only_terminal_bytes_are_visible",
+        "tests/test_narration_pre_display_guard.py::test_proxy_streams_authoritative_turn_verbatim_before_cold_advisory",
+        "tests/test_narration_pre_display_guard.py::test_pipeline_guard_failure_is_advisory_and_preserves_original_wire",
+        "tests/test_narration_pre_display_guard.py::test_pipeline_guard_releases_verified_rich_wire_byte_exact",
+        "tests/test_player_lessons_narration.py::test_code_derived_narration_mode_is_closed_to_rpg_state",
+        "tests/test_deterministic_first_intent.py::test_fenced_opening_truth_plan_and_fallback_keep_one_exact_pending_intent_beat",
+        "tests/test_enemy_kits.py::test_established_combat_packet_distinguishes_resolved_action_from_next_intent"
+      ],
+      "prerequisite_row_ids": [
+        "cube-admission-complete-settlement"
+      ],
+      "evidence_ids": [
+        "task-6-narrator-transfer-model-compliance-audit",
+        "task-6-baseline-17",
+        "task-6-mode-packet-green",
+        "task-6-route-delivery-green",
+        "task-6-synthetic-classification-green",
+        "task-6-pre-display-contract-red",
+        "task-6-pre-display-contract-green",
+        "repair-ca4447055824d2b6fa64a8a3fc0371f58e9b505b"
+      ],
+      "defect_ids": [
+        "SC-NOI-004"
+      ]
+    },
+    {
+      "id": "cube-visibility-lifecycle",
+      "invariant": "Only accepted reply bytes become visible, and every lifecycle reuses or isolates the exact authoritative artifact.",
+      "audit_target": "visibility_lifecycle",
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "status": "HOLD",
+      "hold_reason": "current_main_semantic_truth_gated_continue_contract_absent: default Continue correctly does not advance state; the opt-in contract is not implemented. external_sillytavern_public_generation_id_absent_for_concurrent_same_slot_terminal_correlation: truly concurrent post-mutation same-slot terminal events are indistinguishable without a public generation ID; ordinary sends are serialized.",
+      "owner_paths": [
+        "src/aetherstate/pipeline.py",
+        "src/aetherstate/turn_lifecycle.py",
+        "src/aetherstate/state.py",
+        "src/aetherstate/store.py",
+        "src/aetherstate/proxy.py",
+        "src/aetherstate/response_wire.py",
+        "src/aetherstate/hud.py",
+        "src/aetherstate/control.py",
+        "st-extension/index.js"
+      ],
+      "selectors": [
+        "tests/test_enemy_kits.py::test_pipeline_exact_network_duplicate_keeps_one_turn_and_one_enemy_receipt",
+        "tests/test_semantic_pipeline_integration.py::test_duplicate_and_lost_reply_replay_one_exact_artifact_without_reducer_rerun",
+        "tests/test_semantic_pipeline_integration.py::test_failed_swipe_keeps_prior_tip_and_successful_retry_changes_it_once",
+        "tests/test_semantic_pipeline_integration.py::test_continue_is_a_proof_safe_conflict_until_it_has_an_explicit_contract",
+        "tests/test_l3_sessions.py::test_continue_no_state_advance",
+        "tests/test_enemy_kits.py::test_continue_prioritizes_partial_assistant_not_an_old_user_action",
+        "tests/test_turn_lifecycle.py::test_crash_boundaries_reopen_fallback_then_exact_accepted_bytes",
+        "tests/test_semantic_pipeline_integration.py::test_early_fork_copies_exact_prefix_artifact_rebinds_basis_and_isolates_source",
+        "tests/test_semantic_proxy_delivery.py::test_semantic_artifact_is_claimed_then_relayed_as_exact_wire",
+        "tests/test_turn_lifecycle.py::test_fully_terminal_nested_fork_reopens_each_rebased_prefix_artifact_exactly",
+        "tests/test_enemy_kits.py::test_combat_end_keeps_this_turns_resolved_action_renderable_but_clears_future_intent",
+        "tests/test_enemy_kits.py::test_pipeline_same_turn_swipe_never_reapplies_or_advances_enemy_action",
+        "tests/test_st_extension_hud.py::test_hud_smoke_renders_every_surface"
+      ],
+      "prerequisite_row_ids": [
+        "cube-narrator-transfer-model-compliance"
+      ],
+      "evidence_ids": [
+        "task-7-visibility-lifecycle-audit",
+        "task-7-python-baseline-14",
+        "task-7-node-hud-pass",
+        "task-7-lifecycle-identity-green",
+        "task-7-hud-war-room-green",
+        "task-7-continue-controls-green",
+        "current_main_semantic_truth_gated_continue_contract_absent",
+        "external_sillytavern_public_generation_id_absent_for_concurrent_same_slot_terminal_correlation"
+      ]
+    }
+  ],
+  "coverage_rules": [
+    {
+      "audit_targets": [
+        "recognition"
+      ],
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "disposition": "required",
+      "contract_reason": "Recognition is audited in every mode and lifecycle."
+    },
+    {
+      "audit_targets": [
+        "binding_world_alignment"
+      ],
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "disposition": "required",
+      "contract_reason": "Binding and world alignment are audited in every mode and lifecycle."
+    },
+    {
+      "audit_targets": [
+        "admission_complete_settlement"
+      ],
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "disposition": "required",
+      "contract_reason": "Admission and complete settlement are audited in every mode and lifecycle."
+    },
+    {
+      "audit_targets": [
+        "narrator_transfer_model_compliance"
+      ],
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "disposition": "required",
+      "contract_reason": "Narrator transfer and model compliance are audited in every mode and lifecycle."
+    },
+    {
+      "audit_targets": [
+        "visibility_lifecycle"
+      ],
+      "modes": [
+        "exploration",
+        "combat_opening",
+        "combat_exchange"
+      ],
+      "lifecycles": [
+        "fresh_response",
+        "duplicate_transport",
+        "retry",
+        "lost_reply",
+        "swipe_regeneration",
+        "continue",
+        "reopen",
+        "branch",
+        "replay"
+      ],
+      "disposition": "required",
+      "contract_reason": "Visibility and lifecycle behavior are audited in every mode and lifecycle."
+    }
+  ]
+}

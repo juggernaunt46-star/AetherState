@@ -12,13 +12,15 @@ import pytest
 
 from tools import stage_gate_contract as contract
 
-ROOT = Path(__file__).resolve().parents[1]
-BUILDER = ROOT / "tools/build_stage_gate_report.py"
-VALIDATOR = ROOT / "tools/validate_stage_gate.py"
-WORKFLOW = ROOT / ".github/workflows/ci.yml"
+CURRENT_ROOT = Path(__file__).resolve().parents[1]
+ROOT = CURRENT_ROOT
+BUILDER = CURRENT_ROOT / "tools/build_stage_gate_report.py"
+VALIDATOR = CURRENT_ROOT / "tools/validate_stage_gate.py"
+WORKFLOW = CURRENT_ROOT / ".github/workflows/ci.yml"
 STAGE_2_PLAN = (
     "docs/superpowers/plans/2026-07-24-semantic-cube-narrator-output-integrity.md"
 )
+STAGE_1_CANDIDATE = "f52c82733acbcc03cfe8c00c20bdaf35ab5a51e4"
 EXPECTED_GATES = {
     "architecture-characterization",
     "historical-schema",
@@ -55,6 +57,37 @@ QUALITY_GATE_ORDER = (
     "historical-schema",
     "privacy",
 )
+STAGE_1_BOOTSTRAP_TERMINAL_FIXTURE = """\
+  # Bootstrap authority only. Stage 2 atomically replaces this terminal job after consuming PASS.
+  stage-1-report:
+    needs: [quality, python-tests, javascript, package-build, package-smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: gate-*
+          path: build/hardening/gates
+          merge-multiple: true
+      - name: No-runtime-diff gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id no-runtime-diff
+          --timeout-seconds 300
+          --failure-reason dependency_or_runtime_gate_failed
+          --evidence build/hardening/gates/no-runtime-diff.json
+          --
+          python -c 'print("stage 1")'
+"""
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -67,19 +100,19 @@ def _git(cwd: Path, *args: str) -> str:
     ).stdout.strip()
 
 
-def _head(cwd: Path = ROOT) -> str:
-    return _git(cwd, "rev-parse", "HEAD")
+def _head(cwd: Path | None = None) -> str:
+    return _git(ROOT if cwd is None else cwd, "rev-parse", "HEAD")
 
 
 def _tool(
     script: Path,
     args: list[str],
     *,
-    cwd: Path = ROOT,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, str(script), *args],
-        cwd=cwd,
+        cwd=ROOT if cwd is None else cwd,
         capture_output=True,
         text=True,
         check=False,
@@ -121,7 +154,7 @@ def _write_all_pass(directory: Path, *, commit: str) -> None:
 def _build(
     tmp_path: Path,
     *,
-    cwd: Path = ROOT,
+    cwd: Path | None = None,
     evidence_origin: str = "github-actions:1:1",
     evidence_dir: Path | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], Path]:
@@ -145,7 +178,7 @@ def _build(
 def _validate(
     report: Path,
     *,
-    cwd: Path = ROOT,
+    cwd: Path | None = None,
     candidate: str = "HEAD",
     require_pass: bool = False,
 ) -> subprocess.CompletedProcess[str]:
@@ -162,7 +195,8 @@ def _validate(
     return _tool(VALIDATOR, args, cwd=cwd)
 
 
-def _pass_report(tmp_path: Path, *, cwd: Path = ROOT) -> Path:
+def _pass_report(tmp_path: Path, *, cwd: Path | None = None) -> Path:
+    cwd = ROOT if cwd is None else cwd
     evidence = tmp_path / "evidence"
     _write_all_pass(evidence, commit=_head(cwd))
     result, report = _build(tmp_path, cwd=cwd, evidence_dir=evidence)
@@ -179,12 +213,22 @@ def _report_gate(report: dict[str, object], gate_id: str) -> dict[str, object]:
 def _clone(tmp_path: Path) -> Path:
     clone = tmp_path / "repo"
     subprocess.run(
-        ["git", "clone", "--shared", "--quiet", str(ROOT), str(clone)],
+        ["git", "clone", "--shared", "--quiet", str(CURRENT_ROOT), str(clone)],
         check=True,
     )
     _git(clone, "config", "user.email", "task6@example.invalid")
     _git(clone, "config", "user.name", "Task Six")
+    _git(clone, "checkout", "--detach", STAGE_1_CANDIDATE)
     return clone
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _historical_stage_1_candidate(tmp_path_factory):
+    global ROOT
+    candidate = _clone(tmp_path_factory.mktemp("stage-1-candidate"))
+    ROOT = candidate
+    yield
+    ROOT = CURRENT_ROOT
 
 
 def _commit_file(repo: Path, relative: str, content: str, message: str = "fixture") -> str:
@@ -324,16 +368,50 @@ def test_exact_status_precedence(statuses: list[str], expected: str) -> None:
     assert contract.overall_status(statuses) == expected
 
 
-def test_bootstrap_workflow_has_exact_parallel_ownership_contract() -> None:
+def _canonical_stage_1_bootstrap_fixture(current_stage_2: str) -> str:
+    prefix, marker, _ = current_stage_2.partition(
+        "  # Candidate authority after exact Stage 1 PASS has been consumed.\n"
+    )
+    assert marker
+    return (
+        prefix.replace(
+            "AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative",
+            "AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap",
+            1,
+        )
+        + STAGE_1_BOOTSTRAP_TERMINAL_FIXTURE
+    )
+
+
+def test_current_workflow_has_exact_stage_2_parallel_ownership_contract() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     _assert_workflow_contract(text)
-    assert "AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap" in text
+    assert "AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative" in text
+    assert "  stage-2-cumulative:" in text
+    assert "narrator-output-integrity-report.md" not in text
+    assert "AETHERSTATE_CUBE_GATE_MODE" not in text
+    assert "--terminal" in text.split("  stage-2-cumulative:", 1)[1]
     assert "needs: package-build" in text
     assert "needs: [quality, python-tests, javascript, package-build, package-smoke]" in text
     assert text.count("python -m build --sdist --wheel") == 1
     assert text.count("node tests/creator_resource_contract.mjs") == 1
     assert "fail-fast: false" in text
     assert "if: always()" in text
+
+
+def test_historical_stage_1_fixture_uses_the_public_evidence_commit() -> None:
+    assert STAGE_1_CANDIDATE == "f52c82733acbcc03cfe8c00c20bdaf35ab5a51e4"
+
+
+def test_shared_workflow_contract_accepts_canonical_stage_1_bootstrap_fixture() -> None:
+    stage_1 = _canonical_stage_1_bootstrap_fixture(WORKFLOW.read_text(encoding="utf-8"))
+
+    _assert_workflow_contract(stage_1)
+
+    assert "AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap" in stage_1
+    assert "  stage-1-report:" in stage_1
+    assert "--gate-id no-runtime-diff" in stage_1
+    assert "--gate-id stage-2-cumulative" not in stage_1
 
 
 def test_quality_lane_watchdogs_have_bounded_aggregate_upload_margin() -> None:
@@ -380,64 +458,47 @@ def test_quality_lane_uploads_each_gate_immediately_under_unique_name() -> None:
     assert section.count("uses: actions/upload-artifact@v4") == len(
         QUALITY_GATE_ORDER
     )
-    assert "pattern: gate-*" in WORKFLOW.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
     "mutation",
     [
-        lambda text: text.replace("stage-1-bootstrap", "unknown-owner", 1),
-        lambda text: text.replace(
-            "  AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap",
-            "  AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap\n"
-            "  AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap",
+        pytest.param(
+            lambda text: text.replace("stage-2-cumulative", "unknown-owner", 1),
+            id="unknown-owner",
         ),
-        lambda text: text.replace("  quality:", "  quality-removed:", 1),
-        lambda text: text.replace("  stage-1-report:", "  stage-2-cumulative:", 1),
-        lambda text: text.replace("  stage-1-report:", "  terminal-removed:", 1),
+        pytest.param(
+            lambda text: text.replace(
+                "  AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative",
+                "  AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative\n"
+                "  AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative",
+            ),
+            id="duplicate-owner",
+        ),
+        pytest.param(
+            lambda text: text.replace("  quality:", "  quality-removed:", 1),
+            id="missing-shared-job",
+        ),
+        pytest.param(
+            lambda text: text.replace("  stage-2-cumulative:", "  stage-1-report:", 1),
+            id="wrong-terminal-job",
+        ),
+        pytest.param(
+            lambda text: text + STAGE_1_BOOTSTRAP_TERMINAL_FIXTURE,
+            id="mixed-terminal-jobs",
+        ),
+        pytest.param(
+            lambda text: text + "\n# --gate-id no-runtime-diff\n",
+            id="forbidden-no-runtime-diff",
+        ),
     ],
 )
-def test_workflow_contract_rejects_invalid_ownership_states(mutation) -> None:
+def test_workflow_contract_rejects_invalid_stage_2_ownership_states(
+    mutation,
+) -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     with pytest.raises(AssertionError):
         _assert_workflow_contract(mutation(text))
-
-
-def test_transition_contract_accepts_only_the_canonical_stage_2_swap() -> None:
-    text = WORKFLOW.read_text(encoding="utf-8")
-    stage_2 = text.replace("stage-1-bootstrap", "stage-2-cumulative", 1)
-    start = stage_2.index("  # Bootstrap authority only.")
-    replacement = """  # Canonical Stage 2 terminal authority.
-  stage-2-cumulative:
-    needs: [quality, python-tests, javascript, package-build, package-smoke]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
-      - run: >-
-          python tools/run_bounded_gate.py
-          --gate-id stage-2-cumulative
-          --timeout-seconds 300
-          --failure-reason stage_2_cumulative_failed
-          --evidence build/hardening/stage-2/gates/stage-2-cumulative.json
-          --
-          python -c 'print("stage 2")'
-"""
-    stage_2 = stage_2[:start] + replacement
-
-    _assert_workflow_contract(stage_2)
-
-    with pytest.raises(AssertionError):
-        _assert_workflow_contract(stage_2 + "\n# --gate-id no-runtime-diff\n")
-    with pytest.raises(AssertionError):
-        _assert_workflow_contract(
-            stage_2.replace(
-                "build/hardening/stage-2/gates/stage-2-cumulative.json",
-                "build/hardening/gates/stage-2-cumulative.json",
-            )
-        )
 
 
 def test_builder_emits_exact_sorted_pass_report_and_validator_accepts_it(

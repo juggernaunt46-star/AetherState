@@ -6,7 +6,7 @@ permissions:
 
 env:
   AETHERSTATE_CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-  AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap
+  AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative
 
 jobs:
   quality:
@@ -318,8 +318,8 @@ jobs:
           p=pathlib.Path('build/hardening/gates/${{ matrix.gate }}.json');
           sys.exit(0 if p.is_file() and json.loads(p.read_text())['status']=='PASS' else 1)"
 
-  # Bootstrap authority only. Stage 2 atomically replaces this terminal job after consuming PASS.
-  stage-1-report:
+  # Candidate authority after exact Stage 1 PASS has been consumed.
+  stage-2-cumulative:
     needs: [quality, python-tests, javascript, package-build, package-smoke]
     if: always()
     runs-on: ubuntu-latest
@@ -331,13 +331,8 @@ jobs:
           ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
-      - uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          pattern: gate-*
-          path: build/hardening/gates
-          merge-multiple: true
-      - name: No-runtime-diff gate
+      - run: python -m pip install --disable-pip-version-check -e ".[dev]"
+      - name: Stage 2 cumulative gate
         continue-on-error: true
         env:
           QUALITY_RESULT: ${{ needs.quality.result }}
@@ -347,49 +342,31 @@ jobs:
           PACKAGE_SMOKE_RESULT: ${{ needs.package-smoke.result }}
         run: >-
           python tools/run_bounded_gate.py
-          --gate-id no-runtime-diff
-          --timeout-seconds 300
-          --failure-reason dependency_or_runtime_gate_failed
-          --evidence build/hardening/gates/no-runtime-diff.json
+          --gate-id stage-2-cumulative
+          --timeout-seconds 600
+          --failure-reason stage_2_cumulative_failed
+          --evidence build/hardening/semantic-cube/gates/stage-2-cumulative.json
           --
           bash -lc 'test "$QUALITY_RESULT" = success &&
           test "$PYTHON_RESULT" = success &&
           test "$JAVASCRIPT_RESULT" = success &&
           test "$PACKAGE_BUILD_RESULT" = success &&
           test "$PACKAGE_SMOKE_RESULT" = success &&
-          git diff --exit-code
-          82b58277d7a1fb167434be0290d3dfd2bb3588e2 --
-          src st-extension corpus nli-shim pyproject.toml config.example.toml
-          Install-AetherState.bat install-aetherstate.sh Install-ST-Extension.bat
-          Start-AetherState.bat start-aetherstate.sh'
-      - name: Build terminal report
-        if: always()
-        run: >-
-          python tools/build_stage_gate_report.py
-          --evidence-dir build/hardening/gates
-          --evidence-origin github-actions:${{ github.run_id }}:${{ github.run_attempt }}
-          --report build/hardening/stage-1-terminal-report.json
-      - name: Validate terminal report
-        if: always()
-        continue-on-error: true
-        run: >-
-          python tools/validate_stage_gate.py
-          --report build/hardening/stage-1-terminal-report.json
-          --stage stage-1-safety-baseline
-          --candidate HEAD
-          --require-pass
-      - name: Upload terminal report
+          python tools/validate_semantic_cube_matrix.py
+          --matrix docs/hardening/semantic-cube/narrator-output-integrity-matrix.json
+          --defects docs/hardening/semantic-cube/narrator-output-integrity-defects.json
+          --terminal &&
+          python -m mypy tools/validate_semantic_cube_matrix.py'
+      - name: Upload Stage 2 cumulative evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stage-1-terminal-report-${{ env.AETHERSTATE_CANDIDATE_SHA }}
-          path: build/hardening/stage-1-terminal-report.json
+          name: stage-2-cumulative-${{ env.AETHERSTATE_CANDIDATE_SHA }}
+          path: build/hardening/semantic-cube/gates/stage-2-cumulative.json
           if-no-files-found: error
-      - name: Enforce terminal PASS
+      - name: Enforce Stage 2 cumulative PASS
         if: always()
         run: >-
-          python tools/validate_stage_gate.py
-          --report build/hardening/stage-1-terminal-report.json
-          --stage stage-1-safety-baseline
-          --candidate HEAD
-          --require-pass
+          python -c "import json,pathlib,sys;
+          p=pathlib.Path('build/hardening/semantic-cube/gates/stage-2-cumulative.json');
+          sys.exit(0 if p.is_file() and json.loads(p.read_text())['status']=='PASS' else 1)"

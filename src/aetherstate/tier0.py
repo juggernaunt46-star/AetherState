@@ -2760,6 +2760,7 @@ def _attach_meaning_binding(
     state: dict,
     meaning: CompiledMeaning,
     *,
+    occurrence_turn: int,
     detection_text: str | None = None,
 ) -> tuple[dict, list[dict]]:
     """Freeze event-local constraints, then independently align any possessed object."""
@@ -2948,8 +2949,12 @@ def _attach_meaning_binding(
     frame.possessed_object_instance_id = None
     frame.possessed_object_owner_id = None
     if frame.possessed_object:
+        alignment_state = {
+            **state,
+            "meta": {**(state.get("meta") or {}), "turn": occurrence_turn},
+        }
         alignment = build_possessed_object_alignment(
-            state,
+            alignment_state,
             recognition_ref=str(binding["fingerprint"]),
             object_name=frame.possessed_object,
             linguistic_possessor_id=frame.linguistic_possessor_id,
@@ -6605,6 +6610,39 @@ def _kill_intent(res: Tier0Result, state: dict, cfg, user_text: str,
 
 
 # ---- R9: the effect tag protocol (RPG-3, doc 05 §5.4) --------------------------------
+def _narrator_tag_recognition_text(text: str) -> str:
+    """Mask tag-capable Markdown example lines without changing stored reply bytes.
+
+    Narrator tags are current proposals only in ordinary reply text. A blockquote, fenced code
+    example, or indented code line is quoted/nonactual evidence; replacing only its ASCII ``[``
+    openers preserves every source coordinate for live declarations while preventing the exact-tag
+    grammars from treating an example as a proposal. Callers continue to store the raw response.
+    """
+    source = str(text or "")
+    chars = list(source)
+    fence: tuple[str, int] | None = None
+    offset = 0
+    for line in source.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        marker = re.match(r"^[ ]{0,3}(`{3,}|~{3,})", body)
+        fenced = fence is not None
+        if marker is not None:
+            token = marker.group(1)
+            if fence is None:
+                fence = (token[0], len(token))
+            elif token[0] == fence[0] and len(token) >= fence[1]:
+                fence = None
+            fenced = True
+        quoted = re.match(r"^[ ]{0,3}>", body) is not None
+        indented = body.startswith("\t") or len(body) - len(body.lstrip(" ")) >= 4
+        if fenced or quoted or indented:
+            for index, char in enumerate(body, start=offset):
+                if char == "[":
+                    chars[index] = " "
+        offset += len(line)
+    return "".join(chars)
+
+
 # The channel AI-Roguelite never had: the narrating model marks a Status/Condition change
 # inline and the ENGINE commits it to the ledger. Tags are proposals (extraction-source
 # authority: clamped, quarantined visibly); the prose itself is never the truth.
@@ -6899,9 +6937,10 @@ def parse_foe_tags(text: str, state: dict) -> list[dict]:
     validates the basis and mints the instance with curated
     HP. A name that matches a known entity spawns TRACKED (wounds persist); order/caps enforced
     by the reducer (each side is parser-capped at 3; the player holds one ally slot)."""
+    text = _narrator_tag_recognition_text(text)
     ops: list[dict] = []
     peid, _ = _player_card(state)
-    from .state import THREAT_TIERS, resolve_combatant, resolve_entity_ref
+    from .state import THREAT_TIERS, resolve_combatant, resolve_unique_entity_ref
     for side, rx in (("enemy", _FOE_TAG_RE), ("ally", _ALLY_TAG_RE)):
         n = 0
         for m in rx.finditer(text or ""):
@@ -6939,7 +6978,7 @@ def parse_foe_tags(text: str, state: dict) -> list[dict]:
                         # actor remains admissible. Active WorldOverlay policy may still reject
                         # the resulting factionless spawn at the reducer boundary.
                         continue
-                    faction_id = resolve_entity_ref(state, faction_ref)
+                    faction_id = resolve_unique_entity_ref(state, faction_ref)
                     faction_row = (state.get("entities") or {}).get(faction_id or "")
                     if not faction_ref:
                         invalid_faction = True
@@ -6960,13 +6999,13 @@ def parse_foe_tags(text: str, state: dict) -> list[dict]:
                 elif len(seg) <= 60:
                     op["armament"] = re.sub(r"^(?:uses|wields|carries|armed with)\s+", "", seg,
                                             flags=re.IGNORECASE)
-            eid = resolve_entity_ref(state, name)
+            eid = resolve_unique_entity_ref(state, name)
             if eid and (state.get("entities", {}).get(eid) or {}).get("kind") \
                     in ("character", "npc"):
                 op["char"] = eid                 # a KNOWN cast member fights as themselves
                 if side == "enemy":
                     stored_faction = ((state.get("attributes") or {}).get(eid) or {}).get("faction")
-                    stored_faction_id = resolve_entity_ref(state, stored_faction) \
+                    stored_faction_id = resolve_unique_entity_ref(state, stored_faction) \
                         if stored_faction else None
                     if stored_faction_id and ((state.get("entities") or {}).get(
                             stored_faction_id) or {}).get("kind") == "faction":
@@ -6992,6 +7031,7 @@ def parse_battle_tags(text: str, state: dict) -> list[dict]:
     winning|holding|losing | <why>]` REPORTS how the wider fight goes (clamped +/-1 step per turn
     at apply — the engine owns the pace). The engine owns momentum and sends the waves; the DM
     only narrates the macro and reports the tide."""
+    text = _narrator_tag_recognition_text(text)
     from .state import THREAT_TIERS
     ops: list[dict] = []
     for m in _BATTLE_TAG_RE.finditer(text or ""):
@@ -7026,6 +7066,7 @@ def parse_combat_tags(text: str, state: dict, *, allow_large_battle: bool = True
     for ``battle_ops``.  Invalid, ambiguous, active-battle, or standalone xN syntax contributes
     no enemy op; it is never reinterpreted as a literal actor name.
     """
+    text = _narrator_tag_recognition_text(text)
     ordinary = parse_foe_tags(text, state)
     if not allow_large_battle:
         return ordinary
@@ -7141,6 +7182,7 @@ def parse_reply_tags(text: str, state: dict) -> list[dict]:
     (the newest output commits on its own turn — Bean 2026-07-07); under legacy lag-1 the hot
     path calls the two parsers on the echoed-back previous reply. Mints nothing, decides
     nothing — proposals apply with source='extraction' (clamped, quarantined visibly)."""
+    text = _narrator_tag_recognition_text(text)
     ops: list[dict] = []
     if text:
         ops.extend(_parse_effect_tags(text, state))
@@ -7435,10 +7477,11 @@ def run(
                 _append_combat_transition_frame(
                     res.semantic_turn, last_user, player_eid, opening_assessment
                 )
-        _scope_semantic_occurrence(
-            res,
+        occurrence_turn = max(
+            0,
             int(turn if turn is not None else (state.get("meta") or {}).get("turn", -1) + 1),
         )
+        _scope_semantic_occurrence(res, occurrence_turn)
         semantic_frames = [
             frame for frame in (res.semantic_turn.frames if res.semantic_turn else [])
             if frame.capability_id or frame.ambiguity
@@ -7504,6 +7547,7 @@ def run(
                         last_user,
                         state,
                         meaning,
+                        occurrence_turn=occurrence_turn,
                         detection_text=action_user,
                     )
                 except (SemanticBindingError, ValueError) as exc:

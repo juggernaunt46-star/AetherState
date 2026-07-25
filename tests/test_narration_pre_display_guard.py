@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
@@ -30,6 +31,24 @@ from tests.test_skill_check_settlement_state import _ops, _runtime
 
 
 TURN = 7
+
+
+def test_public_guard_contract_names_its_legacy_post_stream_advisory() -> None:
+    root = Path(__file__).resolve().parents[1]
+    table_entry = next(
+        line for line in (root / "docs/03-config-and-api.md").read_text(encoding="utf-8").splitlines()
+        if "`narration_pre_display_guard`" in line
+    ).lower()
+    config_source = (root / "src/aetherstate/config.py").read_text(encoding="utf-8")
+    anchor = config_source.index("narration_pre_display_guard: bool = True")
+    adjacent_comment = config_source[anchor:config_source.index("    blocks:", anchor)].lower()
+    for contract in (
+        "legacy name",
+        "post-stream advisory",
+        "never buffers, blocks, or replaces current response bytes",
+    ):
+        assert contract in table_entry
+        assert contract in adjacent_comment
 
 
 def _fp(seed: str) -> str:

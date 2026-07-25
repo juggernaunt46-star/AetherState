@@ -498,6 +498,7 @@ def _possessive_receipts(
         target_entity_id="iven",
     )
     alignment_state = deepcopy(state)
+    alignment_state.setdefault("meta", {})["turn"] = occurrence_turn
     if false_alignment:
         alignment_state["items"]["polehammer"]["owner"] = "mara"
     alignment = build_possessed_object_alignment(
@@ -568,8 +569,28 @@ def test_only_positive_exact_alignment_may_populate_v3_item_identity_and_owner()
     ]
 
     cfg2, store2, sid2, bid2 = _runtime("semantic-v3-false-alignment", with_item=True)
+    mara = apply_delta(
+        store2,
+        sid2,
+        bid2,
+        4,
+        [{"op": "entity_add", "name": "Mara", "kind": "character"}],
+        "rule",
+        cfg2,
+    )
+    assert not mara.quarantined
+    transferred2 = apply_delta(
+        store2,
+        sid2,
+        bid2,
+        5,
+        [{"op": "item_transfer", "instance": "polehammer", "to_owner": "mara"}],
+        "rule",
+        cfg2,
+    )
+    assert not transferred2.quarantined
     _source, meaning2, binding2, alignment2, frame2 = _possessive_receipts(
-        current_state(store2, bid2), occurrence_turn=6, false_alignment=True
+        current_state(store2, bid2), occurrence_turn=6
     )
     assert alignment2["status"] == "false"
     mechanics2 = _complete_skill_check_ops(
@@ -603,6 +624,63 @@ def test_only_positive_exact_alignment_may_populate_v3_item_identity_and_owner()
         "semantic action frame reference has no committed frame ledger",
         "semantic action frame reference has no committed frame ledger",
     ]
+
+
+def test_stale_positive_world_alignment_cannot_admit_frame_or_settlement():
+    cfg, store, sid, bid = _runtime("semantic-v3-stale-positive-alignment", with_item=True)
+    source, meaning, binding, alignment, frame = _possessive_receipts(
+        current_state(store, bid), occurrence_turn=6
+    )
+    assert source and alignment["status"] == "positive"
+
+    transferred = apply_delta(
+        store,
+        sid,
+        bid,
+        5,
+        [
+            {"op": "entity_add", "name": "Mara", "kind": "character"},
+            {"op": "item_transfer", "instance": "polehammer", "to_owner": "mara"},
+        ],
+        "rule",
+        cfg,
+    )
+    assert not transferred.quarantined
+    assert current_state(store, bid)["items"]["polehammer"]["owner"] == "mara"
+    mechanics = _complete_skill_check_ops(
+        cfg, current_state(store, bid), frame, binding, turn=6,
+    )
+
+    result = apply_delta(
+        store,
+        sid,
+        bid,
+        6,
+        [
+            *mechanics,
+            {"op": "semantic_frame_commit", "frame": frame},
+            {"op": "semantic_world_alignment_commit", "alignment": alignment},
+            {"op": "semantic_binding_commit", "binding": binding},
+            {"op": "semantic_meaning_commit", "meaning": meaning},
+        ],
+        "rule",
+        cfg,
+    )
+
+    assert [op["op"] for op in result.applied] == [
+        "semantic_meaning_commit",
+        "semantic_binding_commit",
+    ]
+    assert result.quarantined[0]["op"]["op"] == "semantic_world_alignment_commit"
+    assert result.quarantined[0]["reason"] == (
+        "semantic world alignment snapshot does not match current state"
+    )
+    assert result.state["semantic_world_alignments"] == []
+    assert "semantic_frames" not in result.state
+    assert "mechanic_settlements" not in result.state
+    assert result.state.get("checks", []) == []
+    assert result.state.get("mastery", {}) == {}
+    assert result.state["items"]["polehammer"]["owner"] == "mara"
 
 
 def test_v3_frame_event_node_must_match_its_exact_binding():
