@@ -1,0 +1,291 @@
+{
+  "schema": "aetherstate-behavior-player-surface/1",
+  "baseline": {
+    "version": "1.24.0",
+    "commit": "82b58277d7a1fb167434be0290d3dfd2bb3588e2"
+  },
+  "merge_target": "82b58277d7a1fb167434be0290d3dfd2bb3588e2",
+  "cumulative": true,
+  "known_defects": [],
+  "surfaces": [
+    {
+      "id": "availability.fail-open-fail-closed",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_transparency.py::test_upstream_errors_relay_verbatim"},
+        {"kind": "pytest", "selector": "tests/test_semantic_proxy_delivery.py::test_gate_without_terminal_artifact_fails_closed"}
+      ]
+    },
+    {
+      "id": "background.jobs-restart",
+      "preservation": "required",
+      "default_reachability": "background",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_p6_cadence.py::test_resume_pending_requeues_after_restart"}]
+    },
+    {
+      "id": "cards.formats-and-install",
+      "preservation": "required",
+      "default_reachability": "configured",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_narrator_card.py::test_card_png_valid_and_reembeds_card"},
+        {"kind": "pytest", "selector": "tests/test_narrator_card.py::test_install_writes_png_when_dir_configured"}
+      ]
+    },
+    {
+      "id": "chat.creator-optional-world",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_creator.py::test_chat_character_authoring_is_world_optional_and_rpg_free"}]
+    },
+    {
+      "id": "chat.lifecycle-retry-swipe-fork-reopen",
+      "preservation": "required",
+      "default_reachability": "background",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_chat_mode_vertical.py::test_private_pov_swipe_and_fork_follow_only_accepted_lineage"},
+        {"kind": "pytest", "selector": "tests/test_turn_lifecycle.py::test_crash_boundaries_reopen_fallback_then_exact_accepted_bytes"}
+      ]
+    },
+    {
+      "id": "chat.living-character-continuity",
+      "preservation": "required",
+      "default_reachability": "background",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_chat_relationship_contract.py::test_relationship_agreement_occurrence_consent_and_infidelity_matrix"}]
+    },
+    {
+      "id": "chat.ordinary-core-persona",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_chat_mode_vertical.py::test_ordinary_and_coded_chat_cards_bind_exact_core_persona_without_rpg"}]
+    },
+    {
+      "id": "config.compatibility",
+      "preservation": "required",
+      "default_reachability": "configured",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_config.py::test_creator_generation_defaults_are_large_and_old_configs_inherit_them"},
+        {"kind": "pytest", "selector": "tests/test_config.py::test_invalid_file_falls_back_to_last_known_good"}
+      ]
+    },
+    {
+      "id": "console.config-and-credentials",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_credentials.py::test_console_save_keeps_key_only_in_secure_store"}]
+    },
+    {
+      "id": "console.inspection-and-privacy",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_console_player_privacy.py::test_raw_state_and_journal_require_console_owner_capability"}]
+    },
+    {
+      "id": "content.mature-rpg-capability",
+      "preservation": "required",
+      "default_reachability": "configured",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_p2_authority.py::test_user_consent_downgrade_always_upgrade_gated"},
+        {"kind": "pytest", "selector": "tests/test_p2_state.py::test_exposure_derived_from_layers"},
+        {"kind": "pytest", "selector": "tests/test_p2_state.py::test_relationship_delta_clamped"},
+        {"kind": "pytest", "selector": "tests/test_p4_director.py::test_consent_gated_ladder_seek_then_first_kiss"}
+      ]
+    },
+    {
+      "id": "creator.rpg-build-import-export-install",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_narrator_card.py::test_form_to_png_to_fresh_seed_to_prefill_is_one_exact_vertical"},
+        {"kind": "pytest", "selector": "tests/test_narrator_card.py::test_install_writes_png_when_dir_configured"}
+      ]
+    },
+    {
+      "id": "extension.install-and-controls",
+      "preservation": "required",
+      "default_reachability": "configured",
+      "proofs": [
+        {"kind": "node", "command": ["node", "tests/st_hud_smoke.mjs"]},
+        {"kind": "workflow", "gate": "installer-linux"},
+        {"kind": "workflow", "gate": "installer-windows"}
+      ]
+    },
+    {
+      "id": "install.linux",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "workflow", "gate": "installer-linux"},
+        {"kind": "pytest", "selector": "tests/test_installer_contracts.py::test_explicit_install_only_contract"}
+      ]
+    },
+    {
+      "id": "install.windows",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "workflow", "gate": "installer-windows"},
+        {"kind": "pytest", "selector": "tests/test_installer_contracts.py::test_explicit_install_only_contract"}
+      ]
+    },
+    {
+      "id": "launch.linux",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "workflow", "gate": "package-linux-py312"}]
+    },
+    {
+      "id": "launch.windows",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "workflow", "gate": "package-windows-py312"}]
+    },
+    {
+      "id": "ledger.journal-replay",
+      "preservation": "required",
+      "default_reachability": "background",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_store.py::test_state_at_checkpoint_plus_replay"}]
+    },
+    {
+      "id": "lessons.player",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_player_lessons_pipeline.py::test_fresh_player_rpg_turn_selects_once_delivers_and_duplicate_reuses_exact_packet"}]
+    },
+    {
+      "id": "lex.playerlex",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_playerlex.py::test_explicit_alias_proposes_exact_span_without_authority_or_input_persistence"}]
+    },
+    {
+      "id": "lex.worldlex",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_worldlex_runtime.py::test_worldlex_definition_then_noncombat_assignment_api"}]
+    },
+    {
+      "id": "memory.retrieval",
+      "preservation": "required",
+      "default_reachability": "background",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_p4_memory.py::test_retrieve_is_deterministic"}]
+    },
+    {
+      "id": "narration.current-output-contract",
+      "preservation": "required",
+      "default_reachability": "background",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_narrator_realization_runtime.py::test_final_packet_and_adjacent_request_receive_the_same_realization_directive"},
+        {"kind": "pytest", "selector": "tests/test_narration_pre_display_guard.py::test_proxy_streams_authoritative_turn_verbatim_before_cold_advisory"},
+        {"kind": "pytest", "selector": "tests/test_narration_truth_gate.py::test_settled_single_target_exact_graph_passes_and_receipt_binds_visible_surface"}
+      ]
+    },
+    {
+      "id": "privacy.credentials-and-no-telemetry",
+      "preservation": "required",
+      "default_reachability": "configured",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_credentials.py::test_os_vault_uses_opaque_reference_and_roundtrips_secret"},
+        {"kind": "pytest", "selector": "tests/test_transparency.py::test_status_endpoint_is_separate_surface"}
+      ]
+    },
+    {
+      "id": "proxy.openai-nonstream",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_transparency.py::test_unknown_fields_reach_upstream_verbatim"},
+        {"kind": "pytest", "selector": "tests/test_semantic_proxy_delivery.py::test_non_gated_upstream_response_remains_byte_exact"}
+      ]
+    },
+    {
+      "id": "proxy.openai-stream",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_transparency.py::test_sse_relay_byte_identical"}]
+    },
+    {
+      "id": "proxy.semantic-boundaries",
+      "preservation": "required",
+      "default_reachability": "configured",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_semantic_proxy_delivery.py::test_semantic_artifact_is_claimed_then_relayed_as_exact_wire"},
+        {"kind": "pytest", "selector": "tests/test_semantic_proxy_delivery.py::test_non_gated_upstream_response_remains_byte_exact"}
+      ]
+    },
+    {
+      "id": "proxy.upstream-error-and-malformed-sse",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_transparency.py::test_upstream_errors_relay_verbatim"},
+        {"kind": "pytest", "selector": "tests/test_transparency.py::test_malformed_sse_still_relays"}
+      ]
+    },
+    {
+      "id": "records.claims-facts-events",
+      "preservation": "required",
+      "default_reachability": "background",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_claim_event_record_store.py::test_claim_and_event_publish_atomically_and_exact_retry_is_idempotent"},
+        {"kind": "pytest", "selector": "tests/test_world_events.py::test_claim_belief_and_fact_admission_are_typed_separately"}
+      ]
+    },
+    {
+      "id": "rpg.checks-and-settlement",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_mechanic_settlement.py::test_miss_hit_and_defeat_are_derived_once_from_the_accepted_hp_change"}]
+    },
+    {
+      "id": "rpg.combat",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_p12_combat.py::test_spawn_bakes_tier_hp_and_caps_at_3v3"}]
+    },
+    {
+      "id": "rpg.hud-and-war-room",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_hud.py::test_hud_route_end_to_end"},
+        {"kind": "pytest", "selector": "tests/test_p12_combat.py::test_hud_war_room_payload_exact_hp_ally_die_and_enemy_intent"},
+        {"kind": "node", "command": ["node", "tests/st_hud_smoke.mjs"]}
+      ]
+    },
+    {
+      "id": "rpg.inventory-progression-resources",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_rpg2.py::test_gear_inventory_render_and_none_gate"},
+        {"kind": "pytest", "selector": "tests/test_rpg5.py::test_level_up_grants_and_multi_threshold"},
+        {"kind": "pytest", "selector": "tests/test_resource_lifecycle.py::test_rule_resource_gain_spend_set_and_visible_transactional_rejections"}
+      ]
+    },
+    {
+      "id": "rpg.player-card-selection",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [{"kind": "pytest", "selector": "tests/test_rpg0.py::test_rpg_new_session_renders_player_block_e2e"}]
+    },
+    {
+      "id": "rpg.world-and-living-world",
+      "preservation": "required",
+      "default_reachability": "background",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_creator.py::test_world_and_player_routes_persist"},
+        {"kind": "pytest", "selector": "tests/test_p14_living_world.py::test_p14_journal_replays_deterministically"}
+      ]
+    },
+    {
+      "id": "service.status-and-stop",
+      "preservation": "required",
+      "default_reachability": "direct",
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_playstack.py::test_stop_releases_owned_ports_and_does_not_touch_unrecorded_process"},
+        {"kind": "pytest", "selector": "tests/test_transparency.py::test_status_endpoint_is_separate_surface"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,424 @@
+{
+  "schema": "aetherstate-public-routes/1",
+  "baseline": {
+    "version": "1.24.0",
+    "commit": "82b58277d7a1fb167434be0290d3dfd2bb3588e2"
+  },
+  "routes": [
+    {
+      "path": "/aether/assist/endpoints",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/chat-card",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/chat-card/inspect",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/connection",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/connection",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/connection/models",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/console",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/creator",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/creator/models",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/enemies/preview",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/extraction",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/extraction",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/groups",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/hint",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/narrator-card",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/override",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/override",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/player-lessons",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/player-lessons",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/player-lessons/applications",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/player-lessons/selections",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/player-lessons/test",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/player-lessons/{lesson_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/aether/player-lessons/{lesson_id}",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/aether/player-lessons/{lesson_id}/enabled",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/playerlex",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/playerlex",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/playerlex/concepts",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/playerlex/propose",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/playerlex/{entry_id}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/aether/playerlex/{entry_id}",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/aether/presets",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/presets",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/presets/{pid}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/aether/presets/{pid}",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/registry",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}",
+      "methods": [
+        "DELETE"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/author",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/briefing",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/chat-core",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/chat-core-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/creator",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/experience-mode",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/experience-mode",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/freeze",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/genesis",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/hud",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/journal",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/label",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/mode",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/narrator-card",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/narrator-card.json",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/narrator-card.png",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/player",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/search",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/seed",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/seed-status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/state",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/state",
+      "methods": [
+        "PATCH"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/unfreeze",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/world",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/worldlex/assignments",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/worldlex/definitions",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/session/{sid}/writeback",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/sessions",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/specialization",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/aether/specialization",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "path": "/aether/status",
+      "methods": [
+        "GET"
+      ]
+    },
+    {
+      "path": "/{path:path}",
+      "methods": [
+        "GET",
+        "POST"
+      ]
+    }
+  ]
+}

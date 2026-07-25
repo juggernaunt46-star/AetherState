@@ -1,0 +1,54 @@
+{
+  "central_module_metrics": {
+    "src/aetherstate/control.py": {
+      "functions": 14,
+      "methods": 1,
+      "physical_lines": 4012
+    },
+    "src/aetherstate/pipeline.py": {
+      "functions": 33,
+      "methods": 65,
+      "physical_lines": 4201
+    },
+    "src/aetherstate/state.py": {
+      "functions": 177,
+      "methods": 1,
+      "physical_lines": 10336
+    },
+    "src/aetherstate/store.py": {
+      "functions": 10,
+      "methods": 125,
+      "physical_lines": 4125
+    }
+  },
+  "central_modules": [
+    "src/aetherstate/state.py",
+    "src/aetherstate/pipeline.py",
+    "src/aetherstate/control.py",
+    "src/aetherstate/store.py"
+  ],
+  "metrics": {
+    "bare_except_handlers": 0,
+    "base_exception_handlers": 12,
+    "broad_exception_handlers": 279,
+    "exception_handlers": 267,
+    "python_modules": 72,
+    "python_physical_lines": 94470,
+    "route_decorators": 68,
+    "state_dispatch_branches": 84
+  },
+  "schema": "aetherstate-architecture-baseline/1",
+  "source": {
+    "commit": "82b58277d7a1fb167434be0290d3dfd2bb3588e2",
+    "tree": "ffc789883b54da257e020ac9c68e11ba78d06c3b",
+    "workflow": {
+      "linux_python_lanes": [
+        "3.10",
+        "3.12"
+      ],
+      "path": ".github/workflows/ci.yml",
+      "sha256": "69d1b98084b75ade9f413d87bfa7e785b9b230111ac2dccea525937d791aab56"
+    }
+  },
+  "thresholds": {}
+}

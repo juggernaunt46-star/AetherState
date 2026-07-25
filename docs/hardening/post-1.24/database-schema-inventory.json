@@ -1,0 +1,617 @@
+{
+  "schema": "aetherstate-database-schema-inventory/1",
+  "personal_data_read": false,
+  "baselines": {
+    "1.0.0-release-2cd07ef": {
+      "version": "1.0.0",
+      "commit": "2cd07ef0756c31c96ddd088b52b262558f997ca7",
+      "fixtures": {
+        "core": {
+          "path": "tests/fixtures/hardening/schema-history/1.0.0-release-2cd07ef/core.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.0.0-release-2cd07ef/core.schema.sql",
+          "fingerprint": "sha256:2c7e43b2b01d0f2e274c498272aa845da019b3483fd455bc8a8fa9c0199d693c"
+        },
+        "full-start": {
+          "path": "tests/fixtures/hardening/schema-history/1.0.0-release-2cd07ef/full-start.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.0.0-release-2cd07ef/full-start.schema.sql",
+          "fingerprint": "sha256:2c7e43b2b01d0f2e274c498272aa845da019b3483fd455bc8a8fa9c0199d693c"
+        }
+      },
+      "source_blobs": [
+        {
+          "path": "src/aetherstate/store.py",
+          "blob": "33050df0b018f52ed1a12f4149239a49388a0bdb"
+        }
+      ]
+    },
+    "1.1.0-release-ed63e38": {
+      "version": "1.1.0",
+      "commit": "ed63e38758cbb0febecb20006274ea4b992028a4",
+      "fixtures": {
+        "core": {
+          "path": "tests/fixtures/hardening/schema-history/1.1.0-release-ed63e38/core.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.1.0-release-ed63e38/core.schema.sql",
+          "fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+        },
+        "full-start": {
+          "path": "tests/fixtures/hardening/schema-history/1.1.0-release-ed63e38/full-start.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.1.0-release-ed63e38/full-start.schema.sql",
+          "fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+        }
+      },
+      "source_blobs": [
+        {
+          "path": "src/aetherstate/store.py",
+          "blob": "e6feddcd37bdae1444af22dcc298a77b1fda1817"
+        }
+      ]
+    },
+    "1.22.0-release-9091614": {
+      "version": "1.22.0",
+      "commit": "90916140c6f109449e3a458939f1397c408fb619",
+      "fixtures": {
+        "core": {
+          "path": "tests/fixtures/hardening/schema-history/1.22.0-release-9091614/core.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.22.0-release-9091614/core.schema.sql",
+          "fingerprint": "sha256:af8272ef8588eefea69cf5fe6bb421b6caf867b2afb91e14eeb2c3adf2b4ffef"
+        },
+        "full-start": {
+          "path": "tests/fixtures/hardening/schema-history/1.22.0-release-9091614/full-start.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.22.0-release-9091614/full-start.schema.sql",
+          "fingerprint": "sha256:0cf292c66e0ca4e9c3d164a29e3b22dae79d4dd7782a302da817f9d4cb2784dc"
+        }
+      },
+      "source_blobs": [
+        {
+          "path": "src/aetherstate/player_lessons.py",
+          "blob": "197c4fe9176be6727e9d111c6d1233491d32ffcd"
+        },
+        {
+          "path": "src/aetherstate/playerlex.py",
+          "blob": "8fcd1ce6e85db3a96e5b574723ae824e971016ad"
+        },
+        {
+          "path": "src/aetherstate/store.py",
+          "blob": "a8c77c043ad476d57033a4c950524c6dbbefffdb"
+        },
+        {
+          "path": "src/aetherstate/turn_lifecycle.py",
+          "blob": "3e593b87102b83884cef70eef5d68add3f771181"
+        },
+        {
+          "path": "src/aetherstate/worldlex_store.py",
+          "blob": "f70b89f92b428c0ffd5c4bbac27133863e69deec"
+        }
+      ]
+    },
+    "1.23.0-release-1f4aad0": {
+      "version": "1.23.0",
+      "commit": "1f4aad0da6a510326747a4b7e79b1929639efb1c",
+      "fixtures": {
+        "core": {
+          "path": "tests/fixtures/hardening/schema-history/1.23.0-release-1f4aad0/core.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.23.0-release-1f4aad0/core.schema.sql",
+          "fingerprint": "sha256:dd9241fbdf4a75d41844979817273a8fab419fa52aad4ae8077965b6f74d6601"
+        },
+        "full-start": {
+          "path": "tests/fixtures/hardening/schema-history/1.23.0-release-1f4aad0/full-start.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.23.0-release-1f4aad0/full-start.schema.sql",
+          "fingerprint": "sha256:495dc1fec684e56ae42c96e2756badb4653b799a488cf7079c9551165795044a"
+        }
+      },
+      "source_blobs": [
+        {
+          "path": "src/aetherstate/player_lessons.py",
+          "blob": "db73d90af5df91ab1d0fd71569829e8a2d7d8be7"
+        },
+        {
+          "path": "src/aetherstate/playerlex.py",
+          "blob": "be6f4115a0ecc97090c98091ff6068b6d531f4bf"
+        },
+        {
+          "path": "src/aetherstate/store.py",
+          "blob": "91ffc318b0a784fc6c8c1e6a13be44e992bfb604"
+        },
+        {
+          "path": "src/aetherstate/turn_lifecycle.py",
+          "blob": "3e593b87102b83884cef70eef5d68add3f771181"
+        },
+        {
+          "path": "src/aetherstate/worldlex_store.py",
+          "blob": "f70b89f92b428c0ffd5c4bbac27133863e69deec"
+        }
+      ]
+    },
+    "1.23.0-final-34dfe8f": {
+      "version": "1.23.0",
+      "commit": "34dfe8f3c4cb8ac8171cf6d85ca9e8ec387e326d",
+      "fixtures": {
+        "core": {
+          "path": "tests/fixtures/hardening/schema-history/1.23.0-final-34dfe8f/core.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.23.0-final-34dfe8f/core.schema.sql",
+          "fingerprint": "sha256:da510639b35fa9b1f9810bf01754dd9051000929675a5fb4cfb6c5e5e885f529"
+        },
+        "full-start": {
+          "path": "tests/fixtures/hardening/schema-history/1.23.0-final-34dfe8f/full-start.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.23.0-final-34dfe8f/full-start.schema.sql",
+          "fingerprint": "sha256:1067d2d461118bb5662a2a4c8e56df544f8b69fe4557c436fd95a9bc0ca7bac3"
+        }
+      },
+      "source_blobs": [
+        {
+          "path": "src/aetherstate/player_lessons.py",
+          "blob": "db73d90af5df91ab1d0fd71569829e8a2d7d8be7"
+        },
+        {
+          "path": "src/aetherstate/playerlex.py",
+          "blob": "be6f4115a0ecc97090c98091ff6068b6d531f4bf"
+        },
+        {
+          "path": "src/aetherstate/store.py",
+          "blob": "94fe57df160e8588cdb68bb634998163fa498bf6"
+        },
+        {
+          "path": "src/aetherstate/turn_lifecycle.py",
+          "blob": "3e593b87102b83884cef70eef5d68add3f771181"
+        },
+        {
+          "path": "src/aetherstate/worldlex_store.py",
+          "blob": "f70b89f92b428c0ffd5c4bbac27133863e69deec"
+        }
+      ]
+    },
+    "1.24.0-release-fdf71e2": {
+      "version": "1.24.0",
+      "commit": "fdf71e24ff6790593f8bb7d60d61c7ff671bd300",
+      "fixtures": {
+        "core": {
+          "path": "tests/fixtures/hardening/schema-history/1.24.0-release-fdf71e2/core.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.24.0-release-fdf71e2/core.schema.sql",
+          "fingerprint": "sha256:8ef738ee5f12086c95bbe7b0a698e63473f7fe425df0387774497e07e1183cf9"
+        },
+        "full-start": {
+          "path": "tests/fixtures/hardening/schema-history/1.24.0-release-fdf71e2/full-start.schema.json",
+          "sql_path": "tests/fixtures/hardening/schema-history/1.24.0-release-fdf71e2/full-start.schema.sql",
+          "fingerprint": "sha256:850c0b839e3f5c2b09ef4c12ecb5fe89ea31c6e656a3344d7865d6baa1e9843e"
+        }
+      },
+      "source_blobs": [
+        {
+          "path": "src/aetherstate/player_lessons.py",
+          "blob": "3481cd12842d6c1069b56a9d3bae111d77fd8898"
+        },
+        {
+          "path": "src/aetherstate/playerlex.py",
+          "blob": "be6f4115a0ecc97090c98091ff6068b6d531f4bf"
+        },
+        {
+          "path": "src/aetherstate/store.py",
+          "blob": "8448e5c1ced90488c54f46d78fef848479e25e9d"
+        },
+        {
+          "path": "src/aetherstate/turn_lifecycle.py",
+          "blob": "427de80d0da299e355240c134e9678b42e263f31"
+        },
+        {
+          "path": "src/aetherstate/worldlex_store.py",
+          "blob": "f70b89f92b428c0ffd5c4bbac27133863e69deec"
+        }
+      ]
+    }
+  },
+  "aliases": [
+    {
+      "version": "1.2.0",
+      "commit": "473f94eda7e4229d2bc0365f4a304ea5dd4d9de9",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.3.0",
+      "commit": "23d1b3d946294972cd100eabee284ca10df18ea3",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.4.0",
+      "commit": "69dd6eac5ef4d8a7eeadb6d19c5e6b4f90cb8ebb",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.5.0",
+      "commit": "2b0923fc3008f4c08320fc9e84cdae298f5d4b15",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.6.0",
+      "commit": "d4bec412e4d256249532955f2b664a10e5f9f3c7",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.6.1",
+      "commit": "4ac26ae51f7e54f6bece99727df5f08f088d02d3",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.7.0",
+      "commit": "f8b8773e550e26753144012770dfb16be91e52e7",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.8.0",
+      "commit": "a2fa615ce88f73864f40dc52f592407994a4c402",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.8.1",
+      "commit": "c03fa81b92e8bf7c4ced8a51aa4b1cfb7e4cbaf6",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.8.2",
+      "commit": "7aaded00867bbfc698f6ee0ba428cbb61a627f30",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.10.0",
+      "commit": "81eb8f0f05fe065ab4f3024e571f5af29a212757",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.13.1",
+      "commit": "0fb1cda7084e61552f83393a5d6d79845d7f20ae",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.15.0",
+      "commit": "8ef242267d3c816e0aee71b1f901e7a28c845488",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.18.0",
+      "commit": "d0febb8577b462ad7d53e9bc60bff817312a3b59",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.19.0",
+      "commit": "794e68f95e7317ee5c8452e61633892646e1a5cc",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.21.0",
+      "commit": "244e4bb0fd8f4ca4f9d1a9a46219396df23ff216",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "core_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920",
+      "full_start_fingerprint": "sha256:2a7de025bfd2319692232a9025f5ec5bfc894a61838f51c1fd8d46235e230920"
+    },
+    {
+      "version": "1.22.0-final",
+      "commit": "8c96726753dd65e3d17024ffee9ca1dcf102437a",
+      "baseline_id": "1.22.0-release-9091614",
+      "core_fingerprint": "sha256:af8272ef8588eefea69cf5fe6bb421b6caf867b2afb91e14eeb2c3adf2b4ffef",
+      "full_start_fingerprint": "sha256:0cf292c66e0ca4e9c3d164a29e3b22dae79d4dd7782a302da817f9d4cb2784dc"
+    },
+    {
+      "version": "1.24.0-current",
+      "commit": "82b58277d7a1fb167434be0290d3dfd2bb3588e2",
+      "baseline_id": "1.24.0-release-fdf71e2",
+      "core_fingerprint": "sha256:8ef738ee5f12086c95bbe7b0a698e63473f7fe425df0387774497e07e1183cf9",
+      "full_start_fingerprint": "sha256:850c0b839e3f5c2b09ef4c12ecb5fe89ea31c6e656a3344d7865d6baa1e9843e"
+    }
+  ],
+  "release_versions": {
+    "1.0.0": {
+      "status": "PASS",
+      "disposition": "schema-baseline",
+      "reason_code": "captured_distinct_schema",
+      "baseline_id": "1.0.0-release-2cd07ef",
+      "commit": "2cd07ef0756c31c96ddd088b52b262558f997ca7"
+    },
+    "1.1.0": {
+      "status": "PASS",
+      "disposition": "schema-baseline",
+      "reason_code": "captured_distinct_schema",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "ed63e38758cbb0febecb20006274ea4b992028a4"
+    },
+    "1.2.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "473f94eda7e4229d2bc0365f4a304ea5dd4d9de9"
+    },
+    "1.3.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "23d1b3d946294972cd100eabee284ca10df18ea3"
+    },
+    "1.4.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "69dd6eac5ef4d8a7eeadb6d19c5e6b4f90cb8ebb"
+    },
+    "1.5.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "2b0923fc3008f4c08320fc9e84cdae298f5d4b15"
+    },
+    "1.6.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "d4bec412e4d256249532955f2b664a10e5f9f3c7"
+    },
+    "1.6.1": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "4ac26ae51f7e54f6bece99727df5f08f088d02d3"
+    },
+    "1.7.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "f8b8773e550e26753144012770dfb16be91e52e7"
+    },
+    "1.8.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "a2fa615ce88f73864f40dc52f592407994a4c402"
+    },
+    "1.8.1": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "c03fa81b92e8bf7c4ced8a51aa4b1cfb7e4cbaf6"
+    },
+    "1.8.2": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "7aaded00867bbfc698f6ee0ba428cbb61a627f30"
+    },
+    "1.9.0": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "81eb8f0f05fe065ab4f3024e571f5af29a212757",
+        "owning_pyproject_version": "1.10.0",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.10.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "81eb8f0f05fe065ab4f3024e571f5af29a212757"
+    },
+    "1.11.0": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "0fb1cda7084e61552f83393a5d6d79845d7f20ae",
+        "owning_pyproject_version": "1.13.1",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.12.0": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "0fb1cda7084e61552f83393a5d6d79845d7f20ae",
+        "owning_pyproject_version": "1.13.1",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.13.0": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "0fb1cda7084e61552f83393a5d6d79845d7f20ae",
+        "owning_pyproject_version": "1.13.1",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.13.1": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "0fb1cda7084e61552f83393a5d6d79845d7f20ae"
+    },
+    "1.14.0": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "8ef242267d3c816e0aee71b1f901e7a28c845488",
+        "owning_pyproject_version": "1.15.0",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.14.1": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "8ef242267d3c816e0aee71b1f901e7a28c845488",
+        "owning_pyproject_version": "1.15.0",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.15.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "8ef242267d3c816e0aee71b1f901e7a28c845488"
+    },
+    "1.16.0": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "d0febb8577b462ad7d53e9bc60bff817312a3b59",
+        "owning_pyproject_version": "1.18.0",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.17.0": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "d0febb8577b462ad7d53e9bc60bff817312a3b59",
+        "owning_pyproject_version": "1.18.0",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.18.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "d0febb8577b462ad7d53e9bc60bff817312a3b59"
+    },
+    "1.19.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "794e68f95e7317ee5c8452e61633892646e1a5cc"
+    },
+    "1.20.0": {
+      "status": "PASS",
+      "disposition": "not-separately-built",
+      "reason_code": "no_separate_public_build",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "evidence": {
+        "owning_cumulative_commit": "244e4bb0fd8f4ca4f9d1a9a46219396df23ff216",
+        "owning_pyproject_version": "1.21.0",
+        "matching_public_pyproject_version": false,
+        "remote_tag": null,
+        "github_release": null
+      }
+    },
+    "1.21.0": {
+      "status": "PASS",
+      "disposition": "proven-identical-alias",
+      "reason_code": "identical_core_and_full_start",
+      "baseline_id": "1.1.0-release-ed63e38",
+      "commit": "244e4bb0fd8f4ca4f9d1a9a46219396df23ff216"
+    },
+    "1.22.0": {
+      "status": "PASS",
+      "disposition": "schema-baseline",
+      "reason_code": "captured_distinct_schema",
+      "baseline_id": "1.22.0-release-9091614",
+      "commit": "90916140c6f109449e3a458939f1397c408fb619",
+      "final_public_commit": "8c96726753dd65e3d17024ffee9ca1dcf102437a"
+    },
+    "1.23.0": {
+      "status": "PASS",
+      "disposition": "schema-baseline",
+      "reason_code": "captured_distinct_schema",
+      "baseline_id": "1.23.0-final-34dfe8f",
+      "commit": "34dfe8f3c4cb8ac8171cf6d85ca9e8ec387e326d",
+      "additional_baseline_ids": [
+        "1.23.0-release-1f4aad0"
+      ]
+    },
+    "1.24.0": {
+      "status": "PASS",
+      "disposition": "schema-baseline",
+      "reason_code": "captured_distinct_schema",
+      "baseline_id": "1.24.0-release-fdf71e2",
+      "commit": "fdf71e24ff6790593f8bb7d60d61c7ff671bd300",
+      "current_public_commit": "82b58277d7a1fb167434be0290d3dfd2bb3588e2"
+    }
+  },
+  "public_evidence": {
+    "repository": "https://github.com/juggernaunt46-star/AetherState",
+    "remote_tags": [],
+    "github_releases": {
+      "endpoint": "https://api.github.com/repos/juggernaunt46-star/AetherState/releases?per_page=100",
+      "http_status": 200,
+      "count": 0,
+      "response_sha256": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "archive_heads": {
+      "refs/heads/archive/public-main-2026-07-17": "244e4bb0fd8f4ca4f9d1a9a46219396df23ff216",
+      "refs/heads/archive/public-main-1.22.0-2026-07-17": "8c96726753dd65e3d17024ffee9ca1dcf102437a",
+      "refs/heads/archive/public-main-1.23.0-2026-07-24": "34dfe8f3c4cb8ac8171cf6d85ca9e8ec387e326d",
+      "refs/heads/archive/public-main-1.24.0-pre-ci-fix-2026-07-24": "fdf71e24ff6790593f8bb7d60d61c7ff671bd300"
+    }
+  }
+}
