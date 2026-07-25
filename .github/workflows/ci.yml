@@ -1,16 +1,362 @@
 name: ci
 on: [push, pull_request]
+
+permissions:
+  contents: read
+
+env:
+  AETHERSTATE_CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+  AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap
+
 jobs:
-  test:
+  quality:
     runs-on: ubuntu-latest
-    strategy:
-      matrix: { python: ["3.10", "3.12"] }
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
       - uses: actions/setup-python@v5
-        with: { python-version: "${{ matrix.python }}" }
-      - run: pip install -e .[dev]
-      - run: ruff check src tests tools nli-shim
-      - run: pytest -q
-      - run: node tests/creator_resource_contract.mjs
-      - run: node tests/st_hud_smoke.mjs
+        with: {python-version: "3.12"}
+      - run: python -m pip install --disable-pip-version-check -e ".[dev]"
+      - name: Scoped static gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id scoped-static
+          --timeout-seconds 1200
+          --failure-reason scoped_static_failed
+          --evidence build/hardening/gates/scoped-static.json
+          --
+          bash -lc 'python -m ruff check src tests tools nli-shim &&
+          python -m mypy
+          tools/build_stage_gate_report.py
+          tools/capture_architecture_baseline.py
+          tools/capture_public_routes.py
+          tools/capture_schema_contract.py
+          tools/run_bounded_gate.py
+          tools/smoke_clean_wheel.py
+          tools/stage_gate_contract.py
+          tools/validate_behavior_manifest.py
+          tools/validate_stage_gate.py'
+      - name: Manifest gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id manifest
+          --timeout-seconds 1200
+          --failure-reason manifest_failed
+          --evidence build/hardening/gates/manifest.json
+          --
+          bash -lc 'git fetch --no-tags origin main &&
+          python tools/validate_behavior_manifest.py
+          --check-pytest-collection
+          --merge-target origin/main'
+      - name: Architecture gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id architecture-characterization
+          --timeout-seconds 1200
+          --failure-reason architecture_characterization_failed
+          --evidence build/hardening/gates/architecture-characterization.json
+          --
+          bash -lc 'python -m pytest -q
+          tests/test_architecture_baseline.py
+          tests/test_hardening_characterization.py &&
+          python tools/capture_architecture_baseline.py
+          --git-ref 82b58277d7a1fb167434be0290d3dfd2bb3588e2
+          --check docs/hardening/post-1.24/architecture-baseline.json'
+      - name: Historical schema gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id historical-schema
+          --timeout-seconds 1200
+          --failure-reason historical_schema_hold
+          --evidence build/hardening/gates/historical-schema.json
+          --
+          python -m pytest -q tests/test_historical_schema_inventory.py
+      - name: Privacy gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id privacy
+          --timeout-seconds 1200
+          --failure-reason privacy_contract_failed
+          --evidence build/hardening/gates/privacy.json
+          --
+          python -m pytest -q
+          tests/test_credentials.py
+          tests/test_console_player_privacy.py
+          tests/test_transparency.py::test_status_endpoint_is_separate_surface
+      - name: Upload quality evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-quality
+          path: build/hardening/gates/*.json
+          if-no-files-found: warn
+      - name: Enforce quality gates
+        if: always()
+        run: >-
+          python -c "import json,pathlib,sys;
+          ids={'scoped-static','manifest','architecture-characterization','historical-schema','privacy'};
+          rows={p.stem:json.loads(p.read_text()) for p in pathlib.Path('build/hardening/gates').glob('*.json')};
+          sys.exit(0 if ids <= rows.keys() and all(rows[i]['status']=='PASS' for i in ids) else 1)"
+
+  python-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.10", gate: linux-py310-full, installer: installer-linux}
+          - {os: ubuntu-latest, python: "3.12", gate: linux-py312-full, installer: ""}
+          - {os: windows-latest, python: "3.12", gate: windows-py312-full, installer: installer-windows}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
+      - uses: actions/setup-python@v5
+        with: {python-version: "${{ matrix.python }}"}
+      - run: python -m pip install --disable-pip-version-check -e ".[dev]"
+      - name: Full suite
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id ${{ matrix.gate }}
+          --timeout-seconds 2700
+          --failure-reason full_suite_failed
+          --evidence build/hardening/gates/${{ matrix.gate }}.json
+          --
+          python -m pytest -q
+      - name: Reuse full-suite installer evidence
+        if: ${{ always() && matrix.installer != '' }}
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id ${{ matrix.installer }}
+          --derive-from build/hardening/gates/${{ matrix.gate }}.json
+          --evidence build/hardening/gates/${{ matrix.installer }}.json
+      - name: Upload Python evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-python-${{ matrix.gate }}
+          path: build/hardening/gates/*.json
+          if-no-files-found: warn
+      - name: Enforce Python gate
+        if: always()
+        run: >-
+          python -c "import json,pathlib,sys;
+          p=pathlib.Path('build/hardening/gates/${{ matrix.gate }}.json');
+          sys.exit(0 if p.is_file() and json.loads(p.read_text())['status']=='PASS' else 1)"
+
+  javascript:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/setup-node@v4
+        with: {node-version: "20"}
+      - name: JavaScript gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id javascript
+          --timeout-seconds 600
+          --failure-reason javascript_contract_failed
+          --evidence build/hardening/gates/javascript.json
+          --
+          bash -lc 'node tests/creator_resource_contract.mjs &&
+          node tests/st_hud_smoke.mjs'
+      - name: Upload JavaScript evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-javascript
+          path: build/hardening/gates/*.json
+          if-no-files-found: warn
+      - name: Enforce JavaScript gate
+        if: always()
+        run: >-
+          python -c "import json,pathlib,sys;
+          p=pathlib.Path('build/hardening/gates/javascript.json');
+          sys.exit(0 if p.is_file() and json.loads(p.read_text())['status']=='PASS' else 1)"
+
+  package-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install --disable-pip-version-check build
+      - name: Package artifact gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id package-artifacts
+          --timeout-seconds 900
+          --failure-reason package_build_failed
+          --evidence build/hardening/gates/package-artifacts.json
+          --
+          bash -lc 'python -m build --sdist --wheel --outdir dist &&
+          test "$(find dist -maxdepth 1 -name "aetherstate-*.whl" | wc -l)" -eq 1 &&
+          test "$(find dist -maxdepth 1 -name "aetherstate-*.tar.gz" | wc -l)" -eq 1'
+      - name: Upload distribution
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherstate-dist
+          path: dist/*
+          if-no-files-found: warn
+      - name: Upload package evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-package-build
+          path: build/hardening/gates/*.json
+          if-no-files-found: warn
+      - name: Enforce package-build gate
+        if: always()
+        run: >-
+          python -c "import json,pathlib,sys;
+          p=pathlib.Path('build/hardening/gates/package-artifacts.json');
+          sys.exit(0 if p.is_file() and json.loads(p.read_text())['status']=='PASS' else 1)"
+
+  package-smoke:
+    needs: package-build
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, python: "3.10", gate: package-linux-py310}
+          - {os: ubuntu-latest, python: "3.12", gate: package-linux-py312}
+          - {os: windows-latest, python: "3.12", gate: package-windows-py312}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
+      - uses: actions/setup-python@v5
+        with: {python-version: "${{ matrix.python }}"}
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: aetherstate-dist
+          path: dist
+      - name: Clean-wheel gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id ${{ matrix.gate }}
+          --timeout-seconds 1200
+          --failure-reason package_smoke_failed
+          --evidence build/hardening/gates/${{ matrix.gate }}.json
+          --
+          python tools/smoke_clean_wheel.py --wheel-dir dist
+      - name: Upload package-smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-${{ matrix.gate }}
+          path: build/hardening/gates/*.json
+          if-no-files-found: warn
+      - name: Enforce package-smoke gate
+        if: always()
+        run: >-
+          python -c "import json,pathlib,sys;
+          p=pathlib.Path('build/hardening/gates/${{ matrix.gate }}.json');
+          sys.exit(0 if p.is_file() and json.loads(p.read_text())['status']=='PASS' else 1)"
+
+  # Bootstrap authority only. Stage 2 atomically replaces this terminal job after consuming PASS.
+  stage-1-report:
+    needs: [quality, python-tests, javascript, package-build, package-smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.AETHERSTATE_CANDIDATE_SHA }}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: gate-*
+          path: build/hardening/gates
+          merge-multiple: true
+      - name: No-runtime-diff gate
+        continue-on-error: true
+        env:
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          PYTHON_RESULT: ${{ needs.python-tests.result }}
+          JAVASCRIPT_RESULT: ${{ needs.javascript.result }}
+          PACKAGE_BUILD_RESULT: ${{ needs.package-build.result }}
+          PACKAGE_SMOKE_RESULT: ${{ needs.package-smoke.result }}
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id no-runtime-diff
+          --timeout-seconds 300
+          --failure-reason dependency_or_runtime_gate_failed
+          --evidence build/hardening/gates/no-runtime-diff.json
+          --
+          bash -lc 'test "$QUALITY_RESULT" = success &&
+          test "$PYTHON_RESULT" = success &&
+          test "$JAVASCRIPT_RESULT" = success &&
+          test "$PACKAGE_BUILD_RESULT" = success &&
+          test "$PACKAGE_SMOKE_RESULT" = success &&
+          git diff --exit-code
+          82b58277d7a1fb167434be0290d3dfd2bb3588e2 --
+          src st-extension corpus nli-shim pyproject.toml config.example.toml
+          Install-AetherState.bat install-aetherstate.sh Install-ST-Extension.bat
+          Start-AetherState.bat start-aetherstate.sh'
+      - name: Build terminal report
+        if: always()
+        run: >-
+          python tools/build_stage_gate_report.py
+          --evidence-dir build/hardening/gates
+          --evidence-origin github-actions:${{ github.run_id }}:${{ github.run_attempt }}
+          --report build/hardening/stage-1-terminal-report.json
+      - name: Validate terminal report
+        if: always()
+        continue-on-error: true
+        run: >-
+          python tools/validate_stage_gate.py
+          --report build/hardening/stage-1-terminal-report.json
+          --stage stage-1-safety-baseline
+          --candidate HEAD
+          --require-pass
+      - name: Upload terminal report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage-1-terminal-report-${{ env.AETHERSTATE_CANDIDATE_SHA }}
+          path: build/hardening/stage-1-terminal-report.json
+          if-no-files-found: error
+      - name: Enforce terminal PASS
+        if: always()
+        run: >-
+          python tools/validate_stage_gate.py
+          --report build/hardening/stage-1-terminal-report.json
+          --stage stage-1-safety-baseline
+          --candidate HEAD
+          --require-pass
