@@ -169,6 +169,14 @@ Grouped by plane and role. Full detail per module in `01-module-reference.md`.
 | `src/aetherstate/beats/*.json` | Authored director beat libraries (5 files). |
 | `tests/*.py` | The replay harness, focused regression suites, and a mock upstream. |
 
+### Developer-only public tooling
+
+| Path | Role |
+|---|---|
+| `proofbook/` | Curated public engineering lessons, publication policy, tags, and canonical ledger; never runtime or Player authority. |
+| `tools/proofbook/` | Standard-library validation, currentness, append, and deterministic briefing commands for the Public Proofbook. |
+| `skills/aetherstate-code-learning/` | Optional public Codex skill that routes lessons to public, private, or abstain before admission. |
+
 ## 5. Where-to-change-what (fast index)
 
 | I want to… | Go to | Also touch |
@@ -194,6 +202,7 @@ Grouped by plane and role. Full detail per module in `01-module-reference.md`.
 | Change **assist groups** (embeddings / reflection / NLI) or per-group routing | `assist.py` (cold-path sidecar) + `config.AssistGroupsConfig` | `control.py` (`POST /aether/groups`), `config.example.toml [assist.groups]` |
 | Change **entity discovery** (evidence → privileged create) | `discovery.py` | `tier0.py` evidence + `jobs.py` feed; extraction can never create entities |
 | Change the **ST extension** behavior | `st-extension/index.js` | `control.py` routes it calls |
+| Add or revise a **public engineering lesson** | `proofbook/LEDGER.jsonl` via `tools/proofbook/engineering_learning.py` | `proofbook/PUBLICATION_POLICY.md`, exact owner/regression/evidence hashes, `tests/test_public_proofbook.py`; abstain if any evidence is private or unavailable |
 
 ## 6. Runtime shape
 

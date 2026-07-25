@@ -1,0 +1,4 @@
+interface:
+  display_name: "AetherState Code Learning"
+  short_description: "Use the public developer Proofbook safely"
+  default_prompt: "Use $aetherstate-code-learning to brief this AetherState engineering task from verified public lessons."
