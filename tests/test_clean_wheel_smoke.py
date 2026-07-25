@@ -5,6 +5,7 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import types
 from pathlib import Path
 
@@ -326,6 +327,131 @@ def test_process_group_options_cover_windows_and_posix() -> None:
         "start_new_session": False,
     }
     assert posix == {"creationflags": 0, "start_new_session": True}
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux parent-death contract")
+def test_linux_new_session_child_exits_when_exact_helper_parent_exits(tmp_path: Path) -> None:
+    ready_path = tmp_path / "ready"
+    pid_path = tmp_path / "pid"
+    terminated_path = tmp_path / "terminated"
+    leaked_path = tmp_path / "leaked"
+    child_program = (
+        "import pathlib, signal, sys, time\n"
+        "ready, terminated, leaked = map(pathlib.Path, sys.argv[1:])\n"
+        "def stop(_signum, _frame):\n"
+        "    terminated.write_text('terminated', encoding='utf-8')\n"
+        "    raise SystemExit(0)\n"
+        "signal.signal(signal.SIGTERM, stop)\n"
+        "ready.write_text('ready', encoding='utf-8')\n"
+        "time.sleep(1.0)\n"
+        "leaked.write_text('leaked', encoding='utf-8')\n"
+        "time.sleep(60)\n"
+    )
+    helper_program = (
+        "import os, pathlib, subprocess, sys, time\n"
+        "from tools import smoke_clean_wheel as smoke\n"
+        "ready, pid_path, terminated, leaked = map(pathlib.Path, sys.argv[1:])\n"
+        f"child_program = {child_program!r}\n"
+        "factory = getattr(smoke, '_linux_parent_death_preexec', lambda _parent: None)\n"
+        "child = subprocess.Popen(\n"
+        "    [sys.executable, '-c', child_program, str(ready), str(terminated), str(leaked)],\n"
+        "    start_new_session=True,\n"
+        "    preexec_fn=factory(os.getpid()),\n"
+        ")\n"
+        "deadline = time.monotonic() + 5\n"
+        "while not ready.exists() and child.poll() is None and time.monotonic() < deadline:\n"
+        "    time.sleep(0.01)\n"
+        "if not ready.exists():\n"
+        "    child.kill()\n"
+        "    raise SystemExit(2)\n"
+        "pid_path.write_text(str(child.pid), encoding='utf-8')\n"
+    )
+    helper = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            helper_program,
+            str(ready_path),
+            str(pid_path),
+            str(terminated_path),
+            str(leaked_path),
+        ],
+        cwd=smoke.ROOT,
+    )
+    child_pid: int | None = None
+    try:
+        assert helper.wait(timeout=10) == 0
+        child_pid = int(pid_path.read_text(encoding="utf-8"))
+        deadline = time.monotonic() + 5
+        while not terminated_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert terminated_path.is_file()
+        time.sleep(1.1)
+        assert not leaked_path.exists()
+    finally:
+        if helper.poll() is None:
+            helper.kill()
+            helper.wait(timeout=5)
+        if child_pid is not None:
+            try:
+                os.kill(child_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def test_linux_parent_death_setup_fails_closed_when_prctl_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Prctl:
+        restype = None
+
+        def __call__(self, *_args: int) -> int:
+            return -1
+
+    monkeypatch.setattr(smoke.ctypes, "CDLL", lambda *_args, **_kwargs: types.SimpleNamespace(prctl=Prctl()))
+    monkeypatch.setattr(smoke.ctypes, "get_errno", lambda: 38)
+
+    setup = smoke._linux_parent_death_preexec(os.getpid())
+
+    with pytest.raises(OSError) as caught:
+        setup()
+
+    assert caught.value.errno == 38
+
+
+def test_linux_parent_death_setup_checks_parent_after_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+
+    class Prctl:
+        restype = None
+
+        def __call__(self, *args: int) -> int:
+            events.append(("prctl", args))
+            return 0
+
+    class ParentChanged(BaseException):
+        pass
+
+    monkeypatch.setattr(smoke.ctypes, "CDLL", lambda *_args, **_kwargs: types.SimpleNamespace(prctl=Prctl()))
+    monkeypatch.setattr(smoke.os, "getppid", lambda: events.append(("getppid",)) or 222)
+    monkeypatch.setattr(
+        smoke.os,
+        "_exit",
+        lambda code: events.append(("exit", code)) or (_ for _ in ()).throw(ParentChanged()),
+    )
+
+    setup = smoke._linux_parent_death_preexec(111)
+
+    with pytest.raises(ParentChanged):
+        setup()
+
+    assert events == [
+        ("prctl", (1, signal.SIGTERM, 0, 0, 0)),
+        ("getppid",),
+        ("exit", 1),
+    ]
 
 
 def test_installed_distribution_requires_venv_noneditable_matching_metadata(

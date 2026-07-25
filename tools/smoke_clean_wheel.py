@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import importlib.metadata
 import json
 import os
@@ -21,6 +23,7 @@ STATUS_TIMEOUT_SECONDS = 30.0
 SHUTDOWN_TIMEOUT_SECONDS = 10.0
 FAILURE_TAIL_LINES = 80
 FAILURE_TAIL_CHARS = 12_000
+PR_SET_PDEATHSIG = 1
 
 
 class SmokeFailure(RuntimeError):
@@ -345,6 +348,25 @@ def _process_group_options(platform_name: str) -> ProcessGroupOptions:
     return {"creationflags": 0, "start_new_session": True}
 
 
+def _linux_parent_death_preexec(expected_parent_pid: int) -> Callable[[], None]:
+    libc = ctypes.CDLL(None, use_errno=True)
+    try:
+        prctl = libc.prctl
+    except AttributeError as error:
+        raise OSError(errno.ENOSYS, "prctl unavailable") from error
+    prctl.argtypes = [ctypes.c_int] * 5
+    prctl.restype = ctypes.c_int
+
+    def setup() -> None:
+        if prctl(PR_SET_PDEATHSIG, signal.SIGTERM, 0, 0, 0) != 0:
+            error_number = ctypes.get_errno() or errno.ENOSYS
+            raise OSError(error_number, "PR_SET_PDEATHSIG failed")
+        if os.getppid() != expected_parent_pid:
+            os._exit(1)
+
+    return setup
+
+
 def _poll_status(process: subprocess.Popen[bytes], port: int, log_path: Path) -> object:
     deadline = time.monotonic() + STATUS_TIMEOUT_SECONDS
     url = f"http://127.0.0.1:{port}/aether/status"
@@ -437,6 +459,9 @@ def _installed_smoke() -> None:
             str(port),
         ]
         process_options = _process_group_options(os.name)
+        parent_death_preexec = (
+            _linux_parent_death_preexec(os.getpid()) if sys.platform.startswith("linux") else None
+        )
         with log_path.open("wb") as log:
             process = subprocess.Popen(
                 command,
@@ -445,6 +470,7 @@ def _installed_smoke() -> None:
                 stdin=subprocess.DEVNULL,
                 stdout=log,
                 stderr=subprocess.STDOUT,
+                preexec_fn=parent_death_preexec,
                 **process_options,
             )
         try:
