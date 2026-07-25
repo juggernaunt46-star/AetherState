@@ -736,11 +736,46 @@ def test_free_selected_port_is_proven_released() -> None:
     smoke._prove_port_released(smoke._free_loopback_port())
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX TIME_WAIT release semantics")
+def test_posix_port_release_proof_accepts_refusal_despite_time_wait_rebind_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    moments = iter([0.0, 0.0, 11.0])
+    bind_attempts: list[tuple[str, int]] = []
+
+    class TimeWaitSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def setsockopt(self, *_args):
+            return None
+
+        def bind(self, address):
+            bind_attempts.append(address)
+            raise OSError(98, "Address already in use")
+
+    def refuse_connection(*_args, **_kwargs):
+        raise ConnectionRefusedError(111, "Connection refused")
+
+    monkeypatch.setattr(smoke.time, "monotonic", lambda: next(moments))
+    monkeypatch.setattr(smoke.time, "sleep", lambda _value: None)
+    monkeypatch.setattr(smoke.socket, "socket", lambda *_args: TimeWaitSocket())
+    monkeypatch.setattr(smoke.socket, "create_connection", refuse_connection)
+
+    smoke._prove_port_released(45678)
+
+    assert bind_attempts == []
+
+
 def test_port_release_failure_is_bounded_with_socket_and_time_seams(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     moments = iter([0.0, 0.0, 11.0])
     sleeps: list[float] = []
+    connections: list[tuple[tuple[str, int], float]] = []
 
     class BusySocket:
         def __enter__(self):
@@ -755,13 +790,32 @@ def test_port_release_failure_is_bounded_with_socket_and_time_seams(
         def bind(self, _address):
             raise OSError("still busy")
 
+    class AcceptedConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def accept_connection(address, timeout):
+        connections.append((address, timeout))
+        return AcceptedConnection()
+
     monkeypatch.setattr(smoke.time, "monotonic", lambda: next(moments))
     monkeypatch.setattr(smoke.time, "sleep", lambda value: sleeps.append(value))
-    monkeypatch.setattr(smoke.socket, "socket", lambda *_args: BusySocket())
+    if os.name == "nt":
+        monkeypatch.setattr(smoke.socket, "socket", lambda *_args: BusySocket())
+    else:
+        monkeypatch.setattr(smoke.socket, "create_connection", accept_connection)
 
     with pytest.raises(smoke.SmokeFailure) as caught:
         smoke._prove_port_released(45678)
 
     assert caught.value.code == "port_not_released"
-    assert "still busy" in caught.value.detail
+    if os.name == "nt":
+        assert "still busy" in caught.value.detail
+        assert connections == []
+    else:
+        assert "listener_still_accepting" in caught.value.detail
+        assert connections == [(("127.0.0.1", 45678), 0.5)]
     assert sleeps == [0.1]

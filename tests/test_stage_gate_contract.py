@@ -951,10 +951,10 @@ def test_merge_commit_after_evidence_is_rejected_even_with_allowed_final_tree(
 ) -> None:
     repo = _clone(tmp_path)
     report = _pass_report(tmp_path, cwd=repo)
-    base_branch = _git(repo, "branch", "--show-current")
+    base_commit = _head(repo)
     _git(repo, "checkout", "-b", "side")
     _commit_file(repo, STAGE_2_PLAN, "canonical stage 2 plan\n", "side plan")
-    _git(repo, "checkout", base_branch)
+    _git(repo, "checkout", "--detach", base_commit)
     _git(repo, "commit", "--allow-empty", "-m", "main empty")
     _git(repo, "merge", "--no-ff", "side", "-m", "import side")
 
@@ -991,11 +991,11 @@ def test_builder_marks_commit_outside_stage_1_allowlist_invalid(tmp_path: Path) 
 
 def test_report_evidence_commit_must_be_ancestral_to_candidate(tmp_path: Path) -> None:
     repo = _clone(tmp_path)
-    base_branch = _git(repo, "branch", "--show-current")
+    base_commit = _head(repo)
     _git(repo, "checkout", "-b", "evidence-side")
     _commit_file(repo, STAGE_2_PLAN, "side evidence\n", "side evidence")
     report = _pass_report(tmp_path, cwd=repo)
-    _git(repo, "checkout", base_branch)
+    _git(repo, "checkout", "--detach", base_commit)
     _git(repo, "commit", "--allow-empty", "-m", "candidate side")
 
     rejected = _validate(report, cwd=repo)

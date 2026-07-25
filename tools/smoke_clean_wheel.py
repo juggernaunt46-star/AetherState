@@ -409,7 +409,10 @@ def _shutdown(process: subprocess.Popen[bytes]) -> None:
         return
     try:
         if os.name == "nt":
-            process.send_signal(signal.CTRL_BREAK_EVENT)
+            ctrl_break_event = getattr(signal, "CTRL_BREAK_EVENT", None)
+            if ctrl_break_event is None:
+                raise RuntimeError("CTRL_BREAK_EVENT unavailable")
+            process.send_signal(ctrl_break_event)
         else:
             killpg = cast(Callable[[int, int], None], getattr(os, "killpg"))
             killpg(process.pid, signal.SIGINT)
@@ -434,14 +437,24 @@ def _prove_port_released(port: int) -> None:
     last_error = ""
     while time.monotonic() < deadline:
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-                if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
-                    listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-                listener.bind(("127.0.0.1", port))
-                return
+            if os.name == "nt":
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+                    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+                        listener.setsockopt(
+                            socket.SOL_SOCKET,
+                            socket.SO_EXCLUSIVEADDRUSE,
+                            1,
+                        )
+                    listener.bind(("127.0.0.1", port))
+                    return
+            else:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                    last_error = "listener_still_accepting"
+        except ConnectionRefusedError:
+            return
         except OSError as error:
             last_error = str(error)
-            time.sleep(0.1)
+        time.sleep(0.1)
     _fail("port_not_released", last_error)
 
 

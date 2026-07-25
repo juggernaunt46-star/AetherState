@@ -10,6 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "tools/run_bounded_gate.py"
+WHEEL_SMOKE = ROOT / "tools/smoke_clean_wheel.py"
 EVIDENCE_FIELDS = {
     "schema",
     "id",
@@ -18,6 +19,30 @@ EVIDENCE_FIELDS = {
     "reason_code",
     "evidence_commit",
 }
+
+
+def test_process_control_tools_typecheck_against_linux_stubs(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--platform",
+            "linux",
+            "--cache-dir",
+            str(tmp_path / "mypy-cache"),
+            "--follow-imports=skip",
+            "--ignore-missing-imports",
+            str(RUNNER),
+            str(WHEEL_SMOKE),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def _head(cwd: Path = ROOT) -> str:

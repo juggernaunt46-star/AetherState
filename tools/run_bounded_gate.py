@@ -86,7 +86,10 @@ class _ThreadEntry32(ctypes.Structure):
 
 
 def _windows_kernel32() -> Any:
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    win_dll = getattr(ctypes, "WinDLL", None)
+    if win_dll is None:
+        raise RuntimeError("ctypes.WinDLL unavailable")
+    kernel32 = win_dll("kernel32", use_last_error=True)
     kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.SetInformationJobObject.argtypes = [
@@ -136,7 +139,10 @@ def _windows_kernel32() -> Any:
 
 
 def _windows_error(operation: str) -> OSError:
-    return OSError(ctypes.get_last_error(), operation)
+    get_last_error = getattr(ctypes, "get_last_error", None)
+    if get_last_error is None:
+        return OSError(f"{operation}: ctypes.get_last_error unavailable")
+    return OSError(get_last_error(), operation)
 
 
 def _close_windows_handle(kernel32: Any, handle: int) -> None:
@@ -392,7 +398,10 @@ def _stop_process_group(
         if windows_job is None:
             raise RuntimeError("windows_job_missing")
         try:
-            process.send_signal(signal.CTRL_BREAK_EVENT)
+            ctrl_break_event = getattr(signal, "CTRL_BREAK_EVENT", None)
+            if ctrl_break_event is None:
+                raise RuntimeError("CTRL_BREAK_EVENT unavailable")
+            process.send_signal(ctrl_break_event)
         except (OSError, ValueError):
             pass
         _wait_full_grace(process, SIGNAL_GRACE_SECONDS)
