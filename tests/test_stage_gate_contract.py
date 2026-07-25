@@ -90,6 +90,25 @@ STAGE_1_BOOTSTRAP_TERMINAL_FIXTURE = """\
 """
 
 
+def test_public_maintenance_docs_name_proof_artifacts_and_private_proofbook_boundary():
+    readme = (CURRENT_ROOT / "README.md").read_text(encoding="utf-8")
+    playbook = (CURRENT_ROOT / "docs/04-maintenance-playbook.md").read_text(
+        encoding="utf-8"
+    )
+    combined = readme + "\n" + playbook
+
+    for phrase in (
+        "Stage 1 Post-1.24 Safety Baseline",
+        "Stage 2 Semantic Cube Narrator-Output Integrity",
+        "AetherState Engineering Learning",
+        "Proofbook",
+        "developer-only",
+        "not part of the runtime or public package",
+        "cannot grant mechanics",
+    ):
+        assert phrase in combined
+
+
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(
         ["git", *args],
