@@ -218,7 +218,16 @@ def _install_and_smoke_wheel(
         log_path=create_log,
     )
     _run_logged(
-        [wheel_python, "-m", "pip", "install", wheel],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "--python",
+            wheel_python,
+            "install",
+            "pip==25.2",
+            wheel,
+        ],
         cwd=temp_root,
         env=env,
         log_path=install_log,
@@ -267,7 +276,16 @@ def _build_source(source: Path) -> None:
             log_path=create_log,
         )
         _run_logged(
-            [build_python, "-m", "pip", "install", "build"],
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "--python",
+                build_python,
+                "install",
+                "pip==25.2",
+                "build",
+            ],
             cwd=temp_root,
             env=env,
             log_path=install_log,

@@ -246,18 +246,41 @@ def test_build_source_orchestration_isolated_ordered_sanitized_and_cleaned(
         ["-m", "pip"],
         [str(Path(__file__).resolve().parents[1] / "tools" / "smoke_clean_wheel.py"), "--installed-smoke"],
     ]
-    assert commands[1][-2:] == ["install", "build"]
     assert commands[2][-1] == str(source.resolve())
-    assert commands[4][-3:-1] == ["pip", "install"]
     assert commands[5][-2:] == ["pip", "check"]
     build_env = Path(commands[0][3])
     wheel_env = Path(commands[3][3])
     assert build_env.name == "build-env"
     assert wheel_env.name == "wheel-env"
     assert build_env != wheel_env
+    temp_root = Path(records[0]["cwd"])
     executable = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
-    assert commands[1][0] == str(build_env / executable)
-    assert commands[4][0] == str(wheel_env / executable)
+    build_python = build_env / executable
+    wheel_python = wheel_env / executable
+    assert commands[1] == [
+        sys.executable,
+        "-m",
+        "pip",
+        "--python",
+        str(build_python),
+        "install",
+        "pip==25.2",
+        "build",
+    ]
+    assert commands[4] == [
+        sys.executable,
+        "-m",
+        "pip",
+        "--python",
+        str(wheel_python),
+        "install",
+        "pip==25.2",
+        str(temp_root / "dist" / "aetherstate-1.24.0-py3-none-any.whl"),
+    ]
+    assert "--trusted-host" not in commands[1]
+    assert "--trusted-host" not in commands[4]
+    assert commands[2][0] == str(build_python)
+    assert commands[5][0] == str(wheel_python)
     assert commands[6][0] == str(wheel_env / executable)
     assert all(
         "PYTHONPATH" not in record["env"]
@@ -265,7 +288,6 @@ def test_build_source_orchestration_isolated_ordered_sanitized_and_cleaned(
         and not any(key.startswith("AETHERSTATE_") for key in record["env"])
         for record in records
     )
-    temp_root = Path(records[0]["cwd"])
     expected_names = {
         "build-env",
         "wheel-env",
@@ -308,6 +330,21 @@ def test_wheel_dir_orchestration_creates_only_wheel_environment_and_cleans_up(
     assert commands[2][-2:] == ["pip", "check"]
     assert all("build-env" not in " ".join(command) for command in commands)
     temp_root = Path(records[0]["cwd"])
+    executable = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+    wheel_python = temp_root / "wheel-env" / executable
+    assert commands[1] == [
+        sys.executable,
+        "-m",
+        "pip",
+        "--python",
+        str(wheel_python),
+        "install",
+        "pip==25.2",
+        str(wheel),
+    ]
+    assert "--trusted-host" not in commands[1]
+    assert commands[2][0] == str(wheel_python)
+    assert commands[3][0] == str(wheel_python)
     assert {
         "wheel-env",
         "create-wheel-env.log",
@@ -316,6 +353,54 @@ def test_wheel_dir_orchestration_creates_only_wheel_environment_and_cleans_up(
         "installed-smoke.log",
     } <= {path.name for _root, path in checked}
     assert not temp_root.exists()
+
+
+def test_target_install_failure_aborts_without_fallback_and_cleans_temp_root(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    wheel = artifact_dir / "aetherstate-1.24.0-py3-none-any.whl"
+    wheel.write_bytes(b"wheel")
+    records: list[list[str]] = []
+    temp_roots: list[Path] = []
+
+    def fail_install(command, *, cwd, env, log_path):
+        command = [str(part) for part in command]
+        records.append(command)
+        temp_roots.append(Path(cwd))
+        if command[1:3] == ["-m", "venv"]:
+            executable = Path(command[3]) / (
+                Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+            )
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"")
+            return
+        raise smoke.SmokeFailure("command_failed", "exit=1")
+
+    monkeypatch.setattr(smoke, "_run_logged", fail_install)
+
+    with pytest.raises(smoke.SmokeFailure) as caught:
+        smoke._wheel_dir(artifact_dir)
+
+    executable = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+    wheel_python = temp_roots[0] / "wheel-env" / executable
+    assert caught.value.code == "command_failed"
+    assert records == [
+        [sys.executable, "-m", "venv", str(temp_roots[0] / "wheel-env")],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "--python",
+            str(wheel_python),
+            "install",
+            "pip==25.2",
+            str(wheel),
+        ],
+    ]
+    assert not temp_roots[0].exists()
 
 
 def test_process_group_options_cover_windows_and_posix() -> None:
