@@ -120,9 +120,9 @@ def test_store_core_starts_without_optional_domain_rows(tmp_path: Path) -> None:
     """Core startup must not claim optional PlayerLex or Player Lessons ownership."""
     store = Store(tmp_path / "core-only.sqlite3")
     try:
-        assert [row[0] for row in _ledger(store)] == [1, 2, 3, 4]
+        assert [row[0] for row in _ledger(store)] == [1, 2, 3, 4, 7]
         assert {migration.version for migration in database_schema_migrations()} == {
-            1, 2, 3, 4, 5, 6,
+            1, 2, 3, 4, 5, 6, 7,
         }
     finally:
         store.close()
@@ -147,6 +147,7 @@ def test_new_store_creates_current_core_and_records_versions_1_and_4(tmp_path: P
             (WORLDLEX_SCHEMA_VERSION, "worldlex-1.24-baseline", WORLDLEX_DOMAIN),
             (TURN_LIFECYCLE_SCHEMA_VERSION, "turn-lifecycle-1.24-baseline", TURN_LIFECYCLE_DOMAIN),
             (4, "store-chat-lineage-1.24-baseline", STORE_CORE_DOMAIN),
+            (7, "system-health-1.24-baseline", "system-health"),
         )
         assert {migration.version for migration in database_schema_migrations()} == {
             1,
@@ -155,6 +156,7 @@ def test_new_store_creates_current_core_and_records_versions_1_and_4(tmp_path: P
             4,
             5,
             6,
+            7,
         }
         assert store.schema_migrations.applied() == _ledger(store)
         assert STORE_MIGRATION_COLUMNS == (
@@ -252,6 +254,7 @@ def test_current_124_core_is_adopted_without_rewriting_rows(tmp_path: Path) -> N
             (WORLDLEX_SCHEMA_VERSION, "worldlex-1.24-baseline", WORLDLEX_DOMAIN),
             (TURN_LIFECYCLE_SCHEMA_VERSION, "turn-lifecycle-1.24-baseline", TURN_LIFECYCLE_DOMAIN),
             (STORE_CHAT_LINEAGE_VERSION, "store-chat-lineage-1.24-baseline", STORE_CORE_DOMAIN),
+            (7, "system-health-1.24-baseline", "system-health"),
         )
         receipts = _receipt_rows(store)
         assert len(receipts) == 3
@@ -500,7 +503,7 @@ def test_lineage_response_index_identity_repairs_sql_index_list_and_xinfo_before
             (3, 3, "response_occurrence_id", 0, "BINARY", 1),
             (4, -1, None, 0, "BINARY", 0),
         )
-        assert _ledger(repaired)[-1][0] == STORE_CHAT_LINEAGE_VERSION
+        assert any(row[0] == STORE_CHAT_LINEAGE_VERSION for row in _ledger(repaired))
     finally:
         repaired.close()
 
@@ -572,7 +575,7 @@ def test_receipts_complete_unique_memory_lineage_is_repaired_and_ambiguous_stays
             ).fetchone()
         ) == (None, "", "")
         assert len(_receipt_rows(repaired)) == 3
-        assert _ledger(repaired)[-1][0] == STORE_CHAT_LINEAGE_VERSION
+        assert any(row[0] == STORE_CHAT_LINEAGE_VERSION for row in _ledger(repaired))
     finally:
         repaired.close()
 
@@ -631,7 +634,7 @@ def test_lineage_schema_and_data_completion_repair_or_rejects_before_ledger(tmp_
     repaired = Store(path)
     try:
         assert len(_receipt_rows(repaired)) == 3
-        assert _ledger(repaired)[-1][0] == STORE_CHAT_LINEAGE_VERSION
+        assert any(row[0] == STORE_CHAT_LINEAGE_VERSION for row in _ledger(repaired))
     finally:
         repaired.close()
 
@@ -726,7 +729,7 @@ def test_receipts_complete_ambiguous_memory_false_lineage_is_cleared_before_ledg
             ).fetchone()
         ) == (None, "", "")
         assert len(_receipt_rows(repaired)) == 3
-        assert _ledger(repaired)[-1][0] == STORE_CHAT_LINEAGE_VERSION
+        assert any(row[0] == STORE_CHAT_LINEAGE_VERSION for row in _ledger(repaired))
     finally:
         repaired.close()
 

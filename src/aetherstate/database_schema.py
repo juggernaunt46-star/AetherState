@@ -36,12 +36,16 @@ def database_schema_migrations() -> tuple[SchemaMigration, ...]:
     player_lessons_schema_migrations = _lazy_migration_factory(
         ".player_lessons", "player_lessons_schema_migrations"
     )
+    system_health_schema_migrations = _lazy_migration_factory(
+        ".system_health", "system_health_schema_migrations"
+    )
 
     return tuple(sorted(
         store_schema_migrations()
         + worldlex_schema_migrations()
         + turn_lifecycle_schema_migrations()
         + playerlex_schema_migrations()
-        + player_lessons_schema_migrations(),
+        + player_lessons_schema_migrations()
+        + system_health_schema_migrations(),
         key=lambda migration: migration.version,
     ))

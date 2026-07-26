@@ -125,6 +125,7 @@ def test_pre_feature_sqlite_open_adds_typed_record_tables_without_losing_old_row
             (2, "worldlex-1.24-baseline", "worldlex"),
             (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
             (4, "store-chat-lineage-1.24-baseline", "store-core"),
+            (7, "system-health-1.24-baseline", "system-health"),
         )
         tables = {
             str(row["name"])

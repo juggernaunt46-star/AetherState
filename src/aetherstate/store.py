@@ -258,6 +258,10 @@ class Store:
         # reducer commit and its exact replay artifact can inhabit one SQLite transaction.
         from .turn_lifecycle import TurnLifecycleStore
         self.turn_lifecycle = TurnLifecycleStore(self, self.schema_migrations)
+        from .system_health import SystemHealth
+        self.system_health = SystemHealth(
+            self.db, self._lock, self.schema_migrations
+        )
 
     def _insert_chat_message_receipt_locked(
         self,

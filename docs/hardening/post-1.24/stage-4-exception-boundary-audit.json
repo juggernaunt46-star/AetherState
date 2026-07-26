@@ -1,0 +1,2780 @@
+{
+  "entries": [
+    {
+      "boundary": "shutdown",
+      "handler_kind": "Exception",
+      "line": 16,
+      "path": "src/aetherstate/__init__.py",
+      "qualified_function": "<module>",
+      "reason_code": "PACKAGE_BOOTSTRAP_SHUTDOWN"
+    },
+    {
+      "boundary": "shutdown",
+      "handler_kind": "Exception",
+      "line": 22,
+      "path": "src/aetherstate/__init__.py",
+      "qualified_function": "<module>",
+      "reason_code": "PACKAGE_BOOTSTRAP_SHUTDOWN"
+    },
+    {
+      "boundary": "shutdown",
+      "handler_kind": "Exception",
+      "line": 78,
+      "path": "src/aetherstate/__main__.py",
+      "qualified_function": "_configure_turn_trace_file._TurnTraceOnly.filter",
+      "reason_code": "CLI_SHUTDOWN_AND_OPTIONAL_SETUP"
+    },
+    {
+      "boundary": "shutdown",
+      "handler_kind": "Exception",
+      "line": 108,
+      "path": "src/aetherstate/__main__.py",
+      "qualified_function": "main",
+      "reason_code": "CLI_SHUTDOWN_AND_OPTIONAL_SETUP"
+    },
+    {
+      "boundary": "shutdown",
+      "handler_kind": "Exception",
+      "line": 179,
+      "path": "src/aetherstate/__main__.py",
+      "qualified_function": "main._QuietPolls.filter",
+      "reason_code": "CLI_SHUTDOWN_AND_OPTIONAL_SETUP"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 40,
+      "path": "src/aetherstate/app.py",
+      "qualified_function": "create_app.lifespan",
+      "reason_code": "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 47,
+      "path": "src/aetherstate/app.py",
+      "qualified_function": "create_app.lifespan",
+      "reason_code": "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 54,
+      "path": "src/aetherstate/app.py",
+      "qualified_function": "create_app.lifespan",
+      "reason_code": "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 131,
+      "path": "src/aetherstate/assist.py",
+      "qualified_function": "_chat",
+      "reason_code": "ASSIST_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 222,
+      "path": "src/aetherstate/assist.py",
+      "qualified_function": "resolve_endpoint",
+      "reason_code": "ASSIST_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 247,
+      "path": "src/aetherstate/assist.py",
+      "qualified_function": "embed_texts",
+      "reason_code": "ASSIST_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 2749,
+      "path": "src/aetherstate/chat_continuity.py",
+      "qualified_function": "seal_accepted_chat_proposals",
+      "reason_code": "CHAT_CONTINUITY_ADMISSION_ROLLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 231,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_overlay_effective",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 274,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_capability_available",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 288,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_render_player",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 336,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_render_player",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 375,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_render_player",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 394,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_render_player",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 696,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_initiative_order",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1712,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_render_world",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1812,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "_render_knowledge",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1930,
+      "path": "src/aetherstate/compose.py",
+      "qualified_function": "render_header",
+      "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 649,
+      "path": "src/aetherstate/config.py",
+      "qualified_function": "_apply_specialization",
+      "reason_code": "CONFIGURATION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 691,
+      "path": "src/aetherstate/config.py",
+      "qualified_function": "load_config",
+      "reason_code": "CONFIGURATION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 698,
+      "path": "src/aetherstate/config.py",
+      "qualified_function": "load_config",
+      "reason_code": "CONFIGURATION_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 228,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "_next_turn",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 252,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "_list_models",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 345,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "_persist_config",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 477,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "_persist_config",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 480,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "_persist_config",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 531,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router._playerlex",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 623,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router._lesson_payload",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 747,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.enemy_preview",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 855,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.playerlex_approve",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 875,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.playerlex_propose",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 889,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.playerlex_correct",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1035,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.player_lessons_correct",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1069,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.player_lessons_set_enabled",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1084,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.player_lessons_remove",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1121,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.override_set",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1570,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.chat_core_admit",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1599,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.genesis_seed",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1743,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.genesis_seed",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1789,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.hint",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1814,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.hint",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1826,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.set_mode",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1932,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.extraction_set",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1977,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.set_group",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2012,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.set_assist_endpoints",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2156,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.specialization_set",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2211,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.connection_models",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2235,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.connection_models",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2251,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.connection_models",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2260,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.connection_models",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2269,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.connection_set",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2394,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.sessions",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2427,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.set_label",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2492,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.hud_now",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2499,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.hud_now",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2510,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.hud_now",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2516,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.hud_now",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2697,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.presets_save",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2739,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.creator_author",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2848,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.creator_author",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2860,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.creator_world",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2913,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.worldlex_store_definition",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2957,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.worldlex_assign_capability",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3015,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.creator_player",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3428,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router._creator_seed_admit_sync",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3452,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.creator_seed",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3463,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.patch_state",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3575,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.session_briefing",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3599,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.session_journal",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3714,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.session_search",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3729,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router._narrator_sources",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3733,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router._narrator_sources",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3784,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router._install_card",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3861,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router.narrator_card_build",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3966,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router._creator_apply",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3997,
+      "path": "src/aetherstate/control.py",
+      "qualified_function": "make_control_router._user_ops",
+      "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2137,
+      "path": "src/aetherstate/creator.py",
+      "qualified_function": "_creator_chat",
+      "reason_code": "CREATOR_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3314,
+      "path": "src/aetherstate/creator.py",
+      "qualified_function": "author_world",
+      "reason_code": "CREATOR_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3356,
+      "path": "src/aetherstate/creator.py",
+      "qualified_function": "author_world",
+      "reason_code": "CREATOR_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3413,
+      "path": "src/aetherstate/creator.py",
+      "qualified_function": "author_chat_character",
+      "reason_code": "CREATOR_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3490,
+      "path": "src/aetherstate/creator.py",
+      "qualified_function": "author_player",
+      "reason_code": "CREATOR_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3556,
+      "path": "src/aetherstate/creator.py",
+      "qualified_function": "evolve_def_snapshot",
+      "reason_code": "CREATOR_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 64,
+      "path": "src/aetherstate/director.py",
+      "qualified_function": "load_libraries",
+      "reason_code": "DIRECTOR_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 183,
+      "path": "src/aetherstate/director.py",
+      "qualified_function": "resolve_path",
+      "reason_code": "DIRECTOR_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 226,
+      "path": "src/aetherstate/director.py",
+      "qualified_function": "eval_dsl",
+      "reason_code": "DIRECTOR_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 394,
+      "path": "src/aetherstate/director.py",
+      "qualified_function": "evaluate",
+      "reason_code": "DIRECTOR_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 454,
+      "path": "src/aetherstate/director.py",
+      "qualified_function": "stage",
+      "reason_code": "DIRECTOR_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 459,
+      "path": "src/aetherstate/director.py",
+      "qualified_function": "stage",
+      "reason_code": "DIRECTOR_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 226,
+      "path": "src/aetherstate/enemy_kits.py",
+      "qualified_function": "_text",
+      "reason_code": "ENEMY_KIT_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 794,
+      "path": "src/aetherstate/extraction.py",
+      "qualified_function": "parse_and_validate",
+      "reason_code": "EXTRACTION_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1028,
+      "path": "src/aetherstate/extraction.py",
+      "qualified_function": "Ladder._fingerprint",
+      "reason_code": "EXTRACTION_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1054,
+      "path": "src/aetherstate/extraction.py",
+      "qualified_function": "Ladder._probe",
+      "reason_code": "EXTRACTION_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1069,
+      "path": "src/aetherstate/extraction.py",
+      "qualified_function": "Ladder._probe",
+      "reason_code": "EXTRACTION_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1138,
+      "path": "src/aetherstate/extraction.py",
+      "qualified_function": "Ladder._probe_anyof",
+      "reason_code": "EXTRACTION_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1261,
+      "path": "src/aetherstate/extraction.py",
+      "qualified_function": "Ladder.extract",
+      "reason_code": "EXTRACTION_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1286,
+      "path": "src/aetherstate/extraction.py",
+      "qualified_function": "Ladder.extract",
+      "reason_code": "EXTRACTION_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 163,
+      "path": "src/aetherstate/genesis.py",
+      "qualified_function": "card_and_prompt",
+      "reason_code": "GENESIS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 263,
+      "path": "src/aetherstate/genesis.py",
+      "qualified_function": "seed_rules",
+      "reason_code": "GENESIS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 411,
+      "path": "src/aetherstate/genesis.py",
+      "qualified_function": "_player_seed_from_doc",
+      "reason_code": "GENESIS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 460,
+      "path": "src/aetherstate/genesis.py",
+      "qualified_function": "seed_player",
+      "reason_code": "GENESIS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 507,
+      "path": "src/aetherstate/genesis.py",
+      "qualified_function": "seed_llm",
+      "reason_code": "GENESIS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 603,
+      "path": "src/aetherstate/genesis.py",
+      "qualified_function": "seed_llm",
+      "reason_code": "GENESIS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 613,
+      "path": "src/aetherstate/genesis.py",
+      "qualified_function": "seed_llm",
+      "reason_code": "GENESIS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 41,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_load_reg",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 76,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_scene",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 103,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_stat_mod",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 106,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_stat_mod",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 183,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_skill_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 188,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_skill_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 193,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_skill_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 208,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_skill_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 218,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_skill_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 238,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_ability_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 251,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_ability_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 257,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_ability_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 295,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_capability_overlay_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 307,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_capability_overlay_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 330,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_effect_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 336,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_effect_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 426,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_rules_view",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 509,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_worn_exposed",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 593,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_cast_rows",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 641,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_relationships",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 690,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_quests",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 865,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "_social",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1523,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "hud_view",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1527,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "hud_view",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1533,
+      "path": "src/aetherstate/hud.py",
+      "qualified_function": "hud_view",
+      "reason_code": "HUD_AVAILABILITY_FALLBACK"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 228,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._arm_debounce.fire",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 257,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner.resume_pending",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 316,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_guarded",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 609,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_batch",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 634,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_batch",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 647,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_batch",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 663,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_batch",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 694,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_batch",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 698,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_batch",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 717,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_batch",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 724,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._run_batch",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 806,
+      "path": "src/aetherstate/jobs.py",
+      "qualified_function": "JobRunner._discover_from_quarantine",
+      "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 290,
+      "path": "src/aetherstate/knowledge.py",
+      "qualified_function": "_project_event_cause",
+      "reason_code": "KNOWLEDGE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 470,
+      "path": "src/aetherstate/knowledge.py",
+      "qualified_function": "select_knowledge",
+      "reason_code": "KNOWLEDGE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 436,
+      "path": "src/aetherstate/linter.py",
+      "qualified_function": "_check_subject_terms",
+      "reason_code": "LINTER_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 828,
+      "path": "src/aetherstate/linter.py",
+      "qualified_function": "ledger_contradiction_pass",
+      "reason_code": "LINTER_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 852,
+      "path": "src/aetherstate/linter.py",
+      "qualified_function": "run",
+      "reason_code": "LINTER_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 887,
+      "path": "src/aetherstate/linter.py",
+      "qualified_function": "run",
+      "reason_code": "LINTER_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 120,
+      "path": "src/aetherstate/memory.py",
+      "qualified_function": "_typed_retrieval_query",
+      "reason_code": "MEMORY_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 141,
+      "path": "src/aetherstate/memory.py",
+      "qualified_function": "_typed_retrieval_query",
+      "reason_code": "MEMORY_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 270,
+      "path": "src/aetherstate/memory.py",
+      "qualified_function": "_relevance",
+      "reason_code": "MEMORY_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 636,
+      "path": "src/aetherstate/memory.py",
+      "qualified_function": "precompute_recall",
+      "reason_code": "MEMORY_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 281,
+      "path": "src/aetherstate/narration_pre_display_guard.py",
+      "qualified_function": "_fallback_story",
+      "reason_code": "NARRATION_ADVISORY_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 640,
+      "path": "src/aetherstate/narration_pre_display_guard.py",
+      "qualified_function": "narration_contradictions",
+      "reason_code": "NARRATION_ADVISORY_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 50,
+      "path": "src/aetherstate/narrator.py",
+      "qualified_function": "_s",
+      "reason_code": "NARRATOR_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1228,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._initialize_playerlex_service",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1249,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._playerlex_proposal",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1272,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._initialize_player_lessons_service",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1319,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._repair_player_lesson_intent_applications",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1350,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.mark_player_lessons_delivered",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1389,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._recognized_meanings",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1407,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._recognized_meanings",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1488,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._cached_player_lessons_current",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1519,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._semantic_explicit_passthrough",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 1932,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._semantic_promote_or_replay",
+      "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 1938,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._semantic_promote_or_replay",
+      "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 1977,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._semantic_route_replay",
+      "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 2021,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.complete_semantic_selection",
+      "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 2055,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.complete_semantic_selection",
+      "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 2224,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_truth_gated",
+      "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 2463,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_with_player_lessons_guard",
+      "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 2503,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_with_player_lessons_guard",
+      "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 2817,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_observed",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 2894,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_observed",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 2921,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_observed",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 2960,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_observed",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 2966,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_observed",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 3031,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._process_observed",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 3133,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._progress",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 3142,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._index_memories",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 3239,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._reserve_lost_turn",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 3255,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._notice",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 3262,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.recent_notices",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 3291,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.on_upstream_error",
+      "reason_code": "PIPELINE_RESPONSE_STREAMING"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 3299,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.transport_error",
+      "reason_code": "PIPELINE_RESPONSE_STREAMING"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 3478,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.on_response",
+      "reason_code": "PIPELINE_RESPONSE_STREAMING"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 3514,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.on_response",
+      "reason_code": "PIPELINE_RESPONSE_STREAMING"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 3522,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.on_response",
+      "reason_code": "PIPELINE_RESPONSE_STREAMING"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 3560,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.guard_response",
+      "reason_code": "PIPELINE_RESPONSE_STREAMING"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 3657,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline.record_response_trace",
+      "reason_code": "PIPELINE_RESPONSE_STREAMING"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 4000,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._ingest_reply_tags",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 4055,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._recall_pass",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 4079,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._genesis_pass",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 4105,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._evolve_pass",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 4135,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._lint_pass",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 4147,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._lint_pass",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 4175,
+      "path": "src/aetherstate/pipeline.py",
+      "qualified_function": "Pipeline._discover",
+      "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 841,
+      "path": "src/aetherstate/player_lessons.py",
+      "qualified_function": "PlayerLessons._write_transaction",
+      "reason_code": "PLAYER_LESSONS_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 852,
+      "path": "src/aetherstate/player_lessons.py",
+      "qualified_function": "PlayerLessons._write_transaction",
+      "reason_code": "PLAYER_LESSONS_ROLLBACK"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 1656,
+      "path": "src/aetherstate/player_lessons.py",
+      "qualified_function": "PlayerLessons._playerlex_entries",
+      "reason_code": "PLAYER_LESSONS_OPTIONAL_PLAYERLEX"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1779,
+      "path": "src/aetherstate/player_lessons.py",
+      "qualified_function": "PlayerLessons._stored_lesson",
+      "reason_code": "PLAYER_LESSONS_STORAGE_AVAILABILITY"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 2117,
+      "path": "src/aetherstate/player_lessons.py",
+      "qualified_function": "PlayerLessons.remove",
+      "reason_code": "PLAYER_LESSONS_ROLLBACK"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 2214,
+      "path": "src/aetherstate/player_lessons.py",
+      "qualified_function": "PlayerLessons._compile_sample.safe_overlay",
+      "reason_code": "PLAYER_LESSONS_OPTIONAL_PREVIEW"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 2811,
+      "path": "src/aetherstate/player_lessons.py",
+      "qualified_function": "PlayerLessons._item_values",
+      "reason_code": "PLAYER_LESSONS_STORAGE_AVAILABILITY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 3181,
+      "path": "src/aetherstate/player_lessons.py",
+      "qualified_function": "PlayerLessons._intent_item_values",
+      "reason_code": "PLAYER_LESSONS_STORAGE_AVAILABILITY"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 709,
+      "path": "src/aetherstate/playerlex.py",
+      "qualified_function": "PlayerLex._write_transaction",
+      "reason_code": "PLAYERLEX_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 720,
+      "path": "src/aetherstate/playerlex.py",
+      "qualified_function": "PlayerLex._write_transaction",
+      "reason_code": "PLAYERLEX_ROLLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1069,
+      "path": "src/aetherstate/playerlex.py",
+      "qualified_function": "PlayerLex._v1_record_from_values",
+      "reason_code": "PLAYERLEX_STORAGE_AVAILABILITY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1431,
+      "path": "src/aetherstate/playerlex.py",
+      "qualified_function": "PlayerLex._record_from_row",
+      "reason_code": "PLAYERLEX_STORAGE_AVAILABILITY"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 1859,
+      "path": "src/aetherstate/playerlex.py",
+      "qualified_function": "PlayerLex.remove",
+      "reason_code": "PLAYERLEX_ROLLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1123,
+      "path": "src/aetherstate/playstack.py",
+      "qualified_function": "StackController._wait",
+      "reason_code": "PLAYSTACK_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1246,
+      "path": "src/aetherstate/playstack.py",
+      "qualified_function": "StackController.start",
+      "reason_code": "PLAYSTACK_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 93,
+      "path": "src/aetherstate/promptcache.py",
+      "qualified_function": "parse_usage",
+      "reason_code": "PROMPT_CACHE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 188,
+      "path": "src/aetherstate/promptcache.py",
+      "qualified_function": "prewarm",
+      "reason_code": "PROMPT_CACHE_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 581,
+      "path": "src/aetherstate/prompts.py",
+      "qualified_function": "rules_contract",
+      "reason_code": "PROMPT_CONTRACT_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 598,
+      "path": "src/aetherstate/prompts.py",
+      "qualified_function": "rules_contract",
+      "reason_code": "PROMPT_CONTRACT_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 135,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "_buffer_semantic_selection",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 142,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "_buffer_semantic_selection",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 252,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 272,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 287,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 295,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 335,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 353,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 374,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay.semantic_bytes",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 383,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay.semantic_bytes",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 403,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay.semantic_bytes",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 420,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 432,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay.local_bytes",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 446,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay.local_bytes",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 543,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 581,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay.stream_bytes",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "streaming",
+      "handler_kind": "Exception",
+      "line": 597,
+      "path": "src/aetherstate/proxy.py",
+      "qualified_function": "make_relay_router.relay.stream_bytes",
+      "reason_code": "PROXY_STREAMING_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 341,
+      "path": "src/aetherstate/registry/__init__.py",
+      "qualified_function": "_read_toml",
+      "reason_code": "REGISTRY_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 391,
+      "path": "src/aetherstate/registry/__init__.py",
+      "qualified_function": "load",
+      "reason_code": "REGISTRY_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 465,
+      "path": "src/aetherstate/registry/__init__.py",
+      "qualified_function": "dice_spec",
+      "reason_code": "REGISTRY_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 475,
+      "path": "src/aetherstate/registry/__init__.py",
+      "qualified_function": "tiers_model",
+      "reason_code": "REGISTRY_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 697,
+      "path": "src/aetherstate/schema_migrations.py",
+      "qualified_function": "SchemaMigrationRunner._run_unledgered",
+      "reason_code": "SCHEMA_MIGRATION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 716,
+      "path": "src/aetherstate/schema_migrations.py",
+      "qualified_function": "SchemaMigrationRunner._preflight",
+      "reason_code": "SCHEMA_MIGRATION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 726,
+      "path": "src/aetherstate/schema_migrations.py",
+      "qualified_function": "SchemaMigrationRunner._check",
+      "reason_code": "SCHEMA_MIGRATION_ROLLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 51,
+      "path": "src/aetherstate/secret_store.py",
+      "qualified_function": "_approved_backend",
+      "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 59,
+      "path": "src/aetherstate/secret_store.py",
+      "qualified_function": "_approved_backend",
+      "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 77,
+      "path": "src/aetherstate/secret_store.py",
+      "qualified_function": "CredentialStore._get_backend",
+      "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 106,
+      "path": "src/aetherstate/secret_store.py",
+      "qualified_function": "CredentialStore.put",
+      "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 118,
+      "path": "src/aetherstate/secret_store.py",
+      "qualified_function": "CredentialStore.get",
+      "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 132,
+      "path": "src/aetherstate/secret_store.py",
+      "qualified_function": "CredentialStore.delete",
+      "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 138,
+      "path": "src/aetherstate/secret_store.py",
+      "qualified_function": "CredentialStore.delete",
+      "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 237,
+      "path": "src/aetherstate/secret_store.py",
+      "qualified_function": "migrate_legacy_credentials",
+      "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1198,
+      "path": "src/aetherstate/semantic_transition_truth.py",
+      "qualified_function": "project_journal_transitions",
+      "reason_code": "SEMANTIC_PROJECTION_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 1465,
+      "path": "src/aetherstate/semantic_transition_truth.py",
+      "qualified_function": "validate_transition_projection",
+      "reason_code": "SEMANTIC_PROJECTION_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 5237,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "reduce_state",
+      "reason_code": "REDUCER_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6341,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_attach_world_event_branch_view",
+      "reason_code": "WORLD_EVENT_VIEW_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6762,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6788,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6795,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6807,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6813,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6854,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6893,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6915,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 6985,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_enrich",
+      "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 7337,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_world_overlay_operation_violation",
+      "reason_code": "WORLD_OVERLAY_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 7841,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_settlement_group_after_apply",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 7961,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_combat_opening_group_after_apply",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 8055,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_skill_check_group_after_apply",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 8529,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_bake_settlement_members",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 9527,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_apply_delta_locked",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 9701,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_apply_delta_locked",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 9805,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_apply_delta_locked",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 10039,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_apply_delta_locked",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 10138,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "_apply_delta_locked",
+      "reason_code": "STATE_REDUCTION_ROLLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 10283,
+      "path": "src/aetherstate/state.py",
+      "qualified_function": "state_summary",
+      "reason_code": "STATE_SUMMARY_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 27,
+      "path": "src/aetherstate/status.py",
+      "qualified_function": "_record_failure",
+      "reason_code": "STATUS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 36,
+      "path": "src/aetherstate/status.py",
+      "qualified_function": "_record_success",
+      "reason_code": "STATUS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 61,
+      "path": "src/aetherstate/status.py",
+      "qualified_function": "_health_projection",
+      "reason_code": "STATUS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 85,
+      "path": "src/aetherstate/status.py",
+      "qualified_function": "_extraction_view",
+      "reason_code": "STATUS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 113,
+      "path": "src/aetherstate/status.py",
+      "qualified_function": "_status_summary",
+      "reason_code": "STATUS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 156,
+      "path": "src/aetherstate/status.py",
+      "qualified_function": "make_status_router.status",
+      "reason_code": "STATUS_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 346,
+      "path": "src/aetherstate/store.py",
+      "qualified_function": "Store.transaction",
+      "reason_code": "STORE_TRANSACTION_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 357,
+      "path": "src/aetherstate/store.py",
+      "qualified_function": "Store.transaction",
+      "reason_code": "STORE_TRANSACTION_ROLLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 357,
+      "path": "src/aetherstate/system_health.py",
+      "qualified_function": "SystemHealth._initialize_durable_state",
+      "reason_code": "SYSTEM_HEALTH_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 377,
+      "path": "src/aetherstate/system_health.py",
+      "qualified_function": "SystemHealth._persist_or_fallback",
+      "reason_code": "SYSTEM_HEALTH_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "Exception",
+      "line": 424,
+      "path": "src/aetherstate/system_health.py",
+      "qualified_function": "SystemHealth._persist",
+      "reason_code": "SYSTEM_HEALTH_DURABLE_ROLLBACK"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 439,
+      "path": "src/aetherstate/system_health.py",
+      "qualified_function": "SystemHealth._refresh_from_durable",
+      "reason_code": "SYSTEM_HEALTH_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 543,
+      "path": "src/aetherstate/system_health.py",
+      "qualified_function": "SystemHealth._safe_correlation",
+      "reason_code": "SYSTEM_HEALTH_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 556,
+      "path": "src/aetherstate/system_health.py",
+      "qualified_function": "SystemHealth._now",
+      "reason_code": "SYSTEM_HEALTH_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "availability_boundary",
+      "handler_kind": "Exception",
+      "line": 587,
+      "path": "src/aetherstate/system_health.py",
+      "qualified_function": "SystemHealth._report_recorder_unavailable",
+      "reason_code": "SYSTEM_HEALTH_AVAILABILITY_BOUNDARY"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 896,
+      "path": "src/aetherstate/tier0.py",
+      "qualified_function": "_new_semantic_turn",
+      "reason_code": "TIER0_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "optional_cognition",
+      "handler_kind": "Exception",
+      "line": 911,
+      "path": "src/aetherstate/tier0.py",
+      "qualified_function": "_new_semantic_turn",
+      "reason_code": "TIER0_OPTIONAL_COGNITION"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 336,
+      "path": "src/aetherstate/worldlex_store.py",
+      "qualified_function": "WorldLexStore._write_transaction",
+      "reason_code": "WORLDLEX_STORE_ROLLBACK"
+    },
+    {
+      "boundary": "rollback",
+      "handler_kind": "BaseException",
+      "line": 347,
+      "path": "src/aetherstate/worldlex_store.py",
+      "qualified_function": "WorldLexStore._write_transaction",
+      "reason_code": "WORLDLEX_STORE_ROLLBACK"
+    }
+  ],
+  "policy": {
+    "function_families": [
+      {
+        "boundary": "rollback",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline._process_truth_gated",
+        "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+      },
+      {
+        "boundary": "rollback",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline._process_with_player_lessons_guard",
+        "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+      },
+      {
+        "boundary": "rollback",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline._semantic_promote_or_replay",
+        "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+      },
+      {
+        "boundary": "rollback",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline._semantic_route_replay",
+        "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+      },
+      {
+        "boundary": "rollback",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline.complete_semantic_selection",
+        "reason_code": "PIPELINE_SEMANTIC_ROLLBACK"
+      },
+      {
+        "boundary": "streaming",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline.guard_response",
+        "reason_code": "PIPELINE_RESPONSE_STREAMING"
+      },
+      {
+        "boundary": "streaming",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline.on_response",
+        "reason_code": "PIPELINE_RESPONSE_STREAMING"
+      },
+      {
+        "boundary": "streaming",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline.on_upstream_error",
+        "reason_code": "PIPELINE_RESPONSE_STREAMING"
+      },
+      {
+        "boundary": "streaming",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline.record_response_trace",
+        "reason_code": "PIPELINE_RESPONSE_STREAMING"
+      },
+      {
+        "boundary": "streaming",
+        "path": "src/aetherstate/pipeline.py",
+        "qualified_function": "Pipeline.transport_error",
+        "reason_code": "PIPELINE_RESPONSE_STREAMING"
+      },
+      {
+        "boundary": "optional_cognition",
+        "path": "src/aetherstate/player_lessons.py",
+        "qualified_function": "PlayerLessons._compile_sample.safe_overlay",
+        "reason_code": "PLAYER_LESSONS_OPTIONAL_PREVIEW"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/player_lessons.py",
+        "qualified_function": "PlayerLessons._intent_item_values",
+        "reason_code": "PLAYER_LESSONS_STORAGE_AVAILABILITY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/player_lessons.py",
+        "qualified_function": "PlayerLessons._item_values",
+        "reason_code": "PLAYER_LESSONS_STORAGE_AVAILABILITY"
+      },
+      {
+        "boundary": "optional_cognition",
+        "path": "src/aetherstate/player_lessons.py",
+        "qualified_function": "PlayerLessons._playerlex_entries",
+        "reason_code": "PLAYER_LESSONS_OPTIONAL_PLAYERLEX"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/player_lessons.py",
+        "qualified_function": "PlayerLessons._stored_lesson",
+        "reason_code": "PLAYER_LESSONS_STORAGE_AVAILABILITY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/playerlex.py",
+        "qualified_function": "PlayerLex._record_from_row",
+        "reason_code": "PLAYERLEX_STORAGE_AVAILABILITY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/playerlex.py",
+        "qualified_function": "PlayerLex._v1_record_from_values",
+        "reason_code": "PLAYERLEX_STORAGE_AVAILABILITY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/state.py",
+        "qualified_function": "_attach_world_event_branch_view",
+        "reason_code": "WORLD_EVENT_VIEW_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/state.py",
+        "qualified_function": "_enrich",
+        "reason_code": "STATE_ENRICHMENT_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/state.py",
+        "qualified_function": "_world_overlay_operation_violation",
+        "reason_code": "WORLD_OVERLAY_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/state.py",
+        "qualified_function": "reduce_state",
+        "reason_code": "REDUCER_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/state.py",
+        "qualified_function": "state_summary",
+        "reason_code": "STATE_SUMMARY_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "rollback",
+        "path": "src/aetherstate/system_health.py",
+        "qualified_function": "SystemHealth._persist",
+        "reason_code": "SYSTEM_HEALTH_DURABLE_ROLLBACK"
+      }
+    ],
+    "function_phase_families": [
+      {
+        "boundary": "shutdown",
+        "path": "src/aetherstate/app.py",
+        "phase": "post_yield",
+        "qualified_function": "create_app.lifespan",
+        "reason_code": "APPLICATION_LIFESPAN_SHUTDOWN"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/app.py",
+        "phase": "pre_yield",
+        "qualified_function": "create_app.lifespan",
+        "reason_code": "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"
+      }
+    ],
+    "module_families": [
+      {
+        "boundary": "shutdown",
+        "paths": [
+          "src/aetherstate/__init__.py"
+        ],
+        "reason_code": "PACKAGE_BOOTSTRAP_SHUTDOWN"
+      },
+      {
+        "boundary": "shutdown",
+        "paths": [
+          "src/aetherstate/__main__.py"
+        ],
+        "reason_code": "CLI_SHUTDOWN_AND_OPTIONAL_SETUP"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/assist.py"
+        ],
+        "reason_code": "ASSIST_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "rollback",
+        "paths": [
+          "src/aetherstate/chat_continuity.py"
+        ],
+        "reason_code": "CHAT_CONTINUITY_ADMISSION_ROLLBACK"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/compose.py"
+        ],
+        "reason_code": "COMPOSITION_AVAILABILITY_FALLBACK"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/config.py"
+        ],
+        "reason_code": "CONFIGURATION_AVAILABILITY_FALLBACK"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/control.py"
+        ],
+        "reason_code": "CONTROL_SURFACE_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/creator.py"
+        ],
+        "reason_code": "CREATOR_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/director.py"
+        ],
+        "reason_code": "DIRECTOR_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/enemy_kits.py"
+        ],
+        "reason_code": "ENEMY_KIT_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/extraction.py"
+        ],
+        "reason_code": "EXTRACTION_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/genesis.py"
+        ],
+        "reason_code": "GENESIS_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/hud.py"
+        ],
+        "reason_code": "HUD_AVAILABILITY_FALLBACK"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/jobs.py"
+        ],
+        "reason_code": "BACKGROUND_JOB_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/knowledge.py"
+        ],
+        "reason_code": "KNOWLEDGE_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/linter.py"
+        ],
+        "reason_code": "LINTER_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/memory.py"
+        ],
+        "reason_code": "MEMORY_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/narration_pre_display_guard.py"
+        ],
+        "reason_code": "NARRATION_ADVISORY_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/narrator.py"
+        ],
+        "reason_code": "NARRATOR_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/pipeline.py"
+        ],
+        "reason_code": "PIPELINE_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "rollback",
+        "paths": [
+          "src/aetherstate/player_lessons.py"
+        ],
+        "reason_code": "PLAYER_LESSONS_ROLLBACK"
+      },
+      {
+        "boundary": "rollback",
+        "paths": [
+          "src/aetherstate/playerlex.py"
+        ],
+        "reason_code": "PLAYERLEX_ROLLBACK"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/playstack.py"
+        ],
+        "reason_code": "PLAYSTACK_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/promptcache.py"
+        ],
+        "reason_code": "PROMPT_CACHE_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/prompts.py"
+        ],
+        "reason_code": "PROMPT_CONTRACT_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "streaming",
+        "paths": [
+          "src/aetherstate/proxy.py"
+        ],
+        "reason_code": "PROXY_STREAMING_BOUNDARY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/registry/__init__.py"
+        ],
+        "reason_code": "REGISTRY_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "rollback",
+        "paths": [
+          "src/aetherstate/schema_migrations.py"
+        ],
+        "reason_code": "SCHEMA_MIGRATION_ROLLBACK"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/secret_store.py"
+        ],
+        "reason_code": "SECRET_STORE_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/semantic_transition_truth.py"
+        ],
+        "reason_code": "SEMANTIC_PROJECTION_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "rollback",
+        "paths": [
+          "src/aetherstate/state.py"
+        ],
+        "reason_code": "STATE_REDUCTION_ROLLBACK"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/status.py"
+        ],
+        "reason_code": "STATUS_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "rollback",
+        "paths": [
+          "src/aetherstate/store.py"
+        ],
+        "reason_code": "STORE_TRANSACTION_ROLLBACK"
+      },
+      {
+        "boundary": "availability_boundary",
+        "paths": [
+          "src/aetherstate/system_health.py"
+        ],
+        "reason_code": "SYSTEM_HEALTH_AVAILABILITY_BOUNDARY"
+      },
+      {
+        "boundary": "optional_cognition",
+        "paths": [
+          "src/aetherstate/tier0.py"
+        ],
+        "reason_code": "TIER0_OPTIONAL_COGNITION"
+      },
+      {
+        "boundary": "rollback",
+        "paths": [
+          "src/aetherstate/worldlex_store.py"
+        ],
+        "reason_code": "WORLDLEX_STORE_ROLLBACK"
+      }
+    ],
+    "unclassified_rule": "A handler without an exact function or module policy is unclassified.",
+    "version": "aetherstate-exception-boundary-policy/1"
+  },
+  "schema": "aetherstate-exception-boundary-audit/1",
+  "source_fingerprint": "sha256:3491b4d3461fde61f01451243f93d03138c20591364bc904f7a4de23537c0a4f",
+  "summary": {
+    "by_boundary": {
+      "availability_boundary": 155,
+      "optional_cognition": 77,
+      "rollback": 32,
+      "shutdown": 5,
+      "streaming": 24
+    },
+    "by_handler_kind": {
+      "BaseException": 10,
+      "Exception": 283,
+      "bare": 0
+    },
+    "total": 293,
+    "unclassified": 0
+  }
+}

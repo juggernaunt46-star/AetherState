@@ -80,9 +80,9 @@ def test_worldlex_schema_is_recorded_once_under_store_transaction_authority():
     """Removing the WorldLex ledger entry must force the Store-owned runner path."""
     store = Store(":memory:")
     try:
-        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4, 7]
         assert store.schema_migrations.run_domain("worldlex") == ()
-        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4, 7]
     finally:
         store.close()
 
@@ -166,7 +166,7 @@ def test_nested_store_transaction_is_not_committed_by_domain_initialization():
                     WorldLexStore(store.db, store._lock, migrations=store.schema_migrations)
                 raise RuntimeError("caller rollback")
         assert tuple(store.db.iterdump()) == before_schema
-        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4, 7]
     finally:
         store.close()
 
