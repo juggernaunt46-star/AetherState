@@ -37,7 +37,6 @@ class Policy:
 MODULE_POLICY = {
     "src/aetherstate/__init__.py": Policy("shutdown", "PACKAGE_BOOTSTRAP_SHUTDOWN"),
     "src/aetherstate/__main__.py": Policy("shutdown", "CLI_SHUTDOWN_AND_OPTIONAL_SETUP"),
-    "src/aetherstate/app.py": Policy("shutdown", "APPLICATION_LIFESPAN_SHUTDOWN"),
     "src/aetherstate/assist.py": Policy("optional_cognition", "ASSIST_OPTIONAL_COGNITION"),
     "src/aetherstate/chat_continuity.py": Policy("rollback", "CHAT_CONTINUITY_ADMISSION_ROLLBACK"),
     "src/aetherstate/compose.py": Policy("availability_boundary", "COMPOSITION_AVAILABILITY_FALLBACK"),
@@ -102,6 +101,26 @@ FUNCTION_POLICY = {
     ("src/aetherstate/system_health.py", "SystemHealth._persist"): Policy("rollback", "SYSTEM_HEALTH_DURABLE_ROLLBACK"),
 }
 
+FUNCTION_PHASE_POLICY = {
+    (
+        "src/aetherstate/app.py",
+        "create_app.lifespan",
+        "pre_yield",
+    ): Policy(
+        "availability_boundary",
+        "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY",
+    ),
+    (
+        "src/aetherstate/app.py",
+        "create_app.lifespan",
+        "post_yield",
+    ): Policy("shutdown", "APPLICATION_LIFESPAN_SHUTDOWN"),
+}
+FUNCTION_PHASE_TARGETS = frozenset(
+    (path, function)
+    for path, function, _phase in FUNCTION_PHASE_POLICY
+)
+
 
 def _repository_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -161,6 +180,85 @@ def _qualified_handlers(path: Path, root: Path) -> Iterable[tuple[int, str, str]
     yield from sorted(visitor.rows)
 
 
+def _function_phase(path: Path, function: str, handler_line: int) -> str | None:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.name)
+
+    class FunctionVisitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.scope: list[str] = []
+            self.matches: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
+
+        def _visit_scope(
+            self,
+            node: ast.FunctionDef | ast.AsyncFunctionDef,
+        ) -> None:
+            self.scope.append(node.name)
+            if ".".join(self.scope) == function:
+                self.matches.append(node)
+            self.generic_visit(node)
+            self.scope.pop()
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self._visit_scope(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            self._visit_scope(node)
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            self.scope.append(node.name)
+            self.generic_visit(node)
+            self.scope.pop()
+
+    functions = FunctionVisitor()
+    functions.visit(tree)
+    if len(functions.matches) != 1:
+        return None
+
+    class BodyVisitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.yields: list[ast.Yield | ast.YieldFrom] = []
+            self.handlers: list[ast.ExceptHandler] = []
+
+        def visit_Yield(self, node: ast.Yield) -> None:
+            self.yields.append(node)
+            self.generic_visit(node)
+
+        def visit_YieldFrom(self, node: ast.YieldFrom) -> None:
+            self.yields.append(node)
+            self.generic_visit(node)
+
+        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            self.handlers.append(node)
+            self.generic_visit(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            return
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            return
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            return
+
+    body = BodyVisitor()
+    for statement in functions.matches[0].body:
+        body.visit(statement)
+    handlers = [node for node in body.handlers if node.lineno == handler_line]
+    if len(body.yields) != 1 or len(handlers) != 1:
+        return None
+
+    yield_node = body.yields[0]
+    handler = handlers[0]
+    if (handler.end_lineno or handler.lineno) < yield_node.lineno:
+        return "pre_yield"
+    if handler.lineno > (yield_node.end_lineno or yield_node.lineno):
+        return "post_yield"
+    return None
+
+
 def _source_fingerprint(paths: Iterable[Path], root: Path) -> str:
     digest = hashlib.sha256()
     for path in paths:
@@ -190,17 +288,32 @@ def _policy_document() -> dict[str, object]:
         }
         for (path, function), policy in sorted(FUNCTION_POLICY.items())
     ]
+    function_phase_families = [
+        {
+            "boundary": policy.boundary,
+            "phase": phase,
+            "reason_code": policy.reason_code,
+            "path": path,
+            "qualified_function": function,
+        }
+        for (path, function, phase), policy in sorted(FUNCTION_PHASE_POLICY.items())
+    ]
     return {
         "version": POLICY_VERSION,
         "module_families": module_families,
         "function_families": function_families,
+        "function_phase_families": function_phase_families,
         "unclassified_rule": "A handler without an exact function or module policy is unclassified.",
     }
 
 
 def _entry(path: Path, root: Path, line: int, kind: str, function: str) -> dict[str, object]:
     relative = path.relative_to(root).as_posix()
-    policy = FUNCTION_POLICY.get((relative, function)) or MODULE_POLICY.get(relative)
+    if (relative, function) in FUNCTION_PHASE_TARGETS:
+        phase = _function_phase(path, function, line)
+        policy = FUNCTION_PHASE_POLICY.get((relative, function, phase))
+    else:
+        policy = FUNCTION_POLICY.get((relative, function)) or MODULE_POLICY.get(relative)
     if policy is None:
         return {
             "path": relative,

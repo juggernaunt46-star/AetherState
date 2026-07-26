@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -32,6 +33,16 @@ FORBIDDEN_ARTIFACT_KEYS = {
     "credential",
     "absolute_path",
 }
+
+
+def _load_audit_tool():
+    name = "stage4_exception_boundary_audit"
+    spec = importlib.util.spec_from_file_location(name, TOOL)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _assert_no_forbidden_keys(value: object) -> None:
@@ -109,3 +120,38 @@ def test_exception_boundary_artifact_contains_no_source_or_payload_fields() -> N
 def test_forbidden_key_guard_rejects_nested_artifact_field() -> None:
     with pytest.raises(AssertionError, match="source_text"):
         _assert_no_forbidden_keys({"safe": [{"source_text": "synthetic"}]})
+
+
+def test_lifespan_policy_distinguishes_startup_and_shutdown_by_yield_phase(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "src" / "aetherstate" / "app.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "async def create_app():\n"
+        "    async def lifespan():\n"
+        "        try:\n"
+        "            startup()\n"
+        "        except Exception:\n"
+        "            pass\n"
+        "        yield\n"
+        "        try:\n"
+        "            shutdown()\n"
+        "        except Exception:\n"
+        "            pass\n",
+        encoding="utf-8",
+    )
+    audit = _load_audit_tool()
+
+    entries = [
+        audit._entry(path, tmp_path, line, kind, function)
+        for line, kind, function in audit._qualified_handlers(path, tmp_path)
+    ]
+
+    assert [
+        (entry["boundary"], entry["reason_code"])
+        for entry in entries
+    ] == [
+        ("availability_boundary", "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"),
+        ("shutdown", "APPLICATION_LIFESPAN_SHUTDOWN"),
+    ]

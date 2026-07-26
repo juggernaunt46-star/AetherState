@@ -41,28 +41,28 @@
       "reason_code": "CLI_SHUTDOWN_AND_OPTIONAL_SETUP"
     },
     {
-      "boundary": "shutdown",
+      "boundary": "availability_boundary",
       "handler_kind": "Exception",
       "line": 40,
       "path": "src/aetherstate/app.py",
       "qualified_function": "create_app.lifespan",
-      "reason_code": "APPLICATION_LIFESPAN_SHUTDOWN"
+      "reason_code": "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"
     },
     {
-      "boundary": "shutdown",
+      "boundary": "availability_boundary",
       "handler_kind": "Exception",
       "line": 47,
       "path": "src/aetherstate/app.py",
       "qualified_function": "create_app.lifespan",
-      "reason_code": "APPLICATION_LIFESPAN_SHUTDOWN"
+      "reason_code": "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"
     },
     {
-      "boundary": "shutdown",
+      "boundary": "availability_boundary",
       "handler_kind": "Exception",
       "line": 54,
       "path": "src/aetherstate/app.py",
       "qualified_function": "create_app.lifespan",
-      "reason_code": "APPLICATION_LIFESPAN_SHUTDOWN"
+      "reason_code": "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"
     },
     {
       "boundary": "optional_cognition",
@@ -2486,6 +2486,22 @@
         "reason_code": "SYSTEM_HEALTH_DURABLE_ROLLBACK"
       }
     ],
+    "function_phase_families": [
+      {
+        "boundary": "shutdown",
+        "path": "src/aetherstate/app.py",
+        "phase": "post_yield",
+        "qualified_function": "create_app.lifespan",
+        "reason_code": "APPLICATION_LIFESPAN_SHUTDOWN"
+      },
+      {
+        "boundary": "availability_boundary",
+        "path": "src/aetherstate/app.py",
+        "phase": "pre_yield",
+        "qualified_function": "create_app.lifespan",
+        "reason_code": "APPLICATION_LIFESPAN_STARTUP_AVAILABILITY"
+      }
+    ],
     "module_families": [
       {
         "boundary": "shutdown",
@@ -2500,13 +2516,6 @@
           "src/aetherstate/__main__.py"
         ],
         "reason_code": "CLI_SHUTDOWN_AND_OPTIONAL_SETUP"
-      },
-      {
-        "boundary": "shutdown",
-        "paths": [
-          "src/aetherstate/app.py"
-        ],
-        "reason_code": "APPLICATION_LIFESPAN_SHUTDOWN"
       },
       {
         "boundary": "optional_cognition",
@@ -2754,10 +2763,10 @@
   "source_fingerprint": "sha256:3491b4d3461fde61f01451243f93d03138c20591364bc904f7a4de23537c0a4f",
   "summary": {
     "by_boundary": {
-      "availability_boundary": 152,
+      "availability_boundary": 155,
       "optional_cognition": 77,
       "rollback": 32,
-      "shutdown": 8,
+      "shutdown": 5,
       "streaming": 24
     },
     "by_handler_kind": {
