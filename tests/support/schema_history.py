@@ -9,7 +9,10 @@ from pathlib import Path
 
 from typing import TYPE_CHECKING
 
-from aetherstate.schema_migrations import _normalize_sql_outside_quotes
+from aetherstate.schema_migrations import (
+    _normalize_sql_outside_quotes,
+    sqlite_ascii_fold,
+)
 
 if TYPE_CHECKING:
     from aetherstate.store import Store
@@ -431,11 +434,35 @@ def schema_snapshot(connection: sqlite3.Connection) -> tuple[tuple[object, ...],
 
 def ledger_rows(connection: sqlite3.Connection) -> tuple[tuple[int, str, str], ...]:
     """Read only ordered migration identities from the migration ledger."""
-    collision = connection.execute(
-        "SELECT 1 FROM sqlite_temp_schema WHERE name = ? OR tbl_name = ? LIMIT 1",
-        ("aetherstate_schema_migrations", "aetherstate_schema_migrations"),
-    ).fetchone()
-    if collision is not None:
+    ledger = "aetherstate_schema_migrations"
+    target = sqlite_ascii_fold(ledger)
+
+    def matches(row: tuple[object, ...]) -> bool:
+        return (
+            sqlite_ascii_fold(row[1]) == target
+            or sqlite_ascii_fold(row[2]) == target
+        )
+
+    temp_objects = tuple(
+        tuple(row)
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_temp_schema "
+            "ORDER BY type, name"
+        )
+        if matches(tuple(row))
+    )
+    main_objects = tuple(
+        tuple(row)
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+            "ORDER BY type, name"
+        )
+        if matches(tuple(row))
+    )
+    main_identity_is_exact = all(
+        row[1] == ledger or row[2] == ledger for row in main_objects
+    )
+    if temp_objects or not main_identity_is_exact:
         raise ValueError(_LEDGER_NAMESPACE_INVALID)
     return tuple(
         tuple(row)

@@ -460,6 +460,67 @@ def test_temp_ledger_collision_refuses_before_transform_or_durable_success() -> 
     assert connection.execute(f"SELECT count(*) FROM temp.{LEDGER}").fetchone() == (0,)
 
 
+@pytest.mark.parametrize("namespace", ("main", "temp"))
+def test_mixed_case_ledger_collision_refuses_before_callbacks_or_write(
+    namespace: str,
+) -> None:
+    connection = _connection()
+    collision = "AeThErStAtE_ScHeMa_MiGrAtIoNs"
+    temporary = "TEMP " if namespace == "temp" else ""
+    connection.execute(
+        f'CREATE {temporary}TABLE "{collision}"(sentinel TEXT NOT NULL)'
+    )
+    connection.execute(
+        f'INSERT INTO {namespace}."{collision}"(sentinel) VALUES (?)',
+        ("preserved",),
+    )
+    connection.commit()
+    before = tuple(
+        connection.execute(
+            f"SELECT type, name, tbl_name, sql FROM {namespace}.sqlite_schema "
+            "ORDER BY type, name"
+        )
+    )
+    callbacks: list[str] = []
+
+    def checked(label: str, result: bool) -> bool:
+        callbacks.append(label)
+        return result
+
+    def transform(candidate: sqlite3.Connection) -> None:
+        callbacks.append("transform")
+        candidate.execute("CREATE TABLE owned(value TEXT)")
+
+    migration = _migration(
+        applies=lambda candidate: checked("applies", True),
+        is_current=lambda candidate: checked("is_current", False),
+        transform=transform,
+        postcondition=lambda candidate: checked("postcondition", True),
+    )
+
+    with pytest.raises(SchemaMigrationError) as raised:
+        _runner(connection, [migration]).run_domain("owned")
+
+    assert raised.value.code == LEDGER_SCHEMA_INVALID
+    assert str(raised.value) == LEDGER_SCHEMA_INVALID
+    assert callbacks == []
+    assert not _has_table(connection, "owned")
+    assert connection.execute(
+        "SELECT 1 FROM main.sqlite_schema WHERE type = 'table' AND name = ?",
+        (LEDGER,),
+    ).fetchone() is None
+    assert tuple(
+        connection.execute(
+            f"SELECT type, name, tbl_name, sql FROM {namespace}.sqlite_schema "
+            "ORDER BY type, name"
+        )
+    ) == before
+    assert connection.execute(
+        f'SELECT sentinel FROM {namespace}."{collision}"'
+    ).fetchall() == [("preserved",)]
+    assert not connection.in_transaction
+
+
 def test_applicability_is_rechecked_after_begin_before_any_write(tmp_path: Path) -> None:
     path = tmp_path / "race.db"
     connection = _connection(path)
@@ -770,6 +831,47 @@ def test_schema_history_helpers_read_main_only_and_reject_temp_ledger() -> None:
     with pytest.raises(ValueError) as raised:
         ledger_rows(connection)
     assert str(raised.value) == "schema_history_ledger_namespace_invalid"
+
+
+@pytest.mark.parametrize("namespace", ("main", "temp"))
+def test_schema_history_helper_rejects_mixed_case_ledger_identity(
+    namespace: str,
+) -> None:
+    from tests.support.schema_history import ledger_rows
+
+    connection = _connection()
+    collision = "AeThErStAtE_ScHeMa_MiGrAtIoNs"
+    temporary = "TEMP " if namespace == "temp" else ""
+    connection.execute(
+        f'CREATE {temporary}TABLE "{collision}"('
+        "version INTEGER PRIMARY KEY,"
+        "name TEXT NOT NULL UNIQUE,"
+        "domain TEXT NOT NULL,"
+        "applied_at REAL NOT NULL)"
+    )
+    connection.execute(
+        f'INSERT INTO {namespace}."{collision}"'
+        "(version, name, domain, applied_at) VALUES (1, 'owned-table', 'owned', 100.0)"
+    )
+    connection.commit()
+    before = tuple(
+        connection.execute(
+            f"SELECT type, name, tbl_name, sql FROM {namespace}.sqlite_schema "
+            "ORDER BY type, name"
+        )
+    )
+
+    with pytest.raises(ValueError) as raised:
+        ledger_rows(connection)
+
+    assert str(raised.value) == "schema_history_ledger_namespace_invalid"
+    assert tuple(
+        connection.execute(
+            f"SELECT type, name, tbl_name, sql FROM {namespace}.sqlite_schema "
+            "ORDER BY type, name"
+        )
+    ) == before
+    assert not connection.in_transaction
 
 
 @pytest.mark.parametrize("clock_value", [True, 0, -1, float("inf"), float("nan")])

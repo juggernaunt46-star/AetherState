@@ -574,11 +574,12 @@ class SchemaMigrationRunner:
 
     def _ledger_rows(self) -> tuple[tuple[object, object, object, object], ...]:
         temp_objects = tuple(
-            self._connection.execute(
+            tuple(row)
+            for row in self._connection.execute(
                 "SELECT type, name, tbl_name, sql FROM sqlite_temp_schema "
-                "WHERE name = ? OR tbl_name = ? ORDER BY type, name",
-                (_LEDGER, _LEDGER),
+                "ORDER BY type, name"
             )
+            if self._ledger_object_matches(tuple(row))
         )
         if temp_objects:
             raise _LedgerProblem(LEDGER_SCHEMA_INVALID)
@@ -586,9 +587,9 @@ class SchemaMigrationRunner:
             tuple(row)
             for row in self._connection.execute(
                 "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
-                "WHERE name = ? OR tbl_name = ? ORDER BY type, name",
-                (_LEDGER, _LEDGER),
+                "ORDER BY type, name"
             )
+            if self._ledger_object_matches(tuple(row))
         )
         if not objects:
             return ()
@@ -626,6 +627,14 @@ class SchemaMigrationRunner:
             self._connection.execute(
                 f"SELECT version, name, domain, applied_at FROM main.{_LEDGER} ORDER BY version"
             )
+        )
+
+    @staticmethod
+    def _ledger_object_matches(row: tuple[object, ...]) -> bool:
+        ledger = sqlite_ascii_fold(_LEDGER)
+        return (
+            sqlite_ascii_fold(row[1]) == ledger
+            or sqlite_ascii_fold(row[2]) == ledger
         )
 
     def _run_unledgered(
