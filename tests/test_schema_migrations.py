@@ -8,6 +8,7 @@ from typing import Callable
 import pytest
 
 from aetherstate.schema_migrations import (
+    CLEANUP_SCHEMA_INVALID,
     DOMAIN_INVALID,
     LEDGER_IDENTITY_INVALID,
     LEDGER_ROW_INVALID,
@@ -415,6 +416,21 @@ def test_cleanup_discovery_ignores_marker_text_in_literals_and_comments(statemen
     runner = _runner(connection, [_migration(requires_cleanup=True)])
 
     assert runner.cleanup_pending("owned", 1) is False
+    assert not _has_table(connection, "aetherstate_schema_pending_cleanup")
+
+
+def test_cleanup_discovery_rejects_mixed_case_quoted_marker_reference() -> None:
+    connection = _connection()
+    connection.execute(
+        'CREATE VIEW unrelated AS SELECT domain, version '
+        'FROM "AeThErStAtE_ScHeMa_PeNdInG_CleAnUp"'
+    )
+    runner = _runner(connection, [_migration(requires_cleanup=True)])
+
+    with pytest.raises(SchemaMigrationError) as raised:
+        runner.cleanup_pending("owned", 1)
+
+    assert raised.value.code == CLEANUP_SCHEMA_INVALID
     assert not _has_table(connection, "aetherstate_schema_pending_cleanup")
 
 
