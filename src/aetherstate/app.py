@@ -37,8 +37,22 @@ def create_app(cfg: Config, client_factory: Optional[Callable[[], httpx.AsyncCli
     async def lifespan(app: FastAPI):
         try:    # 2026-07-04: re-queue extraction left 'pending' by a restart (fail-open)
             app.state.jobs.resume_pending()
-        except Exception:
-            pass
+        except Exception as exc:
+            try:
+                app.state.store.system_health.record_failure(
+                    "startup",
+                    "pending_extraction_resume_failed",
+                    exception=exc,
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                app.state.store.system_health.record_success(
+                    "pending_extraction_resume_succeeded"
+                )
+            except Exception:
+                pass
         yield
         if getattr(app.state, "jobs", None) is not None:
             await app.state.jobs.stop()

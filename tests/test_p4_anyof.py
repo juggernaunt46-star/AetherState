@@ -267,4 +267,5 @@ def test_live_db_migration_adds_anyof_column(tmp_path):
         (2, "worldlex-1.24-baseline", "worldlex"),
         (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
         (4, "store-chat-lineage-1.24-baseline", "store-core"),
+        (7, "system-health-1.24-baseline", "system-health"),
     )

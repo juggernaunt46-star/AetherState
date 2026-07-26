@@ -662,6 +662,21 @@ async function saveConn(target,urlId,keyId,selId){const base=$("#"+urlId).value.
   toast("saved"+(d.persisted?" — persists across restarts":" (this run only)"))}
  else toast("save failed",1)}
 async function statusTab(){const d=await j("/aether/status");const cc=d.cache||{};
+ const health=d.health||{state:d.degradation||"none",conditions:[]};
+ const conditions=health.conditions||[];
+ const healthRows=conditions.length?conditions.map(condition=>{
+  const active=Boolean(condition.active),unexpected=condition.classification==="unexpected_invariant";
+  const state=active?"active":"recovered";
+  const stateClass=active?(unexpected?"bad":"warn"):"ok";
+  const recovered=condition.recovered_at
+   ?` · recovered ${new Date(Number(condition.recovered_at)*1000).toLocaleString()}`:"";
+  return `<div class="row"><span class="pill ${stateClass}">${esc(condition.subsystem)}</span>
+   <span class="hint">${esc(condition.error_code)}</span>
+   <span class="pill dim">${esc(condition.classification)}</span>
+   <span class="pill dim">count ${Number(condition.occurrence_count)||0}</span>
+   <span class="pill ${stateClass}">${state}</span>
+   <span class="hint">correlation ${esc(condition.correlation_id)}${recovered}</span></div>`}).join("")
+  :'<div class="row"><span class="pill ok">no recorded conditions</span></div>';
  const ccPills=cc.with_usage
   ?`<span class="pill ${cc.cached_tokens>0?"vio":"dim"}" title="cached / prompt tokens (whole run)">${cc.cached_tokens||0}/${cc.prompt_tokens||0} tok cached${cc.hit_rate_tokens!=null?" ("+Math.round(cc.hit_rate_tokens*100)+"%)":""}</span><span class="pill dim">${cc.hits||0}/${cc.with_usage} replies hit</span>`
   :`<span class="pill dim">no usage data yet${cc.enabled&&!cc.include_usage?" — set [upstream].include_usage=true to measure":""}</span>`;
@@ -680,7 +695,12 @@ async function statusTab(){const d=await j("/aether/status");const cc=d.cache||{
   ${cc.enabled?'<span class="pill ok">key on</span>':'<span class="pill dim">key off</span>'}
   ${ccPills}
   ${cc.prewarm?`<span class="pill vio" title="chat-open prewarm sent/failed">prewarm ×${cc.prewarms_sent||0}${cc.prewarm_fails?" ("+cc.prewarm_fails+" failed)":""}</span>`:""}</div>
-  <div class="hint" style="margin-top:6px">telemetry: ${d.telemetry}</div></div>`}
+  <div class="hint" style="margin-top:6px">telemetry: ${d.telemetry}</div></div>
+  <div class="card"><h3>System Health</h3><div class="row">
+   <span class="pill ${health.state==="failed"?"bad":health.state==="degraded"?"warn":"ok"}">${esc(health.state||"none")}</span>
+   <span class="hint">${Number(health.active_condition_count)||0} active · ${Number(health.total_condition_count)||0} recorded</span>
+   <a class="btn" href="/aether/health/diagnostics" target="_blank" rel="noopener">safe diagnostic export</a></div>
+   ${healthRows}</div>`}
 async function modelsTab(){const d=await j("/aether/status");
  return `<div class="card"><h3>Backends the engine has probed</h3><table>
   <tr><th>backend</th><th>model</th><th>tier</th><th>notes</th></tr>`+

@@ -60,6 +60,7 @@ def test_supported_historical_database_upgrade_preserves_meaning(
             (2, "worldlex-1.24-baseline", "worldlex"),
             (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
             (4, "store-chat-lineage-1.24-baseline", "store-core"),
+            (7, "system-health-1.24-baseline", "system-health"),
         )
         assert read_historical_meaning(store, expected) == expected
         assert store.db.execute("PRAGMA foreign_keys").fetchone()[0] == 0
@@ -130,7 +131,7 @@ def test_current_124_database_adoption_preserves_rows_and_replay(tmp_path: Path)
     store = Store(path)
     try:
         assert read_historical_meaning(store, expected) == expected
-        assert [version for version, _name, _domain in ledger_rows(store.db)] == [1, 2, 3, 4]
+        assert [version for version, _name, _domain in ledger_rows(store.db)] == [1, 2, 3, 4, 7]
     finally:
         store.close()
 
@@ -148,7 +149,7 @@ def test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning
 
         app = create_app(Config(), store=store)
         assert app is not None
-        assert [version for version, _name, _domain in ledger_rows(store.db)] == [1, 2, 3, 4, 5, 6]
+        assert [version for version, _name, _domain in ledger_rows(store.db)] == [1, 2, 3, 4, 5, 6, 7]
         assert read_historical_meaning(store, expected) == expected
     finally:
         store.close()

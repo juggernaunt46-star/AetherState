@@ -193,11 +193,17 @@ def _schema_current(connection: sqlite3.Connection) -> bool:
         ("recovered_at", "REAL", 0, 0),
     ):
         return False
-    if tuple(connection.execute(f"PRAGMA main.index_list({_TABLE})")) != (
+    if tuple(
+        tuple(row)
+        for row in connection.execute(f"PRAGMA main.index_list({_TABLE})")
+    ) != (
         (0, _AUTOINDEX, 1, "pk", 0),
     ):
         return False
-    return tuple(connection.execute(f"PRAGMA main.index_xinfo({_AUTOINDEX})")) == (
+    return tuple(
+        tuple(row)
+        for row in connection.execute(f"PRAGMA main.index_xinfo({_AUTOINDEX})")
+    ) == (
         (0, 0, "subsystem", 0, "BINARY", 1),
         (1, 1, "error_code", 0, "BINARY", 1),
         (2, 2, "classification", 0, "BINARY", 1),

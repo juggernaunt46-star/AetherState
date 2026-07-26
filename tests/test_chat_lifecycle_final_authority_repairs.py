@@ -1222,6 +1222,7 @@ def test_true_pre_column_chat_memory_stays_legacy_and_fails_closed(
         (2, "worldlex-1.24-baseline", "worldlex"),
         (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
         (4, "store-chat-lineage-1.24-baseline", "store-core"),
+        (7, "system-health-1.24-baseline", "system-health"),
     )
     row = migrated.memories_candidates(branch_id)[0]
     assert row["lifecycle_source"] == ""

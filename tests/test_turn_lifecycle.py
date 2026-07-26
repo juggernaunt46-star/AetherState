@@ -51,9 +51,9 @@ def test_turn_lifecycle_schema_is_recorded_once_without_executescript_commit():
     """Lifecycle schema is enrolled by the Store runner and startup stays idempotent."""
     store = Store(":memory:")
     try:
-        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4, 7]
         assert store.schema_migrations.run_domain("turn-lifecycle") == ()
-        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4, 7]
     finally:
         store.close()
 

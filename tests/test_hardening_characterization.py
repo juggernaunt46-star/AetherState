@@ -88,6 +88,7 @@ async def test_status_shape_remains_compatible(client) -> None:
         "version": str,
         "mode": str,
         "degradation": str,
+        "health": dict,
         "config_source": str,
         "upstream_configured": bool,
         "sessions": int,
@@ -95,3 +96,5 @@ async def test_status_shape_remains_compatible(client) -> None:
         "telemetry": str,
     }
     assert all(type(value[key]) is kind for key, kind in required_types.items())
+    assert value["health"]["schema"] == "aetherstate-system-health/1"
+    assert value["health"]["state"] == value["degradation"]

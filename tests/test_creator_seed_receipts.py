@@ -847,6 +847,7 @@ def test_pre_integrity_receipt_schema_adds_unsigned_digest_column_fail_closed(tm
         (2, "worldlex-1.24-baseline", "worldlex"),
         (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
         (4, "store-chat-lineage-1.24-baseline", "store-core"),
+        (7, "system-health-1.24-baseline", "system-health"),
     )
     columns = {
         row["name"] for row in migrated.db.execute(

@@ -15,7 +15,54 @@ from . import __version__
 _STARTED = time.monotonic()
 
 
-def _extraction_view(cfg, store, jobs) -> dict:
+def _record_failure(health, subsystem: str, error_code: str, exc: Exception) -> None:
+    if health is None:
+        return
+    try:
+        health.record_failure(
+            subsystem,
+            error_code,
+            exception=exc,
+        )
+    except Exception:
+        pass
+
+
+def _record_success(health, recovery_proof: str) -> None:
+    if health is None:
+        return
+    try:
+        health.record_success(recovery_proof)
+    except Exception:
+        pass
+
+
+def _empty_health(schema: str) -> dict[str, object]:
+    return {
+        "schema": schema,
+        "state": "none",
+        "active_condition_count": 0,
+        "total_condition_count": 0,
+        "durable_available": False,
+        "conditions": [],
+    }
+
+
+def _health_projection(health, *, diagnostic: bool = False) -> dict[str, object]:
+    schema = (
+        "aetherstate-system-health-diagnostic/1"
+        if diagnostic
+        else "aetherstate-system-health/1"
+    )
+    if health is None:
+        return _empty_health(schema)
+    try:
+        return health.diagnostic_export() if diagnostic else health.snapshot()
+    except Exception:
+        return _empty_health(schema)
+
+
+def _extraction_view(cfg, store, jobs, health=None) -> dict:
     ge = getattr(cfg.assist, "group_endpoints", None)
     out: dict = {"mode": cfg.extraction.mode,
                  "thinking": cfg.extraction.thinking,
@@ -35,8 +82,15 @@ def _extraction_view(cfg, store, jobs) -> dict:
                             "failures": r["failures"],
                             "probed_at": round(r["probed_at"], 1)}
                            for r in store.caps_all()]
-        except Exception:
-            pass                                   # status must never 500 (09 F3)
+        except Exception as exc:
+            _record_failure(
+                health,
+                "status",
+                "extraction_snapshot_failed",
+                exc,
+            )
+        else:
+            _record_success(health, "extraction_snapshot_succeeded")
     if jobs is not None:
         out["breakers"] = [{"session": sid, "disabled_until_turn": turn}
                            for sid, turn in sorted(jobs._disabled_until.items())]
@@ -44,36 +98,95 @@ def _extraction_view(cfg, store, jobs) -> dict:
     return out
 
 
+def _status_summary(cfg, store, health) -> dict[str, object]:
+    linter_enabled = bool(cfg.linter.enabled)
+    director_enabled = bool(cfg.director.enabled)
+    director_libraries = list(cfg.director.beat_libraries)
+    try:
+        sessions = (
+            store.db.execute("SELECT COUNT(*) c FROM sessions").fetchone()["c"]
+            if store
+            else 0
+        )
+        violations = store.lint_counts() if store else {}
+        firings = store.director_counts() if store else {}
+    except Exception as exc:
+        _record_failure(
+            health,
+            "status",
+            "status_summary_invariant_failed",
+            exc,
+        )
+        return {
+            "sessions": 0,
+            "linter": {
+                "enabled": linter_enabled,
+                "violations": {},
+            },
+            "director": {
+                "enabled": director_enabled,
+                "libraries": director_libraries,
+                "firings": {},
+            },
+        }
+    _record_success(health, "status_summary_succeeded")
+    return {
+        "sessions": sessions,
+        "linter": {
+            "enabled": linter_enabled,
+            "violations": violations,
+        },
+        "director": {
+            "enabled": director_enabled,
+            "libraries": director_libraries,
+            "firings": firings,
+        },
+    }
+
+
 def make_status_router(cfg, store=None, jobs=None, pipeline=None) -> APIRouter:
     router = APIRouter(prefix="/aether")
+    health = getattr(store, "system_health", None)
 
     @router.get("/status")
     async def status():
         try:      # Phase 0a: prompt-cache hit rates (status must never 500 — 09 F3)
             cache = (pipeline.cache.snapshot(cfg) if pipeline is not None
                      else {"enabled": bool(getattr(cfg.upstream, "cache_key", True))})
-        except Exception:
+        except Exception as exc:
             cache = {}
+            _record_failure(
+                health,
+                "status",
+                "prompt_cache_snapshot_failed",
+                exc,
+            )
+        else:
+            _record_success(health, "prompt_cache_snapshot_succeeded")
+        extraction = _extraction_view(cfg, store, jobs, health)
+        summary = _status_summary(cfg, store, health)
+        health_view = _health_projection(health)
         return {
             "name": "aetherstate",
             "version": __version__,
             "mode": "enriched",              # P2+: Tier-0 + header composition active
-            "degradation": "none",
+            "degradation": health_view["state"],
+            "health": health_view,
             "specialization": cfg.specialization.name,   # Q27 / doc 05 (none|rpg)
             "config_source": cfg.source,
             "upstream_configured": bool(cfg.upstream.base_url),
             "data_dir": cfg.server.data_dir,
             "uptime_s": round(time.monotonic() - _STARTED, 1),
-            "sessions": (store.db.execute("SELECT COUNT(*) c FROM sessions").fetchone()["c"]
-                         if store else 0),
+            "sessions": summary["sessions"],
             "cache": cache,                  # Phase 0a: prompt-cache key + hit rates
-            "extraction": _extraction_view(cfg, store, jobs),
-            "linter": {"enabled": cfg.linter.enabled,        # violations by rule (10 SS4)
-                       "violations": (store.lint_counts() if store else {})},
-            "director": {"enabled": cfg.director.enabled,    # beat firings (10 SS4)
-                         "libraries": list(cfg.director.beat_libraries),
-                         "firings": (store.director_counts() if store else {})},
+            "extraction": extraction,
+            "linter": summary["linter"],
+            "director": summary["director"],
             "telemetry": "none, ever",
         }
+
+    @router.get("/health/diagnostics")
+    async def health_diagnostics():
+        return _health_projection(health, diagnostic=True)
 
     return router
