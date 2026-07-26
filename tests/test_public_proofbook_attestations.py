@@ -162,20 +162,16 @@ def _write_review(
     return path
 
 
-def test_bootstrap_attestation_seals_complete_ledger_and_public_review() -> None:
+def test_first_attestation_immutably_seals_publication_0001() -> None:
     assert ATTESTATION_CLI.is_file()
     assert ATTESTATIONS.is_file()
     assert (ROOT / "proofbook" / "ATTESTATIONS.md").is_file()
-
-    result = _run_cli(ROOT, "validate")
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "valid attestations=1 records=40"
 
     raw = ATTESTATIONS.read_bytes()
     assert raw.endswith(b"\n")
     assert b"\r\n" not in raw
     attestations = _jsonl(ATTESTATIONS)
-    assert len(attestations) == 1
+    assert attestations
     attestation = attestations[0]
     assert set(attestation) == {
         "schema",
@@ -193,23 +189,29 @@ def test_bootstrap_attestation_seals_complete_ledger_and_public_review() -> None
     assert attestation["sequence"] == 1
     assert attestation["previous_attestation_id"] is None
     assert attestation["ledger_record_count"] == 40
-    assert attestation["ledger_record_count"] == len(_jsonl(LEDGER))
-    assert attestation["ledger_sha256"] == _sha256(LEDGER.read_bytes())
+    ledger_lines = LEDGER.read_bytes().splitlines(keepends=True)
+    published_prefix = b"".join(
+        ledger_lines[: attestation["ledger_record_count"]]
+    )
+    assert len(ledger_lines) >= attestation["ledger_record_count"]
+    assert attestation["ledger_sha256"] == _sha256(published_prefix)
     assert attestation["added_record_ids"] == [
-        record["record_id"] for record in _jsonl(LEDGER)
+        record["record_id"]
+        for record in _jsonl(LEDGER)[: attestation["ledger_record_count"]]
     ]
     assert attestation["attestation_id"] == _content_id(
         attestation,
         "attestation_id",
     )
-    assert raw == (_canonical(attestation) + "\n").encode("utf-8")
+    first_line = raw.splitlines(keepends=True)[0]
+    assert first_line == (_canonical(attestation) + "\n").encode("utf-8")
 
     review_reference = attestation["review_artifact"]
     review_path = ROOT / Path(review_reference["path"])
     assert review_path.is_file()
     assert review_reference["sha256"] == _sha256(review_path.read_bytes())
     review = json.loads(review_path.read_text(encoding="utf-8"))
-    assert review["ledger_record_count"] == 40
+    assert review["ledger_record_count"] == attestation["ledger_record_count"]
     assert review["ledger_sha256"] == attestation["ledger_sha256"]
     assert review["engineering"] == {
         "status": "approved",
@@ -236,14 +238,14 @@ def test_attestation_rejects_post_genesis_history_mutation(
     ledger = clone / "proofbook" / "LEDGER.jsonl"
     lines = ledger.read_bytes().splitlines(keepends=True)
     if mutation == "delete":
-        del lines[37]
+        del lines[-1]
     elif mutation == "reorder":
-        lines[37], lines[38] = lines[38], lines[37]
+        lines[-2], lines[-1] = lines[-1], lines[-2]
     elif mutation == "rewrite":
-        record = json.loads(lines[37])
-        record["rationale"] = "Internally valid but unreviewed rewritten history."
+        record = json.loads(lines[-1])
+        record["cause"] = "Internally valid but unreviewed rewritten history."
         record["record_id"] = _content_id(record, "record_id")
-        lines[37] = (_canonical(record) + "\n").encode("utf-8")
+        lines[-1] = (_canonical(record) + "\n").encode("utf-8")
     else:
         _append_synthetic_verified_record(clone)
         lines = []
@@ -261,6 +263,9 @@ def test_attest_appends_exact_suffix_and_chain_link_in_clean_tree(
     clone = tmp_path / "rolling"
     clone.mkdir()
     _copy_public_tree(clone)
+    initial_attestations = _jsonl(
+        clone / "proofbook" / "ATTESTATIONS.jsonl"
+    )
     new_record_id = _append_synthetic_verified_record(clone)
     review_path = _write_review(clone, name="rolling-review.json")
 
@@ -270,28 +275,37 @@ def test_attest_appends_exact_suffix_and_chain_link_in_clean_tree(
 
     attestations_path = clone / "proofbook" / "ATTESTATIONS.jsonl"
     attestations = _jsonl(attestations_path)
-    assert len(attestations) == 2
-    first, second = attestations
-    assert second["sequence"] == 2
-    assert second["previous_attestation_id"] == first["attestation_id"]
-    assert second["attestation_id"] == new_attestation_id
-    assert second["attestation_id"] == _content_id(
-        second,
+    assert len(attestations) == len(initial_attestations) + 1
+    previous, current = attestations[-2:]
+    ledger = clone / "proofbook" / "LEDGER.jsonl"
+    ledger_records = _jsonl(ledger)
+    expected_added = [
+        record["record_id"]
+        for record in ledger_records[previous["ledger_record_count"] :]
+    ]
+    assert current["sequence"] == len(attestations)
+    assert current["previous_attestation_id"] == previous["attestation_id"]
+    assert current["attestation_id"] == new_attestation_id
+    assert current["attestation_id"] == _content_id(
+        current,
         "attestation_id",
     )
-    assert second["added_record_ids"] == [new_record_id]
-    assert second["ledger_record_count"] == 41
-    ledger = clone / "proofbook" / "LEDGER.jsonl"
-    assert second["ledger_sha256"] == _sha256(ledger.read_bytes())
+    assert expected_added[-1] == new_record_id
+    assert current["added_record_ids"] == expected_added
+    assert current["ledger_record_count"] == len(ledger_records)
+    assert current["ledger_sha256"] == _sha256(ledger.read_bytes())
 
     validated = _run_cli(clone, "validate")
     assert validated.returncode == 0, validated.stderr
-    assert validated.stdout.strip() == "valid attestations=2 records=41"
+    assert validated.stdout.strip() == (
+        f"valid attestations={len(attestations)} "
+        f"records={len(ledger_records)}"
+    )
 
-    second["previous_attestation_id"] = "sha256:" + ("0" * 64)
-    second["attestation_id"] = _content_id(second, "attestation_id")
+    current["previous_attestation_id"] = "sha256:" + ("0" * 64)
+    current["attestation_id"] = _content_id(current, "attestation_id")
     attestations_path.write_text(
-        "\n".join(_canonical(item) for item in (first, second)) + "\n",
+        "\n".join(_canonical(item) for item in attestations) + "\n",
         encoding="utf-8",
         newline="\n",
     )
@@ -407,6 +421,9 @@ def test_attest_retries_a_short_write_and_preserves_a_valid_chain(
     clone = tmp_path / "short-write"
     clone.mkdir()
     _copy_public_tree(clone)
+    initial_attestation_count = len(
+        _jsonl(clone / "proofbook" / "ATTESTATIONS.jsonl")
+    )
     _append_synthetic_verified_record(clone)
     review_path = _write_review(clone, name="short-write-review.json")
     module = _load_attestation_module()
@@ -428,7 +445,11 @@ def test_attest_retries_a_short_write_and_preserves_a_valid_chain(
 
     result = _run_cli(clone, "validate")
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "valid attestations=2 records=41"
+    ledger = clone / "proofbook" / "LEDGER.jsonl"
+    assert result.stdout.strip() == (
+        f"valid attestations={initial_attestation_count + 1} "
+        f"records={len(_jsonl(ledger))}"
+    )
 
 
 def test_attest_rolls_back_a_partial_write_that_cannot_finish(

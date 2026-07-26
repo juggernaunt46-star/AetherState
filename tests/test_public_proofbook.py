@@ -355,25 +355,37 @@ def test_public_ledger_validates_with_useful_current_lessons() -> None:
     fields = dict(
         field.split("=", 1) for field in status.stdout.strip().split()
     )
-    assert int(fields["records"]) >= 25
-    assert fields["records"] == fields["active"]
+    records = int(fields["records"])
+    active = int(fields["active"])
+    superseded = int(fields["superseded"])
+    assert records >= 25
+    assert active >= 25
+    assert superseded == records - active
     assert fields["candidates"] == "0"
-    assert fields["superseded"] == "0"
     assert fields["invalidated"] == "0"
     assert fields["stale"] == "0"
 
 
 def test_public_ledger_is_a_new_safe_repository_relative_history() -> None:
     records = _records()
+    histories: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        histories.setdefault(str(record["lesson_key"]), []).append(record)
     assert REQUIRED_PUBLIC_LESSONS <= {
-        str(record["lesson_key"]) for record in records
+        lesson_key for lesson_key in histories
     }
     assert len({record["record_id"] for record in records}) == len(records)
 
+    for history in histories.values():
+        assert [record["revision"] for record in history] == list(
+            range(1, len(history) + 1)
+        )
+        assert history[0]["supersedes"] is None
+        for previous, current in zip(history[:-1], history[1:], strict=True):
+            assert current["supersedes"] == previous["record_id"]
+
     for record in records:
-        assert record["revision"] == 1
         assert record["lifecycle"] == "verified"
-        assert record["supersedes"] is None
         assert record["provenance"] == "public_contract"
         assert record["privacy_review"]["status"] == "approved"
         serialized = json.dumps(record, ensure_ascii=False).casefold()
