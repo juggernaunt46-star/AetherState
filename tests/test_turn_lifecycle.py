@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
+import sqlite3
 import threading
 
 import pytest
 
 from aetherstate.canon import canonicalize, chain, content_hash
 from aetherstate.response_wire import decode_chat_story, encode_chat_story
+from aetherstate.schema_migrations import SchemaMigrationError, SchemaMigrationRunner
 from aetherstate.store import Store
 from aetherstate.turn_lifecycle import (
     EMPTY_PREFIX_HASH,
@@ -22,6 +24,7 @@ from aetherstate.turn_lifecycle import (
     canonical_claim_projection,
     fingerprint,
     logical_message_id,
+    turn_lifecycle_schema_migrations,
     validate_envelope,
     validate_pre_mutation_key,
 )
@@ -53,6 +56,46 @@ def test_turn_lifecycle_schema_is_recorded_once_without_executescript_commit():
         assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
     finally:
         store.close()
+
+
+@pytest.mark.parametrize("temporary", [False, True])
+def test_turn_lifecycle_mixed_case_owned_prefix_collision_refuses_before_transform_or_ledger(
+    temporary: bool,
+) -> None:
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        object_name = "SeMaNtIc_TuRn_FoReIgN"
+        connection.execute(
+            f'CREATE {"TEMP " if temporary else ""}TABLE "{object_name}"(foreign_value TEXT)'
+        )
+        connection.commit()
+        runner = SchemaMigrationRunner(
+            connection,
+            threading.RLock(),
+            turn_lifecycle_schema_migrations(),
+        )
+
+        with pytest.raises(SchemaMigrationError, match="turn_lifecycle_schema_unsupported"):
+            runner.run_domain("turn-lifecycle")
+
+        catalog = "sqlite_temp_schema" if temporary else "main.sqlite_schema"
+        assert connection.execute(
+            f"SELECT sql FROM {catalog} WHERE name=?",
+            (object_name,),
+        ).fetchone() is not None
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='semantic_turn_lifecycles'"
+        ).fetchone() is None
+        ledger = connection.execute(
+            "SELECT 1 FROM main.sqlite_schema "
+            "WHERE type='table' AND name='aetherstate_schema_migrations'"
+        ).fetchone()
+        if ledger is not None:
+            assert connection.execute(
+                "SELECT 1 FROM aetherstate_schema_migrations WHERE version=3"
+            ).fetchone() is None
+    finally:
+        connection.close()
 
 
 def _canonical_rows(*messages: tuple[str, str]) -> list[tuple[str, str, str]]:

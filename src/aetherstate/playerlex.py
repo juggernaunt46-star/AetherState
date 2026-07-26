@@ -25,7 +25,12 @@ from .capability_glossary import (
     GlossaryError,
 )
 from .semantic_atlas import MAX_CURSOR_LENGTH
-from .schema_migrations import SchemaMigration, SchemaMigrationError, SchemaMigrationRunner
+from .schema_migrations import (
+    SchemaMigration,
+    SchemaMigrationError,
+    SchemaMigrationRunner,
+    sqlite_ascii_fold,
+)
 
 
 ENTRY_SCHEMA = "playerlex-entry/2"
@@ -758,13 +763,16 @@ class PlayerLex:
         return SchemaMigrationRunner(self._connection, self._lock, database_schema_migrations())
 
     def _schema_sql(self, object_type: str, name: str) -> str | None:
-        row = self._connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type=? AND name=?",
-            (object_type, name),
-        ).fetchone()
-        if row is None or not isinstance(row[0], str):
-            return None
-        return row[0]
+        for row in self._connection.execute(
+            "SELECT type, name, sql FROM main.sqlite_schema"
+        ):
+            if (
+                str(row[0]) == object_type
+                and str(row[1]) == name
+                and isinstance(row[2], str)
+            ):
+                return str(row[2])
+        return None
 
     def _table_columns(self, table: str) -> tuple[tuple[str, str, int, Any, int], ...]:
         return tuple(
@@ -805,65 +813,60 @@ class PlayerLex:
         return indexes
 
     def _playerlex_schema_objects_exist(self) -> bool:
+        return any(
+            self._playerlex_owned_row(row)
+            for catalog in ("main.sqlite_schema", "sqlite_temp_schema")
+            for row in self._connection.execute(
+                f"SELECT type, name, tbl_name FROM {catalog}"
+            )
+        )
+
+    @staticmethod
+    def _playerlex_owned_row(row: sqlite3.Row | tuple[Any, ...]) -> bool:
         return (
-            self._connection.execute(
-                """
-                SELECT 1 FROM (
-                    SELECT type, name, tbl_name FROM sqlite_master
-                    UNION ALL
-                    SELECT type, name, tbl_name FROM sqlite_temp_master
-                )
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'playerlex_*' OR tbl_name GLOB 'playerlex_*')
-                LIMIT 1
-                """
-            ).fetchone()
-            is not None
+            str(row[0]) in {"table", "index", "trigger", "view"}
+            and (
+                sqlite_ascii_fold(row[1]).startswith("playerlex_")
+                or sqlite_ascii_fold(row[2]).startswith("playerlex_")
+            )
         )
 
     def _persistent_playerlex_schema_objects(self) -> frozenset[tuple[str, str, str]]:
         return frozenset(
             (str(row[0]), str(row[1]), str(row[2]))
             for row in self._connection.execute(
-                """
-                SELECT type, name, tbl_name FROM sqlite_master
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'playerlex_*' OR tbl_name GLOB 'playerlex_*')
-                """
+                "SELECT type, name, tbl_name FROM main.sqlite_schema"
             )
+            if self._playerlex_owned_row(row)
         )
 
     def _trigger_sql(self) -> dict[str, str | None]:
-        return {
-            (str(row[1]) if row[0] == "main" else f"temp:{row[1]}"): row[2]
+        result: dict[str, str | None] = {}
+        for schema, catalog in (
+                ("main", "main.sqlite_schema"),
+                ("temp", "sqlite_temp_schema"),
+        ):
             for row in self._connection.execute(
-                """
-                SELECT 'main', name, sql FROM sqlite_master
-                WHERE type='trigger' AND (
-                    tbl_name IN ('playerlex_entries', 'playerlex_retired_storage_tokens')
-                    OR name GLOB 'playerlex_*'
+                f"SELECT type, name, tbl_name, sql FROM {catalog}"
+            ):
+                if str(row[0]) != "trigger" or not (
+                    sqlite_ascii_fold(row[1]).startswith("playerlex_")
+                    or sqlite_ascii_fold(row[2])
+                    in {"playerlex_entries", "playerlex_retired_storage_tokens"}
+                ):
+                    continue
+                name = str(row[1])
+                result[name if schema == "main" else f"temp:{name}"] = (
+                    str(row[3]) if isinstance(row[3], str) else None
                 )
-                UNION ALL
-                SELECT 'temp', name, sql FROM sqlite_temp_master
-                WHERE type='trigger' AND (
-                    tbl_name IN ('playerlex_entries', 'playerlex_retired_storage_tokens')
-                    OR name GLOB 'playerlex_*'
-                )
-                """
-            )
-        }
+        return result
 
     def _temporary_playerlex_schema_objects_exist(self) -> bool:
-        return (
-            self._connection.execute(
-                """
-                SELECT 1 FROM sqlite_temp_master
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'playerlex_*' OR tbl_name GLOB 'playerlex_*')
-                LIMIT 1
-                """
-            ).fetchone()
-            is not None
+        return any(
+            self._playerlex_owned_row(row)
+            for row in self._connection.execute(
+                "SELECT type, name, tbl_name FROM sqlite_temp_schema"
+            )
         )
 
     def _v1_schema_is_exact(self) -> bool:

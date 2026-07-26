@@ -74,6 +74,41 @@ def test_player_lessons_initialization_records_version_6_after_its_exact_migrati
         connection.close()
 
 
+@pytest.mark.parametrize("temporary", [False, True])
+def test_player_lessons_mixed_case_owned_prefix_collision_refuses_before_transform_or_ledger(
+    temporary: bool,
+) -> None:
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        object_name = "PlAyEr_LeSsOn_FoReIgN"
+        connection.execute(
+            f'CREATE {"TEMP " if temporary else ""}TABLE "{object_name}"(foreign_value TEXT)'
+        )
+        connection.commit()
+
+        with pytest.raises(PlayerLessonsError, match="verification"):
+            PlayerLessons(connection)
+
+        catalog = "sqlite_temp_schema" if temporary else "main.sqlite_schema"
+        assert connection.execute(
+            f"SELECT sql FROM {catalog} WHERE name=?",
+            (object_name,),
+        ).fetchone() is not None
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='player_lessons'"
+        ).fetchone() is None
+        ledger = connection.execute(
+            "SELECT 1 FROM main.sqlite_schema "
+            "WHERE type='table' AND name='aetherstate_schema_migrations'"
+        ).fetchone()
+        if ledger is not None:
+            assert connection.execute(
+                "SELECT 1 FROM aetherstate_schema_migrations WHERE version=6"
+            ).fetchone() is None
+    finally:
+        connection.close()
+
+
 def test_122_pre_claim_player_lessons_shape_migrates_to_v3_without_meaning_change(
     tmp_path: Path,
 ):

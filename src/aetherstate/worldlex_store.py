@@ -25,7 +25,11 @@ from .capability_glossary import (
     GlossaryError,
     content_fingerprint,
 )
-from .schema_migrations import SchemaMigration, SchemaMigrationRunner
+from .schema_migrations import (
+    SchemaMigration,
+    SchemaMigrationRunner,
+    sqlite_ascii_fold,
+)
 
 
 WORLD_ID_PATTERN = re.compile(r"world_[0-9a-f]{32}\Z")
@@ -229,21 +233,30 @@ _WORLDLEX_NAMES = frozenset(name for _kind, name in _WORLDLEX_OBJECTS)
 
 def _worldlex_rows(connection: sqlite3.Connection) -> tuple[tuple[object, ...], ...]:
     return tuple(
-        tuple(row)
+        (row[0], row[1], row[3])
         for row in connection.execute(
-            "SELECT type, name, sql FROM main.sqlite_schema "
-            "WHERE (name GLOB 'worldlex_*' OR tbl_name GLOB 'worldlex_*') "
-            "AND (type <> 'index' OR sql IS NOT NULL) ORDER BY type, name"
+            "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+            "ORDER BY type, name"
         )
+        if (
+            sqlite_ascii_fold(row[1]).startswith("worldlex_")
+            or sqlite_ascii_fold(row[2]).startswith("worldlex_")
+        )
+        and (str(row[0]) != "index" or row[3] is not None)
     )
 
 
 def _worldlex_temp_collision(connection: sqlite3.Connection) -> bool:
-    return connection.execute(
-            "SELECT 1 FROM sqlite_temp_schema "
-            "WHERE (name GLOB 'worldlex_*' OR tbl_name GLOB 'worldlex_*') "
-            "AND (type <> 'index' OR sql IS NOT NULL) LIMIT 1"
-    ).fetchone() is not None
+    return any(
+        (
+            sqlite_ascii_fold(row[1]).startswith("worldlex_")
+            or sqlite_ascii_fold(row[2]).startswith("worldlex_")
+        )
+        and (str(row[0]) != "index" or row[3] is not None)
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_temp_schema"
+        )
+    )
 
 
 def _worldlex_current(connection: sqlite3.Connection) -> bool:

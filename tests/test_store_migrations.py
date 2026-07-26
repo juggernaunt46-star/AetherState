@@ -381,10 +381,10 @@ def test_foreign_core_column_or_index_collision_fails_before_mutation(tmp_path: 
         after.close()
 
 
-def test_exact_current_core_temp_collision_rejects_before_current_fast_path_and_ledger(
+def test_exact_current_core_mixed_case_temp_collision_rejects_before_current_fast_path_and_ledger(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Removing v1's TEMP guard before its exact-current fast path must fail closed."""
+    """SQLite-equivalent TEMP names must fail before exact-current admission."""
     path = tmp_path / "current-temp-collision.sqlite3"
     seeded = Store(path)
     seeded.db.execute("DELETE FROM aetherstate_schema_migrations")
@@ -392,7 +392,7 @@ def test_exact_current_core_temp_collision_rejects_before_current_fast_path_and_
     before = schema_snapshot(seeded.db)
     seeded.close()
     connection = sqlite3.connect(path, check_same_thread=False)
-    connection.execute("CREATE TEMP TABLE sessions(foreign_core TEXT)")
+    connection.execute("CREATE TEMP TABLE SESSIONS(foreign_core TEXT)")
     import aetherstate.store as store_module
 
     monkeypatch.setattr(store_module.sqlite3, "connect", lambda *_args, **_kwargs: connection)

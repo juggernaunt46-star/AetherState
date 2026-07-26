@@ -1133,6 +1133,43 @@ def test_initialization_rejects_a_lookalike_table_without_exact_schema(
         connection.close()
 
 
+@pytest.mark.parametrize("temporary", [False, True])
+def test_playerlex_mixed_case_owned_prefix_collision_refuses_before_transform_or_ledger(
+    glossary: CapabilityGlossary,
+    temporary: bool,
+) -> None:
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+    try:
+        object_name = "PlAyErLeX_FoReIgN"
+        connection.execute(
+            f'CREATE {"TEMP " if temporary else ""}TABLE "{object_name}"(foreign_value TEXT)'
+        )
+        connection.commit()
+
+        with pytest.raises(PlayerLexError, match="verification"):
+            PlayerLex(connection, glossary)
+
+        catalog = "sqlite_temp_schema" if temporary else "main.sqlite_schema"
+        assert connection.execute(
+            f"SELECT sql FROM {catalog} WHERE name=?",
+            (object_name,),
+        ).fetchone() is not None
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='playerlex_entries'"
+        ).fetchone() is None
+        ledger = connection.execute(
+            "SELECT 1 FROM main.sqlite_schema "
+            "WHERE type='table' AND name='aetherstate_schema_migrations'"
+        ).fetchone()
+        if ledger is not None:
+            assert connection.execute(
+                "SELECT 1 FROM aetherstate_schema_migrations WHERE version=5"
+            ).fetchone() is None
+    finally:
+        connection.close()
+
+
 def test_initialization_rejects_index_collation_or_direction_drift(
     glossary: CapabilityGlossary,
 ):

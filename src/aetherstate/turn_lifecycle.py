@@ -23,7 +23,11 @@ from .response_wire import (
     SSE_CONTENT_TYPE,
     decode_chat_story,
 )
-from .schema_migrations import SchemaMigration, SchemaMigrationRunner
+from .schema_migrations import (
+    SchemaMigration,
+    SchemaMigrationRunner,
+    sqlite_ascii_fold,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard for type checkers
     from .store import Store
@@ -172,21 +176,30 @@ def _normalized_sql(sql: object) -> object:
 
 def _turn_lifecycle_rows(connection: sqlite3.Connection) -> tuple[tuple[object, ...], ...]:
     return tuple(
-        tuple(row)
+        (row[0], row[1], row[3])
         for row in connection.execute(
-            "SELECT type, name, sql FROM main.sqlite_schema "
-            "WHERE (name GLOB 'semantic_turn_*' OR tbl_name GLOB 'semantic_turn_*') "
-            "AND (type <> 'index' OR sql IS NOT NULL) ORDER BY type, name"
+            "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+            "ORDER BY type, name"
         )
+        if (
+            sqlite_ascii_fold(row[1]).startswith("semantic_turn_")
+            or sqlite_ascii_fold(row[2]).startswith("semantic_turn_")
+        )
+        and (str(row[0]) != "index" or row[3] is not None)
     )
 
 
 def _turn_lifecycle_temp_collision(connection: sqlite3.Connection) -> bool:
-    return connection.execute(
-            "SELECT 1 FROM sqlite_temp_schema "
-            "WHERE (name GLOB 'semantic_turn_*' OR tbl_name GLOB 'semantic_turn_*') "
-            "AND (type <> 'index' OR sql IS NOT NULL) LIMIT 1"
-    ).fetchone() is not None
+    return any(
+        (
+            sqlite_ascii_fold(row[1]).startswith("semantic_turn_")
+            or sqlite_ascii_fold(row[2]).startswith("semantic_turn_")
+        )
+        and (str(row[0]) != "index" or row[3] is not None)
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_temp_schema"
+        )
+    )
 
 
 def _turn_lifecycle_current(connection: sqlite3.Connection) -> bool:

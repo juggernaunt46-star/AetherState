@@ -10,7 +10,11 @@ import re
 import sqlite3
 import time
 
-from .schema_migrations import SchemaMigration, _normalize_sql_outside_quotes
+from .schema_migrations import (
+    SchemaMigration,
+    _normalize_sql_outside_quotes,
+    sqlite_ascii_fold,
+)
 
 
 STORE_CORE_DOMAIN = "store-core"
@@ -109,7 +113,11 @@ _CORE_TABLES = frozenset({
 })
 _LINEAGE_TABLE = "chat_accepted_message_receipts"
 _KNOWN_INDEXES = frozenset(re.findall(r"(?:INDEX IF NOT EXISTS) ([A-Za-z_][A-Za-z0-9_]*)", "\n".join(STORE_CORE_STATEMENTS + STORE_LIFECYCLE_INDEXES + CHAT_LINEAGE_STATEMENTS)))
-_STORE_OWNED_NAMES = _CORE_TABLES | _KNOWN_INDEXES | {_LINEAGE_TABLE}
+_LINEAGE_OWNED_NAMES = frozenset(
+    {_LINEAGE_TABLE, "idx_chat_accepted_message_receipts_response"}
+)
+_CORE_OWNED_NAMES = (_CORE_TABLES | _KNOWN_INDEXES) - _LINEAGE_OWNED_NAMES
+_STORE_OWNED_NAMES = _CORE_OWNED_NAMES | _LINEAGE_OWNED_NAMES
 STORE_CORE_HISTORICAL_PROJECTION_HASHES = {
     "1.0.0-release-2cd07ef": "80a846feb8259b3f3229e4aceca7949fbc6808063bb005d04f58b16cb1d1b3aa",
     "1.1.0-release-ed63e38": "c8f91b337ac4fbd944f19c1083679d317390a9bc9f02bf296105920aa45d8131",
@@ -142,11 +150,17 @@ def _quote_identifier(value: str) -> str:
 
 
 def _owned_schema_rows(connection: sqlite3.Connection) -> tuple[tuple[object, ...], ...]:
-    values = tuple(sorted(_CORE_TABLES))
-    marks = ",".join("?" for _ in values)
-    return tuple(tuple(row) for row in connection.execute(
-        "SELECT type, name, tbl_name, sql FROM main.sqlite_schema WHERE substr(name, 1, 7) <> 'sqlite_' "
-        f"AND (name IN ({marks}) OR tbl_name IN ({marks})) ORDER BY type, name", values * 2))
+    return tuple(
+        tuple(row)
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM main.sqlite_schema ORDER BY type, name"
+        )
+        if not sqlite_ascii_fold(row[1]).startswith("sqlite_")
+        and (
+            sqlite_ascii_fold(row[1]) in _CORE_OWNED_NAMES
+            or sqlite_ascii_fold(row[2]) in _CORE_TABLES
+        )
+    )
 
 
 def _owned_objects(connection: sqlite3.Connection) -> tuple[tuple[str, str, str], ...]:
@@ -154,16 +168,50 @@ def _owned_objects(connection: sqlite3.Connection) -> tuple[tuple[str, str, str]
 
 
 def _table_exists(connection: sqlite3.Connection, name: str) -> bool:
-    return connection.execute("SELECT 1 FROM main.sqlite_schema WHERE type='table' AND name=?", (name,)).fetchone() is not None
+    return any(
+        str(row[0]) == "table" and str(row[1]) == name
+        for row in connection.execute("SELECT type, name FROM main.sqlite_schema")
+    )
+
+
+def _main_owned_case_collision(connection: sqlite3.Connection) -> bool:
+    owned = set(_STORE_OWNED_NAMES)
+    tables = set(_CORE_TABLES) | {_LINEAGE_TABLE}
+    return any(
+        (
+            sqlite_ascii_fold(row[1]) in owned
+            and str(row[1]) != sqlite_ascii_fold(row[1])
+        )
+        or (
+            sqlite_ascii_fold(row[2]) in tables
+            and str(row[2]) != sqlite_ascii_fold(row[2])
+        )
+        for row in connection.execute(
+            "SELECT type, name, tbl_name FROM main.sqlite_schema"
+        )
+    )
 
 
 def _temp_owned_collision(connection: sqlite3.Connection, names: set[str]) -> bool:
-    return connection.execute(
-        "SELECT 1 FROM sqlite_temp_schema WHERE name IN ({}) OR tbl_name IN ({}) LIMIT 1".format(
-            ",".join("?" for _ in names), ",".join("?" for _ in names)
-        ),
-        tuple(names) * 2,
-    ).fetchone() is not None
+    folded = {sqlite_ascii_fold(name) for name in names}
+    return any(
+        sqlite_ascii_fold(row[0]) in folded
+        or sqlite_ascii_fold(row[1]) in folded
+        for row in connection.execute(
+            "SELECT name, tbl_name FROM sqlite_temp_schema"
+        )
+    )
+
+
+def _schema_sql(
+    connection: sqlite3.Connection, object_type: str, name: str
+) -> object | None:
+    for row in connection.execute(
+        "SELECT type, name, sql FROM main.sqlite_schema"
+    ):
+        if str(row[0]) == object_type and str(row[1]) == name:
+            return row[2]
+    return None
 
 
 def _named_index_columns(connection: sqlite3.Connection, name: str) -> tuple[str, ...]:
@@ -253,7 +301,9 @@ def _current_extra_is_exact(kind: str, name: str, sql: object) -> bool:
 
 
 def _core_applicable(connection: sqlite3.Connection) -> bool:
-    if _temp_owned_collision(connection, set(_STORE_OWNED_NAMES)):
+    if _main_owned_case_collision(connection) or _temp_owned_collision(
+        connection, set(_STORE_OWNED_NAMES)
+    ):
         return False
     objects = _owned_schema_rows(connection)
     if not objects or _projection_hash(_projection(connection)) == STORE_CORE_CURRENT_PROJECTION_HASH:
@@ -271,7 +321,9 @@ def _core_applicable(connection: sqlite3.Connection) -> bool:
 
 
 def _core_current(connection: sqlite3.Connection) -> bool:
-    if _temp_owned_collision(connection, set(_STORE_OWNED_NAMES)):
+    if _main_owned_case_collision(connection) or _temp_owned_collision(
+        connection, set(_STORE_OWNED_NAMES)
+    ):
         return False
     if _projection_hash(_projection(connection)) == STORE_CORE_CURRENT_PROJECTION_HASH:
         return True
@@ -415,7 +467,9 @@ def _backfill_memory_lineage(connection: sqlite3.Connection) -> None:
 
 
 def _lineage_schema_current(connection: sqlite3.Connection) -> bool:
-    if _temp_owned_collision(connection, {_LINEAGE_TABLE}):
+    if _main_owned_case_collision(connection) or _temp_owned_collision(
+        connection, set(_LINEAGE_OWNED_NAMES)
+    ):
         return False
     if not _table_exists(connection, _LINEAGE_TABLE):
         return False
@@ -433,20 +487,14 @@ def _lineage_schema_current(connection: sqlite3.Connection) -> bool:
         ("committed_at", "REAL", 0, None, 0, 0),
     ):
         return False
-    table_sql = connection.execute(
-        "SELECT sql FROM main.sqlite_schema WHERE type='table' AND name=?",
-        (_LINEAGE_TABLE,),
-    ).fetchone()
-    if table_sql is None or _normalized_sql(table_sql[0]) != _normalized_sql(
+    table_sql = _schema_sql(connection, "table", _LINEAGE_TABLE)
+    if table_sql is None or _normalized_sql(table_sql) != _normalized_sql(
         CHAT_LINEAGE_STATEMENTS[0].replace(" IF NOT EXISTS", "")
     ):
         return False
     index_name = "idx_chat_accepted_message_receipts_response"
-    index_sql = connection.execute(
-        "SELECT sql FROM main.sqlite_schema WHERE type='index' AND name=?",
-        (index_name,),
-    ).fetchone()
-    if index_sql is None or _normalized_sql(index_sql[0]) != _normalized_sql(
+    index_sql = _schema_sql(connection, "index", index_name)
+    if index_sql is None or _normalized_sql(index_sql) != _normalized_sql(
         CHAT_LINEAGE_STATEMENTS[1].replace(" IF NOT EXISTS", "")
     ):
         return False

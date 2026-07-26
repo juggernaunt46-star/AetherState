@@ -23,7 +23,12 @@ from typing import Any
 
 from .semantic import SemanticTurn
 from .semantic_fabric import load_default_semantic_fabric
-from .schema_migrations import SchemaMigration, SchemaMigrationError, SchemaMigrationRunner
+from .schema_migrations import (
+    SchemaMigration,
+    SchemaMigrationError,
+    SchemaMigrationRunner,
+    sqlite_ascii_fold,
+)
 
 
 LESSON_SCHEMA = "player-lesson/1"
@@ -891,20 +896,22 @@ class PlayerLessons:
         return SchemaMigrationRunner(self._connection, self._lock, database_schema_migrations())
 
     def _schema_objects_exist(self) -> bool:
+        return any(
+            self._player_lessons_owned_row(row)
+            for catalog in ("main.sqlite_schema", "sqlite_temp_schema")
+            for row in self._connection.execute(
+                f"SELECT type, name, tbl_name FROM {catalog}"
+            )
+        )
+
+    @staticmethod
+    def _player_lessons_owned_row(row: sqlite3.Row | tuple[Any, ...]) -> bool:
         return (
-            self._connection.execute(
-                """
-                SELECT 1 FROM (
-                    SELECT type, name, tbl_name FROM sqlite_master
-                    UNION ALL
-                    SELECT type, name, tbl_name FROM sqlite_temp_master
-                )
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'player_lesson*' OR tbl_name GLOB 'player_lesson*')
-                LIMIT 1
-                """
-            ).fetchone()
-            is not None
+            str(row[0]) in {"table", "index", "trigger", "view"}
+            and (
+                sqlite_ascii_fold(row[1]).startswith("player_lesson")
+                or sqlite_ascii_fold(row[2]).startswith("player_lesson")
+            )
         )
 
     def _normalize_receipt_input_hashes(self) -> None:
@@ -913,10 +920,7 @@ class PlayerLessons:
             "player_lesson_selection_receipts",
             "player_lesson_intent_receipts",
         ):
-            if self._connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-                (table,),
-            ).fetchone() is None:
+            if self._schema_sql("table", table) is None:
                 continue
             rows = self._connection.execute(
                 f"SELECT branch_id, turn_index, input_hash FROM {table}"
@@ -932,13 +936,16 @@ class PlayerLessons:
                 )
 
     def _schema_sql(self, object_type: str, name: str) -> str | None:
-        row = self._connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type=? AND name=?",
-            (object_type, name),
-        ).fetchone()
-        if row is None or not isinstance(row[0], str):
-            return None
-        return row[0]
+        for row in self._connection.execute(
+            "SELECT type, name, sql FROM main.sqlite_schema"
+        ):
+            if (
+                str(row[0]) == object_type
+                and str(row[1]) == name
+                and isinstance(row[2], str)
+            ):
+                return str(row[2])
+        return None
 
     def _table_columns(self, table: str) -> tuple[tuple[str, str, int, Any, int], ...]:
         return tuple(
@@ -982,25 +989,17 @@ class PlayerLessons:
         return frozenset(
             (str(row[0]), str(row[1]), str(row[2]))
             for row in self._connection.execute(
-                """
-                SELECT type, name, tbl_name FROM sqlite_master
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'player_lesson*' OR tbl_name GLOB 'player_lesson*')
-                """
+                "SELECT type, name, tbl_name FROM main.sqlite_schema"
             )
+            if self._player_lessons_owned_row(row)
         )
 
     def _temporary_schema_objects_exist(self) -> bool:
-        return (
-            self._connection.execute(
-                """
-                SELECT 1 FROM sqlite_temp_master
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'player_lesson*' OR tbl_name GLOB 'player_lesson*')
-                LIMIT 1
-                """
-            ).fetchone()
-            is not None
+        return any(
+            self._player_lessons_owned_row(row)
+            for row in self._connection.execute(
+                "SELECT type, name, tbl_name FROM sqlite_temp_schema"
+            )
         )
 
     def _v1_schema_matches(self) -> bool:

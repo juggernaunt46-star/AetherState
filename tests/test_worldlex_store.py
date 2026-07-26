@@ -11,7 +11,7 @@ import pytest
 
 from aetherstate.capability_glossary import CapabilityGlossary, content_fingerprint
 from aetherstate.store import Store
-from aetherstate.schema_migrations import SchemaMigrationError
+from aetherstate.schema_migrations import SchemaMigrationError, SchemaMigrationRunner
 from aetherstate.worldlex_store import (
     CrossWorldDefinitionError,
     DefinitionConflictError,
@@ -19,6 +19,7 @@ from aetherstate.worldlex_store import (
     DefinitionValidationError,
     WorldIdentityError,
     WorldLexStore,
+    worldlex_schema_migrations,
 )
 
 
@@ -108,6 +109,46 @@ def test_worldlex_or_lifecycle_collision_rolls_back_without_ledger_claim(tmp_pat
         ).fetchone()[0] == "CREATE TABLE worldlex_world_lineages(foreign_value TEXT)"
     finally:
         check.close()
+
+
+@pytest.mark.parametrize("temporary", [False, True])
+def test_worldlex_mixed_case_owned_prefix_collision_refuses_before_transform_or_ledger(
+    temporary: bool,
+) -> None:
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        object_name = "WoRlDlEx_FoReIgN"
+        connection.execute(
+            f'CREATE {"TEMP " if temporary else ""}TABLE "{object_name}"(foreign_value TEXT)'
+        )
+        connection.commit()
+        runner = SchemaMigrationRunner(
+            connection,
+            threading.RLock(),
+            worldlex_schema_migrations(),
+        )
+
+        with pytest.raises(SchemaMigrationError, match="worldlex_schema_unsupported"):
+            runner.run_domain("worldlex")
+
+        catalog = "sqlite_temp_schema" if temporary else "main.sqlite_schema"
+        assert connection.execute(
+            f"SELECT sql FROM {catalog} WHERE name=?",
+            (object_name,),
+        ).fetchone() is not None
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='worldlex_world_lineages'"
+        ).fetchone() is None
+        ledger = connection.execute(
+            "SELECT 1 FROM main.sqlite_schema "
+            "WHERE type='table' AND name='aetherstate_schema_migrations'"
+        ).fetchone()
+        if ledger is not None:
+            assert connection.execute(
+                "SELECT 1 FROM aetherstate_schema_migrations WHERE version=2"
+            ).fetchone() is None
+    finally:
+        connection.close()
 
 
 def test_nested_store_transaction_is_not_committed_by_domain_initialization():
