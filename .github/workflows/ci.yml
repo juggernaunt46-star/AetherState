@@ -342,6 +342,7 @@ jobs:
 
   # Candidate authority after exact Stage 2 cumulative evidence has been consumed.
   stage-3-database-evolution:
+    name: stage-2-cumulative
     needs: [quality, python-tests, javascript, package-build, package-smoke]
     if: always()
     runs-on: ubuntu-latest

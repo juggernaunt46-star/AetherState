@@ -150,6 +150,25 @@ def test_current_workflow_has_one_dependency_closed_stage3_terminal() -> None:
     assert "tools/validate_stage3_gate.py" in block
 
 
+def test_stage3_terminal_keeps_legacy_required_check_display_only() -> None:
+    text = WORKFLOW.read_text(encoding="utf-8")
+    job_key = "\n  stage-3-database-evolution:\n"
+    assert text.count("AETHERSTATE_TERMINAL_OWNER: stage-3-database-evolution") == 1
+    assert text.count(job_key) == 1
+    assert "\n  stage-2-cumulative:\n" not in text
+
+    block = text.split(job_key, 1)[1]
+    assert block.startswith("    name: stage-2-cumulative\n")
+    assert "--gate-id semantic-cube-complete" in block
+    assert "tools/build_stage3_gate_report.py" in block
+    assert "--report build/hardening/database-evolution/stage-3-report.json" in block
+    assert "tools/validate_stage3_gate.py" in block
+    assert (
+        "name: stage-3-database-evolution-${{ env.AETHERSTATE_CANDIDATE_SHA }}"
+        in block
+    )
+
+
 @pytest.mark.parametrize("missing_job", sorted(SHARED_JOBS))
 def test_stage3_terminal_rejects_a_missing_shared_dependency(
     missing_job: str,
