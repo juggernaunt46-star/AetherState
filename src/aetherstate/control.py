@@ -530,7 +530,9 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                     atlas = load_default_semantic_atlas()
                 except Exception as exc:
                     raise PlayerLexError("Semantic Atlas failed to load") from exc
-                playerlex_service = PlayerLex(store.db, atlas, store.apply_guard())
+                playerlex_service = PlayerLex(
+                    store.db, atlas, store.apply_guard(), store.schema_migrations
+                )
         _share_recovered_playerlex(playerlex_service)
         return playerlex_service
 
@@ -573,6 +575,7 @@ def make_control_router(cfg, store, jobs=None, pipeline=None, credential_store=N
                     store.db,
                     playerlex=local_playerlex,
                     lock=store.apply_guard(),
+                    migrations=store.schema_migrations,
                 )
                 if pipeline is not None:
                     pipeline.player_lessons_service = player_lessons_service

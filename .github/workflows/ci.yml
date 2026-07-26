@@ -6,7 +6,7 @@ permissions:
 
 env:
   AETHERSTATE_CANDIDATE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-  AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative
+  AETHERSTATE_TERMINAL_OWNER: stage-3-database-evolution
 
 jobs:
   quality:
@@ -25,13 +25,14 @@ jobs:
         run: >-
           python tools/run_bounded_gate.py
           --gate-id scoped-static
-          --timeout-seconds 240
+          --timeout-seconds 200
           --failure-reason scoped_static_failed
           --evidence build/hardening/gates/scoped-static.json
           --
           bash -lc 'python -m ruff check src tests tools nli-shim &&
           python -m mypy
           tools/build_stage_gate_report.py
+          tools/build_stage3_gate_report.py
           tools/capture_architecture_baseline.py
           tools/capture_public_routes.py
           tools/capture_schema_contract.py
@@ -39,7 +40,8 @@ jobs:
           tools/smoke_clean_wheel.py
           tools/stage_gate_contract.py
           tools/validate_behavior_manifest.py
-          tools/validate_stage_gate.py'
+          tools/validate_stage_gate.py
+          tools/validate_stage3_gate.py'
       - name: Upload scoped-static evidence
         if: always()
         continue-on-error: true
@@ -53,7 +55,7 @@ jobs:
         run: >-
           python tools/run_bounded_gate.py
           --gate-id manifest
-          --timeout-seconds 240
+          --timeout-seconds 200
           --failure-reason manifest_failed
           --evidence build/hardening/gates/manifest.json
           --
@@ -72,7 +74,7 @@ jobs:
         run: >-
           python tools/run_bounded_gate.py
           --gate-id architecture-characterization
-          --timeout-seconds 240
+          --timeout-seconds 200
           --failure-reason architecture_characterization_failed
           --evidence build/hardening/gates/architecture-characterization.json
           --
@@ -90,16 +92,38 @@ jobs:
           name: gate-quality-architecture-characterization
           path: build/hardening/gates/architecture-characterization.json
           if-no-files-found: warn
+      - name: Database migrations gate
+        continue-on-error: true
+        run: >-
+          python tools/run_bounded_gate.py
+          --gate-id database-migrations
+          --timeout-seconds 200
+          --failure-reason database_migrations_failed
+          --evidence build/hardening/gates/database-migrations.json
+          --
+          python -m pytest -q
+          tests/test_schema_migrations.py
+          tests/test_store_migrations.py
+      - name: Upload database-migrations evidence
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-quality-database-migrations
+          path: build/hardening/gates/database-migrations.json
+          if-no-files-found: warn
       - name: Historical schema gate
         continue-on-error: true
         run: >-
           python tools/run_bounded_gate.py
           --gate-id historical-schema
-          --timeout-seconds 240
+          --timeout-seconds 200
           --failure-reason historical_schema_hold
           --evidence build/hardening/gates/historical-schema.json
           --
-          python -m pytest -q tests/test_historical_schema_inventory.py
+          python -m pytest -q
+          tests/test_historical_schema_inventory.py
+          tests/test_historical_database_upgrades.py
       - name: Upload historical-schema evidence
         if: always()
         continue-on-error: true
@@ -113,7 +137,7 @@ jobs:
         run: >-
           python tools/run_bounded_gate.py
           --gate-id privacy
-          --timeout-seconds 240
+          --timeout-seconds 200
           --failure-reason privacy_contract_failed
           --evidence build/hardening/gates/privacy.json
           --
@@ -133,7 +157,7 @@ jobs:
         if: always()
         run: >-
           python -c "import json,pathlib,sys;
-          ids={'scoped-static','manifest','architecture-characterization','historical-schema','privacy'};
+          ids={'scoped-static','manifest','architecture-characterization','database-migrations','historical-schema','privacy'};
           rows={p.stem:json.loads(p.read_text()) for p in pathlib.Path('build/hardening/gates').glob('*.json')};
           sys.exit(0 if ids <= rows.keys() and all(rows[i]['status']=='PASS' for i in ids) else 1)"
 
@@ -316,8 +340,9 @@ jobs:
           p=pathlib.Path('build/hardening/gates/${{ matrix.gate }}.json');
           sys.exit(0 if p.is_file() and json.loads(p.read_text())['status']=='PASS' else 1)"
 
-  # Candidate authority after exact Stage 1 PASS has been consumed.
-  stage-2-cumulative:
+  # Candidate authority after exact Stage 2 cumulative evidence has been consumed.
+  stage-3-database-evolution:
+    name: stage-2-cumulative
     needs: [quality, python-tests, javascript, package-build, package-smoke]
     if: always()
     runs-on: ubuntu-latest
@@ -330,7 +355,13 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: python -m pip install --disable-pip-version-check -e ".[dev]"
-      - name: Stage 2 cumulative gate
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: gate-*
+          path: build/hardening/database-evolution/gates
+          merge-multiple: true
+      - name: Complete Stage 2 Semantic Cube evidence
         continue-on-error: true
         env:
           QUALITY_RESULT: ${{ needs.quality.result }}
@@ -340,10 +371,10 @@ jobs:
           PACKAGE_SMOKE_RESULT: ${{ needs.package-smoke.result }}
         run: >-
           python tools/run_bounded_gate.py
-          --gate-id stage-2-cumulative
+          --gate-id semantic-cube-complete
           --timeout-seconds 600
-          --failure-reason stage_2_cumulative_failed
-          --evidence build/hardening/semantic-cube/gates/stage-2-cumulative.json
+          --failure-reason semantic_cube_contract_failed
+          --evidence build/hardening/database-evolution/gates/semantic-cube-complete.json
           --
           bash -lc 'test "$QUALITY_RESULT" = success &&
           test "$PYTHON_RESULT" = success &&
@@ -355,16 +386,24 @@ jobs:
           --defects docs/hardening/semantic-cube/narrator-output-integrity-defects.json
           --terminal &&
           python -m mypy tools/validate_semantic_cube_matrix.py'
-      - name: Upload Stage 2 cumulative evidence
+      - name: Build Stage 3 exact-candidate report
+        if: always()
+        run: >-
+          python tools/build_stage3_gate_report.py
+          --evidence-dir build/hardening/database-evolution/gates
+          --evidence-origin github-actions:${{ github.run_id }}:${{ github.run_attempt }}
+          --report build/hardening/database-evolution/stage-3-report.json
+      - name: Validate Stage 3 exact-candidate report
+        if: always()
+        run: >-
+          python tools/validate_stage3_gate.py
+          --report build/hardening/database-evolution/stage-3-report.json
+          --candidate HEAD
+          --require-pass
+      - name: Upload Stage 3 exact-candidate report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stage-2-cumulative-${{ env.AETHERSTATE_CANDIDATE_SHA }}
-          path: build/hardening/semantic-cube/gates/stage-2-cumulative.json
+          name: stage-3-database-evolution-${{ env.AETHERSTATE_CANDIDATE_SHA }}
+          path: build/hardening/database-evolution/stage-3-report.json
           if-no-files-found: error
-      - name: Enforce Stage 2 cumulative PASS
-        if: always()
-        run: >-
-          python -c "import json,pathlib,sys;
-          p=pathlib.Path('build/hardening/semantic-cube/gates/stage-2-cumulative.json');
-          sys.exit(0 if p.is_file() and json.loads(p.read_text())['status']=='PASS' else 1)"

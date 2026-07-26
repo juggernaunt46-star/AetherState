@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from aetherstate.canon import CanonMsg, chain
+from aetherstate.schema_migrations import SchemaMigrationError
 from aetherstate.store import Store
 
 
@@ -134,7 +135,7 @@ def test_mechanic_receipt_conflict_rolls_back_journal_and_effect_receipt():
     assert _count(store, "mechanic_settlement_receipts", branch) == 0
 
 
-def test_opening_an_older_database_adds_the_receipt_table_without_losing_state(tmp_path):
+def test_claimed_store_schema_missing_receipt_table_fails_closed_without_mutation(tmp_path):
     path = tmp_path / "pre-mechanic-receipt.sqlite3"
     original = Store(path)
     sid, _branch = original.create_session(external_id="older-mechanic-store")
@@ -143,18 +144,18 @@ def test_opening_an_older_database_adds_the_receipt_table_without_losing_state(t
     connection = sqlite3.connect(path)
     connection.execute("DROP TABLE mechanic_settlement_receipts")
     connection.commit()
+    before = tuple(connection.iterdump())
     connection.close()
 
-    reopened = Store(path)
+    with pytest.raises(SchemaMigrationError, match="store_core_schema_invalid"):
+        Store(path)
+
+    reopened = sqlite3.connect(path)
     try:
-        assert reopened.get_or_create_session("older-mechanic-store")["session_id"] == sid
-        tables = {
-            row["name"]
-            for row in reopened.db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            ).fetchall()
-        }
-        assert "mechanic_settlement_receipts" in tables
+        assert tuple(reopened.iterdump()) == before
+        assert reopened.execute(
+            "SELECT session_id FROM sessions WHERE external_id='older-mechanic-store'"
+        ).fetchone()[0] == sid
     finally:
         reopened.close()
 

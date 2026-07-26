@@ -23,6 +23,11 @@ from .response_wire import (
     SSE_CONTENT_TYPE,
     decode_chat_story,
 )
+from .schema_migrations import (
+    SchemaMigration,
+    SchemaMigrationRunner,
+    sqlite_ascii_fold,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard for type checkers
     from .store import Store
@@ -120,6 +125,118 @@ CREATE TABLE IF NOT EXISTS semantic_turn_delivery_completions(
   PRIMARY KEY(lifecycle_key, attempt_index)
 );
 """
+
+TURN_LIFECYCLE_DOMAIN = "turn-lifecycle"
+TURN_LIFECYCLE_SCHEMA_VERSION = 3
+TURN_LIFECYCLE_SCHEMA_FAILURE = "turn_lifecycle_schema_unsupported"
+
+
+def _schema_statements(schema: str) -> tuple[str, ...]:
+    statements: list[str] = []
+    pending = ""
+    for character in schema:
+        pending += character
+        if character == ";" and sqlite3.complete_statement(pending):
+            statement = pending.strip()
+            if statement:
+                statements.append(statement)
+            pending = ""
+    if pending.strip():
+        raise ValueError("turn lifecycle schema is incomplete")
+    return tuple(statements)
+
+
+def _schema_object(statement: str) -> tuple[str, str]:
+    match = re.search(r"CREATE\\s+(TABLE|INDEX)\\s+IF\\s+NOT\\s+EXISTS\\s+([A-Za-z_][A-Za-z0-9_]*)", statement, re.IGNORECASE)
+    if match is None:
+        raise ValueError("turn lifecycle schema statement is malformed")
+    return match.group(1).lower(), match.group(2)
+
+
+def _current_schema_object(statement: str) -> tuple[str, str]:
+    match = re.search(
+        r"CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)",
+        statement,
+        re.IGNORECASE,
+    )
+    if match is None:
+        raise ValueError("turn lifecycle schema statement is malformed")
+    return match.group(1).lower(), match.group(2)
+
+
+_SCHEMA_STATEMENTS = _schema_statements(_SCHEMA)
+_TURN_LIFECYCLE_OBJECTS = tuple(_current_schema_object(statement) for statement in _SCHEMA_STATEMENTS)
+
+
+def _normalized_sql(sql: object) -> object:
+    from .schema_migrations import _normalize_sql_outside_quotes
+
+    return None if sql is None else _normalize_sql_outside_quotes(str(sql).strip().rstrip(";"))
+
+
+def _turn_lifecycle_rows(connection: sqlite3.Connection) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (row[0], row[1], row[3])
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+            "ORDER BY type, name"
+        )
+        if (
+            sqlite_ascii_fold(row[1]).startswith("semantic_turn_")
+            or sqlite_ascii_fold(row[2]).startswith("semantic_turn_")
+        )
+        and (str(row[0]) != "index" or row[3] is not None)
+    )
+
+
+def _turn_lifecycle_temp_collision(connection: sqlite3.Connection) -> bool:
+    return any(
+        (
+            sqlite_ascii_fold(row[1]).startswith("semantic_turn_")
+            or sqlite_ascii_fold(row[2]).startswith("semantic_turn_")
+        )
+        and (str(row[0]) != "index" or row[3] is not None)
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_temp_schema"
+        )
+    )
+
+
+def _turn_lifecycle_current(connection: sqlite3.Connection) -> bool:
+    if _turn_lifecycle_temp_collision(connection):
+        return False
+    actual = _turn_lifecycle_rows(connection)
+    if {(str(kind), str(name)) for kind, name, _sql in actual} != set(_TURN_LIFECYCLE_OBJECTS):
+        return False
+    expected = {
+        (kind, name): _normalized_sql(statement.replace(" IF NOT EXISTS", ""))
+        for statement, (kind, name) in zip(_SCHEMA_STATEMENTS, _TURN_LIFECYCLE_OBJECTS)
+    }
+    return all(expected.get((str(kind), str(name))) == _normalized_sql(sql) for kind, name, sql in actual)
+
+
+def _turn_lifecycle_applicable(connection: sqlite3.Connection) -> bool:
+    return not _turn_lifecycle_temp_collision(connection) and not _turn_lifecycle_rows(connection)
+
+
+def _transform_turn_lifecycle(connection: sqlite3.Connection) -> None:
+    for statement in _SCHEMA_STATEMENTS:
+        connection.execute(statement)
+
+
+def turn_lifecycle_schema_migrations() -> tuple[SchemaMigration, ...]:
+    return (
+        SchemaMigration(
+            TURN_LIFECYCLE_SCHEMA_VERSION,
+            "turn-lifecycle-1.24-baseline",
+            TURN_LIFECYCLE_DOMAIN,
+            TURN_LIFECYCLE_SCHEMA_FAILURE,
+            _turn_lifecycle_applicable,
+            _turn_lifecycle_current,
+            _transform_turn_lifecycle,
+            _turn_lifecycle_current,
+        ),
+    )
 
 
 class TurnLifecycleError(RuntimeError):
@@ -940,13 +1057,17 @@ def validate_envelope(artifact: EnvelopeArtifact) -> dict[str, Any]:
 class TurnLifecycleStore:
     """SQLite-backed CAS coordinator attached to :class:`aetherstate.store.Store`."""
 
-    def __init__(self, store: "Store") -> None:
+    def __init__(
+        self, store: "Store", migrations: SchemaMigrationRunner | None = None
+    ) -> None:
         self.store = store
         self.db = store.db
         self._lock = store._lock
-        with self._lock:
-            self.db.executescript(_SCHEMA)
-            self.db.commit()
+        if migrations is None:
+            from .database_schema import database_schema_migrations
+
+            migrations = SchemaMigrationRunner(self.db, self._lock, database_schema_migrations())
+        migrations.run_domain(TURN_LIFECYCLE_DOMAIN)
 
     def count(self, branch_id: Optional[str] = None) -> int:
         with self._lock:

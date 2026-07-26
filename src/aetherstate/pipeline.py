@@ -1223,6 +1223,7 @@ class Pipeline:
                 self.store.db,
                 load_default_semantic_atlas(),
                 self.store.apply_guard(),
+                self.store.schema_migrations,
             )
         except Exception as exc:
             # PlayerLex is optional recognition.  A foreign/corrupt local catalog must remain
@@ -1266,6 +1267,7 @@ class Pipeline:
                 self.store.db,
                 playerlex=self.playerlex_service,
                 lock=self.store.apply_guard(),
+                migrations=self.store.schema_migrations,
             )
         except Exception as exc:
             # Player Lessons are prompt-only and fail open. Their own Console surface will retry

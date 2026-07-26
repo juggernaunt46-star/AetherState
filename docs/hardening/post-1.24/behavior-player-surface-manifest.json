@@ -4,7 +4,7 @@
     "version": "1.24.0",
     "commit": "82b58277d7a1fb167434be0290d3dfd2bb3588e2"
   },
-  "merge_target": "82b58277d7a1fb167434be0290d3dfd2bb3588e2",
+  "merge_target": "55205f73c58da18a681212545c34e90ac63532a7",
   "cumulative": true,
   "known_defects": [],
   "surfaces": [
@@ -44,14 +44,18 @@
       "default_reachability": "background",
       "proofs": [
         {"kind": "pytest", "selector": "tests/test_chat_mode_vertical.py::test_private_pov_swipe_and_fork_follow_only_accepted_lineage"},
-        {"kind": "pytest", "selector": "tests/test_turn_lifecycle.py::test_crash_boundaries_reopen_fallback_then_exact_accepted_bytes"}
+        {"kind": "pytest", "selector": "tests/test_turn_lifecycle.py::test_crash_boundaries_reopen_fallback_then_exact_accepted_bytes"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
       ]
     },
     {
       "id": "chat.living-character-continuity",
       "preservation": "required",
       "default_reachability": "background",
-      "proofs": [{"kind": "pytest", "selector": "tests/test_chat_relationship_contract.py::test_relationship_agreement_occurrence_consent_and_infidelity_matrix"}]
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_chat_relationship_contract.py::test_relationship_agreement_occurrence_consent_and_infidelity_matrix"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
+      ]
     },
     {
       "id": "chat.ordinary-core-persona",
@@ -78,7 +82,10 @@
       "id": "console.inspection-and-privacy",
       "preservation": "required",
       "default_reachability": "direct",
-      "proofs": [{"kind": "pytest", "selector": "tests/test_console_player_privacy.py::test_raw_state_and_journal_require_console_owner_capability"}]
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_console_player_privacy.py::test_raw_state_and_journal_require_console_owner_capability"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
+      ]
     },
     {
       "id": "content.mature-rpg-capability",
@@ -144,31 +151,46 @@
       "id": "ledger.journal-replay",
       "preservation": "required",
       "default_reachability": "background",
-      "proofs": [{"kind": "pytest", "selector": "tests/test_store.py::test_state_at_checkpoint_plus_replay"}]
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_store.py::test_state_at_checkpoint_plus_replay"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
+      ]
     },
     {
       "id": "lessons.player",
       "preservation": "required",
       "default_reachability": "direct",
-      "proofs": [{"kind": "pytest", "selector": "tests/test_player_lessons_pipeline.py::test_fresh_player_rpg_turn_selects_once_delivers_and_duplicate_reuses_exact_packet"}]
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_player_lessons_pipeline.py::test_fresh_player_rpg_turn_selects_once_delivers_and_duplicate_reuses_exact_packet"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
+      ]
     },
     {
       "id": "lex.playerlex",
       "preservation": "required",
       "default_reachability": "direct",
-      "proofs": [{"kind": "pytest", "selector": "tests/test_playerlex.py::test_explicit_alias_proposes_exact_span_without_authority_or_input_persistence"}]
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_playerlex.py::test_explicit_alias_proposes_exact_span_without_authority_or_input_persistence"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
+      ]
     },
     {
       "id": "lex.worldlex",
       "preservation": "required",
       "default_reachability": "direct",
-      "proofs": [{"kind": "pytest", "selector": "tests/test_worldlex_runtime.py::test_worldlex_definition_then_noncombat_assignment_api"}]
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_worldlex_runtime.py::test_worldlex_definition_then_noncombat_assignment_api"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
+      ]
     },
     {
       "id": "memory.retrieval",
       "preservation": "required",
       "default_reachability": "background",
-      "proofs": [{"kind": "pytest", "selector": "tests/test_p4_memory.py::test_retrieve_is_deterministic"}]
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_p4_memory.py::test_retrieve_is_deterministic"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
+      ]
     },
     {
       "id": "narration.current-output-contract",
@@ -228,14 +250,18 @@
       "default_reachability": "background",
       "proofs": [
         {"kind": "pytest", "selector": "tests/test_claim_event_record_store.py::test_claim_and_event_publish_atomically_and_exact_retry_is_idempotent"},
-        {"kind": "pytest", "selector": "tests/test_world_events.py::test_claim_belief_and_fact_admission_are_typed_separately"}
+        {"kind": "pytest", "selector": "tests/test_world_events.py::test_claim_belief_and_fact_admission_are_typed_separately"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
       ]
     },
     {
       "id": "rpg.checks-and-settlement",
       "preservation": "required",
       "default_reachability": "direct",
-      "proofs": [{"kind": "pytest", "selector": "tests/test_mechanic_settlement.py::test_miss_hit_and_defeat_are_derived_once_from_the_accepted_hp_change"}]
+      "proofs": [
+        {"kind": "pytest", "selector": "tests/test_mechanic_settlement.py::test_miss_hit_and_defeat_are_derived_once_from_the_accepted_hp_change"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
+      ]
     },
     {
       "id": "rpg.combat",
@@ -250,7 +276,8 @@
       "proofs": [
         {"kind": "pytest", "selector": "tests/test_hud.py::test_hud_route_end_to_end"},
         {"kind": "pytest", "selector": "tests/test_p12_combat.py::test_hud_war_room_payload_exact_hp_ally_die_and_enemy_intent"},
-        {"kind": "node", "command": ["node", "tests/st_hud_smoke.mjs"]}
+        {"kind": "node", "command": ["node", "tests/st_hud_smoke.mjs"]},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
       ]
     },
     {
@@ -275,7 +302,8 @@
       "default_reachability": "background",
       "proofs": [
         {"kind": "pytest", "selector": "tests/test_creator.py::test_world_and_player_routes_persist"},
-        {"kind": "pytest", "selector": "tests/test_p14_living_world.py::test_p14_journal_replays_deterministically"}
+        {"kind": "pytest", "selector": "tests/test_p14_living_world.py::test_p14_journal_replays_deterministically"},
+        {"kind": "pytest", "selector": "tests/test_historical_database_upgrades.py::test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"}
       ]
     },
     {

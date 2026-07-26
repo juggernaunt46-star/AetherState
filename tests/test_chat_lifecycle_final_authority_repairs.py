@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -15,6 +15,7 @@ from aetherstate.pipeline import Pipeline
 from aetherstate.semantic_fabric import load_default_semantic_fabric
 from aetherstate.state import apply_delta, apply_partitioned_delta, current_state
 from aetherstate.store import Store
+from tests.support.schema_history import rebuild_schema_fixture
 from tests.test_chat_relationship_contract import (
     CHARACTER,
     OUTSIDE_ACTOR,
@@ -1188,15 +1189,11 @@ def test_true_pre_column_chat_memory_stays_legacy_and_fails_closed(
 ) -> None:
     db_path = tmp_path / "legacy-chat-memory.sqlite3"
     branch_id = "branch:legacy-pre-column"
-    with sqlite3.connect(db_path) as legacy:
-        legacy.execute(
-            "CREATE TABLE memories("
-            "memory_id TEXT PRIMARY KEY, session_id TEXT, branch_id TEXT,"
-            "tier TEXT, text TEXT, participants TEXT DEFAULT '[]',"
-            "location_id TEXT, tags TEXT DEFAULT '[]', importance INTEGER,"
-            "created_turn INTEGER, last_accessed_turn INTEGER DEFAULT 0,"
-            "parent_id TEXT, scene_index INTEGER DEFAULT 0, embedding_ref INTEGER)"
-        )
+    legacy = rebuild_schema_fixture(
+        db_path, Path(__file__).parent / "fixtures" / "hardening" / "schema-history"
+        / "1.23.0-final-34dfe8f" / "core.schema.sql"
+    )
+    try:
         legacy.execute(
             "INSERT INTO memories VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
@@ -1215,8 +1212,17 @@ def test_true_pre_column_chat_memory_stays_legacy_and_fails_closed(
                 0,
                 None,
             ),
-        )
+            )
+        legacy.commit()
+    finally:
+        legacy.close()
     migrated = Store(db_path)
+    assert tuple(migrated.schema_migrations.applied()) == (
+        (1, "store-core-1.24-baseline", "store-core"),
+        (2, "worldlex-1.24-baseline", "worldlex"),
+        (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
+        (4, "store-chat-lineage-1.24-baseline", "store-core"),
+    )
     row = migrated.memories_candidates(branch_id)[0]
     assert row["lifecycle_source"] == ""
     assert row["response_occurrence_id"] == ""

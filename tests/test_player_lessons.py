@@ -16,10 +16,13 @@ from aetherstate.player_lessons import (
     PlayerLessonsError,
     PlayerLessonsRetryableRemovalError,
     PlayerLessonsValidationError,
+    player_lessons_schema_migrations,
 )
 from aetherstate.playerlex import PlayerLex
+from aetherstate.schema_migrations import _PENDING_CLEANUP
 from aetherstate.semantic_atlas import load_default_semantic_atlas
 from aetherstate.store import Store
+from tests.support.schema_history import rebuild_schema_fixture
 
 
 @pytest.fixture(scope="module")
@@ -57,6 +60,101 @@ def _identity(entry: dict) -> tuple[str, str, str]:
         entry["concept"]["concept_id"],
         entry["concept"]["meaning_fingerprint"],
     )
+
+
+def test_player_lessons_initialization_records_version_6_after_its_exact_migration():
+    """Lessons owns its deferred ledger row and does not claim PlayerLex."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        PlayerLessons(connection)
+        assert tuple(connection.execute(
+            "SELECT version FROM aetherstate_schema_migrations ORDER BY version"
+        )) == ((6,),)
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize("temporary", [False, True])
+def test_player_lessons_mixed_case_owned_prefix_collision_refuses_before_transform_or_ledger(
+    temporary: bool,
+) -> None:
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        object_name = "PlAyEr_LeSsOn_FoReIgN"
+        connection.execute(
+            f'CREATE {"TEMP " if temporary else ""}TABLE "{object_name}"(foreign_value TEXT)'
+        )
+        connection.commit()
+
+        with pytest.raises(PlayerLessonsError, match="verification"):
+            PlayerLessons(connection)
+
+        catalog = "sqlite_temp_schema" if temporary else "main.sqlite_schema"
+        assert connection.execute(
+            f"SELECT sql FROM {catalog} WHERE name=?",
+            (object_name,),
+        ).fetchone() is not None
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='player_lessons'"
+        ).fetchone() is None
+        ledger = connection.execute(
+            "SELECT 1 FROM main.sqlite_schema "
+            "WHERE type='table' AND name='aetherstate_schema_migrations'"
+        ).fetchone()
+        if ledger is not None:
+            assert connection.execute(
+                "SELECT 1 FROM aetherstate_schema_migrations WHERE version=6"
+            ).fetchone() is None
+    finally:
+        connection.close()
+
+
+def test_122_pre_claim_player_lessons_shape_migrates_to_v3_without_meaning_change(
+    tmp_path: Path,
+):
+    """The tracked four-Lex predecessor must preserve literal lesson evidence through v3."""
+    path = tmp_path / "tracked-122-player-lessons.sqlite3"
+    fixture = (
+        Path(__file__).parent / "fixtures" / "hardening" / "schema-history"
+        / "1.22.0-release-9091614" / "full-start.schema.sql"
+    )
+    connection = rebuild_schema_fixture(path, fixture)
+    lesson_id = "lesson_" + "1" * 32
+    fingerprint = "sha256:ad762e59b5b4ae0ecfa645920566a0c98df431e8622880fb9b77a10a0ca3186d"
+    connection.execute(
+        """
+        INSERT INTO player_lessons(
+            lesson_id, effect_type, title, scope, do_text, avoid_text,
+            anchor_entry_id, anchor_lex_id, anchor_concept_id,
+            anchor_meaning_fingerprint, enabled, revision, fingerprint,
+            approved_via, approved_at, created_at, updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (lesson_id, "narration_behavior", "Literal carried lesson", "exploration",
+         "Use the literal carried detail.", "", None, None, None, None, 1, 2, fingerprint,
+         "local_control_api", 11.0, 11.0, 12.0),
+    )
+    connection.commit()
+    connection.close()
+
+    store = Store(path)
+    try:
+        PlayerLessons(store.db, migrations=store.schema_migrations)
+        assert tuple(
+            tuple(row) for row in store.db.execute(
+                "SELECT version FROM aetherstate_schema_migrations WHERE version=6"
+            )
+        ) == ((6,),)
+        row = store.db.execute(
+            "SELECT title, scope, do_text, avoid_text, revision, character_core_fingerprint "
+            "FROM player_lessons WHERE lesson_id=?", (lesson_id,)
+        ).fetchone()
+        assert tuple(row) == (
+            "Literal carried lesson", "exploration", "Use the literal carried detail.",
+            "", 2, "",
+        )
+    finally:
+        store.close()
 
 
 def _intent_recognition(entry: dict, *, start: int = 2, end: int = 12) -> dict:
@@ -1106,6 +1204,59 @@ class _CheckpointFailingConnection(sqlite3.Connection):
             if self.checkpoint_calls == self.fail_checkpoint_call:
                 raise sqlite3.OperationalError("simulated checkpoint contention")
         return super().execute(sql, parameters)
+
+
+def test_player_lessons_declares_atomic_cleanup_requirement():
+    """The deferred v6 registry entry opts into the runner's cleanup protocol."""
+    (migration,) = player_lessons_schema_migrations()
+    assert migration.requires_cleanup is True
+
+
+def test_healthy_current_player_lessons_wal_reopen_skips_checkpoint_contention(tmp_path: Path):
+    """A clean current v6 catalog is not a pending migration-cleanup retry."""
+    connection = sqlite3.connect(
+        tmp_path / "player-lessons-current-wal.sqlite3", factory=_CheckpointFailingConnection,
+    )
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower() == "wal"
+        PlayerLessons(connection)
+        connection.checkpoint_calls = 0
+        connection.fail_checkpoint_call = 1
+
+        PlayerLessons(connection)
+        assert connection.checkpoint_calls == 0
+    finally:
+        connection.close()
+
+
+def test_post_migration_checkpoint_retry_blocks_player_lessons_availability(tmp_path: Path):
+    """A claimed v6 migration remains unavailable until its post-rebuild cleanup succeeds."""
+    path = tmp_path / "player-lessons-post-migration-checkpoint.sqlite3"
+    connection = sqlite3.connect(path, factory=_CheckpointFailingConnection)
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower() == "wal"
+        for statement in player_lessons_module._V2_SCHEMA_STATEMENTS:
+            connection.execute(statement)
+        connection.commit()
+        connection.fail_checkpoint_call = 2
+        with pytest.raises(PlayerLessonsError):
+            PlayerLessons(connection)
+        assert connection.execute(
+            "SELECT version FROM aetherstate_schema_migrations WHERE version=6"
+        ).fetchone()[0] == 6
+        assert tuple(connection.execute(
+            f"SELECT domain, version FROM main.{_PENDING_CLEANUP}"
+        )) == (("player-lessons", 6),)
+        connection.fail_checkpoint_call = 3
+        with pytest.raises(PlayerLessonsError):
+            PlayerLessons(connection)
+        connection.fail_checkpoint_call = 0
+        PlayerLessons(connection)
+        assert tuple(connection.execute(
+            f"SELECT domain, version FROM main.{_PENDING_CLEANUP}"
+        )) == ()
+    finally:
+        connection.close()
 
 
 def test_secure_removal_scrubs_content_and_retry_finishes_post_commit_checkpoint(tmp_path: Path):

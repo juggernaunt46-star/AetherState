@@ -25,6 +25,12 @@ from .capability_glossary import (
     GlossaryError,
 )
 from .semantic_atlas import MAX_CURSOR_LENGTH
+from .schema_migrations import (
+    SchemaMigration,
+    SchemaMigrationError,
+    SchemaMigrationRunner,
+    sqlite_ascii_fold,
+)
 
 
 ENTRY_SCHEMA = "playerlex-entry/2"
@@ -675,6 +681,7 @@ class PlayerLex:
         connection: sqlite3.Connection,
         atlas: Any,
         lock: Any | None = None,
+        migrations: SchemaMigrationRunner | None = None,
     ) -> None:
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("connection must be a sqlite3.Connection")
@@ -689,11 +696,7 @@ class PlayerLex:
         self._connection = connection
         self._atlas = atlas
         self._lock = lock if lock is not None else threading.RLock()
-        if self._connection.in_transaction:
-            raise PlayerLexError(
-                "PlayerLex initialization requires no active transaction; retry after it closes"
-            )
-        self._install_schema()
+        self._install_schema(migrations)
 
     @contextmanager
     def _write_transaction(self) -> Iterator[None]:
@@ -720,7 +723,7 @@ class PlayerLex:
             else:
                 self._connection.commit()
 
-    def _install_schema(self) -> None:
+    def _install_schema(self, migrations: SchemaMigrationRunner | None = None) -> None:
         with self._lock:
             if self._connection.in_transaction:
                 raise PlayerLexError(
@@ -730,36 +733,46 @@ class PlayerLex:
                 secure_delete = self._connection.execute("PRAGMA secure_delete=ON").fetchone()
                 if secure_delete is None or int(secure_delete[0]) != 1:
                     raise PlayerLexError("SQLite secure deletion is unavailable for PlayerLex")
-                self._connection.execute("BEGIN IMMEDIATE")
+                before = _migration_playerlex(self._connection)
+                rebuild = before._playerlex_schema_objects_exist() and (
+                    before._v1_schema_is_exact() or before._v2_four_lex_schema_is_exact()
+                )
                 try:
-                    if not self._playerlex_schema_objects_exist():
-                        for statement in _SCHEMA_STATEMENTS:
-                            self._connection.execute(statement)
-                    elif self._v1_schema_is_exact():
-                        self._migrate_v1_schema()
-                    elif self._v2_four_lex_schema_is_exact():
-                        self._migrate_v2_four_lex_schema()
-                    else:
-                        self._verify_schema()
+                    runner = migrations or self._local_migrations()
+                    pending_cleanup = runner.cleanup_pending("playerlex", 5)
+                    if rebuild:
+                        self._checkpoint_wal()
+                    committed = runner.run_domain("playerlex")
                     self._verify_schema()
-                except BaseException:
-                    self._connection.rollback()
-                    raise
-                else:
-                    self._connection.commit()
+                    if rebuild or pending_cleanup or committed:
+                        self._checkpoint_wal()
+                        runner.clear_cleanup_pending("playerlex", 5)
+                except SchemaMigrationError as exc:
+                    raise PlayerLexError(
+                        "PlayerLex local storage failed verification"
+                        if exc.code == "playerlex_schema_unsupported" else exc.code
+                    ) from None
             except sqlite3.Error as exc:
                 if self._connection.in_transaction:
                     self._connection.rollback()
                 raise PlayerLexError("PlayerLex local storage initialization failed") from exc
 
+    def _local_migrations(self) -> SchemaMigrationRunner:
+        from .database_schema import database_schema_migrations
+
+        return SchemaMigrationRunner(self._connection, self._lock, database_schema_migrations())
+
     def _schema_sql(self, object_type: str, name: str) -> str | None:
-        row = self._connection.execute(
-            "SELECT sql FROM sqlite_master WHERE type=? AND name=?",
-            (object_type, name),
-        ).fetchone()
-        if row is None or not isinstance(row[0], str):
-            return None
-        return row[0]
+        for row in self._connection.execute(
+            "SELECT type, name, sql FROM main.sqlite_schema"
+        ):
+            if (
+                str(row[0]) == object_type
+                and str(row[1]) == name
+                and isinstance(row[2], str)
+            ):
+                return str(row[2])
+        return None
 
     def _table_columns(self, table: str) -> tuple[tuple[str, str, int, Any, int], ...]:
         return tuple(
@@ -800,65 +813,60 @@ class PlayerLex:
         return indexes
 
     def _playerlex_schema_objects_exist(self) -> bool:
+        return any(
+            self._playerlex_owned_row(row)
+            for catalog in ("main.sqlite_schema", "sqlite_temp_schema")
+            for row in self._connection.execute(
+                f"SELECT type, name, tbl_name FROM {catalog}"
+            )
+        )
+
+    @staticmethod
+    def _playerlex_owned_row(row: sqlite3.Row | tuple[Any, ...]) -> bool:
         return (
-            self._connection.execute(
-                """
-                SELECT 1 FROM (
-                    SELECT type, name, tbl_name FROM sqlite_master
-                    UNION ALL
-                    SELECT type, name, tbl_name FROM sqlite_temp_master
-                )
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'playerlex_*' OR tbl_name GLOB 'playerlex_*')
-                LIMIT 1
-                """
-            ).fetchone()
-            is not None
+            str(row[0]) in {"table", "index", "trigger", "view"}
+            and (
+                sqlite_ascii_fold(row[1]).startswith("playerlex_")
+                or sqlite_ascii_fold(row[2]).startswith("playerlex_")
+            )
         )
 
     def _persistent_playerlex_schema_objects(self) -> frozenset[tuple[str, str, str]]:
         return frozenset(
             (str(row[0]), str(row[1]), str(row[2]))
             for row in self._connection.execute(
-                """
-                SELECT type, name, tbl_name FROM sqlite_master
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'playerlex_*' OR tbl_name GLOB 'playerlex_*')
-                """
+                "SELECT type, name, tbl_name FROM main.sqlite_schema"
             )
+            if self._playerlex_owned_row(row)
         )
 
     def _trigger_sql(self) -> dict[str, str | None]:
-        return {
-            (str(row[1]) if row[0] == "main" else f"temp:{row[1]}"): row[2]
+        result: dict[str, str | None] = {}
+        for schema, catalog in (
+                ("main", "main.sqlite_schema"),
+                ("temp", "sqlite_temp_schema"),
+        ):
             for row in self._connection.execute(
-                """
-                SELECT 'main', name, sql FROM sqlite_master
-                WHERE type='trigger' AND (
-                    tbl_name IN ('playerlex_entries', 'playerlex_retired_storage_tokens')
-                    OR name GLOB 'playerlex_*'
+                f"SELECT type, name, tbl_name, sql FROM {catalog}"
+            ):
+                if str(row[0]) != "trigger" or not (
+                    sqlite_ascii_fold(row[1]).startswith("playerlex_")
+                    or sqlite_ascii_fold(row[2])
+                    in {"playerlex_entries", "playerlex_retired_storage_tokens"}
+                ):
+                    continue
+                name = str(row[1])
+                result[name if schema == "main" else f"temp:{name}"] = (
+                    str(row[3]) if isinstance(row[3], str) else None
                 )
-                UNION ALL
-                SELECT 'temp', name, sql FROM sqlite_temp_master
-                WHERE type='trigger' AND (
-                    tbl_name IN ('playerlex_entries', 'playerlex_retired_storage_tokens')
-                    OR name GLOB 'playerlex_*'
-                )
-                """
-            )
-        }
+        return result
 
     def _temporary_playerlex_schema_objects_exist(self) -> bool:
-        return (
-            self._connection.execute(
-                """
-                SELECT 1 FROM sqlite_temp_master
-                WHERE type IN ('table', 'index', 'trigger', 'view')
-                  AND (name GLOB 'playerlex_*' OR tbl_name GLOB 'playerlex_*')
-                LIMIT 1
-                """
-            ).fetchone()
-            is not None
+        return any(
+            self._playerlex_owned_row(row)
+            for row in self._connection.execute(
+                "SELECT type, name, tbl_name FROM sqlite_temp_schema"
+            )
         )
 
     def _v1_schema_is_exact(self) -> bool:
@@ -939,9 +947,40 @@ class PlayerLex:
             "'capability', 'referent', 'scene', 'action', 'claim'",
             "'capability', 'referent', 'scene', 'action'",
         )
+        expected_indexes = {
+            (0, "c", 0, _expected_index_xinfo("normalized_surface", "kind", "lex_id", "concept_id")),
+            (1, "u", 0, _expected_index_xinfo("entry_id")),
+            (1, "u", 0, _expected_index_xinfo("kind", "normalized_surface", "lex_id", "concept_id")),
+            (1, "pk", 0, _expected_index_xinfo("storage_token")),
+        }
+        expected_retired_indexes = {(1, "pk", 0, _expected_index_xinfo("storage_token"))}
+        trigger_names = (
+            "playerlex_reject_retired_storage_token", "playerlex_retire_storage_token",
+            "playerlex_reject_storage_token_update", "playerlex_reject_identity_replacement",
+            "playerlex_reject_retired_storage_token_update",
+            "playerlex_reject_retired_storage_token_delete",
+            "playerlex_reject_retired_storage_token_replacement",
+        )
+        triggers = self._trigger_sql()
         return (
             _normalized_schema_sql(table_sql) == _normalized_schema_sql(previous)
             and self._persistent_playerlex_schema_objects() == _EXPECTED_PERSISTENT_SCHEMA_OBJECTS
+            and self._table_columns("playerlex_entries") == _EXPECTED_TABLE_COLUMNS
+            and self._table_columns("playerlex_retired_storage_tokens") == _EXPECTED_RETIRED_COLUMNS
+            and _normalized_schema_sql(
+                self._schema_sql("table", "playerlex_retired_storage_tokens") or ""
+            ) == _normalized_schema_sql(_SCHEMA_STATEMENTS[1])
+            and set(self._index_metadata("playerlex_entries").values()) == expected_indexes
+            and len(self._index_metadata("playerlex_entries")) == len(expected_indexes)
+            and _normalized_schema_sql(self._schema_sql("index", "playerlex_surface_idx") or "")
+            == _normalized_schema_sql(_SCHEMA_STATEMENTS[2])
+            and set(self._index_metadata("playerlex_retired_storage_tokens").values()) == expected_retired_indexes
+            and len(self._index_metadata("playerlex_retired_storage_tokens")) == len(expected_retired_indexes)
+            and set(triggers) == set(trigger_names)
+            and all(
+                _normalized_schema_sql(str(triggers[name])) == _normalized_schema_sql(statement)
+                for name, statement in zip(trigger_names, _SCHEMA_STATEMENTS[3:], strict=True)
+            )
         )
 
     def _migrate_v2_four_lex_schema(self) -> None:
@@ -2038,3 +2077,62 @@ class PlayerLex:
             "matches": matches,
             "refused": refused,
         }
+
+
+def _migration_playerlex(connection: sqlite3.Connection) -> PlayerLex:
+    """Build the schema-only view used by the global deferred migration registry."""
+    from .semantic_atlas import load_default_semantic_atlas
+
+    service = object.__new__(PlayerLex)
+    service._connection = connection
+    service._lock = threading.RLock()
+    service._atlas = load_default_semantic_atlas()
+    return service
+
+
+def playerlex_schema_migrations() -> tuple[SchemaMigration, ...]:
+    """Return PlayerLex's sparse, atomic schema ownership entry."""
+    def applies(connection: sqlite3.Connection) -> bool:
+        service = _migration_playerlex(connection)
+        return (
+            not service._playerlex_schema_objects_exist()
+            or service._v1_schema_is_exact()
+            or service._v2_four_lex_schema_is_exact()
+        )
+
+    def current(connection: sqlite3.Connection) -> bool:
+        try:
+            _migration_playerlex(connection)._verify_schema()
+        except (PlayerLexError, sqlite3.Error):
+            return False
+        return True
+
+    def transform(connection: sqlite3.Connection) -> None:
+        service = _migration_playerlex(connection)
+        if not service._playerlex_schema_objects_exist():
+            for statement in _SCHEMA_STATEMENTS:
+                connection.execute(statement)
+        elif service._v1_schema_is_exact():
+            service._migrate_v1_schema()
+        elif service._v2_four_lex_schema_is_exact():
+            service._migrate_v2_four_lex_schema()
+        else:
+            raise PlayerLexError("PlayerLex local storage failed verification")
+        service._verify_schema()
+
+    def postcondition(connection: sqlite3.Connection) -> bool:
+        return current(connection)
+
+    return (
+        SchemaMigration(
+            version=5,
+            name="playerlex-1.24-baseline",
+            domain="playerlex",
+            failure_code="playerlex_schema_unsupported",
+            applies=applies,
+            is_current=current,
+            transform=transform,
+            postcondition=postcondition,
+            requires_cleanup=True,
+        ),
+    )

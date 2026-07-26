@@ -6,8 +6,10 @@ import random
 import threading
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
+from aetherstate.app import create_app
 from aetherstate.config import Config
 from aetherstate import chat_card, genesis
 from aetherstate.pipeline import Pipeline
@@ -17,7 +19,7 @@ from aetherstate.semantic_atlas import load_default_semantic_atlas
 from aetherstate.session_engine import SessionEngine
 from aetherstate.stamps import Stamp
 from aetherstate.store import Store
-from tests.mock_upstream import Reply
+from tests.mock_upstream import MockUpstream, Reply
 
 
 class RecordingLessons:
@@ -48,6 +50,128 @@ class RecordingLessons:
 
     def mark_delivered(self, branch_id: str, turn_index: int, lesson_ids):
         self.delivered_calls.append((branch_id, turn_index, tuple(lesson_ids)))
+
+
+@pytest.mark.anyio
+async def test_playerlex_corruption_keeps_openai_route_available_and_console_retry_shares_runner(
+    tmp_path, monkeypatch,
+):
+    """Startup fails open; the real Console retry uses the Store-owned migration runner."""
+    seen_runners = []
+    original_init = PlayerLex.__init__
+
+    def record_runner(self, db, atlas, lock=None, migrations=None):
+        seen_runners.append(migrations)
+        original_init(self, db, atlas, lock, migrations)
+
+    monkeypatch.setattr(PlayerLex, "__init__", record_runner)
+    store = Store(":memory:")
+    upstream = MockUpstream()
+    upstream_client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=upstream), base_url="http://mock-upstream",
+    )
+    try:
+        store.db.execute("CREATE TABLE playerlex_entries(corrupt TEXT)")
+        store.db.commit()
+        cfg = _cfg()
+        cfg.upstream.base_url = "http://mock-upstream/v1"
+        cfg.server.data_dir = str(tmp_path)
+        app = create_app(cfg, client_factory=lambda: upstream_client, store=store)
+        assert app.state.pipeline.playerlex_service is None
+        assert tuple(store.db.execute(
+            "SELECT version FROM aetherstate_schema_migrations WHERE version=5"
+        )) == ()
+        session_id, _ = store.create_session(external_id="unrelated-store-operation")
+        assert store.get_or_create_session("unrelated-store-operation")["session_id"] == session_id
+
+        upstream.enqueue(Reply(body=b'{"id":"openai-compatible"}'))
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://local-aetherstate",
+        ) as client:
+            response = await client.post("/v1/chat/completions", content=_body())
+            assert response.status_code == 200
+            assert response.json() == {"id": "openai-compatible"}
+            assert len(upstream.requests) == 1
+
+            store.db.execute("DROP TABLE playerlex_entries")
+            store.db.commit()
+            retry = await client.get("/aether/playerlex")
+            assert retry.status_code == 200
+            assert retry.json() == {"schema": "playerlex-list/1", "entries": []}
+        assert app.state.pipeline.playerlex_service is not None
+        assert seen_runners and all(runner is store.schema_migrations for runner in seen_runners)
+    finally:
+        await upstream_client.aclose()
+        store.close()
+
+
+@pytest.mark.anyio
+async def test_player_lessons_corruption_keeps_openai_route_available_and_console_retry_shares_runner(
+    tmp_path, monkeypatch,
+):
+    """An unrelated lessons failure leaves OpenAI available and Console can retry it."""
+    seen_runners = []
+    original_init = PlayerLessons.__init__
+
+    def record_runner(self, db, playerlex=None, lock=None, migrations=None):
+        seen_runners.append(migrations)
+        original_init(self, db, playerlex, lock, migrations)
+
+    monkeypatch.setattr(PlayerLessons, "__init__", record_runner)
+    store = Store(":memory:")
+    upstream = MockUpstream()
+    upstream_client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=upstream), base_url="http://mock-upstream",
+    )
+    try:
+        store.db.execute("CREATE TABLE player_lessons(corrupt TEXT)")
+        store.db.commit()
+        cfg = _cfg()
+        cfg.upstream.base_url = "http://mock-upstream/v1"
+        cfg.server.data_dir = str(tmp_path)
+        app = create_app(cfg, client_factory=lambda: upstream_client, store=store)
+        assert app.state.pipeline.player_lessons_service is None
+        assert tuple(store.db.execute(
+            "SELECT version FROM aetherstate_schema_migrations WHERE version=6"
+        )) == ()
+        session_id, _ = store.create_session(external_id="unrelated-store-operation")
+        assert store.get_or_create_session("unrelated-store-operation")["session_id"] == session_id
+
+        upstream.enqueue(Reply(body=b'{"id":"openai-compatible"}'))
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://local-aetherstate",
+        ) as client:
+            response = await client.post("/v1/chat/completions", content=_body())
+            assert response.status_code == 200
+            assert response.json() == {"id": "openai-compatible"}
+            assert len(upstream.requests) == 1
+
+            store.db.execute("DROP TABLE player_lessons")
+            store.db.commit()
+            retry = await client.get("/aether/player-lessons")
+            assert retry.status_code == 200
+            assert retry.json() == {"schema": "player-lessons-list/1", "lessons": []}
+        assert app.state.pipeline.player_lessons_service is not None
+        assert seen_runners and all(runner is store.schema_migrations for runner in seen_runners)
+    finally:
+        await upstream_client.aclose()
+        store.close()
+
+
+def test_optional_domain_reopen_is_noop_and_console_retry_uses_same_registry():
+    """A recovered service reuses the Store migration runner without duplicate ledger rows."""
+    store = Store(":memory:")
+    try:
+        first = PlayerLex(store.db, load_default_semantic_atlas(), store.apply_guard())
+        second = PlayerLex(store.db, load_default_semantic_atlas(), store.apply_guard())
+        assert first.list_entries() == second.list_entries() == []
+        assert tuple(
+            tuple(row) for row in store.db.execute(
+                "SELECT version FROM aetherstate_schema_migrations WHERE version=5"
+            )
+        ) == ((5,),)
+    finally:
+        store.close()
 
 
 class RecordingIntentLessons(RecordingLessons):

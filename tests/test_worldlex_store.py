@@ -11,6 +11,7 @@ import pytest
 
 from aetherstate.capability_glossary import CapabilityGlossary, content_fingerprint
 from aetherstate.store import Store
+from aetherstate.schema_migrations import SchemaMigrationError, SchemaMigrationRunner
 from aetherstate.worldlex_store import (
     CrossWorldDefinitionError,
     DefinitionConflictError,
@@ -18,6 +19,7 @@ from aetherstate.worldlex_store import (
     DefinitionValidationError,
     WorldIdentityError,
     WorldLexStore,
+    worldlex_schema_migrations,
 )
 
 
@@ -72,6 +74,101 @@ def _refingerprint(record: dict, **changes) -> dict:
 def _repository(path: Path) -> tuple[sqlite3.Connection, WorldLexStore]:
     connection = sqlite3.connect(path, timeout=10, check_same_thread=False)
     return connection, WorldLexStore(connection)
+
+
+def test_worldlex_schema_is_recorded_once_under_store_transaction_authority():
+    """Removing the WorldLex ledger entry must force the Store-owned runner path."""
+    store = Store(":memory:")
+    try:
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+        assert store.schema_migrations.run_domain("worldlex") == ()
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+    finally:
+        store.close()
+
+
+def test_worldlex_or_lifecycle_collision_rolls_back_without_ledger_claim(tmp_path: Path):
+    """A foreign selected-domain object cannot be adopted or ledgered by startup."""
+    path = tmp_path / "worldlex-collision.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.execute("CREATE TABLE worldlex_world_lineages(foreign_value TEXT)")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(SchemaMigrationError, match="worldlex_schema_unsupported"):
+        Store(path)
+
+    check = sqlite3.connect(path)
+    try:
+        rows = tuple(check.execute(
+            "SELECT version FROM aetherstate_schema_migrations ORDER BY version"
+        ))
+        assert (2,) not in rows
+        assert check.execute(
+            "SELECT sql FROM sqlite_schema WHERE name='worldlex_world_lineages'"
+        ).fetchone()[0] == "CREATE TABLE worldlex_world_lineages(foreign_value TEXT)"
+    finally:
+        check.close()
+
+
+@pytest.mark.parametrize("temporary", [False, True])
+def test_worldlex_mixed_case_owned_prefix_collision_refuses_before_transform_or_ledger(
+    temporary: bool,
+) -> None:
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        object_name = "WoRlDlEx_FoReIgN"
+        connection.execute(
+            f'CREATE {"TEMP " if temporary else ""}TABLE "{object_name}"(foreign_value TEXT)'
+        )
+        connection.commit()
+        runner = SchemaMigrationRunner(
+            connection,
+            threading.RLock(),
+            worldlex_schema_migrations(),
+        )
+
+        with pytest.raises(SchemaMigrationError, match="worldlex_schema_unsupported"):
+            runner.run_domain("worldlex")
+
+        catalog = "sqlite_temp_schema" if temporary else "main.sqlite_schema"
+        assert connection.execute(
+            f"SELECT sql FROM {catalog} WHERE name=?",
+            (object_name,),
+        ).fetchone() is not None
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='worldlex_world_lineages'"
+        ).fetchone() is None
+        ledger = connection.execute(
+            "SELECT 1 FROM main.sqlite_schema "
+            "WHERE type='table' AND name='aetherstate_schema_migrations'"
+        ).fetchone()
+        if ledger is not None:
+            assert connection.execute(
+                "SELECT 1 FROM aetherstate_schema_migrations WHERE version=2"
+            ).fetchone() is None
+    finally:
+        connection.close()
+
+
+def test_nested_store_transaction_is_not_committed_by_domain_initialization():
+    """An unledgered domain request inside caller work refuses without escaping it."""
+    store = Store(":memory:")
+    before_schema = tuple(store.db.iterdump())
+    try:
+        with pytest.raises(RuntimeError, match="caller rollback"):
+            with store.transaction():
+                store.db.execute("CREATE TABLE caller_sentinel(value TEXT)")
+                store.db.execute(
+                    "DELETE FROM aetherstate_schema_migrations WHERE version=2"
+                )
+                with pytest.raises(SchemaMigrationError, match="migration_transaction_active"):
+                    WorldLexStore(store.db, store._lock, migrations=store.schema_migrations)
+                raise RuntimeError("caller rollback")
+        assert tuple(store.db.iterdump()) == before_schema
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+    finally:
+        store.close()
 
 
 def test_composes_with_aetherstate_store_and_preserves_outer_transaction(

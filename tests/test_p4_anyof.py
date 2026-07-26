@@ -4,7 +4,7 @@ the store migration for pre-existing DBs, and the op-add cheapness weld (Q22).""
 from __future__ import annotations
 
 import json
-import sqlite3
+from pathlib import Path
 
 import httpx
 import pytest
@@ -18,6 +18,7 @@ from aetherstate.extraction import (_OP_ALLOWED, _OP_ENUMS, _OP_FIELDS, EXTRACTI
 from aetherstate.state import OP_FIELD_ENUMS, apply_delta, validate_op
 from aetherstate.store import Store
 from tests.mock_upstream import MockUpstream, Reply
+from tests.support.schema_history import rebuild_schema_fixture
 
 GOOD = '{"schema":"aetherstate/delta/1","turn_range":[1,1],"ops":[]}'
 ANYOF_OK = '{"ops":[{"op":"time_advance","minutes":30}]}'
@@ -251,13 +252,19 @@ def test_demotion_preserves_anyof_verdict():
 def test_live_db_migration_adds_anyof_column(tmp_path):
     """A pre-P4 live DB predates the column — additive migration, default unprobed."""
     p = tmp_path / "aether.db"
-    db = sqlite3.connect(p)
-    db.execute("""CREATE TABLE caps(
-      base_url TEXT, model TEXT, rung INTEGER, probed_at REAL, failures INTEGER DEFAULT 0,
-      native TEXT DEFAULT '', PRIMARY KEY(base_url, model))""")
+    db = rebuild_schema_fixture(
+        p, Path(__file__).parent / "fixtures" / "hardening" / "schema-history"
+        / "1.0.0-release-2cd07ef" / "core.schema.sql"
+    )
     db.execute("INSERT INTO caps(base_url, model, rung, probed_at) VALUES('b','m',2,1.0)")
     db.commit()
     db.close()
     store = Store(p)
     row = store.caps_get("b", "m")
     assert row["anyof"] == -1 and row["rung"] == 2 and row["native"] == ""
+    assert tuple(store.schema_migrations.applied()) == (
+        (1, "store-core-1.24-baseline", "store-core"),
+        (2, "worldlex-1.24-baseline", "worldlex"),
+        (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
+        (4, "store-chat-lineage-1.24-baseline", "store-core"),
+    )

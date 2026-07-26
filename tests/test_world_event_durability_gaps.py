@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import random
-import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -20,6 +20,7 @@ from aetherstate.stamps import Stamp
 from aetherstate.state import apply_delta, current_state
 from aetherstate.store import Store
 from aetherstate.world_events import build_world_event_record, effective_value
+from tests.support.schema_history import rebuild_schema_fixture
 
 
 def _rpg() -> Config:
@@ -90,25 +91,11 @@ def test_pre_feature_sqlite_open_adds_typed_record_tables_without_losing_old_row
 ) -> None:
     """A database made before Claim/Event tables existed upgrades additively."""
     path = tmp_path / "pre-claim-event.sqlite3"
-    connection = sqlite3.connect(path)
-    connection.executescript(
-        """
-        CREATE TABLE sessions(
-          session_id TEXT PRIMARY KEY, external_id TEXT UNIQUE, anchor_hash TEXT,
-          frontend TEXT DEFAULT 'unknown', active_branch TEXT, frozen INTEGER DEFAULT 0,
-          created_at REAL, last_seen REAL
-        );
-        CREATE TABLE branches(
-          branch_id TEXT PRIMARY KEY, session_id TEXT, parent_branch TEXT, forked_at INTEGER,
-          status TEXT DEFAULT 'live', head_turn INTEGER DEFAULT -1
-        );
-        CREATE TABLE ops_journal(
-          id INTEGER PRIMARY KEY AUTOINCREMENT, branch_id TEXT, turn_lo INTEGER, turn_hi INTEGER,
-          ops TEXT, source TEXT, ts REAL
-        );
-        CREATE TABLE legacy_sentinel(key TEXT PRIMARY KEY, value TEXT);
-        """
+    connection = rebuild_schema_fixture(
+        path, Path(__file__).parent / "fixtures" / "hardening" / "schema-history"
+        / "1.23.0-release-1f4aad0" / "core.schema.sql"
     )
+    connection.execute("CREATE TABLE legacy_sentinel(key TEXT PRIMARY KEY, value TEXT)")
     connection.execute(
         "INSERT INTO sessions(session_id, external_id, active_branch, created_at, last_seen) "
         "VALUES(?,?,?,?,?)",
@@ -133,6 +120,12 @@ def test_pre_feature_sqlite_open_adds_typed_record_tables_without_losing_old_row
 
     store = Store(path)
     try:
+        assert tuple(store.schema_migrations.applied()) == (
+            (1, "store-core-1.24-baseline", "store-core"),
+            (2, "worldlex-1.24-baseline", "worldlex"),
+            (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
+            (4, "store-chat-lineage-1.24-baseline", "store-core"),
+        )
         tables = {
             str(row["name"])
             for row in store.db.execute(

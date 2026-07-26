@@ -25,6 +25,11 @@ from .capability_glossary import (
     GlossaryError,
     content_fingerprint,
 )
+from .schema_migrations import (
+    SchemaMigration,
+    SchemaMigrationRunner,
+    sqlite_ascii_fold,
+)
 
 
 WORLD_ID_PATTERN = re.compile(r"world_[0-9a-f]{32}\Z")
@@ -193,6 +198,103 @@ _SCHEMA_STATEMENTS = (
     """,
 )
 
+WORLDLEX_DOMAIN = "worldlex"
+WORLDLEX_SCHEMA_VERSION = 2
+WORLDLEX_SCHEMA_FAILURE = "worldlex_schema_unsupported"
+
+
+def _normalized_sql(sql: object) -> object:
+    from .schema_migrations import _normalize_sql_outside_quotes
+
+    return None if sql is None else _normalize_sql_outside_quotes(str(sql))
+
+
+def _statement_object(statement: str) -> tuple[str, str]:
+    match = re.search(r"CREATE\\s+(TABLE|INDEX|TRIGGER)\\s+IF\\s+NOT\\s+EXISTS\\s+([A-Za-z_][A-Za-z0-9_]*)", statement, re.IGNORECASE)
+    if match is None:
+        raise ValueError("WorldLex schema statement is malformed")
+    return match.group(1).lower(), match.group(2)
+
+
+def _current_statement_object(statement: str) -> tuple[str, str]:
+    match = re.search(
+        r"CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX|TRIGGER)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)",
+        statement,
+        re.IGNORECASE,
+    )
+    if match is None:
+        raise ValueError("WorldLex schema statement is malformed")
+    return match.group(1).lower(), match.group(2)
+
+
+_WORLDLEX_OBJECTS = tuple(_current_statement_object(statement) for statement in _SCHEMA_STATEMENTS)
+_WORLDLEX_NAMES = frozenset(name for _kind, name in _WORLDLEX_OBJECTS)
+
+
+def _worldlex_rows(connection: sqlite3.Connection) -> tuple[tuple[object, ...], ...]:
+    return tuple(
+        (row[0], row[1], row[3])
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+            "ORDER BY type, name"
+        )
+        if (
+            sqlite_ascii_fold(row[1]).startswith("worldlex_")
+            or sqlite_ascii_fold(row[2]).startswith("worldlex_")
+        )
+        and (str(row[0]) != "index" or row[3] is not None)
+    )
+
+
+def _worldlex_temp_collision(connection: sqlite3.Connection) -> bool:
+    return any(
+        (
+            sqlite_ascii_fold(row[1]).startswith("worldlex_")
+            or sqlite_ascii_fold(row[2]).startswith("worldlex_")
+        )
+        and (str(row[0]) != "index" or row[3] is not None)
+        for row in connection.execute(
+            "SELECT type, name, tbl_name, sql FROM sqlite_temp_schema"
+        )
+    )
+
+
+def _worldlex_current(connection: sqlite3.Connection) -> bool:
+    if _worldlex_temp_collision(connection):
+        return False
+    actual = _worldlex_rows(connection)
+    if {(str(kind), str(name)) for kind, name, _sql in actual} != set(_WORLDLEX_OBJECTS):
+        return False
+    expected = {
+        (kind, name): _normalized_sql(statement.replace(" IF NOT EXISTS", ""))
+        for statement, (kind, name) in zip(_SCHEMA_STATEMENTS, _WORLDLEX_OBJECTS)
+    }
+    return all(expected.get((str(kind), str(name))) == _normalized_sql(sql) for kind, name, sql in actual)
+
+
+def _worldlex_applicable(connection: sqlite3.Connection) -> bool:
+    return not _worldlex_temp_collision(connection) and not _worldlex_rows(connection)
+
+
+def _transform_worldlex(connection: sqlite3.Connection) -> None:
+    for statement in _SCHEMA_STATEMENTS:
+        connection.execute(statement)
+
+
+def worldlex_schema_migrations() -> tuple[SchemaMigration, ...]:
+    return (
+        SchemaMigration(
+            WORLDLEX_SCHEMA_VERSION,
+            "worldlex-1.24-baseline",
+            WORLDLEX_DOMAIN,
+            WORLDLEX_SCHEMA_FAILURE,
+            _worldlex_applicable,
+            _worldlex_current,
+            _transform_worldlex,
+            _worldlex_current,
+        ),
+    )
+
 
 class WorldLexStore:
     """WorldLex repository composed over a caller-owned SQLite connection.
@@ -202,22 +304,26 @@ class WorldLexStore:
     has a transaction open, each operation uses a savepoint and never commits the outer work.
     """
 
-    def __init__(self, connection: sqlite3.Connection, lock: Any | None = None) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        lock: Any | None = None,
+        migrations: SchemaMigrationRunner | None = None,
+    ) -> None:
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("connection must be a sqlite3.Connection")
         self._connection = connection
         self._lock = lock if lock is not None else threading.RLock()
-        self._install_schema()
+        if migrations is None:
+            from .database_schema import database_schema_migrations
+
+            migrations = SchemaMigrationRunner(connection, self._lock, database_schema_migrations())
+        migrations.run_domain(WORLDLEX_DOMAIN)
 
     @property
     def connection(self) -> sqlite3.Connection:
         """Return the caller-owned connection for explicit transaction composition."""
         return self._connection
-
-    def _install_schema(self) -> None:
-        with self._write_transaction():
-            for statement in _SCHEMA_STATEMENTS:
-                self._connection.execute(statement)
 
     @contextmanager
     def _write_transaction(self) -> Iterator[None]:
