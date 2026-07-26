@@ -7,13 +7,38 @@ import sys
 from pathlib import Path, PureWindowsPath
 from typing import Any, NoReturn
 
-from stage_gate_contract import REQUIRED_STAGE_1_GATES
+from stage_gate_contract import (
+    MANIFEST_PATH,
+    REQUIRED_STAGE_1_GATES,
+    REQUIRED_STAGE_3_GATES,
+    STAGE_3_MERGE_TARGET,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "aetherstate-behavior-player-surface/1"
 BASELINE_VERSION = "1.24.0"
 BASELINE_COMMIT = "82b58277d7a1fb167434be0290d3dfd2bb3588e2"
+STAGE_3_MIGRATION_SELECTOR = (
+    "tests/test_historical_database_upgrades.py::"
+    "test_full_start_historical_upgrade_records_all_domains_and_preserves_meaning"
+)
+STAGE_3_MIGRATION_SURFACES = frozenset(
+    {
+        "ledger.journal-replay",
+        "records.claims-facts-events",
+        "chat.lifecycle-retry-swipe-fork-reopen",
+        "chat.living-character-continuity",
+        "lessons.player",
+        "lex.playerlex",
+        "lex.worldlex",
+        "memory.retrieval",
+        "rpg.checks-and-settlement",
+        "rpg.world-and-living-world",
+        "rpg.hud-and-war-room",
+        "console.inspection-and-privacy",
+    }
+)
 REACHABILITY = frozenset({"direct", "configured", "background"})
 PROOF_KINDS = frozenset({"pytest", "node", "workflow"})
 
@@ -89,8 +114,69 @@ def _validate_node(proof: dict[str, Any], reference: str) -> None:
 
 def _validate_workflow(proof: dict[str, Any], reference: str) -> None:
     gate = proof.get("gate")
-    if not isinstance(gate, str) or gate not in REQUIRED_STAGE_1_GATES:
+    if not isinstance(gate, str) or gate not in (
+        REQUIRED_STAGE_1_GATES | set(REQUIRED_STAGE_3_GATES)
+    ):
         _fail("workflow_gate_unknown", reference)
+
+
+def _stage_3_base_manifest() -> dict[str, Any]:
+    result = subprocess.run(
+        ["git", "show", f"{STAGE_3_MERGE_TARGET}:{MANIFEST_PATH}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        _fail("merge_target_unresolved", "merge_target")
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        _fail("merge_target_manifest_invalid", "merge_target")
+    if not isinstance(value, dict):
+        _fail("merge_target_manifest_invalid", "merge_target")
+    return value
+
+
+def _validate_stage_3_preservation(
+    value: dict[str, Any],
+    surfaces: list[Any],
+) -> None:
+    base = _stage_3_base_manifest()
+    if value.get("known_defects") != base.get("known_defects"):
+        _fail("known_defects_changed", "manifest")
+    base_surfaces = base.get("surfaces")
+    if not isinstance(base_surfaces, list):
+        _fail("merge_target_manifest_invalid", "surfaces")
+    by_id = {entry.get("id"): entry for entry in surfaces}
+    base_by_id = {entry.get("id"): entry for entry in base_surfaces if isinstance(entry, dict)}
+    if by_id.keys() != base_by_id.keys():
+        _fail("stage_3_surface_set_changed", "surfaces")
+    migration_proof = {
+        "kind": "pytest",
+        "selector": STAGE_3_MIGRATION_SELECTOR,
+    }
+    for entry_id, base_entry in base_by_id.items():
+        entry = by_id[entry_id]
+        if {key: value for key, value in entry.items() if key != "proofs"} != {
+            key: value for key, value in base_entry.items() if key != "proofs"
+        }:
+            _fail("stage_3_surface_narrowed", str(entry_id))
+        base_proofs = base_entry.get("proofs")
+        proofs = entry.get("proofs")
+        if not isinstance(base_proofs, list) or not isinstance(proofs, list):
+            _fail("proofs_missing", str(entry_id))
+        additions = proofs[len(base_proofs) :]
+        if proofs[: len(base_proofs)] != base_proofs:
+            _fail("stage_3_selector_removed", str(entry_id))
+        expected_additions = (
+            [migration_proof]
+            if entry_id in STAGE_3_MIGRATION_SURFACES
+            else []
+        )
+        if additions != expected_additions:
+            _fail("stage_3_migration_scope_invalid", str(entry_id))
 
 
 def validate(manifest_path: Path, baseline_path: Path) -> list[str]:
@@ -100,7 +186,7 @@ def validate(manifest_path: Path, baseline_path: Path) -> list[str]:
     baseline = value.get("baseline")
     if not isinstance(baseline, dict) or baseline.get("version") != BASELINE_VERSION or baseline.get("commit") != BASELINE_COMMIT:
         _fail("baseline_unknown", "manifest")
-    if value.get("merge_target") != BASELINE_COMMIT:
+    if value.get("merge_target") != STAGE_3_MERGE_TARGET:
         _fail("merge_target_invalid", "manifest")
     if value.get("cumulative") is not True:
         _fail("cumulative_required", "manifest")
@@ -138,6 +224,7 @@ def validate(manifest_path: Path, baseline_path: Path) -> list[str]:
         _fail("surface_ids_not_canonical", "surfaces")
     if not set(_baseline_ids(baseline_path)) <= set(ids):
         _fail("baseline_surface_removed", "surfaces")
+    _validate_stage_3_preservation(value, surfaces)
     return list(dict.fromkeys(selectors))
 
 

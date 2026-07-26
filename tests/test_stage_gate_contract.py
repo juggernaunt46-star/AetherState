@@ -54,6 +54,7 @@ QUALITY_GATE_ORDER = (
     "scoped-static",
     "manifest",
     "architecture-characterization",
+    "database-migrations",
     "historical-schema",
     "privacy",
 )
@@ -266,7 +267,7 @@ def _assert_workflow_contract(text: str) -> None:
     )
     assert len(owners) == 1
     owner = owners[0]
-    assert owner in {"stage-1-bootstrap", "stage-2-cumulative"}
+    assert owner in {"stage-1-bootstrap", "stage-3-database-evolution"}
     jobs = set(re.findall(r"(?m)^  ([a-z0-9-]+):\s*$", text))
     assert SHARED_JOBS <= jobs
     assert MATRIX_MARKERS <= set(re.findall(r"\b[a-z]+(?:-[a-z0-9]+)+\b", text))
@@ -275,14 +276,15 @@ def _assert_workflow_contract(text: str) -> None:
     if owner == "stage-1-bootstrap":
         assert jobs == SHARED_JOBS | {"stage-1-report"}
         assert "--gate-id no-runtime-diff" in text
-        assert "--gate-id stage-2-cumulative" not in text
+        assert "--gate-id semantic-cube-complete" not in text
     else:
-        assert jobs == SHARED_JOBS | {"stage-2-cumulative"}
+        assert jobs == SHARED_JOBS | {"stage-3-database-evolution"}
         assert "--gate-id no-runtime-diff" not in text
-        assert "--gate-id stage-2-cumulative" in text
-        assert "--failure-reason stage_2_cumulative_failed" in text
-        stage_2_block = text.split("  stage-2-cumulative:", 1)[1]
-        assert "build/hardening/gates/stage-2-cumulative.json" not in stage_2_block
+        assert "--gate-id semantic-cube-complete" in text
+        assert "--failure-reason semantic_cube_contract_failed" in text
+        stage_3_block = text.split("  stage-3-database-evolution:", 1)[1]
+        assert "tools/build_stage3_gate_report.py" in stage_3_block
+        assert "tools/validate_stage3_gate.py" in stage_3_block
 
 
 def _quality_workflow(text: str) -> str:
@@ -293,10 +295,10 @@ def test_shared_contract_is_the_single_exact_source_of_stage_values() -> None:
     assert contract.REQUIRED_STAGE_1_GATES == EXPECTED_GATES
     assert contract.SHARED_CI_JOB_IDS == frozenset(SHARED_JOBS)
     assert contract.TERMINAL_OWNERSHIP_STATES == frozenset(
-        {"stage-1-bootstrap", "stage-2-cumulative"}
+        {"stage-2-cumulative", "stage-3-database-evolution"}
     )
-    assert contract.HANDOFF_GATE_IDS == frozenset({"stage-2-cumulative"})
-    assert "stage-2-cumulative" not in contract.REQUIRED_STAGE_1_GATES
+    assert contract.HANDOFF_GATE_IDS == frozenset({"stage-3-database-evolution"})
+    assert "stage-3-database-evolution" not in contract.REQUIRED_STAGE_1_GATES
     assert contract.LOCAL_DIAGNOSTIC_GATES == {
         "local-public-scope",
         "local-terminal-budget",
@@ -332,6 +334,7 @@ def test_shared_contract_is_the_single_exact_source_of_stage_values() -> None:
         "HOLD": frozenset(
             {
                 "architecture_characterization_failed",
+                "database_migrations_failed",
                 "dependency_or_runtime_gate_failed",
                 "full_suite_failed",
                 "historical_schema_hold",
@@ -343,6 +346,7 @@ def test_shared_contract_is_the_single_exact_source_of_stage_values() -> None:
                 "public_scope_invalid",
                 "runtime_diff_detected",
                 "scoped_static_failed",
+                "semantic_cube_contract_failed",
                 "stage_2_cumulative_failed",
             }
         ),
@@ -367,9 +371,20 @@ def test_shared_contract_is_the_single_exact_source_of_stage_values() -> None:
     assert contract.QUALITY_GATE_IDS == frozenset(QUALITY_GATE_ORDER)
     assert contract.QUALITY_JOB_TIMEOUT_MINUTES == 25
     assert contract.QUALITY_GATE_TIMEOUT_SECONDS == {
-        gate_id: 240 for gate_id in QUALITY_GATE_ORDER
+        gate_id: 200 for gate_id in QUALITY_GATE_ORDER
     }
     assert contract.QUALITY_UPLOAD_MARGIN_SECONDS == 300
+
+
+def test_stage3_transition_replaces_only_the_terminal_owner() -> None:
+    assert contract.TERMINAL_OWNERSHIP_STATES == frozenset(
+        {"stage-2-cumulative", "stage-3-database-evolution"}
+    )
+    assert contract.HANDOFF_GATE_IDS == frozenset({"stage-3-database-evolution"})
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "AETHERSTATE_TERMINAL_OWNER: stage-3-database-evolution" in text
+    assert "  stage-3-database-evolution:" in text
+    assert "needs: [quality, python-tests, javascript, package-build, package-smoke]" in text
 
 
 @pytest.mark.parametrize(
@@ -389,12 +404,12 @@ def test_exact_status_precedence(statuses: list[str], expected: str) -> None:
 
 def _canonical_stage_1_bootstrap_fixture(current_stage_2: str) -> str:
     prefix, marker, _ = current_stage_2.partition(
-        "  # Candidate authority after exact Stage 1 PASS has been consumed.\n"
+        "  # Candidate authority after exact Stage 2 cumulative evidence has been consumed.\n"
     )
     assert marker
     return (
         prefix.replace(
-            "AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative",
+            "AETHERSTATE_TERMINAL_OWNER: stage-3-database-evolution",
             "AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap",
             1,
         )
@@ -402,14 +417,14 @@ def _canonical_stage_1_bootstrap_fixture(current_stage_2: str) -> str:
     )
 
 
-def test_current_workflow_has_exact_stage_2_parallel_ownership_contract() -> None:
+def test_current_workflow_has_exact_stage_3_parallel_ownership_contract() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     _assert_workflow_contract(text)
-    assert "AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative" in text
-    assert "  stage-2-cumulative:" in text
+    assert "AETHERSTATE_TERMINAL_OWNER: stage-3-database-evolution" in text
+    assert "  stage-3-database-evolution:" in text
     assert "narrator-output-integrity-report.md" not in text
     assert "AETHERSTATE_CUBE_GATE_MODE" not in text
-    assert "--terminal" in text.split("  stage-2-cumulative:", 1)[1]
+    assert "--terminal" in text.split("  stage-3-database-evolution:", 1)[1]
     assert "--check-pytest-collection" in text
     assert "--merge-target origin/main" not in text
     assert "needs: package-build" in text
@@ -432,7 +447,7 @@ def test_shared_workflow_contract_accepts_canonical_stage_1_bootstrap_fixture() 
     assert "AETHERSTATE_TERMINAL_OWNER: stage-1-bootstrap" in stage_1
     assert "  stage-1-report:" in stage_1
     assert "--gate-id no-runtime-diff" in stage_1
-    assert "--gate-id stage-2-cumulative" not in stage_1
+    assert "--gate-id semantic-cube-complete" not in stage_1
 
 
 def test_quality_lane_watchdogs_have_bounded_aggregate_upload_margin() -> None:
@@ -485,14 +500,14 @@ def test_quality_lane_uploads_each_gate_immediately_under_unique_name() -> None:
     "mutation",
     [
         pytest.param(
-            lambda text: text.replace("stage-2-cumulative", "unknown-owner", 1),
+            lambda text: text.replace("stage-3-database-evolution", "unknown-owner", 1),
             id="unknown-owner",
         ),
         pytest.param(
             lambda text: text.replace(
-                "  AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative",
-                "  AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative\n"
-                "  AETHERSTATE_TERMINAL_OWNER: stage-2-cumulative",
+                "  AETHERSTATE_TERMINAL_OWNER: stage-3-database-evolution",
+                "  AETHERSTATE_TERMINAL_OWNER: stage-3-database-evolution\n"
+                "  AETHERSTATE_TERMINAL_OWNER: stage-3-database-evolution",
             ),
             id="duplicate-owner",
         ),
@@ -501,7 +516,11 @@ def test_quality_lane_uploads_each_gate_immediately_under_unique_name() -> None:
             id="missing-shared-job",
         ),
         pytest.param(
-            lambda text: text.replace("  stage-2-cumulative:", "  stage-1-report:", 1),
+            lambda text: text.replace(
+                "  stage-3-database-evolution:",
+                "  stage-1-report:",
+                1,
+            ),
             id="wrong-terminal-job",
         ),
         pytest.param(
@@ -514,7 +533,7 @@ def test_quality_lane_uploads_each_gate_immediately_under_unique_name() -> None:
         ),
     ],
 )
-def test_workflow_contract_rejects_invalid_stage_2_ownership_states(
+def test_workflow_contract_rejects_invalid_stage_3_ownership_states(
     mutation,
 ) -> None:
     text = WORKFLOW.read_text(encoding="utf-8")

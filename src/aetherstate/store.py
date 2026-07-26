@@ -24,189 +24,9 @@ from .experience import (
     ExperienceModeLocked,
     normalize_experience_mode,
 )
+from .database_schema import database_schema_migrations
+from .schema_migrations import SchemaMigrationRunner
 from .worldlex_store import WorldLexStore
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS sessions(
-  session_id TEXT PRIMARY KEY, external_id TEXT UNIQUE, anchor_hash TEXT,
-  frontend TEXT DEFAULT 'unknown', active_branch TEXT, frozen INTEGER DEFAULT 0,
-  created_at REAL, last_seen REAL);
-CREATE TABLE IF NOT EXISTS branches(
-  branch_id TEXT PRIMARY KEY, session_id TEXT, parent_branch TEXT, forked_at INTEGER,
-  status TEXT DEFAULT 'live', head_turn INTEGER DEFAULT -1);
-CREATE TABLE IF NOT EXISTS turns(
-  branch_id TEXT, turn_index INTEGER, user_hash TEXT, assistant_hash TEXT, chain_hash TEXT,
-  klass TEXT, gen_type TEXT, swipe_count INTEGER DEFAULT 0, settled INTEGER DEFAULT 0,
-  extraction TEXT DEFAULT 'pending', PRIMARY KEY(branch_id, turn_index));
-CREATE TABLE IF NOT EXISTS ops_journal(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, branch_id TEXT, turn_lo INTEGER, turn_hi INTEGER,
-  ops TEXT, source TEXT, ts REAL);
-CREATE TABLE IF NOT EXISTS effect_receipts(
-  branch_id TEXT, effect_id TEXT, turn_index INTEGER, family TEXT, target TEXT,
-  direction TEXT, delta INTEGER, payload_hash TEXT, owner TEXT, source TEXT,
-  status TEXT DEFAULT 'committed', ts REAL,
-  PRIMARY KEY(branch_id, effect_id));
-CREATE INDEX IF NOT EXISTS idx_effect_claim
-  ON effect_receipts(branch_id, turn_index, family, target, direction, owner);
-CREATE TABLE IF NOT EXISTS mechanic_settlement_receipts(
-  branch_id TEXT, settlement_ref TEXT, turn_index INTEGER, contract_id TEXT,
-  frame_ref TEXT, meaning_ref TEXT, outcome TEXT, outcome_quality TEXT,
-  requirement_fingerprint TEXT, request_fingerprint TEXT,
-  accepted_group_fingerprint TEXT, receipt_fingerprint TEXT, receipt_json TEXT,
-  source TEXT, status TEXT DEFAULT 'committed', ts REAL,
-  PRIMARY KEY(branch_id, settlement_ref));
-CREATE INDEX IF NOT EXISTS idx_mechanic_settlement_turn
-  ON mechanic_settlement_receipts(branch_id, turn_index, contract_id);
-CREATE TABLE IF NOT EXISTS semantic_bootstrap_proofs(
-  session_id TEXT PRIMARY KEY, branch_id TEXT UNIQUE, turn_index INTEGER,
-  proof_fingerprint TEXT, post_ledger_hash TEXT, journal_high_water_after INTEGER,
-  proof_json TEXT, committed_at REAL);
-CREATE TABLE IF NOT EXISTS creator_seed_receipts(
-  session_id TEXT, seed_fingerprint TEXT, branch_id TEXT, seed_json TEXT,
-  world_source_json TEXT, player_source_json TEXT,
-  world_requested INTEGER, player_requested INTEGER, world_id TEXT, player_id TEXT,
-  admitted_turn INTEGER, applied_ops INTEGER, migrated INTEGER DEFAULT 0,
-  receipt_fingerprint TEXT, committed_at REAL,
-  PRIMARY KEY(session_id, seed_fingerprint));
-CREATE UNIQUE INDEX IF NOT EXISTS idx_creator_seed_receipt_session
-  ON creator_seed_receipts(session_id);
-CREATE INDEX IF NOT EXISTS idx_creator_seed_receipt_fingerprint
-  ON creator_seed_receipts(seed_fingerprint);
-CREATE TABLE IF NOT EXISTS chat_core_receipts(
-  session_id TEXT PRIMARY KEY, branch_id TEXT, journal_op_id INTEGER UNIQUE,
-  core_fingerprint TEXT, world_fingerprint TEXT, card_envelope_fingerprint TEXT,
-  character_actor_id TEXT, persona_actor_id TEXT, admitted_turn INTEGER,
-  admission_fingerprint TEXT, receipt_fingerprint TEXT, committed_at REAL);
-CREATE TABLE IF NOT EXISTS chat_continuity_seed_receipts(
-  session_id TEXT, record_fingerprint TEXT, branch_id TEXT, family TEXT,
-  record_json TEXT, admitted_turn INTEGER, journal_op_id INTEGER,
-  receipt_fingerprint TEXT, committed_at REAL, lifecycle_source TEXT DEFAULT '',
-  response_occurrence_id TEXT DEFAULT '',
-  PRIMARY KEY(session_id, record_fingerprint));
-CREATE INDEX IF NOT EXISTS idx_chat_continuity_seed_receipt_branch
-  ON chat_continuity_seed_receipts(branch_id, admitted_turn, family);
-CREATE TABLE IF NOT EXISTS chat_user_text_receipts(
-  branch_id TEXT, turn_index INTEGER, source_message_fingerprint TEXT,
-  journal_op_id INTEGER, committed_at REAL,
-  PRIMARY KEY(branch_id, turn_index, source_message_fingerprint));
-CREATE INDEX IF NOT EXISTS idx_chat_user_text_receipts_turn
-  ON chat_user_text_receipts(branch_id, turn_index, source_message_fingerprint);
-CREATE TABLE IF NOT EXISTS chat_accepted_message_receipts(
-  branch_id TEXT, turn_index INTEGER, lifecycle_source TEXT,
-  response_occurrence_id TEXT DEFAULT '', source_message_fingerprint TEXT,
-  receipt_fingerprint TEXT, committed_at REAL,
-  PRIMARY KEY(branch_id, turn_index, lifecycle_source));
-CREATE INDEX IF NOT EXISTS idx_chat_accepted_message_receipts_response
-  ON chat_accepted_message_receipts(
-    branch_id, turn_index, lifecycle_source, response_occurrence_id
-  );
-CREATE TABLE IF NOT EXISTS claim_records(
-  branch_id TEXT, claim_id TEXT, origin_branch TEXT, session_id TEXT, world_id TEXT,
-  turn_index INTEGER, source TEXT, fingerprint TEXT, record_json TEXT,
-  status TEXT DEFAULT 'committed', ts REAL,
-  PRIMARY KEY(branch_id, claim_id));
-CREATE INDEX IF NOT EXISTS idx_claim_records_turn
-  ON claim_records(branch_id, turn_index, source);
-CREATE TABLE IF NOT EXISTS world_event_records(
-  branch_id TEXT, event_id TEXT, origin_branch TEXT, session_id TEXT, world_id TEXT,
-  turn_index INTEGER, kind TEXT, relation_target TEXT, source TEXT,
-  fingerprint TEXT, record_json TEXT,
-  status TEXT DEFAULT 'committed', ts REAL,
-  PRIMARY KEY(branch_id, event_id));
-CREATE INDEX IF NOT EXISTS idx_world_event_records_turn
-  ON world_event_records(branch_id, turn_index, kind);
-CREATE TABLE IF NOT EXISTS checkpoints(
-  branch_id TEXT, turn_index INTEGER, state TEXT, PRIMARY KEY(branch_id, turn_index));
-CREATE TABLE IF NOT EXISTS branch_msgs(
-  branch_id TEXT, pos INTEGER, role TEXT, content_hash TEXT, chain_hash TEXT,
-  PRIMARY KEY(branch_id, pos));
-CREATE TABLE IF NOT EXISTS slices(
-  session_id TEXT PRIMARY KEY, for_turn INTEGER, components TEXT, created REAL);
-CREATE TABLE IF NOT EXISTS turn_texts(
-  branch_id TEXT, turn_index INTEGER, user_text TEXT, assistant_text TEXT,
-  PRIMARY KEY(branch_id, turn_index));
-CREATE TABLE IF NOT EXISTS caps(
-  base_url TEXT, model TEXT, rung INTEGER, probed_at REAL, failures INTEGER DEFAULT 0,
-  native TEXT DEFAULT '', anyof INTEGER DEFAULT -1,
-  PRIMARY KEY(base_url, model));
-CREATE TABLE IF NOT EXISTS discovery(
-  branch_id TEXT, name TEXT, turns TEXT DEFAULT '[]', status TEXT DEFAULT 'counting',
-  PRIMARY KEY(branch_id, name));
-CREATE TABLE IF NOT EXISTS memories(
-  memory_id TEXT PRIMARY KEY, session_id TEXT, branch_id TEXT, tier TEXT,
-  text TEXT, participants TEXT DEFAULT '[]', location_id TEXT, tags TEXT DEFAULT '[]',
-  importance INTEGER DEFAULT 3, created_turn INTEGER, last_accessed_turn INTEGER DEFAULT 0,
-  parent_id TEXT, scene_index INTEGER DEFAULT 0, embedding_ref INTEGER,
-  source_journal_op_refs TEXT DEFAULT '[]');
-CREATE INDEX IF NOT EXISTS idx_memories_branch ON memories(branch_id, parent_id);
-CREATE TABLE IF NOT EXISTS recall(
-  session_id TEXT PRIMARY KEY, for_turn INTEGER, lines TEXT, created REAL);
-CREATE TABLE IF NOT EXISTS recall_records(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, branch_id TEXT,
-  for_turn INTEGER, source_turn INTEGER, lifecycle_source TEXT,
-  response_occurrence_id TEXT DEFAULT '', source_message_fingerprint TEXT DEFAULT '',
-  journal_op_refs TEXT DEFAULT '[]', lines TEXT DEFAULT '[]', created REAL);
-CREATE INDEX IF NOT EXISTS idx_recall_records_lineage
-  ON recall_records(branch_id, for_turn, source_turn, lifecycle_source,
-                    response_occurrence_id);
-CREATE TABLE IF NOT EXISTS lint(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, branch_id TEXT, turn_index INTEGER, rule TEXT,
-  severity TEXT, subjects TEXT, detail TEXT, evidence TEXT, ts REAL);
-CREATE INDEX IF NOT EXISTS idx_lint_branch ON lint(branch_id, turn_index);
-CREATE TABLE IF NOT EXISTS hints(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, session_ext TEXT, event TEXT,
-  message_index INTEGER, ts REAL);
-CREATE TABLE IF NOT EXISTS notes(
-  session_id TEXT PRIMARY KEY, for_turn INTEGER, text TEXT, created REAL);
-CREATE TABLE IF NOT EXISTS embeddings(
-  memory_id TEXT PRIMARY KEY, vec BLOB, dim INTEGER);
-CREATE TABLE IF NOT EXISTS director(
-  id INTEGER PRIMARY KEY AUTOINCREMENT, branch_id TEXT, turn_index INTEGER,
-  beat_id TEXT, scene_index INTEGER, ts REAL);
-CREATE INDEX IF NOT EXISTS idx_director_branch ON director(branch_id, turn_index);
-CREATE TABLE IF NOT EXISTS presets(
-  preset_id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, name TEXT, doc TEXT,
-  created REAL, updated REAL, UNIQUE(kind, name));
-"""
-
-# Additive column migrations for DBs created before a column existed (pre-migration DBs).
-_MIGRATIONS = [("caps", "native", "TEXT DEFAULT ''"),
-               ("caps", "anyof", "INTEGER DEFAULT -1"),   # Q18 addendum (-1 unprobed)
-               ("sessions", "genesis", "TEXT DEFAULT ''"),  # ''|rules|llm|done|skipped
-               ("sessions", "genesis_epoch", "INTEGER DEFAULT 0"),
-               ("creator_seed_receipts", "receipt_fingerprint", "TEXT DEFAULT ''"),
-               ("sessions", "mode", "TEXT DEFAULT 'enriched'"),  # 05 SS7: enriched|passthrough
-               ("sessions", "label", "TEXT DEFAULT ''"),  # user-facing friendly name (rename)
-               ("sessions", "narrator_speaker", "TEXT DEFAULT ''"),
-               ("sessions", "experience_mode", "TEXT DEFAULT ''"),
-               ("sessions", "experience_mode_source", "TEXT DEFAULT ''"),
-               ("sessions", "experience_mode_locked_turn", "INTEGER"),
-               ("sessions", "core_fingerprint", "TEXT DEFAULT ''"),
-               ("sessions", "character_actor_id", "TEXT DEFAULT ''"),
-               ("sessions", "persona_actor_id", "TEXT DEFAULT ''"),
-               # Typed event ownership is needed for extraction-only retraction on old DBs.
-               ("world_event_records", "source", "TEXT DEFAULT ''"),
-               ("turns", "accepted_response_occurrence_id", "TEXT DEFAULT ''"),
-               ("ops_journal", "lifecycle_source", "TEXT DEFAULT ''"),
-               ("ops_journal", "response_occurrence_id", "TEXT DEFAULT ''"),
-               ("effect_receipts", "lifecycle_source", "TEXT DEFAULT ''"),
-               ("effect_receipts", "response_occurrence_id", "TEXT DEFAULT ''"),
-               ("mechanic_settlement_receipts", "lifecycle_source", "TEXT DEFAULT ''"),
-               ("mechanic_settlement_receipts", "response_occurrence_id", "TEXT DEFAULT ''"),
-               ("claim_records", "lifecycle_source", "TEXT DEFAULT ''"),
-               ("claim_records", "response_occurrence_id", "TEXT DEFAULT ''"),
-               ("world_event_records", "lifecycle_source", "TEXT DEFAULT ''"),
-               ("world_event_records", "response_occurrence_id", "TEXT DEFAULT ''"),
-               ("chat_continuity_seed_receipts", "lifecycle_source", "TEXT DEFAULT ''"),
-               ("chat_continuity_seed_receipts", "response_occurrence_id", "TEXT DEFAULT ''"),
-               ("memories", "visibility", "TEXT DEFAULT ''"),
-               ("memories", "scoped_actors", "TEXT DEFAULT '[]'"),
-               ("memories", "journal_op_id", "INTEGER"),
-               ("memories", "journal_op_ref", "TEXT DEFAULT ''"),
-               ("memories", "source_message_fingerprint", "TEXT DEFAULT ''"),
-               ("memories", "lifecycle_source", "TEXT DEFAULT ''"),
-               ("memories", "response_occurrence_id", "TEXT DEFAULT ''"),
-               ("memories", "source_journal_op_refs", "TEXT DEFAULT '[]'")]
 
 _CREATOR_SEED_RECEIPT_SCHEMA = "aetherstate-creator-seed-receipt/1"
 _CHAT_CORE_ADMISSION_DOMAIN = b"aetherstate-chat-core-admission/1\0"
@@ -420,59 +240,24 @@ class Store:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
+        self._lock = threading.RLock()  # migration callbacks share Store transaction ownership
         self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.executescript(_SCHEMA)
-        for table, col, decl in _MIGRATIONS:
-            cols = {r["name"] for r in self.db.execute(f"PRAGMA table_info({table})")}
-            if col not in cols:
-                self.db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_ops_journal_lifecycle"
-            " ON ops_journal(branch_id, lifecycle_source, response_occurrence_id, turn_hi)"
+        self.schema_migrations = SchemaMigrationRunner(
+            self.db, self._lock, database_schema_migrations()
         )
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_claim_records_lifecycle"
-            " ON claim_records(branch_id, lifecycle_source, response_occurrence_id, turn_index)"
-        )
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_memories_lifecycle"
-            " ON memories(branch_id, lifecycle_source, response_occurrence_id, created_turn)"
-        )
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_effect_receipts_lifecycle"
-            " ON effect_receipts(branch_id, lifecycle_source,"
-            " response_occurrence_id, turn_index)"
-        )
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_mechanic_settlement_receipts_lifecycle"
-            " ON mechanic_settlement_receipts(branch_id, lifecycle_source,"
-            " response_occurrence_id, turn_index)"
-        )
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_world_event_records_lifecycle"
-            " ON world_event_records(branch_id, lifecycle_source,"
-            " response_occurrence_id, turn_index)"
-        )
-        self.db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_chat_continuity_seed_receipts_lifecycle"
-            " ON chat_continuity_seed_receipts(branch_id, lifecycle_source,"
-            " response_occurrence_id, admitted_turn)"
-        )
-        self._migrate_chat_accepted_message_receipts()
-        self._migrate_legacy_chat_memory_lineage()
+        self.schema_migrations.run_domain("store-core")
         # A process can stop during the cold LLM pass. Its in-flight claim is not durable work;
         # make the session retryable on the next start.
-        self.db.execute(
-            "UPDATE sessions SET genesis='rules',"
-            " genesis_epoch=COALESCE(genesis_epoch, 0)+1 WHERE genesis='llm'"
-        )
-        self.db.commit()
-        self._lock = threading.RLock()  # apply_delta holds this across receipt + journal commit
-        self.worldlex = WorldLexStore(self.db, self._lock)
+        with self.transaction():
+            self.db.execute(
+                "UPDATE sessions SET genesis='rules',"
+                " genesis_epoch=COALESCE(genesis_epoch, 0)+1 WHERE genesis='llm'"
+            )
+        self.worldlex = WorldLexStore(self.db, self._lock, self.schema_migrations)
         # Semantic settlement owns its own additive schema but shares this connection/lock so a
         # reducer commit and its exact replay artifact can inhabit one SQLite transaction.
         from .turn_lifecycle import TurnLifecycleStore
-        self.turn_lifecycle = TurnLifecycleStore(self)
+        self.turn_lifecycle = TurnLifecycleStore(self, self.schema_migrations)
 
     def _insert_chat_message_receipt_locked(
         self,
@@ -536,152 +321,6 @@ class Store:
             != receipt_fingerprint
         ):
             raise ValueError("accepted Chat message receipt conflicts with prior lineage")
-
-    def _migrate_chat_accepted_message_receipts(self) -> None:
-        """Backfill receipts only from exact accepted turns that still retain source text."""
-        rows = self.db.execute(
-            "SELECT t.branch_id, t.turn_index,"
-            " t.accepted_response_occurrence_id, x.user_text, x.assistant_text"
-            " FROM turns AS t JOIN turn_texts AS x"
-            " ON x.branch_id=t.branch_id AND x.turn_index=t.turn_index"
-            " WHERE COALESCE(t.accepted_response_occurrence_id, '')<>''"
-        ).fetchall()
-        for row in rows:
-            branch_id = str(row["branch_id"])
-            turn = int(row["turn_index"])
-            response_id = str(row["accepted_response_occurrence_id"] or "")
-            if re.fullmatch(r"response:[0-9a-f]{64}", response_id) is None:
-                continue
-            user_text = str(row["user_text"] or "")
-            assistant_text = str(row["assistant_text"] or "")
-            if user_text:
-                self._insert_chat_message_receipt_locked(
-                    branch_id,
-                    turn,
-                    "user_text",
-                    "",
-                    "sha256:" + hashlib.sha256(
-                        user_text.encode("utf-8")
-                    ).hexdigest(),
-                )
-            if assistant_text:
-                source_fingerprint = "sha256:" + hashlib.sha256(
-                    assistant_text.encode("utf-8")
-                ).hexdigest()
-                for lifecycle in (
-                    "assistant_response",
-                    "deferred_extraction",
-                ):
-                    self._insert_chat_message_receipt_locked(
-                        branch_id,
-                        turn,
-                        lifecycle,
-                        response_id,
-                        source_fingerprint,
-                    )
-
-    def _migrate_legacy_chat_memory_lineage(self) -> None:
-        """Recover only uniquely provable pre-lineage memory mirrors."""
-        rows = self.db.execute(
-            "SELECT * FROM memories"
-            " WHERE lifecycle_source IN ('user_text','assistant_response',"
-            "'deferred_extraction')"
-            " AND (COALESCE(source_message_fingerprint, '')=''"
-            " OR COALESCE(journal_op_ref, '')='')"
-        ).fetchall()
-        for row in rows:
-            try:
-                branch_id = str(row["branch_id"] or "")
-                turn = int(row["created_turn"])
-                lifecycle = str(row["lifecycle_source"] or "")
-                wanted_importance = int(row["importance"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            receipt = self.db.execute(
-                "SELECT source_message_fingerprint"
-                " FROM chat_accepted_message_receipts"
-                " WHERE branch_id=? AND turn_index=? AND lifecycle_source=?",
-                (branch_id, turn, lifecycle),
-            ).fetchone()
-            if receipt is None:
-                continue
-            source_fingerprint = str(
-                receipt["source_message_fingerprint"] or ""
-            )
-            direct_ref = str(row["journal_op_ref"] or "")
-            journal_id = row["journal_op_id"]
-            if not direct_ref:
-                journal_rows = self.db.execute(
-                    "SELECT id, ops FROM ops_journal"
-                    " WHERE branch_id=? AND turn_hi=? AND lifecycle_source=?"
-                    " AND COALESCE(response_occurrence_id, '')=?",
-                    (
-                        branch_id,
-                        turn,
-                        lifecycle,
-                        str(row["response_occurrence_id"] or ""),
-                    ),
-                ).fetchall()
-                candidates: list[tuple[int, int]] = []
-                try:
-                    wanted_participants = sorted(
-                        str(value)
-                        for value in json.loads(row["participants"] or "[]")
-                    )
-                    wanted_tags = sorted(
-                        str(value)
-                        for value in json.loads(row["tags"] or "[]")
-                    )
-                except (TypeError, ValueError):
-                    continue
-                for journal in journal_rows:
-                    try:
-                        operations = json.loads(journal["ops"])
-                    except (TypeError, ValueError):
-                        continue
-                    if not isinstance(operations, list):
-                        continue
-                    for index, operation in enumerate(operations):
-                        if not isinstance(operation, dict) \
-                                or operation.get("op") != "memory_event":
-                            continue
-                        if str(operation.get("text") or "") != str(
-                            row["text"] or ""
-                        ):
-                            continue
-                        if sorted(
-                            str(value)
-                            for value in operation.get("participants") or []
-                        ) != wanted_participants:
-                            continue
-                        if sorted(
-                            str(value)
-                            for value in operation.get("tags") or []
-                        ) != wanted_tags:
-                            continue
-                        try:
-                            candidate_importance = int(
-                                operation.get("importance", 3)
-                            )
-                        except (TypeError, ValueError):
-                            continue
-                        if candidate_importance != wanted_importance:
-                            continue
-                        candidates.append((int(journal["id"]), index))
-                if len(candidates) != 1:
-                    continue
-                journal_id, op_index = candidates[0]
-                direct_ref = f"{journal_id}:{op_index}"
-            self.db.execute(
-                "UPDATE memories SET source_message_fingerprint=?,"
-                " journal_op_id=?, journal_op_ref=? WHERE memory_id=?",
-                (
-                    source_fingerprint,
-                    journal_id,
-                    direct_ref,
-                    str(row["memory_id"]),
-                ),
-            )
 
     def apply_guard(self):
         """Serialize one reducer commit; RLock permits nested read/write helpers."""

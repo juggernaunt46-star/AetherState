@@ -12,6 +12,8 @@ GATE_EVIDENCE_SCHEMA = "aetherstate-hardening-gate-evidence/1"
 STAGE_REPORT_SCHEMA = "aetherstate-hardening-stage-report/1"
 STAGE = "stage-1-safety-baseline"
 PUBLIC_BASE = "82b58277d7a1fb167434be0290d3dfd2bb3588e2"
+STAGE_3 = "stage-3-versioned-database-evolution"
+STAGE_3_MERGE_TARGET = "55205f73c58da18a681212545c34e90ac63532a7"
 
 REQUIRED_STAGE_1_GATES = {
     "architecture-characterization",
@@ -31,14 +33,49 @@ REQUIRED_STAGE_1_GATES = {
     "scoped-static",
     "windows-py312-full",
 }
+REQUIRED_STAGE_3_GATES = (
+    "architecture-characterization",
+    "database-migrations",
+    "historical-schema",
+    "installer-linux",
+    "installer-windows",
+    "javascript",
+    "linux-py310-full",
+    "linux-py312-full",
+    "manifest",
+    "package-artifacts",
+    "package-linux-py310",
+    "package-linux-py312",
+    "package-windows-py312",
+    "privacy",
+    "scoped-static",
+    "semantic-cube-complete",
+    "windows-py312-full",
+)
+LOCALLY_RUNNABLE_STAGE_3_GATES = frozenset(
+    {
+        "architecture-characterization",
+        "database-migrations",
+        "historical-schema",
+        "installer-windows",
+        "javascript",
+        "manifest",
+        "package-artifacts",
+        "package-windows-py312",
+        "privacy",
+        "scoped-static",
+        "semantic-cube-complete",
+        "windows-py312-full",
+    }
+)
 
 SHARED_CI_JOB_IDS = frozenset(
     {"quality", "python-tests", "javascript", "package-build", "package-smoke"}
 )
 TERMINAL_OWNERSHIP_STATES = frozenset(
-    {"stage-1-bootstrap", "stage-2-cumulative"}
+    {"stage-2-cumulative", "stage-3-database-evolution"}
 )
-HANDOFF_GATE_IDS = frozenset({"stage-2-cumulative"})
+HANDOFF_GATE_IDS = frozenset({"stage-3-database-evolution"})
 LOCAL_DIAGNOSTIC_GATES = {
     "local-public-scope",
     "local-terminal-budget",
@@ -58,7 +95,10 @@ LOCALLY_RUNNABLE_STAGE_1_GATES = frozenset(
     }
 )
 ALL_GATE_IDS = frozenset(
-    REQUIRED_STAGE_1_GATES | LOCAL_DIAGNOSTIC_GATES | set(HANDOFF_GATE_IDS)
+    REQUIRED_STAGE_1_GATES
+    | set(REQUIRED_STAGE_3_GATES)
+    | LOCAL_DIAGNOSTIC_GATES
+    | set(TERMINAL_OWNERSHIP_STATES)
 )
 
 OVERALL_STATUSES = frozenset({"PASS", "HOLD", "TEST_BUDGET_HOLD", "INVALID"})
@@ -70,6 +110,7 @@ GATE_STATUS_REASON_CODES = {
     "HOLD": frozenset(
         {
             "architecture_characterization_failed",
+            "database_migrations_failed",
             "dependency_or_runtime_gate_failed",
             "full_suite_failed",
             "historical_schema_hold",
@@ -81,6 +122,7 @@ GATE_STATUS_REASON_CODES = {
             "public_scope_invalid",
             "runtime_diff_detected",
             "scoped_static_failed",
+            "semantic_cube_contract_failed",
             "stage_2_cumulative_failed",
         }
     ),
@@ -121,6 +163,7 @@ BUDGET = {
 QUALITY_GATE_IDS = frozenset(
     {
         "architecture-characterization",
+        "database-migrations",
         "historical-schema",
         "manifest",
         "privacy",
@@ -129,7 +172,7 @@ QUALITY_GATE_IDS = frozenset(
 )
 QUALITY_JOB_TIMEOUT_MINUTES = 25
 QUALITY_GATE_TIMEOUT_SECONDS = {
-    gate_id: 240 for gate_id in QUALITY_GATE_IDS
+    gate_id: 200 for gate_id in QUALITY_GATE_IDS
 }
 QUALITY_UPLOAD_MARGIN_SECONDS = 300
 
@@ -193,6 +236,7 @@ STABLE_REASON_CODES = frozenset(
         "command_passed",
         "covered_by_source_gate",
         "cross_platform_ci_pending",
+        "database_migrations_failed",
         "dependency_or_runtime_gate_failed",
         "evidence_commit_mismatch",
         "evidence_not_ancestor",
@@ -215,6 +259,7 @@ STABLE_REASON_CODES = frozenset(
         "required_gate_not_run",
         "runtime_diff_detected",
         "scoped_static_failed",
+        "semantic_cube_contract_failed",
         "source_gate_invalid",
         "stage_2_cumulative_failed",
         "terminal_serial_budget_exhausted",
@@ -473,6 +518,8 @@ def report_reason(
     *,
     evidence_origin: str,
     forced_reason: str | None = None,
+    required_gates: Iterable[str] = REQUIRED_STAGE_1_GATES,
+    locally_runnable_gates: Iterable[str] = LOCALLY_RUNNABLE_STAGE_1_GATES,
 ) -> tuple[str, str]:
     gate_rows = list(gates)
     diagnostic_rows = list(diagnostics)
@@ -514,11 +561,12 @@ def report_reason(
             for item in gate_rows
             if item.get("status") == "NOT_RUN"
         }
+        required = set(required_gates)
+        locally_runnable = set(locally_runnable_gates)
         if (
             evidence_origin == "local-windows"
-            and passed == set(LOCALLY_RUNNABLE_STAGE_1_GATES)
-            and not_run
-            == REQUIRED_STAGE_1_GATES - set(LOCALLY_RUNNABLE_STAGE_1_GATES)
+            and passed == locally_runnable
+            and not_run == required - locally_runnable
         ):
             return status, "cross_platform_ci_pending"
         return status, "required_gate_not_run"

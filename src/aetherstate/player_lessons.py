@@ -23,6 +23,7 @@ from typing import Any
 
 from .semantic import SemanticTurn
 from .semantic_fabric import load_default_semantic_fabric
+from .schema_migrations import SchemaMigration, SchemaMigrationError, SchemaMigrationRunner
 
 
 LESSON_SCHEMA = "player-lesson/1"
@@ -789,6 +790,7 @@ class PlayerLessons:
         connection: sqlite3.Connection,
         playerlex: Any | None = None,
         lock: Any | None = None,
+        migrations: SchemaMigrationRunner | None = None,
     ) -> None:
         if not isinstance(connection, sqlite3.Connection):
             raise TypeError("connection must be a sqlite3.Connection")
@@ -797,11 +799,7 @@ class PlayerLessons:
         self._connection = connection
         self._playerlex = playerlex
         self._lock = lock if lock is not None else threading.RLock()
-        if self._connection.in_transaction:
-            raise PlayerLessonsError(
-                "Player Lessons initialization requires no active transaction; retry after it closes"
-            )
-        self._install_schema()
+        self._install_schema(migrations)
 
     @contextmanager
     def lifecycle_guard(self) -> Iterator[None]:
@@ -852,7 +850,7 @@ class PlayerLessons:
             else:
                 self._connection.commit()
 
-    def _install_schema(self) -> None:
+    def _install_schema(self, migrations: SchemaMigrationRunner | None = None) -> None:
         with self._lock:
             if self._connection.in_transaction:
                 raise PlayerLessonsError(
@@ -862,34 +860,35 @@ class PlayerLessons:
                 secure_delete = self._connection.execute("PRAGMA secure_delete=ON").fetchone()
                 if secure_delete is None or int(secure_delete[0]) != 1:
                     raise PlayerLessonsError("SQLite secure deletion is unavailable for Player Lessons")
-                objects_exist = self._schema_objects_exist()
-                migrate_v1 = objects_exist and self._v1_schema_matches()
-                migrate_v2 = objects_exist and not migrate_v1 and self._v2_schema_matches()
-                if migrate_v1 or migrate_v2:
-                    self._checkpoint_wal()
-                self._connection.execute("BEGIN IMMEDIATE")
+                before = _migration_player_lessons(self._connection)
+                rebuild = before._schema_objects_exist() and (
+                    before._v1_schema_matches() or before._v2_schema_matches()
+                    or before._tracked_122_schema_matches()
+                )
                 try:
-                    if not objects_exist:
-                        for statement in _SCHEMA_STATEMENTS:
-                            self._connection.execute(statement)
-                    elif migrate_v1:
-                        self._migrate_v1_schema()
-                        self._migrate_v2_schema()
-                    elif migrate_v2:
-                        self._migrate_v2_schema()
+                    runner = migrations or self._local_migrations()
+                    pending_cleanup = runner.cleanup_pending("player-lessons", 6)
+                    if rebuild:
+                        self._checkpoint_wal()
+                    committed = runner.run_domain("player-lessons")
                     self._verify_schema()
-                    self._normalize_receipt_input_hashes()
-                except BaseException:
-                    self._connection.rollback()
-                    raise
-                else:
-                    self._connection.commit()
-                if migrate_v1 or migrate_v2:
-                    self._checkpoint_wal()
+                    if rebuild or pending_cleanup or committed:
+                        self._checkpoint_wal()
+                        runner.clear_cleanup_pending("player-lessons", 6)
+                except SchemaMigrationError as exc:
+                    raise PlayerLessonsError(
+                        "Player Lessons local storage failed verification"
+                        if exc.code == "player_lessons_schema_unsupported" else exc.code
+                    ) from None
             except sqlite3.Error as exc:
                 if self._connection.in_transaction:
                     self._connection.rollback()
                 raise PlayerLessonsError("Player Lessons local storage initialization failed") from exc
+
+    def _local_migrations(self) -> SchemaMigrationRunner:
+        from .database_schema import database_schema_migrations
+
+        return SchemaMigrationRunner(self._connection, self._lock, database_schema_migrations())
 
     def _schema_objects_exist(self) -> bool:
         return (
@@ -1100,6 +1099,14 @@ class PlayerLessons:
         )
 
     def _v2_schema_matches(self) -> bool:
+        """Recognize the exact five-Lex intent-capable predecessor."""
+        return self._v2_schema_matches_for_anchor_lexes(four_lex=False)
+
+    def _tracked_122_schema_matches(self) -> bool:
+        """Recognize tracked 1.22, differing only in its two four-Lex anchor checks."""
+        return self._v2_schema_matches_for_anchor_lexes(four_lex=True)
+
+    def _v2_schema_matches_for_anchor_lexes(self, *, four_lex: bool) -> bool:
         """Recognize only the exact intent-capable predecessor eligible for v3 migration."""
         table_names = (
             "player_lessons",
@@ -1113,6 +1120,14 @@ class PlayerLessons:
             *_V2_SCHEMA_STATEMENTS[:3],
             *_V2_SCHEMA_STATEMENTS[5:8],
         )
+        if four_lex:
+            table_statements = tuple(
+                statement.replace(
+                    "'capability', 'referent', 'scene', 'action', 'claim'",
+                    "'capability', 'referent', 'scene', 'action'",
+                ) if index in {0, 2} else statement
+                for index, statement in enumerate(table_statements)
+            )
         index_names = (
             "player_lesson_receipt_lesson_idx",
             "player_lesson_receipt_time_idx",
@@ -3856,6 +3871,69 @@ class PlayerLessons:
                 }
             )
         return result
+
+
+def _migration_player_lessons(connection: sqlite3.Connection) -> PlayerLessons:
+    """Build the schema-only view used by the global deferred migration registry."""
+    service = object.__new__(PlayerLessons)
+    service._connection = connection
+    service._lock = threading.RLock()
+    service._playerlex = None
+    return service
+
+
+def player_lessons_schema_migrations() -> tuple[SchemaMigration, ...]:
+    """Return Player Lessons' sparse, atomic schema ownership entry."""
+    def applies(connection: sqlite3.Connection) -> bool:
+        service = _migration_player_lessons(connection)
+        return (
+            not service._schema_objects_exist()
+            or service._v1_schema_matches()
+            or service._v2_schema_matches()
+            or service._tracked_122_schema_matches()
+        )
+
+    def current(connection: sqlite3.Connection) -> bool:
+        try:
+            service = _migration_player_lessons(connection)
+            service._verify_schema()
+        except (PlayerLessonsError, sqlite3.Error):
+            return False
+        return True
+
+    def transform(connection: sqlite3.Connection) -> None:
+        service = _migration_player_lessons(connection)
+        if not service._schema_objects_exist():
+            for statement in _SCHEMA_STATEMENTS:
+                connection.execute(statement)
+        elif service._v1_schema_matches():
+            service._migrate_v1_schema()
+            service._migrate_v2_schema()
+        elif service._v2_schema_matches():
+            service._migrate_v2_schema()
+        elif service._tracked_122_schema_matches():
+            service._migrate_v2_schema()
+        else:
+            raise PlayerLessonsError("Player Lessons local storage failed verification")
+        service._verify_schema()
+        service._normalize_receipt_input_hashes()
+
+    def postcondition(connection: sqlite3.Connection) -> bool:
+        return current(connection)
+
+    return (
+        SchemaMigration(
+            version=6,
+            name="player-lessons-1.24-baseline",
+            domain="player-lessons",
+            failure_code="player_lessons_schema_unsupported",
+            applies=applies,
+            is_current=current,
+            transform=transform,
+            postcondition=postcondition,
+            requires_cleanup=True,
+        ),
+    )
 
 
 # Singular aliases make typed error imports unsurprising to control-layer callers.

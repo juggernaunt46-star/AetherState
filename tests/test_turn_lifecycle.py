@@ -44,6 +44,17 @@ def _setup(store: Store, *, turn: int = 0, text: str = "I strike."):
     return sid, bid, key, reservation
 
 
+def test_turn_lifecycle_schema_is_recorded_once_without_executescript_commit():
+    """Lifecycle schema is enrolled by the Store runner and startup stays idempotent."""
+    store = Store(":memory:")
+    try:
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+        assert store.schema_migrations.run_domain("turn-lifecycle") == ()
+        assert [row[0] for row in store.schema_migrations.applied()] == [1, 2, 3, 4]
+    finally:
+        store.close()
+
+
 def _canonical_rows(*messages: tuple[str, str]) -> list[tuple[str, str, str]]:
     canonical = canonicalize([
         {"role": role, "content": text}

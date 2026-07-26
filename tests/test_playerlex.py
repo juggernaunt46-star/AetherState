@@ -3,12 +3,22 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
+import threading
 import unicodedata
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from aetherstate.capability_glossary import CapabilityGlossary
+from aetherstate.database_schema import database_schema_migrations
+from aetherstate.schema_migrations import (
+    TRANSACTION_ACTIVE,
+    SchemaMigrationError,
+    SchemaMigrationRunner,
+    _PENDING_CLEANUP,
+    _PENDING_CLEANUP_SCHEMA_SQL,
+)
 from aetherstate.semantic_atlas import SemanticAtlas, load_default_semantic_atlas
 from aetherstate.playerlex import (
     PlayerLex,
@@ -21,6 +31,7 @@ from aetherstate.playerlex import (
     _V1_ROW_COLUMNS,
     _V1_SCHEMA_STATEMENTS,
     _folded_text_with_source_spans,
+    playerlex_schema_migrations,
 )
 
 
@@ -87,6 +98,57 @@ def _v1_row_from_current_entry(
         ),
     }
     return row["storage_token"], values
+
+
+def test_playerlex_initialization_records_only_version_5(glossary: CapabilityGlossary):
+    """PlayerLex claims only its deferred migration after core stays absent."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        PlayerLex(connection, glossary)
+        assert tuple(connection.execute(
+            "SELECT version FROM aetherstate_schema_migrations ORDER BY version"
+        )) == ((5,),)
+    finally:
+        connection.close()
+
+
+def test_optional_migration_failure_preserves_secure_delete_and_rolls_back_rebuild(
+    glossary: CapabilityGlossary,
+):
+    """A failed deferred migration must leave no ledger claim or partial PlayerLex rebuild."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        connection.execute("PRAGMA secure_delete=ON")
+        connection.execute(_V1_SCHEMA_STATEMENTS[0])
+        connection.execute(_V1_SCHEMA_STATEMENTS[1])
+        for statement in _V1_SCHEMA_STATEMENTS[2:]:
+            connection.execute(statement)
+        connection.commit()
+        migration = next(
+            item for item in database_schema_migrations() if item.version == 5
+        )
+
+        def fail_after_rebuild(candidate: sqlite3.Connection) -> None:
+            migration.transform(candidate)
+            raise RuntimeError("synthetic deferred migration interruption")
+
+        runner = SchemaMigrationRunner(
+            connection,
+            threading.RLock(),
+            tuple(
+                replace(item, transform=fail_after_rebuild) if item.version == 5 else item
+                for item in database_schema_migrations()
+            ),
+        )
+        with pytest.raises(PlayerLexError, match="failed verification"):
+            PlayerLex(connection, glossary, migrations=runner)
+        assert connection.execute("PRAGMA secure_delete").fetchone()[0] == 1
+        assert "lex_id" not in [row[1] for row in connection.execute("PRAGMA table_info(playerlex_entries)")]
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='aetherstate_schema_migrations'"
+        ).fetchone() is None
+    finally:
+        connection.close()
 
 
 def test_explicit_alias_proposes_exact_span_without_authority_or_input_persistence(playerlex):
@@ -1445,6 +1507,92 @@ def test_exact_v2_four_lex_schema_migrates_to_claimlex_and_preserves_rows_tokens
         connection.close()
 
 
+def test_four_lex_predecessor_with_altered_surface_index_refuses_before_v5_claim(
+    atlas: SemanticAtlas,
+):
+    """A same-name predecessor index with changed collation/order is not admissible."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+    try:
+        previous_schema = _SCHEMA_STATEMENTS[0].replace(
+            "'capability', 'referent', 'scene', 'action', 'claim'",
+            "'capability', 'referent', 'scene', 'action'",
+        )
+        for statement in (previous_schema, *_SCHEMA_STATEMENTS[1:]):
+            connection.execute(statement)
+        connection.execute("DROP INDEX playerlex_surface_idx")
+        connection.execute(
+            "CREATE INDEX playerlex_surface_idx "
+            "ON playerlex_entries(normalized_surface COLLATE NOCASE DESC, kind, lex_id, concept_id)"
+        )
+        connection.commit()
+
+        with pytest.raises(PlayerLexError, match="failed verification"):
+            PlayerLex(connection, atlas)
+        assert "'claim'" not in connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='playerlex_entries'"
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='aetherstate_schema_migrations'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
+def test_four_lex_predecessor_with_altered_retired_token_check_refuses_before_v5_claim(
+    tmp_path: Path, atlas: SemanticAtlas,
+):
+    """The predecessor's retired-token table SQL is as sealed as its live table SQL."""
+    connection = sqlite3.connect(
+        tmp_path / "playerlex-altered-retired-check.sqlite3",
+        check_same_thread=False,
+        factory=_CheckpointFailingConnection,
+    )
+    connection.row_factory = sqlite3.Row
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower() == "wal"
+        previous_schema = _SCHEMA_STATEMENTS[0].replace(
+            "'capability', 'referent', 'scene', 'action', 'claim'",
+            "'capability', 'referent', 'scene', 'action'",
+        )
+        for statement in (previous_schema, *_SCHEMA_STATEMENTS[1:]):
+            connection.execute(statement)
+        for trigger in (
+            "playerlex_reject_retired_storage_token", "playerlex_retire_storage_token",
+            "playerlex_reject_storage_token_update", "playerlex_reject_identity_replacement",
+            "playerlex_reject_retired_storage_token_update",
+            "playerlex_reject_retired_storage_token_delete",
+            "playerlex_reject_retired_storage_token_replacement",
+        ):
+            connection.execute(f"DROP TRIGGER {trigger}")
+        connection.execute("DROP TABLE playerlex_retired_storage_tokens")
+        connection.execute(_SCHEMA_STATEMENTS[1].replace("length(storage_token) = 32", "length(storage_token) = 31"))
+        for statement in _SCHEMA_STATEMENTS[3:]:
+            connection.execute(statement)
+        connection.commit()
+        altered_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' "
+            "AND name='playerlex_retired_storage_tokens'"
+        ).fetchone()[0]
+        connection.fail_checkpoint_call = 1
+
+        with pytest.raises(PlayerLexError, match="failed verification"):
+            PlayerLex(connection, atlas)
+        assert connection.checkpoint_calls == 0
+        assert connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' "
+            "AND name='playerlex_retired_storage_tokens'"
+        ).fetchone()[0] == altered_sql
+        assert "'claim'" not in connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='playerlex_entries'"
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='aetherstate_schema_migrations'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
 def test_exact_v1_schema_migrates_rows_with_default_tuple_row_factory(
     glossary: CapabilityGlossary,
 ):
@@ -1545,6 +1693,291 @@ class _CheckpointFailingConnection(sqlite3.Connection):
             if self.checkpoint_calls == self.fail_checkpoint_call:
                 raise sqlite3.OperationalError("simulated checkpoint contention")
         return super().execute(sql, parameters)
+
+
+class _PendingMarkerFailingConnection(sqlite3.Connection):
+    def execute(self, sql, parameters=()):
+        if "INSERT" in sql.upper() and _PENDING_CLEANUP in sql:
+            raise sqlite3.OperationalError("simulated pending-marker write failure")
+        return super().execute(sql, parameters)
+
+
+def _create_four_lex_predecessor(connection: sqlite3.Connection) -> None:
+    previous = _SCHEMA_STATEMENTS[0].replace(
+        "'capability', 'referent', 'scene', 'action', 'claim'",
+        "'capability', 'referent', 'scene', 'action'",
+    )
+    for statement in (previous, *_SCHEMA_STATEMENTS[1:]):
+        connection.execute(statement)
+    connection.commit()
+
+
+def test_playerlex_marker_write_failure_rolls_back_transform_and_v5_claim(
+    tmp_path: Path, atlas: SemanticAtlas,
+):
+    """A v5 rebuild must not commit its ledger unless its cleanup marker commits with it."""
+    connection = sqlite3.connect(
+        tmp_path / "playerlex-marker-write-failure.sqlite3", factory=_PendingMarkerFailingConnection,
+    )
+    try:
+        _create_four_lex_predecessor(connection)
+        with pytest.raises(PlayerLexError, match="failed verification"):
+            PlayerLex(connection, atlas)
+        assert "'claim'" not in connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='playerlex_entries'"
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='aetherstate_schema_migrations'"
+        ).fetchone() is None
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name=?", (_PENDING_CLEANUP,)
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
+def test_playerlex_temp_pending_marker_shadow_refuses_before_transform_or_v5_claim(
+    atlas: SemanticAtlas,
+):
+    """A TEMP marker shadow must fail closed before a v5 migration changes main."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        _create_four_lex_predecessor(connection)
+        connection.execute(f"CREATE TEMP TABLE {_PENDING_CLEANUP}(domain TEXT, version INTEGER)")
+        with pytest.raises(PlayerLexError, match="migration_cleanup_schema_invalid"):
+            PlayerLex(connection, atlas)
+        assert "'claim'" not in connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='playerlex_entries'"
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='aetherstate_schema_migrations'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    "foreign_sql",
+    (
+        f"CREATE UNIQUE INDEX {_PENDING_CLEANUP}_foreign ON {_PENDING_CLEANUP}(domain COLLATE NOCASE)",
+        f"CREATE TRIGGER {_PENDING_CLEANUP}_foreign AFTER INSERT ON {_PENDING_CLEANUP} BEGIN SELECT 1; END",
+        f"CREATE VIEW {_PENDING_CLEANUP}_foreign AS SELECT domain, version FROM {_PENDING_CLEANUP}",
+    ),
+    ids=("index-metadata", "trigger", "view"),
+)
+def test_playerlex_pending_marker_foreign_object_refuses_before_transform_or_v5_claim(
+    atlas: SemanticAtlas, foreign_sql: str,
+):
+    """No foreign marker index, trigger, or view is trusted for v5 admission."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        _create_four_lex_predecessor(connection)
+        connection.execute(_PENDING_CLEANUP_SCHEMA_SQL)
+        connection.execute(foreign_sql)
+        connection.commit()
+        with pytest.raises(PlayerLexError, match="migration_cleanup_schema_invalid"):
+            PlayerLex(connection, atlas)
+        assert "'claim'" not in connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='playerlex_entries'"
+        ).fetchone()[0]
+        assert connection.execute(
+            "SELECT 1 FROM main.sqlite_schema WHERE name='aetherstate_schema_migrations'"
+        ).fetchone() is None
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    "collision_kind",
+    ("mixed-case-temp-table", "uppercase-foreign-view-reference"),
+)
+def test_cleanup_protocol_rejects_ascii_case_insensitive_marker_collisions_before_mutation(
+    atlas: SemanticAtlas,
+    collision_kind: str,
+):
+    """SQLite-equivalent marker identities and references fail before any main mutation."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    try:
+        _create_four_lex_predecessor(connection)
+        if collision_kind == "mixed-case-temp-table":
+            connection.execute(
+                "CREATE TEMP TABLE AeThErStAtE_ScHeMa_PeNdInG_ClEaNuP("
+                "domain TEXT, version INTEGER)"
+            )
+        else:
+            connection.execute(_PENDING_CLEANUP_SCHEMA_SQL)
+            connection.execute(
+                "CREATE VIEW unrelated_cleanup_view AS "
+                "SELECT domain, version FROM AETHERSTATE_SCHEMA_PENDING_CLEANUP"
+            )
+        connection.commit()
+        schema_before = tuple(
+            connection.execute(
+                "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+                "ORDER BY type, name"
+            )
+        )
+        changes_before = connection.total_changes
+
+        with pytest.raises(PlayerLexError, match="migration_cleanup_schema_invalid"):
+            PlayerLex(connection, atlas)
+
+        assert tuple(
+            connection.execute(
+                "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+                "ORDER BY type, name"
+            )
+        ) == schema_before
+        assert connection.total_changes == changes_before
+        assert not connection.in_transaction
+    finally:
+        connection.close()
+
+
+def test_cleanup_protocol_ignores_unicode_identifier_outside_sqlite_ascii_folding():
+    """An unrelated quoted Unicode identifier does not block valid cleanup admission."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    runner = SchemaMigrationRunner(
+        connection,
+        threading.RLock(),
+        database_schema_migrations(),
+    )
+    unrelated_name = "aether\u017ftate_schema_pending_cleanup"
+    try:
+        connection.execute(f'CREATE TABLE "{unrelated_name}"(value TEXT)')
+        connection.commit()
+
+        runner.mark_cleanup_pending("playerlex", 5)
+
+        assert runner.cleanup_pending("playerlex", 5) is True
+        assert connection.execute(
+            "SELECT name FROM main.sqlite_schema WHERE type='table' AND name=?",
+            (unrelated_name,),
+        ).fetchone() == (unrelated_name,)
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    "identity_kind",
+    ("unregistered", "mismatched-owner", "registered-non-owner"),
+)
+def test_cleanup_marker_requires_exact_registered_cleanup_owner_without_persistence(
+    identity_kind: str,
+):
+    """Public marker writes accept only the registry migration that owns cleanup."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    migrations = database_schema_migrations()
+    runner = SchemaMigrationRunner(connection, threading.RLock(), migrations)
+    try:
+        if identity_kind == "unregistered":
+            domain, version = "foreign-domain", 99
+        elif identity_kind == "mismatched-owner":
+            domain, version = "playerlex", 6
+        else:
+            migration = next(item for item in migrations if not item.requires_cleanup)
+            domain, version = migration.domain, migration.version
+        schema_before = tuple(
+            connection.execute(
+                "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+                "ORDER BY type, name"
+            )
+        )
+
+        with pytest.raises(SchemaMigrationError) as raised:
+            runner.mark_cleanup_pending(domain, version)
+
+        assert raised.value.code == "migration_cleanup_identity_invalid"
+        assert str(raised.value) == "migration_cleanup_identity_invalid"
+        assert tuple(
+            connection.execute(
+                "SELECT type, name, tbl_name, sql FROM main.sqlite_schema "
+                "ORDER BY type, name"
+            )
+        ) == schema_before
+        assert not connection.in_transaction
+    finally:
+        connection.close()
+
+
+def test_pending_marker_mutators_refuse_outer_transaction_without_touching_caller_state():
+    """Public marker mutation paths never roll back or mutate a caller-owned transaction."""
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    lock = threading.RLock()
+    runner = SchemaMigrationRunner(connection, lock, database_schema_migrations())
+    try:
+        runner.mark_cleanup_pending("playerlex", 5)
+        connection.execute("CREATE TABLE caller_sentinel(value TEXT)")
+        connection.execute("BEGIN")
+        connection.execute("INSERT INTO caller_sentinel(value) VALUES('preserve')")
+        for operation in (runner.mark_cleanup_pending, runner.clear_cleanup_pending):
+            with pytest.raises(SchemaMigrationError) as raised:
+                operation("playerlex", 5)
+            assert raised.value.code == TRANSACTION_ACTIVE
+            assert connection.in_transaction
+            assert connection.execute("SELECT value FROM caller_sentinel").fetchone()[0] == "preserve"
+        connection.rollback()
+    finally:
+        connection.close()
+
+
+def test_playerlex_declares_atomic_cleanup_requirement():
+    """Only the deferred v5 registry entry opts into the runner's cleanup protocol."""
+    (migration,) = playerlex_schema_migrations()
+    assert migration.requires_cleanup is True
+
+
+def test_healthy_current_playerlex_wal_reopen_skips_checkpoint_contention(
+    tmp_path: Path, atlas: SemanticAtlas,
+):
+    """A clean current v5 catalog is not a pending migration-cleanup retry."""
+    connection = sqlite3.connect(
+        tmp_path / "playerlex-current-wal.sqlite3", factory=_CheckpointFailingConnection,
+    )
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower() == "wal"
+        PlayerLex(connection, atlas)
+        connection.checkpoint_calls = 0
+        connection.fail_checkpoint_call = 1
+
+        PlayerLex(connection, atlas)
+        assert connection.checkpoint_calls == 0
+    finally:
+        connection.close()
+
+
+def test_post_migration_checkpoint_retry_blocks_playerlex_availability(tmp_path: Path, atlas: SemanticAtlas):
+    """A claimed v5 migration remains unavailable until its post-rebuild cleanup succeeds."""
+    path = tmp_path / "playerlex-post-migration-checkpoint.sqlite3"
+    connection = sqlite3.connect(path, factory=_CheckpointFailingConnection)
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0].lower() == "wal"
+        previous = _SCHEMA_STATEMENTS[0].replace(
+            "'capability', 'referent', 'scene', 'action', 'claim'",
+            "'capability', 'referent', 'scene', 'action'",
+        )
+        for statement in (previous, *_SCHEMA_STATEMENTS[1:]):
+            connection.execute(statement)
+        connection.commit()
+        connection.fail_checkpoint_call = 2
+        with pytest.raises(PlayerLexError):
+            PlayerLex(connection, atlas)
+        assert connection.execute(
+            "SELECT version FROM aetherstate_schema_migrations WHERE version=5"
+        ).fetchone()[0] == 5
+        assert tuple(connection.execute(
+            f"SELECT domain, version FROM main.{_PENDING_CLEANUP}"
+        )) == (("playerlex", 5),)
+        connection.fail_checkpoint_call = 3
+        with pytest.raises(PlayerLexError):
+            PlayerLex(connection, atlas)
+        connection.fail_checkpoint_call = 0
+        PlayerLex(connection, atlas)
+        assert tuple(connection.execute(
+            f"SELECT domain, version FROM main.{_PENDING_CLEANUP}"
+        )) == ()
+    finally:
+        connection.close()
 
 
 def test_checkpoint_failure_is_retryable_and_retry_finishes_secure_removal(

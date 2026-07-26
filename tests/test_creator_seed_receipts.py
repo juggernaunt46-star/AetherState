@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +12,7 @@ from aetherstate import control, creator, genesis, narrator
 from aetherstate.canon import CanonMsg, chain
 from aetherstate.state import apply_delta, current_state
 from aetherstate.store import Store
+from tests.support.schema_history import rebuild_schema_fixture
 
 
 def _seed(*, setting: str = "A bridge of witnessed vows.") -> dict:
@@ -825,28 +826,28 @@ def test_pre_integrity_receipt_schema_adds_unsigned_digest_column_fail_closed(tm
     path = tmp_path / "legacy-seed-receipt.sqlite3"
     seed = _seed()
     fingerprint = narrator.seed_fingerprint(seed)
-    db = sqlite3.connect(path)
-    db.execute("""
-        CREATE TABLE creator_seed_receipts(
-          session_id TEXT, seed_fingerprint TEXT, branch_id TEXT, seed_json TEXT,
-          world_source_json TEXT, player_source_json TEXT,
-          world_requested INTEGER, player_requested INTEGER, world_id TEXT, player_id TEXT,
-          admitted_turn INTEGER, applied_ops INTEGER, migrated INTEGER DEFAULT 0,
-          committed_at REAL,
-          PRIMARY KEY(session_id, seed_fingerprint))
-    """)
+    db = rebuild_schema_fixture(
+        path, Path(__file__).parent / "fixtures" / "hardening" / "schema-history"
+        / "1.23.0-final-34dfe8f" / "core.schema.sql"
+    )
     db.execute(
-        "INSERT INTO creator_seed_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO creator_seed_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             "legacy-session", fingerprint, "legacy-branch", json.dumps(seed),
             json.dumps(seed["world"]), json.dumps(seed["player"]),
-            1, 1, seed["world"]["world_id"], "rook_vale", 0, 9, 0, 1.0,
+            1, 1, seed["world"]["world_id"], "rook_vale", 0, 9, 0, "", 1.0,
         ),
     )
     db.commit()
     db.close()
 
     migrated = Store(path)
+    assert tuple(migrated.schema_migrations.applied()) == (
+        (1, "store-core-1.24-baseline", "store-core"),
+        (2, "worldlex-1.24-baseline", "worldlex"),
+        (3, "turn-lifecycle-1.24-baseline", "turn-lifecycle"),
+        (4, "store-chat-lineage-1.24-baseline", "store-core"),
+    )
     columns = {
         row["name"] for row in migrated.db.execute(
             "PRAGMA table_info(creator_seed_receipts)"
