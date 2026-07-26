@@ -24,6 +24,7 @@ Current version: **1.24.0**. Requires Python **3.10 or newer**.
 - **Optional RPG mode:** real checks, resources, abilities, enemies, loot, XP, mastery, quests, factions, relationships, travel, and living-world changes.
 - **Safer retries and swipes:** committed damage, items, rolls, claims, and world changes are protected from casual duplication.
 - **Fail-open behavior:** if AetherState has an internal problem, the original chat request or reply is allowed through instead of destroying the conversation.
+- **Truthful System Health:** expected recoverable problems and unexpected invariant failures are tracked by stable condition, aggregate count, and recovery state without storing story or model content.
 - **Local-first privacy:** AetherState has no telemetry or analytics.
 
 AetherState works with OpenAI-compatible hosted services and local engines. The complete panel, Creator, and HUD experience is built for **SillyTavern**. Other compatible frontends can still use the proxy and state tracking without the full SillyTavern interface.
@@ -368,7 +369,13 @@ The Console provides the detailed view:
 - inspect Claims & Events;
 - manage PlayerLex names and Player Lessons;
 - review worlds, factions, relationships, locations, quests, and NPCs;
+- review the compact **System Health** card for active failures, degraded conditions, counts, and recovery;
 - use manual override when an automatic update needs correction.
+
+Maintainers can export the same content-free view from
+<code>GET /aether/health/diagnostics</code>. The ordinary status route reports
+truthful <code>failed</code>, <code>degraded</code>, or <code>none</code>
+precedence while remaining available even if durable health storage fails.
 
 Raw tracking instructions and internal tags are hidden from ordinary story text.
 
@@ -464,6 +471,9 @@ This is off by default. A local NLI helper is available under <code>nli-shim/</c
 - AetherState sends chat or Creator content only to the model endpoints you configure.
 - Local-first does not mean fully offline when a cloud model or helper feature is enabled.
 - PlayerLex and Player Lessons do not automatically learn across users or mine chat history.
+- System Health retains only declared subsystem and condition codes, classification, severity,
+  aggregate counts, times, recovery state, and a bounded safe correlation identifier. It never
+  stores prompts, replies, exception text, credentials, endpoints, or arbitrary logs.
 - Secure removal clears active AetherState-owned database, cache, and WAL evidence. It cannot erase external backups or text a model provider already retained.
 - API keys saved in the Console go to the operating system credential vault. Ordinary AetherState
   configuration stores only opaque references. Environment injection remains available when a
@@ -511,12 +521,17 @@ Those meanings help recognize language. They do not grant powers or establish tr
 
 ### Maintainer proof and learning boundaries
 
-The public repository carries two named hardening proof sets:
+The public repository carries four named hardening proof sets:
 
 - **Stage 1 Post-1.24 Safety Baseline** preserves the known public behavior surface, package and
   installer shape, schema history, cross-platform checks, and bounded terminal evidence.
 - **Stage 2 Semantic Cube Narrator-Output Integrity** adds the narrator-output integrity matrix,
   defect ledger, focused regressions, and cumulative terminal gate.
+- **Stage 3 Versioned Database Evolution** establishes the shared ordered migration registry,
+  exact historical schema admission, retryable cleanup, and protected cumulative gate.
+- **Stage 4 System Health** adds content-free durable health aggregation, truthful status and
+  diagnostics, a compact Console view, and a deterministic audit of every tracked broad exception
+  boundary.
 
 The private development workspace may also use **AetherState Engineering Learning**, whose stable
 short name is **Proofbook**. It is a separate developer-only lesson ledger: it is not part of the
