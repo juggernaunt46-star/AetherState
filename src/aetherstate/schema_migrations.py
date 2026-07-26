@@ -14,6 +14,10 @@ MigrationTransform = Callable[[sqlite3.Connection], None]
 
 def _normalize_sql_outside_quotes(sql: str) -> str:
     """Canonicalize SQLite tokens without erasing comments or operator semantics."""
+    return _join_sql_tokens(_sql_tokens(sql))
+
+
+def _sql_tokens(sql: str) -> list[tuple[str, str]]:
     tokens: list[tuple[str, str]] = []
     index = 0
     while index < len(sql):
@@ -35,12 +39,19 @@ def _normalize_sql_outside_quotes(sql: str) -> str:
             continue
         if character in {"'", '"', "`"}:
             token, index = _quoted_sql_token(sql, index, character)
-            tokens.append(("quoted", token))
+            kind = (
+                "single_quoted"
+                if character == "'"
+                else "double_quoted"
+                if character == '"'
+                else "identifier"
+            )
+            tokens.append((kind, token))
             continue
         if character == "[":
             closing = sql.find("]", index + 1)
             end = len(sql) if closing < 0 else closing + 1
-            tokens.append(("quoted", sql[index:end]))
+            tokens.append(("identifier", sql[index:end]))
             index = end
             continue
         if _is_sql_identifier_start(character):
@@ -65,7 +76,7 @@ def _normalize_sql_outside_quotes(sql: str) -> str:
         )
         tokens.append(("operator", operator))
         index += len(operator)
-    return _join_sql_tokens(tokens)
+    return tokens
 
 
 def _is_sql_identifier_start(character: str) -> bool:
@@ -82,6 +93,11 @@ def _is_ascii_alpha(character: str) -> bool:
 
 def _ascii_lower(text: str) -> str:
     return "".join(chr(ord(character) + 32) if "A" <= character <= "Z" else character for character in text)
+
+
+def sqlite_ascii_fold(value: object) -> str:
+    """Match SQLite's ASCII-only identifier case folding without Unicode overmatch."""
+    return _ascii_lower(value) if isinstance(value, str) else ""
 
 
 def _numeric_sql_token_end(sql: str, start: int) -> int:
@@ -137,6 +153,57 @@ def _quoted_sql_token(sql: str, start: int, delimiter: str) -> tuple[str, int]:
             return sql[start : index + 1], index + 1
         index += 1
     return sql[start:], len(sql)
+
+
+_SQLITE_TABLE_REFERENCE_KEYWORDS = {
+    "from",
+    "into",
+    "join",
+    "on",
+    "references",
+    "table",
+    "update",
+}
+
+
+def _sql_references_identifier(sql: object, identifier: str) -> bool:
+    if not isinstance(sql, str):
+        return False
+    target = sqlite_ascii_fold(identifier)
+    tokens = _sql_tokens(sql)
+    for index, (kind, token) in enumerate(tokens):
+        if kind == "word" and token == target:
+            return True
+        if kind == "identifier" and sqlite_ascii_fold(_unquote_sql_identifier(token)) == target:
+            return True
+        if (
+            kind in {"single_quoted", "double_quoted"}
+            and sqlite_ascii_fold(_unquote_sql_identifier(token)) == target
+            and _quoted_table_reference_context(tokens, index)
+        ):
+            return True
+    return False
+
+
+def _unquote_sql_identifier(token: str) -> str:
+    if token.startswith("[") and token.endswith("]"):
+        return token[1:-1]
+    if len(token) >= 2 and token[0] in {"'", '"', "`"} and token[-1] == token[0]:
+        delimiter = token[0]
+        return token[1:-1].replace(delimiter * 2, delimiter)
+    return token
+
+
+def _quoted_table_reference_context(tokens: list[tuple[str, str]], index: int) -> bool:
+    for kind, token in reversed(tokens[max(0, index - 3) : index]):
+        if kind == "word":
+            return token in _SQLITE_TABLE_REFERENCE_KEYWORDS
+        if kind == "operator" and token == ".":
+            continue
+        if kind in {"identifier", "double_quoted", "single_quoted"}:
+            continue
+        break
+    return False
 
 
 def _join_sql_tokens(tokens: list[tuple[str, str]]) -> str:
@@ -422,23 +489,14 @@ class SchemaMigrationRunner:
 
     @staticmethod
     def _cleanup_object_matches(row: tuple[object, ...]) -> bool:
-        def sqlite_ascii_fold(value: object) -> str:
-            if not isinstance(value, str):
-                return ""
-            return "".join(
-                chr(ord(character) + 32) if "A" <= character <= "Z" else character
-                for character in value
-            )
-
         marker = sqlite_ascii_fold(_PENDING_CLEANUP)
         name = sqlite_ascii_fold(row[1])
         table_name = sqlite_ascii_fold(row[2])
-        sql = sqlite_ascii_fold(row[3])
         return (
             name == marker
             or table_name == marker
             or name.startswith(f"{marker}_")
-            or marker in sql
+            or _sql_references_identifier(row[3], _PENDING_CLEANUP)
         )
 
     def _create_cleanup_table_if_missing(self) -> None:

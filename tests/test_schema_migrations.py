@@ -68,6 +68,7 @@ def _migration(
     is_current: Callable[[sqlite3.Connection], bool] | None = None,
     transform: Callable[[sqlite3.Connection], None] | None = None,
     postcondition: Callable[[sqlite3.Connection], bool] | None = None,
+    requires_cleanup: bool = False,
 ) -> SchemaMigration:
     current = is_current or (lambda connection: _has_table(connection, "owned"))
     return SchemaMigration(
@@ -79,6 +80,7 @@ def _migration(
         is_current=current,
         transform=transform or (lambda connection: connection.execute("CREATE TABLE owned(value TEXT)")),
         postcondition=postcondition or current,
+        requires_cleanup=requires_cleanup,
     )
 
 
@@ -398,6 +400,22 @@ def test_bogus_sql_null_ledger_index_fails_before_callbacks() -> None:
 
     assert raised.value.code == LEDGER_SCHEMA_INVALID
     assert transformed == []
+
+
+@pytest.mark.parametrize(
+    "statement",
+    (
+        "CREATE TABLE unrelated(value TEXT DEFAULT 'aetherstate_schema_pending_cleanup')",
+        "CREATE VIEW unrelated AS SELECT 1 /* aetherstate_schema_pending_cleanup */",
+    ),
+)
+def test_cleanup_discovery_ignores_marker_text_in_literals_and_comments(statement: str) -> None:
+    connection = _connection()
+    connection.execute(statement)
+    runner = _runner(connection, [_migration(requires_cleanup=True)])
+
+    assert runner.cleanup_pending("owned", 1) is False
+    assert not _has_table(connection, "aetherstate_schema_pending_cleanup")
 
 
 def test_temp_ledger_collision_refuses_before_transform_or_durable_success() -> None:
