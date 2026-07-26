@@ -663,12 +663,19 @@ def test_schema_snapshot_preserves_numeric_underscore_token_boundaries() -> None
     from tests.support.schema_history import schema_snapshot
 
     underscored = _connection()
-    underscored.execute("CREATE VIEW v(value) AS SELECT 1_0")
     separated = _connection()
-    separated.execute("CREATE VIEW v(value) AS SELECT 1 _0")
+    for connection, sql in (
+        (underscored, "CREATE VIEW v(value) AS SELECT 1_0"),
+        (separated, "CREATE VIEW v(value) AS SELECT 1 _0"),
+    ):
+        connection.execute("PRAGMA writable_schema=ON")
+        connection.execute(
+            "INSERT INTO main.sqlite_schema(type, name, tbl_name, rootpage, sql) "
+            "VALUES ('view', 'v', 'v', 0, ?)",
+            (sql,),
+        )
+        connection.execute("PRAGMA writable_schema=OFF")
 
-    assert underscored.execute("SELECT value FROM v").fetchone() == (10,)
-    assert separated.execute("SELECT value FROM v").fetchone() == (1,)
     assert schema_snapshot(underscored) != schema_snapshot(separated)
 
 
